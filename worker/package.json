@@ -1,0 +1,23 @@
+{
+  "name": "beacon-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply beacon --local",
+    "migrate:remote": "wrangler d1 migrations apply beacon --remote",
+    "db:generate": "drizzle-kit generate",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.0",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "drizzle-kit": "^0.31.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}

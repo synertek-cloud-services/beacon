@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.wrangler/
+
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+.DS_Store
+Thumbs.db
+.dev.vars
+.envrc
+*.pem

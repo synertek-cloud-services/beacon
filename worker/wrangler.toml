@@ -1,0 +1,18 @@
+name = "beacon"
+main = "src/index.ts"
+compatibility_date = "2026-07-09"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "beacon"
+database_id = "4a25c09a-ecc7-4a06-9606-380e754cbd9d"
+migrations_dir = "../migrations"
+
+# Phase 4 — Durable Objects (uncomment when real-time relay is built)
+# [[durable_objects.bindings]]
+# name = "SESSION"
+# class_name = "SessionRelay"
+#
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["SessionRelay"]
