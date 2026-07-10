@@ -13,6 +13,7 @@ import (
 	"github.com/synertekcs/beacon/agent/internal/inventory"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
 	"github.com/synertekcs/beacon/agent/internal/session"
+	"github.com/synertekcs/beacon/agent/internal/updater"
 )
 
 const (
@@ -52,9 +53,13 @@ func main() {
 
 	log.Printf("beacon agent %s — device %s", version, cred.DeviceID)
 
+	updater.Start(*serverURL, version, credential.Dir())
+
 	for {
 		if err := checkIn(client, cred); err != nil {
 			log.Printf("check-in error: %v", err)
+		} else {
+			updater.NotifyCheckIn()
 		}
 		time.Sleep(checkInInterval)
 	}

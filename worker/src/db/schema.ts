@@ -51,6 +51,17 @@ export const devices = sqliteTable('devices', {
   approvedAt: integer('approved_at'),
 });
 
+export const agentVersions = sqliteTable('agent_versions', {
+  id: text('id').primaryKey(),
+  version: text('version').notNull(),
+  os: text('os').notNull(),   // 'windows' | 'linux' | 'darwin'
+  arch: text('arch').notNull(), // 'amd64' | 'arm64'
+  downloadUrl: text('download_url').notNull(),
+  signatureHex: text('signature_hex').notNull(), // hex-encoded Ed25519 sig over SHA-256 of binary
+  publishedAt: integer('published_at').notNull(),
+  isLatest: integer('is_latest', { mode: 'boolean' }).notNull().default(false),
+});
+
 export const webhookEndpoints = sqliteTable('webhook_endpoints', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull().references(() => tenants.id),

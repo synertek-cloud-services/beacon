@@ -38,6 +38,11 @@ func path() string {
 	return filepath.Join(dir, "beacon", "credential.json")
 }
 
+// Dir returns the directory that holds the credential file and sibling state files.
+func Dir() string {
+	return filepath.Dir(path())
+}
+
 func Load() (*Stored, error) {
 	data, err := os.ReadFile(path())
 	if err != nil {
