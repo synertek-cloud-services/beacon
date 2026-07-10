@@ -201,7 +201,7 @@
           <div class="field">
             <label>Shell</label>
             <select v-model="quickJobForm.shell" class="qj-select">
-              <option value="auto">Auto — detect from OS ({{ quickJobDevice.osType === 'windows' ? 'PowerShell' : 'Bash' }})</option>
+              <option value="auto">Auto — PowerShell on Windows, Bash on Linux / macOS</option>
               <option value="powershell">PowerShell (Windows)</option>
               <option value="bash">Bash (Linux / macOS)</option>
               <option value="sh">sh (POSIX)</option>
