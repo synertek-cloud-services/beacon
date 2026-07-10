@@ -64,4 +64,14 @@ adminDevices.post('/:id/revoke', async (c) => {
   return c.json({ ok: true });
 });
 
+// DELETE /v1/admin/devices/:id
+adminDevices.delete('/:id', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+
+  const db = drizzle(c.env.DB, { schema });
+  await db.delete(schema.devices).where(eq(schema.devices.id, c.req.param('id')));
+
+  return c.json({ ok: true });
+});
+
 export default adminDevices;

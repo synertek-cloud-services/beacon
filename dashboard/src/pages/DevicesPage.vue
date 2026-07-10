@@ -70,6 +70,12 @@
                   :disabled="busy === d.id"
                   @click="approve(d.id)"
                 >Re-approve</button>
+                <button
+                  v-if="d.status === 'revoked'"
+                  class="btn btn-danger btn-sm"
+                  :disabled="busy === d.id"
+                  @click="remove(d.id)"
+                >Delete</button>
               </div>
             </td>
           </tr>
@@ -135,6 +141,18 @@ async function revoke(id: string) {
     await api.devices.revoke(id);
     const d = devices.value.find(x => x.id === id);
     if (d) d.status = 'revoked';
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    busy.value = null;
+  }
+}
+
+async function remove(id: string) {
+  busy.value = id;
+  try {
+    await api.devices.delete(id);
+    devices.value = devices.value.filter(x => x.id !== id);
   } catch (e: any) {
     error.value = e.message;
   } finally {

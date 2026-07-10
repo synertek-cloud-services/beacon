@@ -64,5 +64,7 @@ export const api = {
       request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
     revoke: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
+    delete: (id: string) =>
+      request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
   },
 };
