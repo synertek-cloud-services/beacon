@@ -51,6 +51,39 @@ export const devices = sqliteTable('devices', {
   approvedAt: integer('approved_at'),
 });
 
+export const webhookEndpoints = sqliteTable('webhook_endpoints', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  url: text('url').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const alertDefinitions = sqliteTable('alert_definitions', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  // null = applies to all devices in tenant; set to scope to one device
+  deviceId: text('device_id').references(() => devices.id),
+  // null = applies to all device classes; set to scope by class
+  deviceClass: text('device_class', { enum: ['server', 'workstation', 'laptop'] }),
+  checkType: text('check_type', { enum: ['disk_space', 'offline'] }).notNull(),
+  threshold: text('threshold').notNull(), // JSON — shape varies by check_type
+  consecutiveFailuresRequired: integer('consecutive_failures_required').notNull().default(3),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const alertState = sqliteTable('alert_state', {
+  id: text('id').primaryKey(),
+  deviceId: text('device_id').notNull().references(() => devices.id),
+  alertDefinitionId: text('alert_definition_id').notNull().references(() => alertDefinitions.id),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  isAlerting: integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
+  alertedAt: integer('alerted_at'),   // when the alert first fired
+  resolvedAt: integer('resolved_at'), // when it last resolved
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const commands = sqliteTable('commands', {
   id: text('id').primaryKey(),
   deviceId: text('device_id').notNull().references(() => devices.id),

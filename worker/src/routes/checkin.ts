@@ -5,6 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
+import { evaluateCheckinAlerts } from '../lib/alerts';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
 
@@ -72,6 +73,9 @@ checkin.post('/', async (c) => {
         .where(eq(schema.commands.id, r.command_id));
     }
   }
+
+  // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
+  await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now);
 
   // Pending devices: accept data for visibility, return no commands
   if (device.status === 'pending') {

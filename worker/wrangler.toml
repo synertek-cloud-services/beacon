@@ -8,6 +8,9 @@ database_name = "beacon"
 database_id = "4a25c09a-ecc7-4a06-9606-380e754cbd9d"
 migrations_dir = "../migrations"
 
+[triggers]
+crons = ["*/2 * * * *"]
+
 # Phase 4 — Durable Objects (uncomment when real-time relay is built)
 # [[durable_objects.bindings]]
 # name = "SESSION"
