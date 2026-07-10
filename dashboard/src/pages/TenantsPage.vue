@@ -424,18 +424,16 @@
         <div class="modal-body">
           <div class="form-row-2">
             <div class="field">
-              <label>Max uses (blank = unlimited)</label>
+              <label>Max uses</label>
               <input v-model.number="tokenForm.maxUses" type="number" min="1" placeholder="Unlimited" />
+              <span class="field-hint text-muted-2">Leave blank for unlimited</span>
             </div>
             <div class="field">
-              <label>Expires in days (blank = never)</label>
+              <label>Expires in days</label>
               <input v-model.number="tokenForm.expiresInDays" type="number" min="1" placeholder="Never" />
+              <span class="field-hint text-muted-2">Leave blank to never expire</span>
             </div>
           </div>
-          <label class="toggle-row">
-            <input type="checkbox" v-model="tokenForm.autoApprove" />
-            <span class="text-sm">Auto-approve devices enrolled with this token</span>
-          </label>
           <div v-if="tokenError" class="error-banner" style="margin-top:12px">{{ tokenError }}</div>
         </div>
         <div class="modal-foot">
@@ -498,7 +496,7 @@ const locationSubmitting = ref(false);
 const showTokenForm = ref(false);
 const creatingToken = ref(false);
 const tokenError    = ref('');
-const tokenForm     = ref({ maxUses: null as number | null, expiresInDays: null as number | null, autoApprove: true });
+const tokenForm     = ref({ maxUses: null as number | null, expiresInDays: null as number | null });
 
 // Install modal
 interface InstallCtx { token: string; tenantName: string }
@@ -751,7 +749,6 @@ async function submitToken() {
   tokenError.value = '';
   try {
     const result = await api.tenants.tokens.create(expandedId.value, {
-      auto_approve:    tokenForm.value.autoApprove,
       max_uses:        tokenForm.value.maxUses || null,
       expires_in_days: tokenForm.value.expiresInDays || null,
     });
@@ -760,7 +757,7 @@ async function submitToken() {
     installOS.value     = 'windows';
     installArch.value   = 'amd64';
     copiedField.value   = '';
-    tokenForm.value     = { maxUses: null, expiresInDays: null, autoApprove: true };
+    tokenForm.value     = { maxUses: null, expiresInDays: null };
     tokens.value        = await api.tenants.tokens.list(expandedId.value);
   } catch (e: any) {
     tokenError.value = e.message;
