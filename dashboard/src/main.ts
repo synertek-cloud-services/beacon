@@ -2,13 +2,14 @@ import { createApp } from 'vue';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import App from './App.vue';
 import LoginPage from './pages/LoginPage.vue';
+import OverviewPage from './pages/OverviewPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import './style.css';
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/', redirect: '/devices' },
+    { path: '/', component: OverviewPage },
     { path: '/login', component: LoginPage },
     { path: '/devices', component: DevicesPage },
   ],

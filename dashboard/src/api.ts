@@ -24,6 +24,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.json();
 }
 
+export interface Summary {
+  total: number;
+  approved: number;
+  pending: number;
+  revoked: number;
+  online: number;
+  offline: number;
+  by_os: Record<string, number>;
+  by_class: Record<string, number>;
+}
+
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
 
 export interface Device {
@@ -53,6 +64,10 @@ export const api = {
 
   hasSecret(): boolean {
     return !!secret();
+  },
+
+  summary: {
+    get: () => request<Summary>('GET', '/v1/admin/summary'),
   },
 
   devices: {
