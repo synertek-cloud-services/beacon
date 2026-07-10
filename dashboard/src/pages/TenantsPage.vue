@@ -134,34 +134,21 @@
             </div>
             <div class="field">
               <label>Phone</label>
-              <input v-model="form.contactPhone" type="tel" placeholder="+1 555 000 0000" />
+              <input
+                v-model="form.contactPhone"
+                type="tel"
+                placeholder="Phone number"
+                @blur="form.contactPhone = formatPhone(form.contactPhone)"
+              />
+              <span v-if="form.contactPhone && !phoneValid" class="field-hint field-hint-warn">
+                Enter a valid phone number including country code (e.g. +1 512 555 0100)
+              </span>
             </div>
           </div>
 
           <!-- Address -->
           <div class="form-section-label" style="margin-top:16px">Address</div>
-          <div class="field">
-            <label>Street</label>
-            <input v-model="form.address.street" placeholder="123 Main St" />
-          </div>
-          <div class="form-row-3">
-            <div class="field">
-              <label>City</label>
-              <input v-model="form.address.city" placeholder="Austin" />
-            </div>
-            <div class="field">
-              <label>State / Province</label>
-              <input v-model="form.address.state" placeholder="TX" />
-            </div>
-            <div class="field">
-              <label>Zip / Postal</label>
-              <input v-model="form.address.zip" placeholder="78701" />
-            </div>
-          </div>
-          <div class="field">
-            <label>Country</label>
-            <input v-model="form.address.country" placeholder="United States" />
-          </div>
+          <AddressForm v-model="form.address" />
 
           <!-- Settings -->
           <div class="form-section-label" style="margin-top:16px">Settings</div>
@@ -248,6 +235,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { api, type Tenant, type EnrollmentToken, type Address } from '../api';
+import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
 const tenants = ref<Tenant[]>([]);
@@ -415,6 +403,16 @@ async function copyToken() {
   setTimeout(() => { copied.value = false; }, 2000);
 }
 
+function formatPhone(value: string): string {
+  // Strip anything that isn't a digit, space, +, -, (, ), or .
+  return value.replace(/[^\d\s+\-().x]/g, '').trim();
+}
+
+const phoneValid = computed(() => {
+  const digits = (form.value.contactPhone ?? '').replace(/\D/g, '');
+  return digits.length >= 7;
+});
+
 function dateLabel(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
@@ -462,4 +460,6 @@ onMounted(load);
 .token-reveal:hover { border-color: var(--accent); }
 .copy-hint { font-size: 11px; color: var(--accent); flex-shrink: 0; }
 code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; color: var(--muted-2); }
+.field-hint { display: block; font-size: 11px; margin-top: 4px; }
+.field-hint-warn { color: var(--amber); }
 </style>
