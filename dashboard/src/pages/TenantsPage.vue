@@ -613,7 +613,7 @@ function syncPrimaryContact() {
 // ── Location CRUD ─────────────────────────────────────────────
 function openLocationCreate() {
   locationModal.value = { open: true, editing: null };
-  locationForm.value  = { name: '', isPrimary: locations.value.length === 0, address: { street: '', city: '', state: '', zip: '', country: '' } };
+  locationForm.value  = { name: '', isPrimary: locations.value.length === 0, address: { street: '', city: '', state: '', zip: '', country: 'United States' } };
   locationError.value = '';
 }
 
