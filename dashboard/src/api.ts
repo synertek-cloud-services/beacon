@@ -182,5 +182,9 @@ export const api = {
     approve: (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
+    commands: {
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot'; shell?: string; script?: string; timeout_seconds?: number }) =>
+        request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
+    },
   },
 };

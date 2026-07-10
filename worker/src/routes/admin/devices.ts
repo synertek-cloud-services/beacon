@@ -74,4 +74,62 @@ adminDevices.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /v1/admin/devices/:id/commands — queue a command for the device
+adminDevices.post('/:id/commands', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const now = Math.floor(Date.now() / 1000);
+  const deviceId = c.req.param('id');
+
+  const device = await db
+    .select({ id: schema.devices.id, tenantId: schema.devices.tenantId, status: schema.devices.status, osType: schema.devices.osType })
+    .from(schema.devices)
+    .where(eq(schema.devices.id, deviceId))
+    .get();
+
+  if (!device)                   return c.json({ error: 'device not found' }, 404);
+  if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
+
+  const body = await c.req.json<{
+    type: 'run_script' | 'reboot';
+    shell?: string;
+    script?: string;
+    timeout_seconds?: number;
+  }>();
+
+  let cmdType = 'run_script';
+  let payload: Record<string, unknown>;
+
+  if (body.type === 'reboot') {
+    // Resolve OS-appropriate reboot command
+    const rebootScript =
+      device.osType === 'windows' ? 'shutdown /r /t 0' :
+      device.osType === 'darwin'  ? 'shutdown -r now'  : 'reboot';
+    const shell = device.osType === 'windows' ? 'powershell' : 'bash';
+    payload = { shell, script: rebootScript, timeout_seconds: 30 };
+  } else if (body.type === 'run_script') {
+    if (!body.script?.trim()) return c.json({ error: 'script is required' }, 400);
+    // Resolve 'auto' shell
+    const shell = body.shell === 'auto' || !body.shell
+      ? (device.osType === 'windows' ? 'powershell' : 'bash')
+      : body.shell;
+    payload = { shell, script: body.script.trim(), timeout_seconds: body.timeout_seconds ?? 300 };
+  } else {
+    return c.json({ error: 'unknown command type' }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  await db.insert(schema.commands).values({
+    id,
+    deviceId,
+    tenantId: device.tenantId,
+    type: cmdType,
+    payload: JSON.stringify(payload),
+    status: 'queued',
+    createdAt: now,
+  });
+
+  return c.json({ id }, 201);
+});
+
 export default adminDevices;
