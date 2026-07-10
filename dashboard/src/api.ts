@@ -35,6 +35,28 @@ export interface Summary {
   by_class: Record<string, number>;
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+  autoApproveDefault: boolean;
+  privacyModeDefault: boolean;
+  status: 'active' | 'suspended';
+  createdAt: number;
+  deviceCount: number;
+}
+
+export interface EnrollmentToken {
+  id: string;
+  tenantId: string;
+  autoApprove: boolean | null;
+  maxUses: number | null;
+  useCount: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  createdAt: number;
+  createdBy: string;
+}
+
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
 
 export interface Device {
@@ -64,6 +86,21 @@ export const api = {
 
   hasSecret(): boolean {
     return !!secret();
+  },
+
+  tenants: {
+    list: () => request<Tenant[]>('GET', '/v1/admin/tenants'),
+    create: (body: { name: string; auto_approve_default?: boolean; privacy_mode_default?: boolean }) =>
+      request<Tenant>('POST', '/v1/admin/tenants', body),
+    update: (id: string, body: { name?: string; auto_approve_default?: boolean; privacy_mode_default?: boolean; status?: 'active' | 'suspended' }) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
+    tokens: {
+      list: (tenantId: string) => request<EnrollmentToken[]>('GET', `/v1/admin/tenants/${tenantId}/tokens`),
+      create: (tenantId: string, body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null }) =>
+        request<{ id: string; raw_token: string; expires_at: number | null; max_uses: number | null }>('POST', `/v1/admin/tenants/${tenantId}/tokens`, body),
+      revoke: (tenantId: string, tokenId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}`),
+    },
   },
 
   summary: {

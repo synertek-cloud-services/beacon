@@ -4,6 +4,7 @@ import App from './App.vue';
 import LoginPage from './pages/LoginPage.vue';
 import OverviewPage from './pages/OverviewPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
+import TenantsPage from './pages/TenantsPage.vue';
 import './style.css';
 
 const router = createRouter({
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/', component: OverviewPage },
     { path: '/login', component: LoginPage },
     { path: '/devices', component: DevicesPage },
+    { path: '/tenants', component: TenantsPage },
   ],
 });
 
