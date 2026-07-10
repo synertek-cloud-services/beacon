@@ -7,6 +7,15 @@ export const tenants = sqliteTable('tenants', {
   privacyModeDefault: integer('privacy_mode_default', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ['active', 'suspended'] }).notNull().default('active'),
   createdAt: integer('created_at').notNull(),
+  // Contact
+  contactName: text('contact_name'),
+  contactEmail: text('contact_email'),
+  contactPhone: text('contact_phone'),
+  // Business
+  website: text('website'),
+  notes: text('notes'),
+  // Address stored as JSON: { street, city, state, zip, country }
+  address: text('address'),
 });
 
 export const enrollmentTokens = sqliteTable('enrollment_tokens', {

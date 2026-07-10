@@ -24,6 +24,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.json();
 }
 
+// ── Types ────────────────────────────────────────────────────
+
 export interface Summary {
   total: number;
   approved: number;
@@ -35,6 +37,26 @@ export interface Summary {
   by_class: Record<string, number>;
 }
 
+export interface Address {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
+
+export interface TenantFormBody {
+  name: string;
+  auto_approve_default?: boolean;
+  privacy_mode_default?: boolean;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  address?: Address | null;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -43,6 +65,12 @@ export interface Tenant {
   status: 'active' | 'suspended';
   createdAt: number;
   deviceCount: number;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  website: string | null;
+  notes: string | null;
+  address: string | null; // JSON-encoded Address
 }
 
 export interface EnrollmentToken {
@@ -75,48 +103,38 @@ export interface Device {
   approvedAt: number | null;
 }
 
+// ── API client ───────────────────────────────────────────────
+
 export const api = {
-  saveSecret(s: string) {
-    localStorage.setItem('beacon_secret', s);
-  },
-
-  clearSecret() {
-    localStorage.removeItem('beacon_secret');
-  },
-
-  hasSecret(): boolean {
-    return !!secret();
-  },
-
-  tenants: {
-    list: () => request<Tenant[]>('GET', '/v1/admin/tenants'),
-    create: (body: { name: string; auto_approve_default?: boolean; privacy_mode_default?: boolean }) =>
-      request<Tenant>('POST', '/v1/admin/tenants', body),
-    update: (id: string, body: { name?: string; auto_approve_default?: boolean; privacy_mode_default?: boolean; status?: 'active' | 'suspended' }) =>
-      request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
-    tokens: {
-      list: (tenantId: string) => request<EnrollmentToken[]>('GET', `/v1/admin/tenants/${tenantId}/tokens`),
-      create: (tenantId: string, body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null }) =>
-        request<{ id: string; raw_token: string; expires_at: number | null; max_uses: number | null }>('POST', `/v1/admin/tenants/${tenantId}/tokens`, body),
-      revoke: (tenantId: string, tokenId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}`),
-    },
-  },
+  saveSecret(s: string)  { localStorage.setItem('beacon_secret', s); },
+  clearSecret()          { localStorage.removeItem('beacon_secret'); },
+  hasSecret(): boolean   { return !!secret(); },
 
   summary: {
     get: () => request<Summary>('GET', '/v1/admin/summary'),
   },
 
+  tenants: {
+    list:   ()                 => request<Tenant[]>('GET', '/v1/admin/tenants'),
+    create: (body: TenantFormBody) => request<Tenant>('POST', '/v1/admin/tenants', body),
+    update: (id: string, body: Partial<TenantFormBody> & { status?: 'active' | 'suspended' }) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
+    tokens: {
+      list: (tenantId: string) =>
+        request<EnrollmentToken[]>('GET', `/v1/admin/tenants/${tenantId}/tokens`),
+      create: (tenantId: string, body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null }) =>
+        request<{ id: string; raw_token: string; expires_at: number | null; max_uses: number | null }>(
+          'POST', `/v1/admin/tenants/${tenantId}/tokens`, body),
+      revoke: (tenantId: string, tokenId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}`),
+    },
+  },
+
   devices: {
-    list: (status?: DeviceStatus) =>
-      request<Device[]>('GET', `/v1/admin/devices${status ? `?status=${status}` : ''}`),
-    get: (id: string) =>
-      request<Device>('GET', `/v1/admin/devices/${id}`),
-    approve: (id: string) =>
-      request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
-    revoke: (id: string) =>
-      request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
-    delete: (id: string) =>
-      request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
+    list:    (status?: DeviceStatus) => request<Device[]>('GET', `/v1/admin/devices${status ? `?status=${status}` : ''}`),
+    get:     (id: string)            => request<Device>('GET', `/v1/admin/devices/${id}`),
+    approve: (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
+    revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
+    delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
   },
 };

@@ -40,6 +40,12 @@ adminTenants.post('/', async (c) => {
     name: string;
     auto_approve_default?: boolean;
     privacy_mode_default?: boolean;
+    contact_name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    website?: string;
+    notes?: string;
+    address?: { street?: string; city?: string; state?: string; zip?: string; country?: string };
   }>();
 
   if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400);
@@ -50,6 +56,12 @@ adminTenants.post('/', async (c) => {
     name: body.name.trim(),
     autoApproveDefault: body.auto_approve_default ?? true,
     privacyModeDefault: body.privacy_mode_default ?? false,
+    contactName: body.contact_name ?? null,
+    contactEmail: body.contact_email ?? null,
+    contactPhone: body.contact_phone ?? null,
+    website: body.website ?? null,
+    notes: body.notes ?? null,
+    address: body.address ? JSON.stringify(body.address) : null,
     createdAt: now,
   });
 
@@ -67,6 +79,12 @@ adminTenants.patch('/:id', async (c) => {
     auto_approve_default?: boolean;
     privacy_mode_default?: boolean;
     status?: 'active' | 'suspended';
+    contact_name?: string | null;
+    contact_email?: string | null;
+    contact_phone?: string | null;
+    website?: string | null;
+    notes?: string | null;
+    address?: { street?: string; city?: string; state?: string; zip?: string; country?: string } | null;
   }>();
 
   const updates: Partial<typeof schema.tenants.$inferInsert> = {};
@@ -74,6 +92,12 @@ adminTenants.patch('/:id', async (c) => {
   if (body.auto_approve_default !== undefined) updates.autoApproveDefault = body.auto_approve_default;
   if (body.privacy_mode_default !== undefined) updates.privacyModeDefault = body.privacy_mode_default;
   if (body.status !== undefined)               updates.status = body.status;
+  if ('contact_name'  in body) updates.contactName  = body.contact_name  ?? null;
+  if ('contact_email' in body) updates.contactEmail = body.contact_email ?? null;
+  if ('contact_phone' in body) updates.contactPhone = body.contact_phone ?? null;
+  if ('website'       in body) updates.website      = body.website       ?? null;
+  if ('notes'         in body) updates.notes        = body.notes         ?? null;
+  if ('address'       in body) updates.address      = body.address ? JSON.stringify(body.address) : null;
 
   if (Object.keys(updates).length === 0) return c.json({ error: 'nothing to update' }, 400);
 

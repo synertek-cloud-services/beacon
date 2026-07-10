@@ -6,7 +6,7 @@
     <div class="section-card" style="margin-bottom:16px">
       <div class="section-card-head">
         <span class="section-card-title">Tenants</span>
-        <button class="btn btn-primary btn-sm" @click="showCreate = true">+ New Tenant</button>
+        <button class="btn btn-primary btn-sm" @click="openCreate">+ New Tenant</button>
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
@@ -17,7 +17,8 @@
       <table v-else>
         <thead>
           <tr>
-            <th>Name</th>
+            <th>Company</th>
+            <th>Primary Contact</th>
             <th>Status</th>
             <th>Devices</th>
             <th>Auto-approve</th>
@@ -27,7 +28,14 @@
         </thead>
         <tbody>
           <tr v-for="t in tenants" :key="t.id" @click="toggleExpanded(t.id)" style="cursor:pointer">
-            <td><span class="text-sm" style="font-weight:500">{{ t.name }}</span></td>
+            <td>
+              <div style="font-weight:500;font-size:13px">{{ t.name }}</div>
+              <div v-if="t.website" class="text-xs text-muted-2">{{ t.website }}</div>
+            </td>
+            <td>
+              <div class="text-sm">{{ t.contactName ?? '—' }}</div>
+              <div v-if="t.contactEmail" class="text-xs text-muted-2">{{ t.contactEmail }}</div>
+            </td>
             <td>
               <span :class="t.status === 'active' ? 'badge badge-approved' : 'badge badge-revoked'">
                 {{ t.status }}
@@ -38,16 +46,9 @@
             <td class="text-sm text-muted-2">{{ dateLabel(t.createdAt) }}</td>
             <td>
               <div class="actions" @click.stop>
-                <button
-                  class="btn btn-ghost btn-sm"
-                  :disabled="t.status === 'suspended'"
-                  @click="suspendTenant(t)"
-                >Suspend</button>
-                <button
-                  v-if="t.status === 'suspended'"
-                  class="btn btn-primary btn-sm"
-                  @click="activateTenant(t)"
-                >Activate</button>
+                <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Edit</button>
+                <button v-if="t.status === 'active'"    class="btn btn-danger btn-sm" @click="setStatus(t, 'suspended')">Suspend</button>
+                <button v-if="t.status === 'suspended'" class="btn btn-primary btn-sm" @click="setStatus(t, 'active')">Activate</button>
               </div>
             </td>
           </tr>
@@ -55,17 +56,16 @@
       </table>
     </div>
 
-    <!-- Expanded: enrollment tokens for selected tenant -->
+    <!-- Expanded: enrollment tokens -->
     <div v-if="expandedId" class="section-card">
       <div class="section-card-head">
         <span class="section-card-title">Enrollment Tokens — {{ expandedTenant?.name }}</span>
         <button class="btn btn-primary btn-sm" @click="showTokenForm = true">+ New Token</button>
       </div>
-
       <div v-if="tokensLoading" class="empty"><p class="empty-sub">Loading…</p></div>
       <div v-else-if="tokens.length === 0" class="empty">
         <div class="empty-title">No tokens</div>
-        <p class="empty-sub">Create a token and share it with the device installer.</p>
+        <p class="empty-sub">Create a token and pass it to the device installer via <code>--enroll-token</code>.</p>
       </div>
       <table v-else>
         <thead>
@@ -81,9 +81,7 @@
         <tbody>
           <tr v-for="tok in tokens" :key="tok.id">
             <td class="mono text-xs text-muted-2">{{ tok.id.slice(0, 8) }}…</td>
-            <td class="text-sm text-muted-2">
-              {{ tok.autoApprove === null ? 'Tenant default' : tok.autoApprove ? 'Yes' : 'No' }}
-            </td>
+            <td class="text-sm text-muted-2">{{ tok.autoApprove === null ? 'Tenant default' : tok.autoApprove ? 'Yes' : 'No' }}</td>
             <td class="mono text-sm">{{ tok.useCount }}{{ tok.maxUses != null ? ` / ${tok.maxUses}` : '' }}</td>
             <td class="text-sm text-muted-2">{{ tok.expiresAt ? dateLabel(tok.expiresAt) : 'Never' }}</td>
             <td>
@@ -92,29 +90,120 @@
               <span v-else class="badge badge-approved">Active</span>
             </td>
             <td>
-              <button
-                v-if="!tok.revokedAt"
-                class="btn btn-danger btn-sm"
-                @click="revokeToken(tok.id)"
-              >Revoke</button>
+              <button v-if="!tok.revokedAt" class="btn btn-danger btn-sm" @click="revokeToken(tok.id)">Revoke</button>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- New raw token reveal (shown after creation) -->
-    <div v-if="newRawToken" class="modal-backdrop" @click.self="newRawToken = null">
-      <div class="modal">
+    <!-- ── Create / Edit tenant modal ── -->
+    <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
+      <div class="modal modal-lg">
         <div class="modal-head">
-          <span class="modal-title">Enrollment Token Created</span>
+          <span class="modal-title">{{ editingId ? 'Edit Tenant' : 'New Tenant' }}</span>
         </div>
         <div class="modal-body">
+          <!-- Company -->
+          <div class="form-section-label">Company</div>
+          <div class="form-row-2">
+            <div class="field">
+              <label>Company Name <span class="required">*</span></label>
+              <input v-model="form.name" placeholder="Acme Corp" autofocus />
+            </div>
+            <div class="field">
+              <label>Website</label>
+              <input v-model="form.website" placeholder="https://acme.com" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Notes</label>
+            <textarea v-model="form.notes" placeholder="Internal notes about this tenant…" rows="2"></textarea>
+          </div>
+
+          <!-- Contact -->
+          <div class="form-section-label" style="margin-top:16px">Primary Contact</div>
+          <div class="form-row-3">
+            <div class="field">
+              <label>Name</label>
+              <input v-model="form.contactName" placeholder="Jane Smith" />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input v-model="form.contactEmail" type="email" placeholder="jane@acme.com" />
+            </div>
+            <div class="field">
+              <label>Phone</label>
+              <input v-model="form.contactPhone" type="tel" placeholder="+1 555 000 0000" />
+            </div>
+          </div>
+
+          <!-- Address -->
+          <div class="form-section-label" style="margin-top:16px">Address</div>
+          <div class="field">
+            <label>Street</label>
+            <input v-model="form.address.street" placeholder="123 Main St" />
+          </div>
+          <div class="form-row-3">
+            <div class="field">
+              <label>City</label>
+              <input v-model="form.address.city" placeholder="Austin" />
+            </div>
+            <div class="field">
+              <label>State / Province</label>
+              <input v-model="form.address.state" placeholder="TX" />
+            </div>
+            <div class="field">
+              <label>Zip / Postal</label>
+              <input v-model="form.address.zip" placeholder="78701" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Country</label>
+            <input v-model="form.address.country" placeholder="United States" />
+          </div>
+
+          <!-- Settings -->
+          <div class="form-section-label" style="margin-top:16px">Settings</div>
+          <div class="toggle-group">
+            <label class="toggle-row">
+              <input type="checkbox" v-model="form.autoApprove" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Auto-approve devices</span>
+                <span class="text-xs text-muted-2" style="display:block">New enrollments are automatically approved without manual review</span>
+              </span>
+            </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="form.privacyMode" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Privacy mode default</span>
+                <span class="text-xs text-muted-2" style="display:block">Limits inventory collection to basic device info only</span>
+              </span>
+            </label>
+          </div>
+
+          <div v-if="formError" class="error-banner" style="margin-top:14px">{{ formError }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="showForm = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="submitting" @click="submitForm">
+            {{ submitting ? (editingId ? 'Saving…' : 'Creating…') : (editingId ? 'Save Changes' : 'Create Tenant') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Raw token reveal -->
+    <div v-if="newRawToken" class="modal-backdrop" @click.self="newRawToken = null">
+      <div class="modal">
+        <div class="modal-head"><span class="modal-title">Enrollment Token Created</span></div>
+        <div class="modal-body">
           <p class="text-sm text-muted-2" style="margin-bottom:12px">
-            Copy this token now — it will <strong>never be shown again</strong>. Pass it to the installer as <code>--enroll-token</code>.
+            Copy this token now — it will <strong>never be shown again</strong>.
+            Pass it to the installer as <code>--enroll-token</code>.
           </p>
           <div class="token-reveal" @click="copyToken">
-            <span class="mono">{{ newRawToken }}</span>
+            <span class="mono text-xs">{{ newRawToken }}</span>
             <span class="copy-hint">{{ copied ? 'Copied!' : 'Click to copy' }}</span>
           </div>
         </div>
@@ -124,48 +213,22 @@
       </div>
     </div>
 
-    <!-- Create tenant modal -->
-    <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate = false">
-      <div class="modal">
-        <div class="modal-head">
-          <span class="modal-title">New Tenant</span>
-        </div>
-        <div class="modal-body">
-          <div class="field">
-            <label>Name</label>
-            <input v-model="createForm.name" placeholder="Acme Corp" @keyup.enter="submitCreate" autofocus />
-          </div>
-          <label class="toggle-row">
-            <input type="checkbox" v-model="createForm.autoApprove" />
-            <span class="text-sm">Auto-approve new device enrollments</span>
-          </label>
-          <div v-if="createError" class="error-banner" style="margin-top:12px">{{ createError }}</div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" @click="showCreate = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="creating" @click="submitCreate">
-            {{ creating ? 'Creating…' : 'Create Tenant' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- Create token modal -->
     <div v-if="showTokenForm" class="modal-backdrop" @click.self="showTokenForm = false">
       <div class="modal">
-        <div class="modal-head">
-          <span class="modal-title">New Enrollment Token</span>
-        </div>
+        <div class="modal-head"><span class="modal-title">New Enrollment Token</span></div>
         <div class="modal-body">
-          <div class="field">
-            <label>Max uses (blank = unlimited)</label>
-            <input v-model.number="tokenForm.maxUses" type="number" min="1" placeholder="Unlimited" />
+          <div class="form-row-2">
+            <div class="field">
+              <label>Max uses (blank = unlimited)</label>
+              <input v-model.number="tokenForm.maxUses" type="number" min="1" placeholder="Unlimited" />
+            </div>
+            <div class="field">
+              <label>Expires in days (blank = never)</label>
+              <input v-model.number="tokenForm.expiresInDays" type="number" min="1" placeholder="Never" />
+            </div>
           </div>
-          <div class="field">
-            <label>Expires in days (blank = never)</label>
-            <input v-model.number="tokenForm.expiresInDays" type="number" min="1" placeholder="Never" />
-          </div>
-          <label class="toggle-row" style="margin-top:4px">
+          <label class="toggle-row">
             <input type="checkbox" v-model="tokenForm.autoApprove" />
             <span class="text-sm">Auto-approve devices enrolled with this token</span>
           </label>
@@ -184,37 +247,45 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { api, type Tenant, type EnrollmentToken } from '../api';
+import { api, type Tenant, type EnrollmentToken, type Address } from '../api';
 
+// ── State ────────────────────────────────────────────────────
 const tenants = ref<Tenant[]>([]);
 const loading = ref(true);
-const error = ref('');
-const nowSec = Math.floor(Date.now() / 1000);
+const error   = ref('');
+const nowSec  = Math.floor(Date.now() / 1000);
 
-// Expanded tenant tokens
-const expandedId = ref<string | null>(null);
-const tokens = ref<EnrollmentToken[]>([]);
-const tokensLoading = ref(false);
+// Expanded token section
+const expandedId     = ref<string | null>(null);
+const tokens         = ref<EnrollmentToken[]>([]);
+const tokensLoading  = ref(false);
 const expandedTenant = computed(() => tenants.value.find(t => t.id === expandedId.value));
 
-// Create tenant
-const showCreate = ref(false);
-const creating = ref(false);
-const createError = ref('');
-const createForm = ref({ name: '', autoApprove: true });
+// Create/edit form
+const showForm   = ref(false);
+const editingId  = ref<string | null>(null);
+const submitting = ref(false);
+const formError  = ref('');
+
+const blankForm = () => ({
+  name: '', website: '', notes: '',
+  contactName: '', contactEmail: '', contactPhone: '',
+  address: { street: '', city: '', state: '', zip: '', country: '' } as Address,
+  autoApprove: true, privacyMode: false,
+});
+const form = ref(blankForm());
 
 // Create token
-const showTokenForm = ref(false);
-const creatingToken = ref(false);
-const tokenError = ref('');
-const tokenForm = ref<{ maxUses: number | null; expiresInDays: number | null; autoApprove: boolean }>({
-  maxUses: null, expiresInDays: null, autoApprove: true,
-});
+const showTokenForm  = ref(false);
+const creatingToken  = ref(false);
+const tokenError     = ref('');
+const tokenForm      = ref({ maxUses: null as number | null, expiresInDays: null as number | null, autoApprove: true });
 
 // Raw token reveal
 const newRawToken = ref<string | null>(null);
-const copied = ref(false);
+const copied      = ref(false);
 
+// ── Load ─────────────────────────────────────────────────────
 async function load() {
   try {
     tenants.value = await api.tenants.list();
@@ -225,47 +296,90 @@ async function load() {
   }
 }
 
+// ── Tenant actions ────────────────────────────────────────────
 async function toggleExpanded(id: string) {
   if (expandedId.value === id) { expandedId.value = null; return; }
   expandedId.value = id;
   tokensLoading.value = true;
   tokens.value = [];
+  try { tokens.value = await api.tenants.tokens.list(id); }
+  finally { tokensLoading.value = false; }
+}
+
+async function setStatus(t: Tenant, status: 'active' | 'suspended') {
+  await api.tenants.update(t.id, { status });
+  t.status = status;
+}
+
+function openCreate() {
+  editingId.value = null;
+  form.value = blankForm();
+  formError.value = '';
+  showForm.value = true;
+}
+
+function openEdit(t: Tenant) {
+  editingId.value = t.id;
+  const addr: Address = t.address ? JSON.parse(t.address) : {};
+  form.value = {
+    name: t.name,
+    website: t.website ?? '',
+    notes: t.notes ?? '',
+    contactName: t.contactName ?? '',
+    contactEmail: t.contactEmail ?? '',
+    contactPhone: t.contactPhone ?? '',
+    address: { street: addr.street ?? '', city: addr.city ?? '', state: addr.state ?? '', zip: addr.zip ?? '', country: addr.country ?? '' },
+    autoApprove: t.autoApproveDefault,
+    privacyMode: t.privacyModeDefault,
+  };
+  formError.value = '';
+  showForm.value = true;
+}
+
+async function submitForm() {
+  if (!form.value.name.trim()) { formError.value = 'Company name is required'; return; }
+  submitting.value = true;
+  formError.value = '';
+
+  const body = {
+    name: form.value.name.trim(),
+    auto_approve_default: form.value.autoApprove,
+    privacy_mode_default: form.value.privacyMode,
+    contact_name:  form.value.contactName  || null,
+    contact_email: form.value.contactEmail || null,
+    contact_phone: form.value.contactPhone || null,
+    website: form.value.website || null,
+    notes:   form.value.notes   || null,
+    address: Object.values(form.value.address).some(v => v)
+      ? form.value.address
+      : null,
+  };
+
   try {
-    tokens.value = await api.tenants.tokens.list(id);
-  } finally {
-    tokensLoading.value = false;
-  }
-}
-
-async function suspendTenant(t: Tenant) {
-  await api.tenants.update(t.id, { status: 'suspended' });
-  t.status = 'suspended';
-}
-
-async function activateTenant(t: Tenant) {
-  await api.tenants.update(t.id, { status: 'active' });
-  t.status = 'active';
-}
-
-async function submitCreate() {
-  if (!createForm.value.name.trim()) { createError.value = 'Name is required'; return; }
-  creating.value = true;
-  createError.value = '';
-  try {
-    const t = await api.tenants.create({
-      name: createForm.value.name,
-      auto_approve_default: createForm.value.autoApprove,
-    });
-    tenants.value.push(t);
-    showCreate.value = false;
-    createForm.value = { name: '', autoApprove: true };
+    if (editingId.value) {
+      await api.tenants.update(editingId.value, body);
+      const idx = tenants.value.findIndex(t => t.id === editingId.value);
+      if (idx !== -1) tenants.value[idx] = { ...tenants.value[idx], ...body,
+        autoApproveDefault: body.auto_approve_default,
+        privacyModeDefault: body.privacy_mode_default,
+        contactName:  body.contact_name,
+        contactEmail: body.contact_email,
+        contactPhone: body.contact_phone,
+        address: body.address ? JSON.stringify(body.address) : null,
+      };
+    } else {
+      const t = await api.tenants.create(body);
+      tenants.value.push(t);
+    }
+    showForm.value = false;
   } catch (e: any) {
-    createError.value = e.message;
+    formError.value = e.message;
   } finally {
-    creating.value = false;
+    submitting.value = false;
   }
 }
 
+// ── Token actions ─────────────────────────────────────────────
 async function submitToken() {
   if (!expandedId.value) return;
   creatingToken.value = true;
@@ -279,7 +393,6 @@ async function submitToken() {
     showTokenForm.value = false;
     newRawToken.value = result.raw_token;
     tokenForm.value = { maxUses: null, expiresInDays: null, autoApprove: true };
-    // Refresh token list
     tokens.value = await api.tenants.tokens.list(expandedId.value);
   } catch (e: any) {
     tokenError.value = e.message;
@@ -311,51 +424,42 @@ onMounted(load);
 
 <style scoped>
 .modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
+  position: fixed; inset: 0; background: rgba(0,0,0,.65);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .modal {
-  background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  width: 420px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
-  overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: 10px; width: 440px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden; max-height: 90vh; display: flex; flex-direction: column;
 }
-.modal-head {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
+.modal-lg { width: 620px; }
+.modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
-.modal-body { padding: 20px; }
-.modal-foot {
-  padding: 14px 20px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.modal-body { padding: 20px; overflow-y: auto; }
+.modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+
+.form-section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 14px;
 }
-.toggle-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.toggle-row input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.field textarea {
+  background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--r-btn);
+  padding: 8px 11px; color: var(--text); font-size: 13px; font-family: var(--font);
+  width: 100%; resize: vertical; outline: none; transition: border-color .12s;
+}
+.field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
+.required { color: var(--red); }
+.toggle-group { display: flex; flex-direction: column; }
+.toggle-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.toggle-row input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin-top: 2px; flex-shrink: 0; }
 .token-reveal {
-  background: var(--bg);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-btn);
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  cursor: pointer;
-  word-break: break-all;
-  transition: border-color .12s;
+  background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--r-btn);
+  padding: 12px 14px; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; cursor: pointer; word-break: break-all; transition: border-color .12s;
 }
 .token-reveal:hover { border-color: var(--accent); }
 .copy-hint { font-size: 11px; color: var(--accent); flex-shrink: 0; }
-code { font-family: var(--mono); font-size: 11px; background: var(--bg); padding: 1px 5px; border-radius: 3px; color: var(--muted-2); }
+code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; color: var(--muted-2); }
 </style>
