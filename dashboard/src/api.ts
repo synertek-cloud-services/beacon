@@ -95,6 +95,70 @@ export interface EnrollmentToken {
 
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
 
+export interface Component {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  type: 'script' | 'application';
+  shell: string;
+  script: string;
+  timeoutSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ComponentRef =
+  | { type: 'library'; component_id: string; order: number }
+  | { type: 'inline'; shell: string; script: string; timeout_seconds?: number; order: number };
+
+export interface JobDeviceStats {
+  queued: number;
+  sent: number;
+  completed: number;
+  failed: number;
+}
+
+export interface Job {
+  id: string;
+  name: string;
+  description: string | null;
+  type: 'quick' | 'scheduled';
+  status: 'active' | 'completed' | 'cancelled';
+  componentIds: string;  // JSON
+  targetType: string;
+  targetIds: string;     // JSON
+  runAsSystem: boolean;
+  scheduledAt: number | null;
+  createdAt: number;
+  createdBy: string | null;
+  deviceCount: number;
+  deviceStats: JobDeviceStats;
+}
+
+export interface JobDeviceCommand {
+  id: string;
+  componentId: string | null;
+  componentName: string | null;
+  componentOrder: number;
+  status: 'queued' | 'sent' | 'completed' | 'failed';
+  result: string | null;
+  createdAt: number;
+  completedAt: number | null;
+}
+
+export interface JobDevice {
+  deviceId: string;
+  hostname: string | null;
+  osType: string | null;
+  tenantName: string;
+  commands: JobDeviceCommand[];
+}
+
+export interface JobDetail extends Job {
+  devices: JobDevice[];
+}
+
 export interface DeviceCommand {
   id: string;
   deviceId: string;
@@ -105,6 +169,52 @@ export interface DeviceCommand {
   result: string | null; // JSON: { stdout, stderr, exit_code }
   createdAt: number;
   completedAt: number | null;
+}
+
+// ── Audit types ─────────────────────────────────────────────
+
+export interface CPUInfo    { model: string; cores: number; speed_mhz: number }
+export interface RAMInfo    { total_bytes: number }
+export interface DiskInfo   { device: string; label: string; fs_type: string; total_bytes: number; free_bytes: number }
+export interface NetworkInfo { name: string; hardware_addr: string; addrs: string[] }
+export interface BIOSInfo   { vendor: string; version: string; release_date: string }
+export interface HardwareInfo {
+  cpu: CPUInfo[]
+  ram: RAMInfo
+  disks: DiskInfo[]
+  network: NetworkInfo[]
+  bios?: BIOSInfo
+}
+export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
+export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
+export interface AVEntry      { name: string; enabled: boolean; up_to_date: boolean }
+export interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
+
+export interface DeviceAudit {
+  id: string
+  deviceId: string
+  tenantId: string
+  auditType: string
+  agentVersion: string | null
+  createdAt: number
+  hardware: HardwareInfo | null
+  software: SoftwareItem[] | null
+  services: ServiceItem[] | null
+  security: SecurityInfo | null
+}
+
+export interface AuditChange {
+  id: string
+  deviceId: string
+  tenantId: string
+  auditId: string
+  category: string
+  changeType: string
+  itemName: string
+  field: string | null
+  oldValue: string | null
+  newValue: string | null
+  detectedAt: number
 }
 
 export interface Device {
@@ -132,6 +242,48 @@ export const api = {
 
   summary: {
     get: () => request<Summary>('GET', '/v1/admin/summary'),
+  },
+
+  components: {
+    list:   ()                    => request<Component[]>('GET', '/v1/admin/components'),
+    get:    (id: string)          => request<Component>('GET', `/v1/admin/components/${id}`),
+    create: (body: {
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      type?: 'script' | 'application';
+      shell?: string;
+      script: string;
+      timeout_seconds?: number;
+    })                            => request<Component>('POST', '/v1/admin/components', body),
+    update: (id: string, body: Partial<{
+      name: string;
+      description: string | null;
+      category: string | null;
+      type: 'script' | 'application';
+      shell: string;
+      script: string;
+      timeout_seconds: number;
+    }>)                           => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${id}`, body),
+    delete: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${id}`),
+  },
+
+  jobs: {
+    list:   (params?: { type?: string; status?: string }) => {
+      const qs = new URLSearchParams(params as Record<string, string>).toString();
+      return request<Job[]>('GET', `/v1/admin/jobs${qs ? `?${qs}` : ''}`);
+    },
+    get:    (id: string)          => request<JobDetail>('GET', `/v1/admin/jobs/${id}`),
+    create: (body: {
+      name: string;
+      description?: string;
+      type?: 'quick' | 'scheduled';
+      components: ComponentRef[];
+      target_type?: string;
+      target_ids?: string[];
+      scheduled_at?: number;
+    })                            => request<Job>('POST', '/v1/admin/jobs', body),
+    cancel: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}`),
   },
 
   tenants: {
@@ -197,8 +349,14 @@ export const api = {
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot'; shell?: string; script?: string; timeout_seconds?: number }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit'; shell?: string; script?: string; timeout_seconds?: number }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
+    },
+    audit: {
+      latest:  (deviceId: string) =>
+        request<DeviceAudit | null>('GET', `/v1/admin/devices/${deviceId}/audit/latest`),
+      changes: (deviceId: string, limit = 100) =>
+        request<AuditChange[]>('GET', `/v1/admin/devices/${deviceId}/audit/changes?limit=${limit}`),
     },
   },
 };

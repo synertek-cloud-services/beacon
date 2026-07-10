@@ -28,6 +28,10 @@ func (c *Client) CheckIn(deviceCredential string, req CheckInRequest) (*CheckInR
 	return post[CheckInResponse](c, "/v1/check-in", "Bearer "+deviceCredential, req)
 }
 
+func (c *Client) Audit(deviceCredential string, req AuditRequest) (*AuditResponse, error) {
+	return post[AuditResponse](c, "/v1/audit", "Bearer "+deviceCredential, req)
+}
+
 func post[T any](c *Client, path, auth string, body any) (*T, error) {
 	b, err := json.Marshal(body)
 	if err != nil {

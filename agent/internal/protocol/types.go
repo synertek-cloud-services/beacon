@@ -73,3 +73,90 @@ type CommandResult struct {
 	Stderr    string `json:"stderr"`
 	ExitCode  int    `json:"exit_code"`
 }
+
+// ── Inventory Audit ───────────────────────────────────────────────────────────
+
+// AuditRequest is posted to /v1/audit independently of the heartbeat check-in.
+// The agent always sends a full snapshot; the server computes deltas.
+type AuditRequest struct {
+	DeviceID     string       `json:"device_id"`
+	TenantID     string       `json:"tenant_id"`
+	Timestamp    int64        `json:"timestamp"`
+	AgentVersion string       `json:"agent_version"`
+	Payload      AuditPayload `json:"payload"`
+}
+
+type AuditPayload struct {
+	Hardware *HardwareInfo  `json:"hardware,omitempty"`
+	Software []SoftwareItem `json:"software,omitempty"`
+	Services []ServiceItem  `json:"services,omitempty"`
+	Security *SecurityInfo  `json:"security,omitempty"`
+}
+
+type HardwareInfo struct {
+	CPU     []CPUInfo     `json:"cpu"`
+	RAM     RAMInfo       `json:"ram"`
+	Disks   []DiskInfo    `json:"disks"`
+	Network []NetworkInfo `json:"network"`
+	BIOS    *BIOSInfo     `json:"bios,omitempty"`
+}
+
+type CPUInfo struct {
+	Model    string  `json:"model"`
+	Cores    int32   `json:"cores"`
+	SpeedMHz float64 `json:"speed_mhz"`
+}
+
+type RAMInfo struct {
+	TotalBytes uint64 `json:"total_bytes"`
+}
+
+type DiskInfo struct {
+	Device     string `json:"device"`
+	Label      string `json:"label"`
+	FSType     string `json:"fs_type"`
+	TotalBytes uint64 `json:"total_bytes"`
+	FreeBytes  uint64 `json:"free_bytes"`
+}
+
+type NetworkInfo struct {
+	Name         string   `json:"name"`
+	HardwareAddr string   `json:"hardware_addr"`
+	Addrs        []string `json:"addrs"`
+}
+
+type BIOSInfo struct {
+	Vendor      string `json:"vendor"`
+	Version     string `json:"version"`
+	ReleaseDate string `json:"release_date"`
+}
+
+type SoftwareItem struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Publisher   string `json:"publisher"`
+	InstalledAt string `json:"installed_at"`
+}
+
+type ServiceItem struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Status      string `json:"status"`   // "running" | "stopped"
+	StartType   string `json:"start_type"`
+}
+
+type SecurityInfo struct {
+	Antivirus       []AVEntry `json:"antivirus"`
+	FirewallEnabled bool      `json:"firewall_enabled"`
+}
+
+type AVEntry struct {
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	UpToDate  bool   `json:"up_to_date"`
+}
+
+type AuditResponse struct {
+	OK      bool   `json:"ok"`
+	AuditID string `json:"audit_id"`
+}

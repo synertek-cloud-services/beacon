@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 
@@ -145,6 +145,50 @@ adminDevices.post('/:id/commands', async (c) => {
   });
 
   return c.json({ id }, 201);
+});
+
+// GET /v1/admin/devices/:id/audit/latest
+adminDevices.get('/:id/audit/latest', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  const row = await db.select()
+    .from(schema.deviceAudits)
+    .where(eq(schema.deviceAudits.deviceId, c.req.param('id')))
+    .orderBy(desc(schema.deviceAudits.createdAt))
+    .limit(1)
+    .get();
+
+  if (!row) return c.json(null);
+
+  return c.json({
+    id:           row.id,
+    deviceId:     row.deviceId,
+    tenantId:     row.tenantId,
+    auditType:    row.auditType,
+    agentVersion: row.agentVersion,
+    createdAt:    row.createdAt,
+    hardware:     row.hardware  ? JSON.parse(row.hardware)  : null,
+    software:     row.software  ? JSON.parse(row.software)  : null,
+    services:     row.services  ? JSON.parse(row.services)  : null,
+    security:     row.security  ? JSON.parse(row.security)  : null,
+  });
+});
+
+// GET /v1/admin/devices/:id/audit/changes?limit=100
+adminDevices.get('/:id/audit/changes', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const limit = Math.min(Number(c.req.query('limit') ?? 100), 500);
+
+  const rows = await db.select()
+    .from(schema.deviceAuditChanges)
+    .where(eq(schema.deviceAuditChanges.deviceId, c.req.param('id')))
+    .orderBy(desc(schema.deviceAuditChanges.detectedAt))
+    .limit(limit)
+    .all();
+
+  return c.json(rows);
 });
 
 export default adminDevices;

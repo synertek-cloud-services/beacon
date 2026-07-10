@@ -40,6 +40,22 @@
         </RouterLink>
       </div>
 
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Automation</div>
+        <RouterLink to="/components" class="nav-item" :class="{ active: route.path.startsWith('/components') }">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+          </svg>
+          Components
+        </RouterLink>
+        <RouterLink to="/jobs" class="nav-item" :class="{ active: route.path.startsWith('/jobs') }">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+          Jobs
+        </RouterLink>
+      </div>
+
       <div class="sidebar-footer">
         <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">Sign out</button>
       </div>
@@ -76,6 +92,8 @@ const pageTitle = computed(() => {
   if (route.path === '/') return 'Dashboard';
   if (route.path.startsWith('/devices')) return 'Devices';
   if (route.path.startsWith('/tenants')) return 'Tenants';
+  if (route.path.startsWith('/components')) return 'Component Library';
+  if (route.path.startsWith('/jobs')) return 'Jobs';
   return 'Beacon';
 });
 

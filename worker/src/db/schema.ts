@@ -139,14 +139,74 @@ export const sessions = sqliteTable('sessions', {
   closedAt: integer('closed_at'),
 });
 
+export const deviceAudits = sqliteTable('device_audits', {
+  id:           text('id').primaryKey(),
+  deviceId:     text('device_id').notNull().references(() => devices.id),
+  tenantId:     text('tenant_id').notNull().references(() => tenants.id),
+  auditType:    text('audit_type').notNull().default('full'),
+  hardware:     text('hardware'),   // JSON blob
+  software:     text('software'),   // JSON blob
+  services:     text('services'),   // JSON blob
+  security:     text('security'),   // JSON blob
+  agentVersion: text('agent_version'),
+  createdAt:    integer('created_at').notNull(),
+});
+
+export const deviceAuditChanges = sqliteTable('device_audit_changes', {
+  id:         text('id').primaryKey(),
+  deviceId:   text('device_id').notNull().references(() => devices.id),
+  tenantId:   text('tenant_id').notNull().references(() => tenants.id),
+  auditId:    text('audit_id').notNull().references(() => deviceAudits.id),
+  category:   text('category').notNull(),
+  changeType: text('change_type').notNull(),
+  itemName:   text('item_name').notNull(),
+  field:      text('field'),
+  oldValue:   text('old_value'),
+  newValue:   text('new_value'),
+  detectedAt: integer('detected_at').notNull(),
+});
+
+export const components = sqliteTable('components', {
+  id:             text('id').primaryKey(),
+  name:           text('name').notNull(),
+  description:    text('description'),
+  category:       text('category'),
+  type:           text('type', { enum: ['script', 'application'] }).notNull().default('script'),
+  shell:          text('shell').notNull().default('auto'),
+  script:         text('script').notNull().default(''),
+  timeoutSeconds: integer('timeout_seconds').notNull().default(300),
+  createdAt:      integer('created_at').notNull(),
+  updatedAt:      integer('updated_at').notNull(),
+});
+
+export const jobs = sqliteTable('jobs', {
+  id:           text('id').primaryKey(),
+  name:         text('name').notNull(),
+  description:  text('description'),
+  type:         text('type', { enum: ['quick', 'scheduled'] }).notNull().default('quick'),
+  status:       text('status', { enum: ['active', 'completed', 'cancelled'] }).notNull().default('active'),
+  componentIds: text('component_ids').notNull().default('[]'), // JSON
+  targetType:   text('target_type').notNull().default('devices'),
+  targetIds:    text('target_ids').notNull().default('[]'),    // JSON
+  runAsSystem:  integer('run_as_system', { mode: 'boolean' }).notNull().default(true),
+  scheduledAt:  integer('scheduled_at'),
+  expiresAt:    integer('expires_at'),
+  createdAt:    integer('created_at').notNull(),
+  createdBy:    text('created_by'),
+});
+
 export const commands = sqliteTable('commands', {
-  id: text('id').primaryKey(),
-  deviceId: text('device_id').notNull().references(() => devices.id),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
-  type: text('type').notNull(),
-  payload: text('payload').notNull(), // JSON
-  status: text('status', { enum: ['queued', 'sent', 'completed', 'failed'] }).notNull().default('queued'),
-  result: text('result'), // JSON: { stdout, stderr, exit_code }
-  createdAt: integer('created_at').notNull(),
-  completedAt: integer('completed_at'),
+  id:             text('id').primaryKey(),
+  deviceId:       text('device_id').notNull().references(() => devices.id),
+  tenantId:       text('tenant_id').notNull().references(() => tenants.id),
+  type:           text('type').notNull(),
+  payload:        text('payload').notNull(), // JSON
+  status:         text('status', { enum: ['queued', 'sent', 'completed', 'failed'] }).notNull().default('queued'),
+  result:         text('result'), // JSON: { stdout, stderr, exit_code }
+  createdAt:      integer('created_at').notNull(),
+  completedAt:    integer('completed_at'),
+  // Job linkage (null for direct commands like reboot)
+  jobId:          text('job_id'),
+  componentId:    text('component_id'),
+  componentOrder: integer('component_order').notNull().default(1),
 });

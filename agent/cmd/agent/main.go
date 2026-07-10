@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/synertekcs/beacon/agent/internal/audit"
 	"github.com/synertekcs/beacon/agent/internal/credential"
 	"github.com/synertekcs/beacon/agent/internal/executor"
 	"github.com/synertekcs/beacon/agent/internal/inventory"
@@ -24,6 +25,7 @@ const (
 var (
 	pendingMu      sync.Mutex
 	pendingResults []protocol.CommandResult
+	auditTrigger   = make(chan struct{}, 1)
 )
 
 func main() {
@@ -54,6 +56,7 @@ func main() {
 	log.Printf("beacon agent %s — device %s", version, cred.DeviceID)
 
 	updater.Start(*serverURL, version, credential.Dir())
+	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
 	for {
 		if err := checkIn(client, cred); err != nil {
@@ -133,6 +136,21 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			if cmd.Type == "open_session" {
 				// Sessions are long-lived WebSocket connections — no result to report
 				session.Handle(cmd)
+				return
+			}
+			if cmd.Type == "run_audit" {
+				// Non-blocking send; audit goroutine drains at its own pace
+				select {
+				case auditTrigger <- struct{}{}:
+				default:
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    "completed",
+					Stdout:    "audit triggered",
+				})
+				pendingMu.Unlock()
 				return
 			}
 			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
