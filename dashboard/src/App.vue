@@ -21,7 +21,7 @@
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
             <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
           </svg>
-          Overview
+          Dashboard
         </RouterLink>
         <RouterLink to="/devices" class="nav-item" :class="{ active: route.path.startsWith('/devices') }">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -64,7 +64,7 @@ const isLogin = computed(() => route.path === '/login');
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
 const pageTitle = computed(() => {
-  if (route.path === '/') return 'Overview';
+  if (route.path === '/') return 'Dashboard';
   if (route.path.startsWith('/devices')) return 'Devices';
   return 'Beacon';
 });
