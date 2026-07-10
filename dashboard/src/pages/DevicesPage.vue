@@ -86,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api, type Device } from '../api';
 
 const devices = ref<Device[]>([]);
@@ -178,5 +178,12 @@ function lastSeenLabel(ts: number | null) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-onMounted(load);
+let pollTimer: ReturnType<typeof setInterval>;
+
+onMounted(() => {
+  load();
+  pollTimer = setInterval(load, 30_000);
+});
+
+onUnmounted(() => clearInterval(pollTimer));
 </script>
