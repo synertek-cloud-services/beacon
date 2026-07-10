@@ -3,7 +3,7 @@
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <!-- Tenant list -->
-    <div class="section-card" style="margin-bottom:0;border-bottom:none;border-radius:8px 8px 0 0">
+    <div class="section-card">
       <div class="section-card-head">
         <span class="section-card-title">Tenants</span>
         <button class="btn btn-primary btn-sm" @click="openCreate">+ New Tenant</button>
@@ -27,154 +27,154 @@
           </tr>
         </thead>
         <tbody>
-          <tr
-            v-for="t in tenants" :key="t.id"
-            :class="['tenant-row', expandedId === t.id ? 'tenant-row-active' : '']"
-            @click="toggleExpanded(t.id)"
-            style="cursor:pointer"
-          >
-            <td>
-              <div style="font-weight:500;font-size:13px">{{ t.name }}</div>
-              <div v-if="t.website" class="text-xs text-muted-2">{{ t.website }}</div>
-            </td>
-            <td>
-              <div class="text-sm">{{ t.primaryContactName ?? '—' }}</div>
-              <div v-if="t.primaryContactEmail" class="text-xs text-muted-2">{{ t.primaryContactEmail }}</div>
-            </td>
-            <td>
-              <span :class="t.status === 'active' ? 'badge badge-approved' : 'badge badge-revoked'">
-                {{ t.status }}
-              </span>
-            </td>
-            <td class="mono text-sm">{{ t.deviceCount }}</td>
-            <td class="text-sm text-muted-2">{{ t.autoApproveDefault ? 'Yes' : 'No' }}</td>
-            <td class="text-sm text-muted-2">{{ dateLabel(t.createdAt) }}</td>
-            <td>
-              <div class="actions" @click.stop>
-                <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Edit</button>
-                <button v-if="t.status === 'active'"    class="btn btn-danger btn-sm" @click="setStatus(t, 'suspended')">Suspend</button>
-                <button v-if="t.status === 'suspended'" class="btn btn-primary btn-sm" @click="setStatus(t, 'active')">Activate</button>
-              </div>
-            </td>
-          </tr>
+          <template v-for="t in tenants" :key="t.id">
+            <tr
+              :class="['tenant-row', expandedId === t.id ? 'tenant-row-active' : '']"
+              @click="toggleExpanded(t.id)"
+              style="cursor:pointer"
+            >
+              <td>
+                <div style="font-weight:500;font-size:13px">{{ t.name }}</div>
+                <div v-if="t.website" class="text-xs text-muted-2">{{ t.website }}</div>
+              </td>
+              <td>
+                <div class="text-sm">{{ t.primaryContactName ?? '—' }}</div>
+                <div v-if="t.primaryContactEmail" class="text-xs text-muted-2">{{ t.primaryContactEmail }}</div>
+              </td>
+              <td>
+                <span :class="t.status === 'active' ? 'badge badge-approved' : 'badge badge-revoked'">
+                  {{ t.status }}
+                </span>
+              </td>
+              <td class="mono text-sm">{{ t.deviceCount }}</td>
+              <td class="text-sm text-muted-2">{{ t.autoApproveDefault ? 'Yes' : 'No' }}</td>
+              <td class="text-sm text-muted-2">{{ dateLabel(t.createdAt) }}</td>
+              <td>
+                <div class="actions" @click.stop>
+                  <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Edit</button>
+                  <button v-if="t.status === 'active'"    class="btn btn-danger btn-sm" @click="setStatus(t, 'suspended')">Suspend</button>
+                  <button v-if="t.status === 'suspended'" class="btn btn-primary btn-sm" @click="setStatus(t, 'active')">Activate</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Inline expansion row -->
+            <tr v-if="expandedId === t.id" class="expand-row">
+              <td colspan="7" class="expand-cell">
+                <!-- Tab bar -->
+                <div class="expand-head">
+                  <button :class="['expand-tab', expandedTab === 'contacts'  ? 'active' : '']" @click.stop="expandedTab = 'contacts'">
+                    Contacts
+                    <span v-if="!expandedLoading" class="tab-pill">{{ contacts.length }}</span>
+                  </button>
+                  <button :class="['expand-tab', expandedTab === 'locations' ? 'active' : '']" @click.stop="expandedTab = 'locations'">
+                    Locations
+                    <span v-if="!expandedLoading" class="tab-pill">{{ locations.length }}</span>
+                  </button>
+                  <button :class="['expand-tab', expandedTab === 'tokens'    ? 'active' : '']" @click.stop="expandedTab = 'tokens'">
+                    Tokens
+                    <span v-if="!expandedLoading" class="tab-pill">{{ tokens.length }}</span>
+                  </button>
+                  <div style="flex:1"></div>
+                  <button v-if="expandedTab === 'contacts'"  class="btn btn-primary btn-sm" @click.stop="openContactCreate">+ Add Contact</button>
+                  <button v-if="expandedTab === 'locations'" class="btn btn-primary btn-sm" @click.stop="openLocationCreate">+ Add Location</button>
+                  <button v-if="expandedTab === 'tokens'"    class="btn btn-primary btn-sm" @click.stop="showTokenForm = true">+ New Token</button>
+                </div>
+
+                <div v-if="expandedLoading" class="empty"><p class="empty-sub">Loading…</p></div>
+                <template v-else>
+
+                  <!-- Contacts -->
+                  <div v-if="expandedTab === 'contacts'">
+                    <div v-if="contacts.length === 0" class="empty">
+                      <div class="empty-title">No contacts</div>
+                      <p class="empty-sub">Add a contact to track who to reach for this tenant.</p>
+                    </div>
+                    <div v-else class="item-list">
+                      <div v-for="ct in contacts" :key="ct.id" class="item-card">
+                        <div class="item-info">
+                          <div class="item-name">
+                            {{ ct.name }}
+                            <span v-if="ct.isPrimary" class="badge-accent-sm">Primary</span>
+                          </div>
+                          <div v-if="ct.title" class="text-xs text-muted-2">{{ ct.title }}</div>
+                          <div class="text-xs text-muted-2">
+                            {{ [ct.email, ct.phone].filter(Boolean).join(' · ') || 'No contact info' }}
+                          </div>
+                        </div>
+                        <div class="item-actions">
+                          <button class="btn btn-ghost btn-sm" @click.stop="openContactEdit(ct)">Edit</button>
+                          <button class="btn btn-danger btn-sm" @click.stop="deleteContact(ct.id)">Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Locations -->
+                  <div v-if="expandedTab === 'locations'">
+                    <div v-if="locations.length === 0" class="empty">
+                      <div class="empty-title">No locations</div>
+                      <p class="empty-sub">Add an office or site location for this tenant.</p>
+                    </div>
+                    <div v-else class="item-list">
+                      <div v-for="loc in locations" :key="loc.id" class="item-card">
+                        <div class="item-info">
+                          <div class="item-name">
+                            {{ loc.name }}
+                            <span v-if="loc.isPrimary" class="badge-accent-sm">Primary</span>
+                          </div>
+                          <div class="text-xs text-muted-2">{{ addressLine(loc) }}</div>
+                        </div>
+                        <div class="item-actions">
+                          <button class="btn btn-ghost btn-sm" @click.stop="openLocationEdit(loc)">Edit</button>
+                          <button class="btn btn-danger btn-sm" @click.stop="deleteLocation(loc.id)">Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Tokens -->
+                  <div v-if="expandedTab === 'tokens'">
+                    <div v-if="tokens.length === 0" class="empty">
+                      <div class="empty-title">No tokens</div>
+                      <p class="empty-sub">Create a token and pass it to the device installer via <code>--enroll-token</code>.</p>
+                    </div>
+                    <table v-else class="inner-table">
+                      <thead>
+                        <tr>
+                          <th>Token ID</th>
+                          <th>Auto-approve</th>
+                          <th>Uses</th>
+                          <th>Expires</th>
+                          <th>Status</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="tok in tokens" :key="tok.id">
+                          <td class="mono text-xs text-muted-2">{{ tok.id.slice(0, 8) }}…</td>
+                          <td class="text-sm text-muted-2">{{ tok.autoApprove === null ? 'Tenant default' : tok.autoApprove ? 'Yes' : 'No' }}</td>
+                          <td class="mono text-sm">{{ tok.useCount }}{{ tok.maxUses != null ? ` / ${tok.maxUses}` : '' }}</td>
+                          <td class="text-sm text-muted-2">{{ tok.expiresAt ? dateLabel(tok.expiresAt) : 'Never' }}</td>
+                          <td>
+                            <span v-if="tok.revokedAt" class="badge badge-revoked">Revoked</span>
+                            <span v-else-if="tok.expiresAt && tok.expiresAt < nowSec" class="badge badge-revoked">Expired</span>
+                            <span v-else class="badge badge-approved">Active</span>
+                          </td>
+                          <td>
+                            <button v-if="!tok.revokedAt" class="btn btn-danger btn-sm" @click.stop="revokeToken(tok.id)">Revoke</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                </template>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
-    </div>
-
-    <!-- Expanded panel -->
-    <div v-if="expandedId" class="section-card expand-panel">
-      <!-- Tab bar -->
-      <div class="expand-head">
-        <span class="expand-tenant-label">{{ expandedTenant?.name }}</span>
-        <div class="expand-tabs">
-          <button :class="['expand-tab', expandedTab === 'contacts'  ? 'active' : '']" @click="expandedTab = 'contacts'">
-            Contacts
-            <span v-if="!expandedLoading" class="tab-pill">{{ contacts.length }}</span>
-          </button>
-          <button :class="['expand-tab', expandedTab === 'locations' ? 'active' : '']" @click="expandedTab = 'locations'">
-            Locations
-            <span v-if="!expandedLoading" class="tab-pill">{{ locations.length }}</span>
-          </button>
-          <button :class="['expand-tab', expandedTab === 'tokens'    ? 'active' : '']" @click="expandedTab = 'tokens'">
-            Tokens
-            <span v-if="!expandedLoading" class="tab-pill">{{ tokens.length }}</span>
-          </button>
-        </div>
-        <div style="flex:1"></div>
-        <button v-if="expandedTab === 'contacts'"  class="btn btn-primary btn-sm" @click="openContactCreate">+ Add Contact</button>
-        <button v-if="expandedTab === 'locations'" class="btn btn-primary btn-sm" @click="openLocationCreate">+ Add Location</button>
-        <button v-if="expandedTab === 'tokens'"    class="btn btn-primary btn-sm" @click="showTokenForm = true">+ New Token</button>
-      </div>
-
-      <div v-if="expandedLoading" class="empty"><p class="empty-sub">Loading…</p></div>
-      <template v-else>
-
-        <!-- ── Contacts tab ── -->
-        <div v-if="expandedTab === 'contacts'">
-          <div v-if="contacts.length === 0" class="empty">
-            <div class="empty-title">No contacts</div>
-            <p class="empty-sub">Add a contact to track who to reach for this tenant.</p>
-          </div>
-          <div v-else class="item-list">
-            <div v-for="ct in contacts" :key="ct.id" class="item-card">
-              <div class="item-info">
-                <div class="item-name">
-                  {{ ct.name }}
-                  <span v-if="ct.isPrimary" class="badge-accent-sm">Primary</span>
-                </div>
-                <div v-if="ct.title" class="text-xs text-muted-2">{{ ct.title }}</div>
-                <div class="text-xs text-muted-2">
-                  {{ [ct.email, ct.phone].filter(Boolean).join(' · ') || 'No contact info' }}
-                </div>
-              </div>
-              <div class="item-actions">
-                <button class="btn btn-ghost btn-sm" @click="openContactEdit(ct)">Edit</button>
-                <button class="btn btn-danger btn-sm" @click="deleteContact(ct.id)">Delete</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Locations tab ── -->
-        <div v-if="expandedTab === 'locations'">
-          <div v-if="locations.length === 0" class="empty">
-            <div class="empty-title">No locations</div>
-            <p class="empty-sub">Add an office or site location for this tenant.</p>
-          </div>
-          <div v-else class="item-list">
-            <div v-for="loc in locations" :key="loc.id" class="item-card">
-              <div class="item-info">
-                <div class="item-name">
-                  {{ loc.name }}
-                  <span v-if="loc.isPrimary" class="badge-accent-sm">Primary</span>
-                </div>
-                <div class="text-xs text-muted-2">{{ addressLine(loc) }}</div>
-              </div>
-              <div class="item-actions">
-                <button class="btn btn-ghost btn-sm" @click="openLocationEdit(loc)">Edit</button>
-                <button class="btn btn-danger btn-sm" @click="deleteLocation(loc.id)">Delete</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Tokens tab ── -->
-        <div v-if="expandedTab === 'tokens'">
-          <div v-if="tokens.length === 0" class="empty">
-            <div class="empty-title">No tokens</div>
-            <p class="empty-sub">Create a token and pass it to the device installer via <code>--enroll-token</code>.</p>
-          </div>
-          <table v-else>
-            <thead>
-              <tr>
-                <th>Token ID</th>
-                <th>Auto-approve</th>
-                <th>Uses</th>
-                <th>Expires</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="tok in tokens" :key="tok.id">
-                <td class="mono text-xs text-muted-2">{{ tok.id.slice(0, 8) }}…</td>
-                <td class="text-sm text-muted-2">{{ tok.autoApprove === null ? 'Tenant default' : tok.autoApprove ? 'Yes' : 'No' }}</td>
-                <td class="mono text-sm">{{ tok.useCount }}{{ tok.maxUses != null ? ` / ${tok.maxUses}` : '' }}</td>
-                <td class="text-sm text-muted-2">{{ tok.expiresAt ? dateLabel(tok.expiresAt) : 'Never' }}</td>
-                <td>
-                  <span v-if="tok.revokedAt" class="badge badge-revoked">Revoked</span>
-                  <span v-else-if="tok.expiresAt && tok.expiresAt < nowSec" class="badge badge-revoked">Expired</span>
-                  <span v-else class="badge badge-approved">Active</span>
-                </td>
-                <td>
-                  <button v-if="!tok.revokedAt" class="btn btn-danger btn-sm" @click="revokeToken(tok.id)">Revoke</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-      </template>
     </div>
 
     <!-- ── Create / Edit tenant modal ── -->
@@ -725,36 +725,29 @@ onMounted(load);
 </script>
 
 <style scoped>
-/* ── Expanded panel ── */
-.tenant-row-active td { background: rgba(78,126,247,.04); }
-.expand-panel {
-  border-radius: 0 0 8px 8px;
-  border-top: 1px solid var(--border);
+/* ── Inline row expansion ── */
+.tenant-row-active td {
+  background: rgba(78,126,247,.05);
+  border-bottom: none;
+}
+.expand-row td { padding: 0; }
+.expand-cell {
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 .expand-head {
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   gap: 0;
 }
-.expand-tenant-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  padding-right: 16px;
-  border-right: 1px solid var(--border);
-  margin-right: 4px;
-  white-space: nowrap;
-}
-.expand-tabs { display: flex; }
 .expand-tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 11px 14px;
+  padding: 10px 14px;
   font-size: 12px;
   font-weight: 500;
   color: var(--muted);
@@ -777,6 +770,7 @@ onMounted(load);
   line-height: 1.4;
 }
 .expand-tab.active .tab-pill { background: rgba(78,126,247,.12); color: var(--accent); }
+.inner-table { width: 100%; }
 
 /* ── Item cards (contacts & locations) ── */
 .item-list {
