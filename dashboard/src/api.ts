@@ -337,6 +337,8 @@ export const api = {
           'POST', `/v1/admin/tenants/${tenantId}/tokens`, body),
       revoke: (tenantId: string, tokenId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}`),
+      delete: (tenantId: string, tokenId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}/permanent`),
     },
   },
 

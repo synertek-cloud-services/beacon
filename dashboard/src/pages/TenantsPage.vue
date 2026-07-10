@@ -163,6 +163,7 @@
                           </td>
                           <td>
                             <button v-if="!tok.revokedAt" class="btn btn-danger btn-sm" @click.stop="revokeToken(tok.id)">Revoke</button>
+                            <button v-else class="btn btn-danger btn-sm" @click.stop="deleteToken(tok.id)">Delete</button>
                           </td>
                         </tr>
                       </tbody>
@@ -340,13 +341,14 @@
     </div>
 
     <!-- ── Install modal ── -->
-    <div v-if="installModal" class="modal-backdrop" @click.self="installModal = null">
+    <div v-if="installModal" class="modal-backdrop">
       <div class="modal modal-install">
         <div class="modal-head">
           <div>
             <div class="modal-title">Install Beacon Agent</div>
             <div class="text-xs text-muted-2" style="margin-top:2px">{{ installModal.tenantName }}</div>
           </div>
+          <button class="modal-close" @click="installModal = null" aria-label="Close">✕</button>
         </div>
         <div class="modal-body" style="padding:0">
 
@@ -354,8 +356,9 @@
           <div class="inst-section">
             <div class="inst-label">Enrollment Token — copy now, shown once</div>
             <div class="token-reveal" @click="copyText(installModal!.token, 'token')">
-              <span class="mono text-xs" style="word-break:break-all">{{ installModal.token }}</span>
-              <span class="copy-hint">{{ copiedField === 'token' ? 'Copied!' : 'Click to copy' }}</span>
+              <span class="mono text-xs" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ installModal.token }}</span>
+              <svg v-if="copiedField !== 'token'" class="copy-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3" stroke="currentColor" stroke-width="1.4"/></svg>
+              <svg v-else class="copy-icon copy-icon--done" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8l4 4 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
           </div>
 
@@ -405,7 +408,6 @@
               <button class="oneliner-copy" @click="copyText(oneLiner, 'oneliner')">
                 <svg v-if="copiedField !== 'oneliner'" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                {{ copiedField === 'oneliner' ? 'Copied!' : 'Copy' }}
               </button>
             </div>
           </div>
@@ -773,6 +775,12 @@ async function revokeToken(tokenId: string) {
   if (tok) tok.revokedAt = nowSec;
 }
 
+async function deleteToken(tokenId: string) {
+  if (!expandedId.value) return;
+  await api.tenants.tokens.delete(expandedId.value, tokenId);
+  tokens.value = tokens.value.filter(t => t.id !== tokenId);
+}
+
 async function copyText(text: string, field: string) {
   await navigator.clipboard.writeText(text);
   copiedField.value = field;
@@ -907,7 +915,9 @@ onMounted(load);
   display: flex; flex-direction: column;
 }
 .modal-lg { width: 620px; }
-.modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: flex-start; justify-content: space-between; }
+.modal-close { background: none; border: none; cursor: pointer; color: var(--muted-2); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 4px; transition: color .12s; }
+.modal-close:hover { color: var(--text); }
 .modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
 .modal-body { padding: 20px; overflow-y: auto; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
@@ -932,10 +942,13 @@ onMounted(load);
 .token-reveal {
   background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--r-btn);
   padding: 12px 14px; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; cursor: pointer; word-break: break-all; transition: border-color .12s;
+  gap: 12px; cursor: pointer; overflow: hidden; transition: border-color .12s;
 }
 .token-reveal:hover { border-color: var(--accent); }
 .copy-hint { font-size: 11px; color: var(--accent); flex-shrink: 0; }
+.copy-icon { width: 15px; height: 15px; flex-shrink: 0; color: var(--muted-2); transition: color .12s; }
+.token-reveal:hover .copy-icon { color: var(--accent); }
+.copy-icon--done { color: var(--accent); }
 code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; color: var(--muted-2); }
 .field-hint { display: block; font-size: 11px; margin-top: 4px; }
 .field-hint-warn { color: var(--amber); }

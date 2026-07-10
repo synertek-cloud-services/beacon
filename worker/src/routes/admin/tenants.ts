@@ -384,4 +384,15 @@ adminTenants.delete('/:id/tokens/:tokenId', async (c) => {
   return c.json({ ok: true });
 });
 
+adminTenants.delete('/:id/tokens/:tokenId/permanent', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  await db
+    .delete(schema.enrollmentTokens)
+    .where(eq(schema.enrollmentTokens.id, c.req.param('tokenId')));
+
+  return c.json({ ok: true });
+});
+
 export default adminTenants;
