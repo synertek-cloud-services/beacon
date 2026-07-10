@@ -13,6 +13,7 @@ import (
 	"github.com/synertekcs/beacon/agent/internal/executor"
 	"github.com/synertekcs/beacon/agent/internal/inventory"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertekcs/beacon/agent/internal/service"
 	"github.com/synertekcs/beacon/agent/internal/session"
 	"github.com/synertekcs/beacon/agent/internal/updater"
 )
@@ -29,6 +30,20 @@ var (
 )
 
 func main() {
+	// Handle install/uninstall subcommands before the normal flag set.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install":
+			runInstall()
+			return
+		case "uninstall":
+			if err := service.Uninstall(); err != nil {
+				log.Fatalf("uninstall: %v", err)
+			}
+			return
+		}
+	}
+
 	serverURL   := flag.String("server-url", "", "Beacon worker URL (required)")
 	enrollToken := flag.String("enroll-token", "", "Enrollment token (required on first run)")
 	flag.Parse()
@@ -58,13 +73,36 @@ func main() {
 	updater.Start(*serverURL, version, credential.Dir())
 	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
-	for {
-		if err := checkIn(client, cred); err != nil {
-			log.Printf("check-in error: %v", err)
-		} else {
-			updater.NotifyCheckIn()
+	service.Run(func() {
+		for {
+			if err := checkIn(client, cred); err != nil {
+				log.Printf("check-in error: %v", err)
+			} else {
+				updater.NotifyCheckIn()
+			}
+			time.Sleep(checkInInterval)
 		}
-		time.Sleep(checkInInterval)
+	})
+}
+
+func runInstall() {
+	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	serverURL   := fs.String("server-url", "", "Beacon worker URL (required)")
+	enrollToken := fs.String("enroll-token", "", "Enrollment token (required)")
+	fs.Parse(os.Args[2:])
+
+	if *serverURL == "" {
+		fmt.Fprintln(os.Stderr, "install: --server-url is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+	if *enrollToken == "" {
+		fmt.Fprintln(os.Stderr, "install: --enroll-token is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+	if err := service.Install(*serverURL, *enrollToken); err != nil {
+		log.Fatalf("install: %v", err)
 	}
 }
 
@@ -101,17 +139,16 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		return fmt.Errorf("inventory: %w", err)
 	}
 
-	// Drain accumulated results to report in this check-in
 	pendingMu.Lock()
 	results := pendingResults
 	pendingResults = nil
 	pendingMu.Unlock()
 
 	resp, err := client.CheckIn(cred.DeviceCredential, protocol.CheckInRequest{
-		DeviceID:              cred.DeviceID,
-		TenantID:              cred.TenantID,
-		Timestamp:             time.Now().Unix(),
-		AgentVersion:          version,
+		DeviceID:     cred.DeviceID,
+		TenantID:     cred.TenantID,
+		Timestamp:    time.Now().Unix(),
+		AgentVersion: version,
 		Metrics: protocol.Metrics{
 			Hostname:      snap.Hostname,
 			OSType:        snap.OSType,
@@ -123,23 +160,19 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		PendingCommandResults: results,
 	})
 	if err != nil {
-		// Re-queue results so they're not lost if the network is down
 		pendingMu.Lock()
 		pendingResults = append(results, pendingResults...)
 		pendingMu.Unlock()
 		return err
 	}
 
-	// Dispatch each command in its own goroutine
 	for _, cmd := range resp.Commands {
 		go func(cmd protocol.Command) {
 			if cmd.Type == "open_session" {
-				// Sessions are long-lived WebSocket connections — no result to report
 				session.Handle(cmd)
 				return
 			}
 			if cmd.Type == "run_audit" {
-				// Non-blocking send; audit goroutine drains at its own pace
 				select {
 				case auditTrigger <- struct{}{}:
 				default:

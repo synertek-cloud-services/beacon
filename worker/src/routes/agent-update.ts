@@ -45,4 +45,32 @@ agentUpdate.get('/version', async (c) => {
   });
 });
 
+// GET /v1/agent/download?os=windows&arch=amd64
+// Redirects to the latest signed binary for the given platform. No auth required
+// — the binary is universal; the enrollment token is passed separately at install time.
+agentUpdate.get('/download', async (c) => {
+  const os   = c.req.query('os');
+  const arch = c.req.query('arch') ?? 'amd64';
+
+  if (!os) return c.json({ error: 'os query param required' }, 400);
+
+  const db = drizzle(c.env.DB, { schema });
+
+  const row = await db
+    .select()
+    .from(schema.agentVersions)
+    .where(
+      and(
+        eq(schema.agentVersions.os, os),
+        eq(schema.agentVersions.arch, arch),
+        eq(schema.agentVersions.isLatest, true),
+      ),
+    )
+    .get();
+
+  if (!row) return c.json({ error: 'no binary published for this platform' }, 404);
+
+  return c.redirect(row.downloadUrl, 302);
+});
+
 export default agentUpdate;

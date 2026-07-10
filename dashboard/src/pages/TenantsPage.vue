@@ -339,22 +339,80 @@
       </div>
     </div>
 
-    <!-- ── Raw token reveal ── -->
-    <div v-if="newRawToken" class="modal-backdrop" @click.self="newRawToken = null">
-      <div class="modal">
-        <div class="modal-head"><span class="modal-title">Enrollment Token Created</span></div>
-        <div class="modal-body">
-          <p class="text-sm text-muted-2" style="margin-bottom:12px">
-            Copy this token now — it will <strong>never be shown again</strong>.
-            Pass it to the installer as <code>--enroll-token</code>.
-          </p>
-          <div class="token-reveal" @click="copyToken">
-            <span class="mono text-xs">{{ newRawToken }}</span>
-            <span class="copy-hint">{{ copied ? 'Copied!' : 'Click to copy' }}</span>
+    <!-- ── Install modal ── -->
+    <div v-if="installModal" class="modal-backdrop" @click.self="installModal = null">
+      <div class="modal modal-install">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Install Beacon Agent</div>
+            <div class="text-xs text-muted-2" style="margin-top:2px">{{ installModal.tenantName }}</div>
           </div>
         </div>
+        <div class="modal-body" style="padding:0">
+
+          <!-- Token section -->
+          <div class="inst-section">
+            <div class="inst-label">Enrollment Token — copy now, shown once</div>
+            <div class="token-reveal" @click="copyText(installModal!.token, 'token')">
+              <span class="mono text-xs" style="word-break:break-all">{{ installModal.token }}</span>
+              <span class="copy-hint">{{ copiedField === 'token' ? 'Copied!' : 'Click to copy' }}</span>
+            </div>
+          </div>
+
+          <!-- OS tab bar -->
+          <div class="inst-os-tabs">
+            <button :class="['inst-os-tab', installOS === 'windows' ? 'active' : '']" @click="installOS = 'windows'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-13.051-1.8"/></svg>
+              Windows
+            </button>
+            <button :class="['inst-os-tab', installOS === 'linux' ? 'active' : '']" @click="installOS = 'linux'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.576.216 3.476 3.05 1.83 7.22c-1.585 4.042-.865 8.626 1.871 12.014L.81 22.8a.498.498 0 0 0 .6.65l3.312-.937C6.3 23.834 9.035 24 11.77 24c3.244 0 6.573-.922 9.302-2.708a.498.498 0 0 0 .099-.77l-1.774-2.015c2.28-2.998 3.12-7.02 2.026-10.752C19.876 3.77 16.407.782 12.504 0z"/></svg>
+              Linux
+            </button>
+            <button :class="['inst-os-tab', installOS === 'darwin' ? 'active' : '']" @click="installOS = 'darwin'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.261-4.62c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.701"/></svg>
+              macOS
+            </button>
+          </div>
+
+          <!-- Arch selector (Linux / macOS only) -->
+          <div v-if="installOS !== 'windows'" class="inst-section inst-arch-row">
+            <span class="inst-label" style="margin-bottom:0">Architecture</span>
+            <div class="arch-toggle">
+              <button :class="['arch-btn', installArch === 'amd64' ? 'active' : '']" @click="installArch = 'amd64'">x86-64 (amd64)</button>
+              <button :class="['arch-btn', installArch === 'arm64' ? 'active' : '']" @click="installArch = 'arm64'">ARM64</button>
+            </div>
+          </div>
+
+          <!-- Download + one-liner -->
+          <div class="inst-section">
+            <div class="inst-label">Download binary</div>
+            <a :href="downloadURL" download class="btn btn-ghost btn-sm inst-dl-btn" target="_blank">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download beacon-agent{{ installOS === 'windows' ? '.exe' : '' }}
+            </a>
+          </div>
+
+          <div class="inst-section" style="padding-bottom:20px">
+            <div class="inst-label" style="margin-bottom:6px">
+              Install one-liner
+              <span class="text-xs text-muted-2" style="font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0">
+                — run{{ installOS === 'windows' ? ' in an elevated PowerShell' : ' as root' }}
+              </span>
+            </div>
+            <div class="oneliner-wrap">
+              <pre class="oneliner-pre">{{ oneLiner }}</pre>
+              <button class="oneliner-copy" @click="copyText(oneLiner, 'oneliner')">
+                <svg v-if="copiedField !== 'oneliner'" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {{ copiedField === 'oneliner' ? 'Copied!' : 'Copy' }}
+              </button>
+            </div>
+          </div>
+
+        </div>
         <div class="modal-foot">
-          <button class="btn btn-primary" @click="newRawToken = null">Done</button>
+          <button class="btn btn-primary" @click="installModal = null">Done</button>
         </div>
       </div>
     </div>
@@ -442,9 +500,34 @@ const creatingToken = ref(false);
 const tokenError    = ref('');
 const tokenForm     = ref({ maxUses: null as number | null, expiresInDays: null as number | null, autoApprove: true });
 
-// Raw token reveal
-const newRawToken = ref<string | null>(null);
-const copied      = ref(false);
+// Install modal
+interface InstallCtx { token: string; tenantName: string }
+const installModal = ref<InstallCtx | null>(null);
+const installOS    = ref<'windows' | 'linux' | 'darwin'>('windows');
+const installArch  = ref<'amd64' | 'arm64'>('amd64');
+const copiedField  = ref('');
+
+const workerBase = computed(() => {
+  const env = (import.meta.env.VITE_API_URL as string) ?? '';
+  return env || window.location.origin;
+});
+
+const downloadURL = computed(() => {
+  const os   = installOS.value === 'windows' ? 'windows' : installOS.value;
+  const arch = installOS.value === 'windows' ? 'amd64' : installArch.value;
+  return `${workerBase.value}/v1/agent/download?os=${os}&arch=${arch}`;
+});
+
+const oneLiner = computed(() => {
+  if (!installModal.value) return '';
+  const u = workerBase.value;
+  const tok = installModal.value.token;
+  const dl = downloadURL.value;
+  if (installOS.value === 'windows') {
+    return `$u="${u}"; $t="$env:TEMP\\beacon-agent.exe"; Invoke-WebRequest "${dl}" -OutFile $t; & $t install --server-url $u --enroll-token ${tok}`;
+  }
+  return `sudo sh -c 'curl -fsSL "${dl}" -o /tmp/beacon-agent && chmod +x /tmp/beacon-agent && /tmp/beacon-agent install --server-url "${u}" --enroll-token "${tok}"'`;
+});
 
 // ── Load ─────────────────────────────────────────────────────
 async function load() {
@@ -673,7 +756,10 @@ async function submitToken() {
       expires_in_days: tokenForm.value.expiresInDays || null,
     });
     showTokenForm.value = false;
-    newRawToken.value   = result.raw_token;
+    installModal.value  = { token: result.raw_token, tenantName: expandedTenant.value?.name ?? '' };
+    installOS.value     = 'windows';
+    installArch.value   = 'amd64';
+    copiedField.value   = '';
     tokenForm.value     = { maxUses: null, expiresInDays: null, autoApprove: true };
     tokens.value        = await api.tenants.tokens.list(expandedId.value);
   } catch (e: any) {
@@ -690,11 +776,10 @@ async function revokeToken(tokenId: string) {
   if (tok) tok.revokedAt = nowSec;
 }
 
-async function copyToken() {
-  if (!newRawToken.value) return;
-  await navigator.clipboard.writeText(newRawToken.value);
-  copied.value = true;
-  setTimeout(() => { copied.value = false; }, 2000);
+async function copyText(text: string, field: string) {
+  await navigator.clipboard.writeText(text);
+  copiedField.value = field;
+  setTimeout(() => { if (copiedField.value === field) copiedField.value = ''; }, 2000);
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -857,4 +942,67 @@ onMounted(load);
 code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; color: var(--muted-2); }
 .field-hint { display: block; font-size: 11px; margin-top: 4px; }
 .field-hint-warn { color: var(--amber); }
+
+/* ── Install modal ── */
+.modal-install { width: 540px; }
+
+.inst-section {
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.inst-section:last-child { border-bottom: none; }
+
+.inst-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px; display: flex; align-items: center;
+}
+
+.inst-os-tabs {
+  display: flex; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.inst-os-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 16px; font-size: 12px; font-weight: 500;
+  border: none; background: none; color: var(--muted); cursor: pointer;
+  font-family: var(--font); border-bottom: 2px solid transparent;
+  transition: color .1s, border-color .1s;
+}
+.inst-os-tab:hover { color: var(--text); }
+.inst-os-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.inst-arch-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; }
+.arch-toggle { display: flex; border: 1px solid var(--border-2); border-radius: 5px; overflow: hidden; }
+.arch-btn {
+  padding: 4px 12px; font-size: 11px; font-weight: 600; border: none;
+  background: none; color: var(--muted); cursor: pointer; font-family: var(--font);
+  transition: background .1s, color .1s;
+}
+.arch-btn.active { background: var(--accent); color: #fff; }
+
+.inst-dl-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  text-decoration: none;
+}
+
+.oneliner-wrap {
+  position: relative;
+  background: #080a11;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.oneliner-pre {
+  margin: 0; padding: 12px 52px 12px 14px;
+  font-family: var(--mono); font-size: 11px; line-height: 1.6;
+  color: #c8d0e8; white-space: pre-wrap; word-break: break-all;
+}
+.oneliner-copy {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.06); color: var(--muted);
+  font-size: 11px; font-weight: 500; font-family: var(--font);
+  cursor: pointer; transition: background .1s, color .1s;
+}
+.oneliner-copy:hover { background: rgba(255,255,255,.12); color: var(--text); }
 </style>
