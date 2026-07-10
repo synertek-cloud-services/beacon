@@ -1,5 +1,3 @@
-// In dev, Vite proxies /v1/* to localhost:8787 (see vite.config.ts).
-// In production set VITE_API_URL to the deployed worker URL.
 const baseUrl = import.meta.env.VITE_API_URL ?? '';
 
 function secret(): string {
@@ -45,18 +43,6 @@ export interface Address {
   country?: string;
 }
 
-export interface TenantFormBody {
-  name: string;
-  auto_approve_default?: boolean;
-  privacy_mode_default?: boolean;
-  contact_name?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  website?: string | null;
-  notes?: string | null;
-  address?: Address | null;
-}
-
 export interface Tenant {
   id: string;
   name: string;
@@ -65,12 +51,34 @@ export interface Tenant {
   status: 'active' | 'suspended';
   createdAt: number;
   deviceCount: number;
-  contactName: string | null;
-  contactEmail: string | null;
-  contactPhone: string | null;
   website: string | null;
   notes: string | null;
-  address: string | null; // JSON-encoded Address
+  primaryContactName: string | null;
+  primaryContactEmail: string | null;
+}
+
+export interface TenantContact {
+  id: string;
+  tenantId: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  isPrimary: boolean;
+  createdAt: number;
+}
+
+export interface TenantLocation {
+  id: string;
+  tenantId: string;
+  name: string;
+  isPrimary: boolean;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  country: string | null;
+  createdAt: number;
 }
 
 export interface EnrollmentToken {
@@ -115,10 +123,48 @@ export const api = {
   },
 
   tenants: {
-    list:   ()                 => request<Tenant[]>('GET', '/v1/admin/tenants'),
-    create: (body: TenantFormBody) => request<Tenant>('POST', '/v1/admin/tenants', body),
-    update: (id: string, body: Partial<TenantFormBody> & { status?: 'active' | 'suspended' }) =>
-      request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
+    list:   () => request<Tenant[]>('GET', '/v1/admin/tenants'),
+    create: (body: {
+      name: string;
+      auto_approve_default?: boolean;
+      privacy_mode_default?: boolean;
+      website?: string | null;
+      notes?: string | null;
+      contact_name?: string | null;
+      contact_email?: string | null;
+      contact_phone?: string | null;
+    }) => request<Tenant>('POST', '/v1/admin/tenants', body),
+    update: (id: string, body: {
+      name?: string;
+      auto_approve_default?: boolean;
+      privacy_mode_default?: boolean;
+      status?: 'active' | 'suspended';
+      website?: string | null;
+      notes?: string | null;
+    }) => request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
+
+    contacts: {
+      list: (tenantId: string) =>
+        request<TenantContact[]>('GET', `/v1/admin/tenants/${tenantId}/contacts`),
+      create: (tenantId: string, body: { name: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
+        request<TenantContact>('POST', `/v1/admin/tenants/${tenantId}/contacts`, body),
+      update: (tenantId: string, contactId: string, body: { name?: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${tenantId}/contacts/${contactId}`, body),
+      delete: (tenantId: string, contactId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/contacts/${contactId}`),
+    },
+
+    locations: {
+      list: (tenantId: string) =>
+        request<TenantLocation[]>('GET', `/v1/admin/tenants/${tenantId}/locations`),
+      create: (tenantId: string, body: { name: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
+        request<TenantLocation>('POST', `/v1/admin/tenants/${tenantId}/locations`, body),
+      update: (tenantId: string, locationId: string, body: { name?: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${tenantId}/locations/${locationId}`, body),
+      delete: (tenantId: string, locationId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/locations/${locationId}`),
+    },
+
     tokens: {
       list: (tenantId: string) =>
         request<EnrollmentToken[]>('GET', `/v1/admin/tenants/${tenantId}/tokens`),

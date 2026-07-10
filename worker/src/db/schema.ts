@@ -71,6 +71,30 @@ export const agentVersions = sqliteTable('agent_versions', {
   isLatest: integer('is_latest', { mode: 'boolean' }).notNull().default(false),
 });
 
+export const tenantContacts = sqliteTable('tenant_contacts', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  name: text('name').notNull(),
+  title: text('title'),
+  email: text('email'),
+  phone: text('phone'),
+  isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const tenantLocations = sqliteTable('tenant_locations', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  name: text('name').notNull(),
+  isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+  street: text('street'),
+  city: text('city'),
+  state: text('state'),
+  zip: text('zip'),
+  country: text('country'),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const webhookEndpoints = sqliteTable('webhook_endpoints', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull().references(() => tenants.id),
