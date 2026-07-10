@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
@@ -50,13 +50,56 @@ checkin.post('/', async (c) => {
     })
     .where(eq(schema.devices.id, device.id));
 
+  // Process results from previously issued commands
+  if (body.pending_command_results?.length) {
+    const ids = body.pending_command_results.map(r => r.command_id);
+    const owned = await db.select({ id: schema.commands.id })
+      .from(schema.commands)
+      .where(and(
+        inArray(schema.commands.id, ids),
+        eq(schema.commands.deviceId, device.id),
+      ));
+    const ownedIds = new Set(owned.map(r => r.id));
+
+    for (const r of body.pending_command_results) {
+      if (!ownedIds.has(r.command_id)) continue; // ignore results for commands not belonging to this device
+      await db.update(schema.commands)
+        .set({
+          status: r.status,
+          result: JSON.stringify({ stdout: r.stdout, stderr: r.stderr, exit_code: r.exit_code }),
+          completedAt: now,
+        })
+        .where(eq(schema.commands.id, r.command_id));
+    }
+  }
+
   // Pending devices: accept data for visibility, return no commands
   if (device.status === 'pending') {
     return c.json<CheckInResponse>({});
   }
 
-  // Phase 2: process body.pending_command_results and fetch queued commands
-  return c.json<CheckInResponse>({ commands: [] });
+  // Fetch queued commands and mark them sent
+  const queued = await db.select()
+    .from(schema.commands)
+    .where(and(
+      eq(schema.commands.deviceId, device.id),
+      eq(schema.commands.status, 'queued'),
+    ))
+    .limit(10);
+
+  if (queued.length > 0) {
+    await db.update(schema.commands)
+      .set({ status: 'sent' })
+      .where(inArray(schema.commands.id, queued.map(c => c.id)));
+  }
+
+  return c.json<CheckInResponse>({
+    commands: queued.map(cmd => ({
+      command_id: cmd.id,
+      type: cmd.type,
+      payload: JSON.parse(cmd.payload),
+    })),
+  });
 });
 
 export default checkin;

@@ -5,16 +5,23 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/synertekcs/beacon/agent/internal/credential"
+	"github.com/synertekcs/beacon/agent/internal/executor"
 	"github.com/synertekcs/beacon/agent/internal/inventory"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
 )
 
 const (
-	version             = "0.1.0"
-	checkInInterval     = 60 * time.Second
+	version         = "0.1.0"
+	checkInInterval = 60 * time.Second
+)
+
+var (
+	pendingMu      sync.Mutex
+	pendingResults []protocol.CommandResult
 )
 
 func main() {
@@ -57,7 +64,6 @@ func enroll(client *protocol.Client, token string) (*credential.Stored, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inventory: %w", err)
 	}
-
 	resp, err := client.Enroll(token, protocol.EnrollRequest{
 		Hostname:      snap.Hostname,
 		OSType:        snap.OSType,
@@ -68,7 +74,6 @@ func enroll(client *protocol.Client, token string) (*credential.Stored, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	cred := &credential.Stored{
 		DeviceID:         resp.DeviceID,
 		TenantID:         resp.TenantID,
@@ -87,11 +92,17 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		return fmt.Errorf("inventory: %w", err)
 	}
 
+	// Drain accumulated results to report in this check-in
+	pendingMu.Lock()
+	results := pendingResults
+	pendingResults = nil
+	pendingMu.Unlock()
+
 	resp, err := client.CheckIn(cred.DeviceCredential, protocol.CheckInRequest{
-		DeviceID:     cred.DeviceID,
-		TenantID:     cred.TenantID,
-		Timestamp:    time.Now().Unix(),
-		AgentVersion: version,
+		DeviceID:              cred.DeviceID,
+		TenantID:              cred.TenantID,
+		Timestamp:             time.Now().Unix(),
+		AgentVersion:          version,
 		Metrics: protocol.Metrics{
 			Hostname:      snap.Hostname,
 			OSType:        snap.OSType,
@@ -100,13 +111,27 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			DiskFreeBytes: snap.DiskFreeBytes,
 			DetectedClass: protocol.DeviceClass(snap.DetectedClass),
 		},
-		PendingCommandResults: []protocol.CommandResult{},
+		PendingCommandResults: results,
 	})
 	if err != nil {
+		// Re-queue results so they're not lost if the network is down
+		pendingMu.Lock()
+		pendingResults = append(results, pendingResults...)
+		pendingMu.Unlock()
 		return err
 	}
 
-	// Phase 2: dispatch resp.Commands
-	_ = resp
+	// Dispatch each command in its own goroutine; results accumulate for the next check-in
+	for _, cmd := range resp.Commands {
+		go func(cmd protocol.Command) {
+			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
+			result := executor.Execute(cmd)
+			log.Printf("command %s finished: status=%s exit_code=%d", cmd.CommandID, result.Status, result.ExitCode)
+			pendingMu.Lock()
+			pendingResults = append(pendingResults, result)
+			pendingMu.Unlock()
+		}(cmd)
+	}
+
 	return nil
 }

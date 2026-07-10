@@ -50,3 +50,15 @@ export const devices = sqliteTable('devices', {
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });
+
+export const commands = sqliteTable('commands', {
+  id: text('id').primaryKey(),
+  deviceId: text('device_id').notNull().references(() => devices.id),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  type: text('type').notNull(),
+  payload: text('payload').notNull(), // JSON
+  status: text('status', { enum: ['queued', 'sent', 'completed', 'failed'] }).notNull().default('queued'),
+  result: text('result'), // JSON: { stdout, stderr, exit_code }
+  createdAt: integer('created_at').notNull(),
+  completedAt: integer('completed_at'),
+});
