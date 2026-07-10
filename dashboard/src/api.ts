@@ -95,6 +95,18 @@ export interface EnrollmentToken {
 
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
 
+export interface DeviceCommand {
+  id: string;
+  deviceId: string;
+  tenantId: string;
+  type: string;
+  payload: string; // JSON
+  status: 'queued' | 'sent' | 'completed' | 'failed';
+  result: string | null; // JSON: { stdout, stderr, exit_code }
+  createdAt: number;
+  completedAt: number | null;
+}
+
 export interface Device {
   id: string;
   tenantId: string;
@@ -183,6 +195,8 @@ export const api = {
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
     commands: {
+      list:   (deviceId: string) =>
+        request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
       create: (deviceId: string, body: { type: 'run_script' | 'reboot'; shell?: string; script?: string; timeout_seconds?: number }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
     },

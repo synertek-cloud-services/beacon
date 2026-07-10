@@ -74,6 +74,21 @@ adminDevices.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// GET /v1/admin/devices/:id/commands — list recent commands (newest first)
+adminDevices.get('/:id/commands', async (c) => {
+  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  const cmds = await db
+    .select()
+    .from(schema.commands)
+    .where(eq(schema.commands.deviceId, c.req.param('id')))
+    .all();
+
+  // Return newest first
+  return c.json(cmds.sort((a, b) => b.createdAt - a.createdAt));
+});
+
 // POST /v1/admin/devices/:id/commands — queue a command for the device
 adminDevices.post('/:id/commands', async (c) => {
   if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);

@@ -181,6 +181,44 @@
                   </div>
                 </div>
 
+                <!-- Recent Jobs -->
+                <div class="jobs-section" @click.stop>
+                  <div class="jobs-header">
+                    <span class="ddev-section-title" style="margin:0">Recent Jobs</span>
+                    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" @click="loadCommands(d.id)">Refresh</button>
+                  </div>
+                  <div v-if="commandsLoading" class="jobs-empty">Loading…</div>
+                  <div v-else-if="commands.length === 0" class="jobs-empty">No jobs yet — use Quick Job to run a script.</div>
+                  <div v-else class="jobs-list">
+                    <div v-for="cmd in commands" :key="cmd.id" class="job-row">
+                      <div class="job-row-head" @click="toggleJob(cmd.id)">
+                        <span :class="['job-status', `job-status-${cmd.status}`]">{{ cmd.status }}</span>
+                        <span class="job-label">{{ jobLabel(cmd) }}</span>
+                        <span class="job-time text-xs text-muted-2">{{ absDate(cmd.createdAt) }}</span>
+                        <svg v-if="jobResult(cmd)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :style="{ transform: expandedJobId === cmd.id ? 'rotate(180deg)' : '', transition: 'transform .15s', marginLeft: '4px', color: 'var(--muted)', flexShrink: 0 }">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </div>
+                      <div v-if="expandedJobId === cmd.id && jobResult(cmd)" class="job-output">
+                        <div v-if="jobResult(cmd)!.stdout" class="job-stream">
+                          <span class="job-stream-label">stdout</span>
+                          <pre class="job-pre">{{ jobResult(cmd)!.stdout }}</pre>
+                        </div>
+                        <div v-if="jobResult(cmd)!.stderr" class="job-stream">
+                          <span class="job-stream-label job-stream-err">stderr</span>
+                          <pre class="job-pre job-pre-err">{{ jobResult(cmd)!.stderr }}</pre>
+                        </div>
+                        <div v-if="!jobResult(cmd)!.stdout && !jobResult(cmd)!.stderr" class="text-xs text-muted-2" style="padding:8px 12px">
+                          (no output)
+                        </div>
+                        <div v-if="jobResult(cmd)!.exit_code !== 0" class="job-exit-code">
+                          Exit code {{ jobResult(cmd)!.exit_code }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               </td>
             </tr>
           </template>
@@ -236,7 +274,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { api, type Device } from '../api';
+import { api, type Device, type DeviceCommand } from '../api';
 
 interface Inventory {
   hostname: string;
@@ -257,6 +295,12 @@ const expandedId = ref<string | null>(null);
 // Toolbar state
 const menuDeviceId  = ref<string | null>(null);
 const jobQueued     = ref<string | null>(null);
+
+// Commands / jobs
+const commands        = ref<DeviceCommand[]>([]);
+const commandsLoading = ref(false);
+const expandedJobId   = ref<string | null>(null);
+let   cmdPollTimer: ReturnType<typeof setInterval> | null = null;
 
 // Quick Job modal
 const quickJobDevice  = ref<Device | null>(null);
@@ -283,7 +327,59 @@ function countFor(tab: typeof activeTab.value) {
 
 function toggleExpanded(id: string) {
   menuDeviceId.value = null;
-  expandedId.value = expandedId.value === id ? null : id;
+  if (expandedId.value === id) {
+    expandedId.value = null;
+    stopCmdPoll();
+  } else {
+    expandedId.value = id;
+    commands.value = [];
+    expandedJobId.value = null;
+    loadCommands(id);
+  }
+}
+
+async function loadCommands(deviceId: string) {
+  commandsLoading.value = commands.value.length === 0;
+  try {
+    commands.value = await api.devices.commands.list(deviceId);
+    // Keep polling while any command is still queued or sent
+    const pending = commands.value.some(c => c.status === 'queued' || c.status === 'sent');
+    if (pending && !cmdPollTimer) {
+      cmdPollTimer = setInterval(() => {
+        if (expandedId.value) loadCommands(expandedId.value);
+      }, 10_000);
+    } else if (!pending) {
+      stopCmdPoll();
+    }
+  } finally {
+    commandsLoading.value = false;
+  }
+}
+
+function stopCmdPoll() {
+  if (cmdPollTimer) { clearInterval(cmdPollTimer); cmdPollTimer = null; }
+}
+
+function toggleJob(id: string) {
+  expandedJobId.value = expandedJobId.value === id ? null : id;
+}
+
+interface JobResult { stdout: string; stderr: string; exit_code: number; }
+function jobResult(cmd: DeviceCommand): JobResult | null {
+  if (!cmd.result) return null;
+  try { return JSON.parse(cmd.result) as JobResult; }
+  catch { return null; }
+}
+
+function jobLabel(cmd: DeviceCommand): string {
+  try {
+    const p = JSON.parse(cmd.payload);
+    if (cmd.type === 'run_script') {
+      const firstLine = (p.script as string).split('\n')[0].trim();
+      return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine;
+    }
+  } catch {}
+  return cmd.type;
 }
 
 function toggleMenu(id: string) {
@@ -372,6 +468,7 @@ async function submitQuickJob() {
     });
     quickJobDevice.value = null;
     showJobQueued(deviceId);
+    loadCommands(deviceId);
   } catch (e: any) {
     quickJobError.value = e.message;
   } finally {
@@ -384,6 +481,7 @@ async function scheduleReboot(d: Device) {
   try {
     await api.devices.commands.create(d.id, { type: 'reboot' });
     showJobQueued(d.id);
+    loadCommands(d.id);
   } catch (e: any) {
     error.value = e.message;
   }
@@ -436,7 +534,7 @@ function formatBytes(bytes: number): string {
 
 let timer: ReturnType<typeof setInterval>;
 onMounted(() => { load(); timer = setInterval(load, 30_000); });
-onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', closeMenuOnce); });
+onUnmounted(() => { clearInterval(timer); stopCmdPoll(); document.removeEventListener('click', closeMenuOnce); });
 </script>
 
 <style scoped>
@@ -600,6 +698,55 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 }
 .qj-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(78,126,247,.15); outline: none; }
 .qj-select option { background: #1c1f2e; color: var(--text); }
+
+/* ── Jobs section ── */
+.jobs-section { border-top: 1px solid var(--border); }
+.jobs-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+}
+.jobs-empty { padding: 14px 20px; font-size: 12px; color: var(--muted); }
+.jobs-list { }
+
+.job-row { border-bottom: 1px solid var(--border); }
+.job-row:last-child { border-bottom: none; }
+.job-row-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 20px; cursor: pointer;
+  transition: background .1s;
+}
+.job-row-head:hover { background: rgba(255,255,255,.02); }
+
+.job-status {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 3px; flex-shrink: 0;
+}
+.job-status-queued  { background: rgba(240,168,64,.12); color: var(--amber); }
+.job-status-sent    { background: rgba(78,126,247,.12);  color: var(--accent); }
+.job-status-completed { background: rgba(45,207,160,.12); color: var(--teal); }
+.job-status-failed  { background: rgba(232,86,106,.12);  color: var(--red); }
+
+.job-label { font-size: 12px; font-family: var(--mono); color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-time  { flex-shrink: 0; }
+
+.job-output { background: #0a0c13; border-top: 1px solid var(--border); }
+.job-stream { }
+.job-stream-label {
+  display: block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--teal); padding: 6px 16px 2px;
+}
+.job-stream-err .job-stream-label { color: var(--red); }
+.job-stream-label.job-stream-err { color: var(--red); }
+.job-pre {
+  margin: 0; padding: 4px 16px 10px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  color: #c8d0e8; white-space: pre-wrap; word-break: break-all;
+}
+.job-pre-err { color: var(--red); }
+.job-exit-code {
+  font-size: 11px; color: var(--red); padding: 4px 16px 8px;
+  font-family: var(--mono);
+}
 
 .code-area {
   width: 100%;
