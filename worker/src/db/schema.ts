@@ -84,6 +84,17 @@ export const alertState = sqliteTable('alert_state', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+export const sessions = sqliteTable('sessions', {
+  id: text('id').primaryKey(),
+  deviceId: text('device_id').notNull().references(() => devices.id),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  sessionType: text('session_type', { enum: ['shell', 'tcp_tunnel'] }).notNull(),
+  tcpPort: integer('tcp_port'), // for tcp_tunnel
+  status: text('status', { enum: ['pending', 'active', 'closed'] }).notNull().default('pending'),
+  createdAt: integer('created_at').notNull(),
+  closedAt: integer('closed_at'),
+});
+
 export const commands = sqliteTable('commands', {
   id: text('id').primaryKey(),
   deviceId: text('device_id').notNull().references(() => devices.id),

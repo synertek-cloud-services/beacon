@@ -12,6 +12,7 @@ import (
 	"github.com/synertekcs/beacon/agent/internal/executor"
 	"github.com/synertekcs/beacon/agent/internal/inventory"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertekcs/beacon/agent/internal/session"
 )
 
 const (
@@ -121,9 +122,14 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		return err
 	}
 
-	// Dispatch each command in its own goroutine; results accumulate for the next check-in
+	// Dispatch each command in its own goroutine
 	for _, cmd := range resp.Commands {
 		go func(cmd protocol.Command) {
+			if cmd.Type == "open_session" {
+				// Sessions are long-lived WebSocket connections — no result to report
+				session.Handle(cmd)
+				return
+			}
 			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
 			result := executor.Execute(cmd)
 			log.Printf("command %s finished: status=%s exit_code=%d", cmd.CommandID, result.Status, result.ExitCode)
