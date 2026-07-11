@@ -5,14 +5,14 @@
     <!-- Tenant list -->
     <div class="section-card">
       <div class="section-card-head">
-        <span class="section-card-title">Tenants</span>
-        <button class="btn btn-primary btn-sm" @click="openCreate">+ New Tenant</button>
+        <span class="section-card-title">Companies</span>
+        <button class="btn btn-primary btn-sm" @click="openCreate">+ New Company</button>
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
       <div v-else-if="tenants.length === 0" class="empty">
-        <div class="empty-title">No tenants yet</div>
-        <p class="empty-sub">Create a tenant to start enrolling devices.</p>
+        <div class="empty-title">No companies yet</div>
+        <p class="empty-sub">Create a company to start enrolling devices.</p>
       </div>
       <table v-else>
         <thead>
@@ -182,7 +182,7 @@
     <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
       <div class="modal modal-lg">
         <div class="modal-head">
-          <span class="modal-title">{{ editingId ? 'Edit Tenant' : 'New Tenant' }}</span>
+          <span class="modal-title">{{ editingId ? 'Edit Company' : 'New Company' }}</span>
         </div>
         <div class="modal-body">
           <!-- Company -->
@@ -255,7 +255,7 @@
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="showForm = false">Cancel</button>
           <button class="btn btn-primary" :disabled="submitting" @click="submitForm">
-            {{ submitting ? (editingId ? 'Saving…' : 'Creating…') : (editingId ? 'Save Changes' : 'Create Tenant') }}
+            {{ submitting ? (editingId ? 'Saving…' : 'Creating…') : (editingId ? 'Save Changes' : 'Create Company') }}
           </button>
         </div>
       </div>

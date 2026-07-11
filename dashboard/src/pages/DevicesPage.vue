@@ -3,20 +3,33 @@
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div class="section-card">
-      <div class="section-card-head">
-        <div class="tabs" style="border:none;margin:0">
-          <button
-            v-for="tab in tabs"
-            :key="tab.value"
-            class="tab"
-            :class="{ active: activeTab === tab.value }"
-            @click="activeTab = tab.value; expandedId = null"
-          >
-            {{ tab.label }}
-            <span class="tab-count">{{ countFor(tab.value) }}</span>
-          </button>
+      <!-- Class filter bar -->
+      <div class="class-bar">
+        <button
+          v-for="ct in classTabs"
+          :key="ct.value"
+          class="class-tab"
+          :class="{ active: classTab === ct.value }"
+          @click="classTab = ct.value; expandedId = null"
+        >
+          <span class="class-tab-label">{{ ct.label }}</span>
+          <span class="class-tab-count">{{ classCountFor(ct.value) }}</span>
+        </button>
+        <div class="class-bar-actions">
+          <div class="tabs" style="border:none;margin:0;gap:4px">
+            <button
+              v-for="tab in statusTabs"
+              :key="tab.value"
+              class="tab tab-sm"
+              :class="{ active: activeTab === tab.value }"
+              @click="activeTab = tab.value; expandedId = null"
+            >{{ tab.label }}<span class="tab-count">{{ countFor(tab.value) }}</span></button>
+          </div>
+          <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
+      </div>
+      <div class="section-card-head" style="padding:8px 16px;border-top:1px solid var(--border);border-bottom:none" v-if="activeCompany">
+        <span class="text-xs text-muted-2">Filtered by company: <strong>{{ devices.find(d => d.tenantId === activeCompany)?.tenantName ?? activeCompany }}</strong></span>
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
@@ -30,6 +43,7 @@
         <thead>
           <tr>
             <th>Hostname</th>
+            <th>Company</th>
             <th>OS</th>
             <th>Class</th>
             <th>Agent</th>
@@ -49,6 +63,7 @@
                 <span :class="['status-dot', isOnline(d) ? 'dot-online' : d.status === 'pending' ? 'dot-pending' : 'dot-offline']"></span>
                 <span class="mono text-sm">{{ d.hostname ?? '—' }}</span>
               </td>
+              <td class="text-muted-2 text-sm">{{ d.tenantName ?? '—' }}</td>
               <td class="text-muted-2 text-sm">{{ osShortLabel(d) }}</td>
               <td class="text-muted-2 text-sm">{{ effectiveClass(d) ?? '—' }}</td>
               <td class="mono text-xs text-muted-2">{{ d.agentVersion ?? '—' }}</td>
@@ -150,7 +165,6 @@
                 <!-- Device detail tab bar -->
                 <div class="ddev-tabs" @click.stop>
                   <button class="ddev-tab" :class="{ active: activeDeviceTab === 'details' }"   @click="setDeviceTab('details',   d.id)">Details</button>
-                  <button class="ddev-tab" :class="{ active: activeDeviceTab === 'inventory' }" @click="setDeviceTab('inventory', d.id)">Inventory</button>
                   <button class="ddev-tab" :class="{ active: activeDeviceTab === 'changelog' }" @click="setDeviceTab('changelog', d.id)">Change Log</button>
                 </div>
 
@@ -161,6 +175,7 @@
                 <div class="ddev-grid">
                   <div class="ddev-section">
                     <div class="ddev-section-title">System</div>
+                    <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ d.tenantName ?? '—' }}</span></div>
                     <div class="ddev-row"><span class="ddev-label">Hostname</span><span class="mono text-sm">{{ d.hostname ?? '—' }}</span></div>
                     <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(d) || '—' }}</span></div>
                     <div v-if="osBuildLabel(d)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(d) }}</span></div>
@@ -192,13 +207,10 @@
                   </div>
                 </div>
 
-                </template><!-- end details tab -->
-
-                <!-- ── Inventory tab ── -->
-                <div v-else-if="activeDeviceTab === 'inventory'" class="inv-tab-body" @click.stop>
+                <!-- Inventory sections (from audit data) -->
+                <div class="inv-tab-body" @click.stop>
                   <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
-                  <div v-else-if="!auditData" class="inv-empty">
-                    <div style="margin-bottom:10px">No audit recorded yet.</div>
+                  <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
                     <button class="btn btn-primary btn-sm" :disabled="d.status !== 'approved'" @click="runAuditNow(d.id)">Run Audit Now</button>
                   </div>
                   <template v-else>
@@ -276,12 +288,22 @@
                         <input v-model="softwareSearch" class="inv-search" placeholder="Search software…" />
                       </div>
                       <div class="sw-list">
-                        <div v-for="sw in filteredSoftware" :key="sw.name" class="sw-row">
+                        <div v-for="sw in pagedSoftware" :key="sw.name" class="sw-row">
                           <span class="sw-name text-sm">{{ sw.name }}</span>
                           <span class="sw-ver mono text-xs text-muted-2">{{ sw.version || '—' }}</span>
                           <span v-if="sw.publisher" class="sw-pub text-xs text-muted-2">{{ sw.publisher }}</span>
                         </div>
                         <div v-if="filteredSoftware.length === 0" class="inv-empty-row">No matches</div>
+                      </div>
+                      <div class="inv-pagination">
+                        <select v-model="swPageSize" class="pag-size-select">
+                          <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                        </select>
+                        <template v-if="softwarePageCount > 1">
+                          <button class="pag-btn" :disabled="softwarePage === 0" @click="softwarePage--">‹</button>
+                          <span class="pag-info text-xs text-muted-2">{{ softwarePage + 1 }} / {{ softwarePageCount }}</span>
+                          <button class="pag-btn" :disabled="softwarePage >= softwarePageCount - 1" @click="softwarePage++">›</button>
+                        </template>
                       </div>
                     </div>
 
@@ -292,15 +314,27 @@
                         <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.services.length }} total</span>
                       </div>
                       <div class="svc-list">
-                        <div v-for="svc in auditData.services" :key="svc.name" class="svc-row">
+                        <div v-for="svc in pagedServices" :key="svc.name" class="svc-row">
                           <span :class="['svc-dot', svc.status === 'running' ? 'svc-dot-run' : 'svc-dot-stop']"></span>
                           <span class="svc-name text-sm">{{ svc.display_name || svc.name }}</span>
                           <span v-if="svc.start_type" class="svc-start text-xs text-muted-2">{{ svc.start_type }}</span>
                         </div>
                       </div>
+                      <div class="inv-pagination">
+                        <select v-model="svcPageSize" class="pag-size-select">
+                          <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                        </select>
+                        <template v-if="servicesPageCount > 1">
+                          <button class="pag-btn" :disabled="servicesPage === 0" @click="servicesPage--">‹</button>
+                          <span class="pag-info text-xs text-muted-2">{{ servicesPage + 1 }} / {{ servicesPageCount }}</span>
+                          <button class="pag-btn" :disabled="servicesPage >= servicesPageCount - 1" @click="servicesPage++">›</button>
+                        </template>
+                      </div>
                     </div>
                   </template>
                 </div>
+
+                </template><!-- end details tab -->
 
                 <!-- ── Change Log tab ── -->
                 <div v-else-if="activeDeviceTab === 'changelog'" class="inv-tab-body" @click.stop>
@@ -449,7 +483,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AuditChange } from '../api';
 
 interface Inventory {
@@ -461,20 +496,30 @@ interface Inventory {
   detected_class: string;
 }
 
+const route      = useRoute();
 const devices    = ref<Device[]>([]);
 const loading    = ref(true);
 const error      = ref('');
 const busy       = ref<string | null>(null);
 const activeTab  = ref<'all' | 'pending' | 'approved' | 'revoked'>('all');
+const classTab   = ref<'all' | 'server' | 'workstation' | 'network'>('all');
 const expandedId = ref<string | null>(null);
 
+const activeCompany = computed(() => route.query.company as string | undefined);
+const searchQuery   = computed(() => ((route.query.search as string) ?? '').toLowerCase().trim());
+
 // Device detail tab state
-const activeDeviceTab = ref<'details' | 'inventory' | 'changelog'>('details');
+const activeDeviceTab = ref<'details' | 'changelog'>('details');
 const auditData       = ref<DeviceAudit | null>(null);
 const auditLoading    = ref(false);
 const auditChanges    = ref<AuditChange[]>([]);
 const changesLoading  = ref(false);
 const softwareSearch  = ref('');
+const softwarePage    = ref(0);
+const servicesPage    = ref(0);
+const swPageSize      = ref(20);
+const svcPageSize     = ref(20);
+const PAGE_SIZES      = [20, 50, 100];
 
 // Toolbar state
 const menuDeviceId  = ref<string | null>(null);
@@ -494,22 +539,52 @@ const libraryLoading     = ref(false);
 const selectedComponent  = ref<Component | null>(null);
 const libSearch          = ref('');
 
-const tabs = [
+const statusTabs = [
   { label: 'All',      value: 'all'      as const },
   { label: 'Pending',  value: 'pending'  as const },
   { label: 'Approved', value: 'approved' as const },
   { label: 'Revoked',  value: 'revoked'  as const },
 ];
 
+const classTabs = [
+  { label: 'All',          value: 'all'         as const },
+  { label: 'Servers',      value: 'server'       as const },
+  { label: 'Workstations', value: 'workstation'  as const },
+  { label: 'Network',      value: 'network'      as const },
+];
+
 const now = ref(Math.floor(Date.now() / 1000));
 
-const visibleDevices = computed(() =>
-  activeTab.value === 'all' ? devices.value : devices.value.filter(d => d.status === activeTab.value)
+const companyDevices = computed(() =>
+  activeCompany.value ? devices.value.filter(d => d.tenantId === activeCompany.value) : devices.value
 );
 
+const visibleDevices = computed(() => {
+  let list = companyDevices.value;
+  if (activeTab.value !== 'all')  list = list.filter(d => d.status === activeTab.value);
+  if (classTab.value !== 'all')   list = list.filter(d => (d.detectedClass ?? d.overrideClass) === classTab.value);
+  if (searchQuery.value) {
+    const q = searchQuery.value;
+    list = list.filter(d =>
+      (d.hostname ?? '').toLowerCase().includes(q) ||
+      (d.tenantName ?? '').toLowerCase().includes(q)
+    );
+  }
+  return list;
+});
+
 function countFor(tab: typeof activeTab.value) {
-  return tab === 'all' ? devices.value.length : devices.value.filter(d => d.status === tab).length;
+  const base = companyDevices.value;
+  return tab === 'all' ? base.length : base.filter(d => d.status === tab).length;
 }
+
+function classCountFor(cls: typeof classTab.value) {
+  const base = activeTab.value === 'all' ? companyDevices.value : companyDevices.value.filter(d => d.status === activeTab.value);
+  return cls === 'all' ? base.length : base.filter(d => (d.detectedClass ?? d.overrideClass) === cls).length;
+}
+
+watch(activeCompany, () => { expandedId.value = null; classTab.value = 'all'; activeTab.value = 'all'; });
+watch(searchQuery,   () => { expandedId.value = null; });
 
 function toggleExpanded(id: string) {
   menuDeviceId.value = null;
@@ -521,12 +596,19 @@ function toggleExpanded(id: string) {
     auditData.value = null;
     auditChanges.value = [];
     softwareSearch.value = '';
+    softwarePage.value = 0;
+    servicesPage.value = 0;
+    auditLoading.value = true;
+    api.devices.audit.latest(id)
+      .then(data => { auditData.value = data; })
+      .catch(() => {})
+      .finally(() => { auditLoading.value = false; });
   }
 }
 
 async function setDeviceTab(tab: typeof activeDeviceTab.value, deviceId: string) {
   activeDeviceTab.value = tab;
-  if (tab === 'inventory' && !auditData.value) {
+  if (tab === 'details' && !auditData.value) {
     auditLoading.value = true;
     try { auditData.value = await api.devices.audit.latest(deviceId); }
     finally { auditLoading.value = false; }
@@ -763,9 +845,16 @@ function formatBytes(bytes: number): string {
 const filteredSoftware = computed(() => {
   const list = auditData.value?.software ?? [];
   const q = softwareSearch.value.toLowerCase().trim();
-  if (!q) return list;
-  return list.filter(s => s.name.toLowerCase().includes(q) || s.version.toLowerCase().includes(q));
+  return q ? list.filter(s => s.name.toLowerCase().includes(q) || s.version.toLowerCase().includes(q)) : list;
 });
+const softwarePageCount = computed(() => Math.ceil(filteredSoftware.value.length / swPageSize.value));
+const pagedSoftware     = computed(() => filteredSoftware.value.slice(softwarePage.value * swPageSize.value, (softwarePage.value + 1) * swPageSize.value));
+const servicesPageCount = computed(() => Math.ceil((auditData.value?.services?.length ?? 0) / svcPageSize.value));
+const pagedServices     = computed(() => (auditData.value?.services ?? []).slice(servicesPage.value * svcPageSize.value, (servicesPage.value + 1) * svcPageSize.value));
+
+watch(softwareSearch, () => { softwarePage.value = 0; });
+watch(swPageSize,     () => { softwarePage.value = 0; });
+watch(svcPageSize,    () => { servicesPage.value = 0; });
 
 interface ChangeGroup { auditId: string; detectedAt: number; changes: AuditChange[] }
 const changeGroups = computed((): ChangeGroup[] => {
@@ -796,7 +885,18 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 .tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
 .tab:hover { color: var(--text-muted-2); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab.tab-sm { height: 32px; padding: 0 10px; font-size: 11px; }
 .tab-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+
+/* ── Class filter bar ── */
+.class-bar { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+.class-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 24px; border: none; border-right: 1px solid var(--border); border-bottom: 3px solid transparent; background: none; cursor: pointer; transition: background .12s, border-color .12s; min-width: 100px; }
+.class-tab:hover { background: var(--surface-2); }
+.class-tab.active { border-bottom-color: var(--accent); background: var(--surface-2); }
+.class-tab-label { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.class-tab.active .class-tab-label { color: var(--accent); }
+.class-tab-count { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
+.class-bar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
 
 /* ── Inline expansion ── */
 .device-row-active td { background: rgba(78,126,247,.04); border-bottom: none; }
@@ -1000,7 +1100,7 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 .ddev-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* ── Inventory tab ── */
-.inv-tab-body { overflow-y: auto; max-height: 480px; }
+.inv-tab-body {}
 .inv-empty { padding: 20px; font-size: 12px; color: var(--muted); text-align: center; }
 .inv-toolbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -1031,14 +1131,21 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
   outline: none; transition: border-color .12s; box-sizing: border-box;
 }
 .inv-search:focus { border-color: var(--accent); }
-.sw-list { max-height: 280px; overflow-y: auto; border-top: 1px solid var(--border); }
+.sw-list { border-top: 1px solid var(--border); }
+.inv-pagination { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-top: 1px solid var(--border); }
+.pag-btn { background: none; border: 1px solid var(--border-2); border-radius: 4px; color: var(--text); cursor: pointer; padding: 2px 8px; font-size: 14px; line-height: 1.4; transition: border-color .12s; }
+.pag-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pag-btn:disabled { opacity: .35; cursor: default; }
+.pag-info { min-width: 48px; text-align: center; }
+.pag-size-select { background: var(--surface); border: 1px solid var(--border-2); border-radius: 4px; color: var(--text); font-size: 11px; padding: 2px 6px; cursor: pointer; margin-right: auto; }
+.pag-size-select:focus { outline: none; border-color: var(--accent); }
 .sw-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 20px; border-bottom: 1px solid rgba(255,255,255,.03); }
 .sw-row:last-child { border-bottom: none; }
 .sw-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .sw-ver  { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .sw-pub  { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-empty-row { padding: 10px 20px; font-size: 12px; color: var(--muted); }
-.svc-list { max-height: 280px; overflow-y: auto; border-top: 1px solid var(--border); }
+.svc-list { border-top: 1px solid var(--border); }
 .svc-row { display: flex; align-items: center; gap: 8px; padding: 5px 20px; border-bottom: 1px solid rgba(255,255,255,.03); }
 .svc-row:last-child { border-bottom: none; }
 .svc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }

@@ -220,6 +220,7 @@ export interface AuditChange {
 export interface Device {
   id: string;
   tenantId: string;
+  tenantName: string | null;
   status: DeviceStatus;
   hostname: string | null;
   osType: string | null;

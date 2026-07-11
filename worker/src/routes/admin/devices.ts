@@ -18,9 +18,19 @@ adminDevices.get('/', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const statusFilter = c.req.query('status') as typeof schema.devices.$inferSelect['status'] | undefined;
 
-  const rows = statusFilter
+  const devices = statusFilter
     ? await db.select().from(schema.devices).where(eq(schema.devices.status, statusFilter)).all()
     : await db.select().from(schema.devices).all();
+
+  const tenantIds = [...new Set(devices.map(d => d.tenantId))];
+  const tenants = tenantIds.length
+    ? await db.select({ id: schema.tenants.id, name: schema.tenants.name })
+        .from(schema.tenants)
+        .all()
+    : [];
+  const tenantMap = new Map(tenants.map(t => [t.id, t.name]));
+
+  const rows = devices.map(d => ({ ...d, tenantName: tenantMap.get(d.tenantId) ?? null }));
 
   return c.json(rows);
 });

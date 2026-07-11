@@ -3,7 +3,6 @@
     <RouterView />
   </div>
   <div v-else class="shell">
-    <!-- Sidebar -->
     <nav class="sidebar">
       <div class="sidebar-brand">
         <div class="sidebar-brand-mark">
@@ -14,46 +13,92 @@
         <span class="sidebar-brand-name">Beacon</span>
       </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Navigation</div>
-        <RouterLink to="/" class="nav-item" :class="{ active: route.path === '/' }">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <div class="sidebar-nav">
+
+        <!-- DASHBOARDS -->
+        <div class="sec-head" @click="toggleSection('dashboards')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
             <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
           </svg>
-          Dashboard
-        </RouterLink>
-        <RouterLink to="/devices" class="nav-item" :class="{ active: route.path.startsWith('/devices') }">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/>
+          <span class="sec-label">Dashboards</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.dashboards }">
+            <polyline points="6 9 12 15 18 9"/>
           </svg>
-          Devices
-        </RouterLink>
-        <RouterLink to="/tenants" class="nav-item" :class="{ active: route.path.startsWith('/tenants') }">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        </div>
+        <div v-show="openSections.dashboards" class="sec-body">
+          <RouterLink to="/" class="sbi" :class="{ active: route.path === '/' }">Default Dashboard</RouterLink>
+        </div>
+
+        <!-- SITES -->
+        <div class="sec-head" @click="toggleSection('sites')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
             <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
             <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>
             <path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
           </svg>
-          Tenants
-        </RouterLink>
-      </div>
+          <span class="sec-label">Sites</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.sites }">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div v-show="openSections.sites" class="sec-body">
+          <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Sites</RouterLink>
+          <template v-for="c in companies" :key="c.id">
+            <div class="sbi sbi-company" :class="{ active: activeCompany === c.id }" @click="selectCompany(c.id)">
+              <svg class="company-tri" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none" @click.stop="toggleCompany(c.id)">
+                <polygon v-if="expandedCompanies[c.id]" points="2,6 22,6 12,20"/>
+                <polygon v-else points="6,2 6,22 20,12"/>
+              </svg>
+              <span class="sbi-company-name">{{ c.name }}</span>
+            </div>
+            <div v-if="expandedCompanies[c.id]" class="sbi sbi-leaf" :class="{ active: activeCompany === c.id && route.path.startsWith('/devices') }" @click="selectCompany(c.id)">Devices</div>
+          </template>
+        </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-section-label">Automation</div>
-        <RouterLink to="/components" class="nav-item" :class="{ active: route.path.startsWith('/components') }">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+        <!-- DEVICES -->
+        <div class="sec-head" @click="toggleSection('devices')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/>
           </svg>
-          Components
-        </RouterLink>
-        <RouterLink to="/jobs" class="nav-item" :class="{ active: route.path.startsWith('/jobs') }">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          <span class="sec-label">Devices</span>
+          <span v-if="pendingCount > 0" class="sec-badge">{{ pendingCount }}</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.devices }">
+            <polyline points="6 9 12 15 18 9"/>
           </svg>
-          Jobs
-        </RouterLink>
+        </div>
+        <div v-show="openSections.devices" class="sec-body">
+          <RouterLink
+            :to="{ path: '/devices', query: { status: 'pending' } }"
+            class="sbi"
+            :class="{ active: route.path.startsWith('/devices') && route.query.status === 'pending' }"
+          >
+            Device Approvals
+            <span v-if="pendingCount > 0" class="sbi-badge">{{ pendingCount }}</span>
+          </RouterLink>
+          <RouterLink
+            to="/devices"
+            class="sbi"
+            :class="{ active: route.path.startsWith('/devices') && !route.query.company && route.query.status !== 'pending' }"
+          >All</RouterLink>
+        </div>
+
+        <!-- AUTOMATION -->
+        <div class="sec-head" @click="toggleSection('automation')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          <span class="sec-label">Automation</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.automation }">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div v-show="openSections.automation" class="sec-body">
+          <RouterLink to="/jobs" class="sbi" :class="{ active: route.path.startsWith('/jobs') }">Jobs</RouterLink>
+          <RouterLink to="/components" class="sbi" :class="{ active: route.path.startsWith('/components') }">Components</RouterLink>
+        </div>
+
       </div>
 
       <div class="sidebar-footer">
@@ -65,6 +110,19 @@
     <div class="main-wrap">
       <div class="topbar">
         <span class="topbar-title">{{ pageTitle }}</span>
+        <div class="topbar-search">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="search"
+            class="topbar-search-input"
+            placeholder="Search devices…"
+            @keydown.enter="doSearch"
+            @input="scheduleSearch"
+          />
+        </div>
         <div class="topbar-actions">
           <span class="text-xs text-muted mono">{{ workerUrl }}</span>
         </div>
@@ -77,21 +135,76 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api } from './api';
+import { api, type Tenant } from './api';
 
 const route = useRoute();
 const router = useRouter();
 
-const isLogin = computed(() => route.path === '/login');
-
+const isLogin   = computed(() => route.path === '/login');
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
+
+const companies         = ref<Tenant[]>([]);
+const expandedCompanies = ref<Record<string, boolean>>({});
+const activeCompany     = computed(() => route.query.company as string | undefined);
+const pendingCount      = ref(0);
+
+const openSections = ref({ dashboards: true, sites: true, devices: true, automation: false });
+
+const searchQuery = ref('');
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+onMounted(async () => {
+  if (api.hasSecret()) {
+    try {
+      const [tenantList, summary] = await Promise.all([api.tenants.list(), api.summary.get()]);
+      companies.value = tenantList;
+      pendingCount.value = summary.pending;
+    } catch {}
+  }
+});
+
+onUnmounted(() => { if (searchTimer) clearTimeout(searchTimer); });
+
+watch(activeCompany, (id) => {
+  if (id) expandedCompanies.value = { ...expandedCompanies.value, [id]: true };
+}, { immediate: true });
+
+watch(() => route.query.search, (s) => {
+  searchQuery.value = (s as string) ?? '';
+}, { immediate: true });
+
+function selectCompany(id: string | null) {
+  if (id) expandedCompanies.value = { ...expandedCompanies.value, [id]: true };
+  router.push({ path: '/devices', query: id ? { company: id } : {} });
+}
+
+function toggleCompany(id: string) {
+  expandedCompanies.value = { ...expandedCompanies.value, [id]: !expandedCompanies.value[id] };
+}
+
+function toggleSection(key: keyof typeof openSections.value) {
+  openSections.value = { ...openSections.value, [key]: !openSections.value[key] };
+}
+
+function doSearch() {
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+  const q: Record<string, string> = {};
+  if (activeCompany.value) q.company = activeCompany.value;
+  if (searchQuery.value.trim()) q.search = searchQuery.value.trim();
+  router.push({ path: '/devices', query: q });
+}
+
+function scheduleSearch() {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(doSearch, 350);
+}
 
 const pageTitle = computed(() => {
   if (route.path === '/') return 'Dashboard';
   if (route.path.startsWith('/devices')) return 'Devices';
-  if (route.path.startsWith('/tenants')) return 'Tenants';
+  if (route.path.startsWith('/tenants')) return 'Sites';
   if (route.path.startsWith('/components')) return 'Component Library';
   if (route.path.startsWith('/jobs')) return 'Jobs';
   return 'Beacon';
@@ -102,3 +215,102 @@ function logout() {
   router.push('/login');
 }
 </script>
+
+<style scoped>
+/* ── Scrollable nav container ── */
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Section headers ── */
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background .1s;
+  flex-shrink: 0;
+}
+.sec-head:hover { background: var(--surface-2); }
+.sec-icon { color: var(--muted); flex-shrink: 0; opacity: .8; }
+.sec-label {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sec-chevron {
+  color: var(--muted);
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform .18s;
+}
+.sec-chevron.open { transform: rotate(0deg); }
+.sec-badge {
+  font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
+  background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
+}
+
+/* ── Section body ── */
+.sec-body { padding-bottom: 4px; }
+
+/* ── Sidebar items ── */
+.sbi {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 32px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 5px;
+  margin: 1px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  transition: background .12s, color .12s;
+}
+.sbi:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.sbi.active { background: rgba(78,126,247,.1); color: var(--accent); font-weight: 500; }
+
+/* company row */
+.sbi-company { padding-left: 24px; gap: 6px; }
+.sbi-company-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-tri { flex-shrink: 0; color: var(--muted); cursor: pointer; transition: color .12s; }
+.sbi-company:hover .company-tri, .sbi-company.active .company-tri { color: var(--text); }
+
+/* leaf item (Devices under a company) */
+.sbi-leaf { padding-left: 48px; }
+
+/* pending badge inside an sbi */
+.sbi-badge {
+  margin-left: auto;
+  font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
+  background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
+}
+
+/* ── Topbar search ── */
+.topbar-search {
+  flex: 1; max-width: 320px; position: relative; display: flex; align-items: center;
+  margin: 0 16px;
+}
+.search-icon { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.topbar-search-input {
+  width: 100%; padding: 5px 10px 5px 32px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); color: var(--text); font-size: 12px; font-family: var(--font);
+  outline: none; transition: border-color .12s;
+}
+.topbar-search-input:focus { border-color: var(--accent); background: var(--surface); }
+.topbar-search-input::placeholder { color: var(--muted); }
+.topbar-search-input::-webkit-search-cancel-button { cursor: pointer; }
+</style>

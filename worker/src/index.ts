@@ -27,7 +27,15 @@ export type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.use('/v1/admin/*', cors({
-  origin: ['https://rmm.cloud.synertekcs.com', 'http://localhost:5173'],
+  origin: (origin) => {
+    if (!origin) return '';
+    if (
+      origin === 'https://rmm.cloud.synertekcs.com' ||
+      origin === 'http://localhost:5173' ||
+      origin.endsWith('.beacon-dashboard-6f4.pages.dev')
+    ) return origin;
+    return '';
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Authorization', 'Content-Type'],
 }));
