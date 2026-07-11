@@ -49,7 +49,7 @@
                 <span :class="['status-dot', isOnline(d) ? 'dot-online' : d.status === 'pending' ? 'dot-pending' : 'dot-offline']"></span>
                 <span class="mono text-sm">{{ d.hostname ?? '—' }}</span>
               </td>
-              <td class="text-muted-2 text-sm">{{ osLabel(d) }}</td>
+              <td class="text-muted-2 text-sm">{{ osShortLabel(d) }}</td>
               <td class="text-muted-2 text-sm">{{ effectiveClass(d) ?? '—' }}</td>
               <td class="mono text-xs text-muted-2">{{ d.agentVersion ?? '—' }}</td>
               <td class="text-muted-2 text-sm">{{ lastSeenLabel(d.lastSeen) }}</td>
@@ -79,7 +79,7 @@
                       <span class="text-xs text-muted-2">{{ d.status }}</span>
                       <template v-if="d.osType">
                         <span class="ddev-sep">·</span>
-                        <span class="text-xs text-muted-2">{{ osLabel(d) }}</span>
+                        <span class="text-xs text-muted-2">{{ osShortLabel(d) }}</span>
                       </template>
                     </div>
                   </div>
@@ -162,7 +162,8 @@
                   <div class="ddev-section">
                     <div class="ddev-section-title">System</div>
                     <div class="ddev-row"><span class="ddev-label">Hostname</span><span class="mono text-sm">{{ d.hostname ?? '—' }}</span></div>
-                    <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osLabel(d) || '—' }}</span></div>
+                    <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(d) || '—' }}</span></div>
+                    <div v-if="osBuildLabel(d)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(d) }}</span></div>
                     <div class="ddev-row">
                       <span class="ddev-label">Class</span>
                       <span class="text-sm">
@@ -708,9 +709,23 @@ function showJobQueued(deviceId: string) {
 // ── Helpers ───────────────────────────────────────────────────
 function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
 
-function osLabel(d: Device) {
+function osShortLabel(d: Device) {
   if (!d.osType) return '—';
-  return d.osVersion ? `${d.osType} ${d.osVersion}` : d.osType;
+  const raw = d.osVersion ? `${d.osType} ${d.osVersion}` : d.osType;
+  // "windows Microsoft Windows 11 Home 10.0.26200.8655 Build 26200.8655"
+  // → "Windows 11 Home"
+  const m = raw.match(/Windows\s+\d+\s+\w+/i);
+  if (m) return m[0];
+  // Linux: "linux Ubuntu 22.04.3 LTS" → "Ubuntu 22.04.3 LTS"
+  const linuxM = raw.match(/^linux\s+(.+?)(?:\s+\d+\.\d+\.\d+-.*)?$/i);
+  if (linuxM) return linuxM[1];
+  return raw;
+}
+
+function osBuildLabel(d: Device) {
+  if (!d.osVersion) return null;
+  const m = d.osVersion.match(/(\d+\.\d+(?:\.\d+)+)/g);
+  return m ? m[m.length - 1] : null;
 }
 
 function lastSeenLabel(ts: number | null) {
