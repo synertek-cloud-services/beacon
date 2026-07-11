@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import enroll from './routes/enroll';
 import checkin from './routes/checkin';
 import auditRoute from './routes/audit';
@@ -24,6 +25,12 @@ export type Bindings = {
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+app.use('/v1/admin/*', cors({
+  origin: ['https://rmm.cloud.synertekcs.com', 'http://localhost:5173'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Authorization', 'Content-Type'],
+}));
 
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);

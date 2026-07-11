@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isLogin">
+  <div v-if="isLogin" class="login-wrap">
     <RouterView />
   </div>
   <div v-else class="shell">

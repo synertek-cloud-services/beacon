@@ -159,7 +159,6 @@ const tabs = [
 ];
 
 const TYPE_TABS   = new Set(['quick', 'scheduled']);
-const STATUS_TABS = new Set(['active', 'completed', 'cancelled']);
 
 const visible = computed(() => {
   if (activeTab.value === 'all') return jobs.value;

@@ -514,7 +514,6 @@ function toggleExpanded(id: string) {
   menuDeviceId.value = null;
   if (expandedId.value === id) {
     expandedId.value = null;
-    stopCmdPoll();
   } else {
     expandedId.value = id;
     activeDeviceTab.value = 'details';
@@ -680,7 +679,6 @@ async function submitQuickJob() {
 
     quickJobDevice.value = null;
     showJobQueued(device.id);
-    loadCommands(device.id);
   } catch (e: any) {
     quickJobError.value = e.message;
   } finally {
@@ -697,7 +695,6 @@ async function scheduleReboot(d: Device) {
   try {
     await api.devices.commands.create(d.id, { type: 'reboot' });
     showJobQueued(d.id);
-    loadCommands(d.id);
   } catch (e: any) {
     error.value = e.message;
   }

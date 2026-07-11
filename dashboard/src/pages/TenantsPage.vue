@@ -524,7 +524,7 @@ const oneLiner = computed(() => {
   const tok = installModal.value.token;
   const dl = downloadURL.value;
   if (installOS.value === 'windows') {
-    return `$u="${u}"; $t="$env:TEMP\\beacon-agent.exe"; Invoke-WebRequest "${dl}" -OutFile $t; & $t install --server-url $u --enroll-token ${tok}`;
+    return `$u="${u}"; $t=Join-Path $env:TEMP "beacon-agent.exe"; Invoke-WebRequest "${dl}" -OutFile $t; & "$t" install --server-url $u --enroll-token ${tok}`;
   }
   return `sudo sh -c 'curl -fsSL "${dl}" -o /tmp/beacon-agent && chmod +x /tmp/beacon-agent && /tmp/beacon-agent install --server-url "${u}" --enroll-token "${tok}"'`;
 });
