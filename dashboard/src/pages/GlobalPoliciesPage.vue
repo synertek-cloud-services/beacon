@@ -828,7 +828,8 @@ function monitorSummary(m: PolicyMonitor): string {
 }
 .btn-icon:hover { background: var(--surface-2); color: var(--text); }
 .modal-body {
-  padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto; overflow-x: hidden;
 }
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 8px;
@@ -837,7 +838,7 @@ function monitorSummary(m: PolicyMonitor): string {
 
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field-row { display: flex; gap: 12px; }
-.field-row .field { flex: 1; }
+.field-row .field { flex: 1; min-width: 0; }
 .field-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .field-input {
   padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
@@ -852,12 +853,17 @@ function monitorSummary(m: PolicyMonitor): string {
 .input-unit  { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
 .check-group { display: flex; flex-direction: column; gap: 8px; }
-.check-group.horizontal { flex-direction: row; flex-wrap: wrap; gap: 14px; }
-.check-row {
-  display: flex; align-items: flex-start; gap: 7px; cursor: pointer;
-  font-size: 12px; color: var(--text);
+.check-group.horizontal {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 0;
 }
-.check-row input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+.check-row {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text); padding: 4px 0;
+  white-space: nowrap;
+}
+.check-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
 
 .error-msg { color: #e04040; font-size: 12px; }
 
