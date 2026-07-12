@@ -1,6 +1,6 @@
 # Beacon — CLAUDE.md
 
-Self-hosted RMM platform built for Synertek (managed by CodeNexus). Monorepo: Go agent, Cloudflare Workers backend, Vue 3 dashboard.
+Self-hosted RMM platform built for Synertek Cloud Services (developed by CodeNexus). Monorepo: Go agent, Cloudflare Workers backend, Vue 3 dashboard.
 
 ## Repository layout
 
