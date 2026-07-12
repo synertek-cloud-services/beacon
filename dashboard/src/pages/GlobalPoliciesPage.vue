@@ -175,6 +175,7 @@
     </div>
 
     <!-- ── POLICY MODAL ────────────────────────────────────────────────────── -->
+    <Teleport to="body">
     <div v-if="policyModal.open" class="modal-backdrop" @click.self="policyModal.open = false">
       <div class="modal">
         <div class="modal-header">
@@ -226,8 +227,10 @@
         </div>
       </div>
     </div>
+    </Teleport>
 
     <!-- ── MONITOR MODAL ───────────────────────────────────────────────────── -->
+    <Teleport to="body">
     <div v-if="monitorModal.open" class="modal-backdrop" @click.self="monitorModal.open = false">
       <div class="modal">
         <div class="modal-header">
@@ -324,6 +327,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
 
   </div>
 </template>
@@ -877,9 +881,10 @@ function monitorSummary(m: PolicyMonitor): string {
 .check-group { display: flex; flex-direction: column; gap: 8px; }
 .check-row {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
-  font-size: 13px; color: var(--text); padding: 4px 0;
+  font-size: 13px; color: var(--text); padding: 4px 0; min-width: 0;
 }
 .check-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
+.check-row span { min-width: 0; }
 
 .error-msg { color: #e04040; font-size: 12px; }
 
