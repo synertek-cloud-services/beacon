@@ -5,7 +5,7 @@
     <div class="gp-header">
       <h1 class="gp-title">Policies</h1>
       <div class="gp-header-actions">
-        <button class="btn btn-primary btn-sm" @click="openNewPolicy(tab)">Create Policy</button>
+        <button class="btn btn-primary btn-sm" @click="router.push('/global/policies/new?scope=' + tab)">Create Policy</button>
       </div>
     </div>
 
@@ -96,8 +96,7 @@
                     <div class="expand-panel-header">
                       <span class="expand-panel-title">Monitors</span>
                       <div class="expand-panel-actions">
-                        <button class="btn btn-ghost btn-xs" @click="openAddMonitor(policy)">+ Add Monitor</button>
-                        <button class="btn btn-ghost btn-xs" @click="openEditPolicy(policy)">Edit Policy</button>
+                        <button class="btn btn-ghost btn-xs" @click="router.push('/global/policies/' + policy.id)">Edit Policy</button>
                         <button class="btn btn-ghost btn-xs danger" @click="deletePolicy(policy)">Delete Policy</button>
                       </div>
                     </div>
@@ -111,7 +110,6 @@
                           <th>Sustained</th>
                           <th>Auto-resolve</th>
                           <th>Enabled</th>
-                          <th></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -125,10 +123,6 @@
                             <button :class="['toggle-btn', 'toggle-sm', { enabled: m.enabled }]" @click="toggleMonitor(policy, m)">
                               <span class="toggle-track"><span class="toggle-thumb"></span></span>
                             </button>
-                          </td>
-                          <td class="monitor-row-actions">
-                            <button class="btn-text" @click="openEditMonitor(policy, m)">Edit</button>
-                            <button class="btn-text danger" @click="deleteMonitor(policy, m)">Delete</button>
                           </td>
                         </tr>
                       </tbody>
@@ -178,171 +172,16 @@
     </div>
     </Teleport>
 
-    <!-- ── POLICY MODAL ────────────────────────────────────────────────────────── -->
-    <Teleport to="body">
-    <div v-if="policyModal.open" class="modal-backdrop" @click.self="policyModal.open = false">
-      <div class="modal">
-        <div class="modal-header">
-          <span class="modal-title">{{ policyModal.editId ? 'Edit Policy' : 'New Policy' }}</span>
-          <button class="btn-icon" @click="policyModal.open = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="field">
-            <label class="field-label">Name</label>
-            <input v-model="policyModal.form.name" class="field-input" type="text" placeholder="e.g. Antivirus Health" />
-          </div>
-          <div class="field">
-            <label class="field-label">Description</label>
-            <input v-model="policyModal.form.description" class="field-input" type="text" placeholder="Optional" />
-          </div>
-          <div v-if="policyModal.scope === 'company' && !policyModal.editId" class="field">
-            <label class="field-label">Company</label>
-            <select v-model="policyModal.form.companyId" class="field-input">
-              <option value="">Select a company…</option>
-              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field-label">Target OS</label>
-            <div class="pill-group">
-              <label v-for="os in ['windows', 'linux', 'macos']" :key="os"
-                class="pill-opt" :class="{ active: policyModal.form.targetOs.includes(os) }">
-                <input type="checkbox" :value="os" v-model="policyModal.form.targetOs" class="pill-cb" />
-                {{ os }}
-              </label>
-            </div>
-          </div>
-          <div class="field">
-            <label class="field-label">Target Device Class</label>
-            <div class="pill-group">
-              <label v-for="cls in ['server', 'workstation', 'laptop']" :key="cls"
-                class="pill-opt" :class="{ active: policyModal.form.targetClass.includes(cls) }">
-                <input type="checkbox" :value="cls" v-model="policyModal.form.targetClass" class="pill-cb" />
-                {{ cls }}
-              </label>
-            </div>
-          </div>
-          <div v-if="policyModal.error" class="error-msg">{{ policyModal.error }}</div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost btn-sm" @click="policyModal.open = false">Cancel</button>
-          <button class="btn btn-primary btn-sm" :disabled="policyModal.saving" @click="savePolicy">
-            {{ policyModal.saving ? 'Saving…' : (policyModal.editId ? 'Save Changes' : 'Create Policy') }}
-          </button>
-        </div>
-      </div>
-    </div>
-    </Teleport>
-
-    <!-- ── MONITOR MODAL ───────────────────────────────────────────────────────── -->
-    <Teleport to="body">
-    <div v-if="monitorModal.open" class="modal-backdrop" @click.self="monitorModal.open = false">
-      <div class="modal">
-        <div class="modal-header">
-          <span class="modal-title">{{ monitorModal.editId ? 'Edit Monitor' : 'Add Monitor' }}</span>
-          <button class="btn-icon" @click="monitorModal.open = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="field">
-            <label class="field-label">Monitor Type</label>
-            <select v-model="monitorModal.form.checkType" class="field-input" :disabled="!!monitorModal.editId">
-              <option value="offline">Offline — device stops checking in</option>
-              <option value="disk_space">Disk Space — free space below limit</option>
-              <option value="cpu_usage">CPU Usage — sustained high CPU</option>
-              <option value="memory_usage">Memory Usage — sustained high memory</option>
-              <option value="av_status">Antivirus Status</option>
-            </select>
-          </div>
-          <div v-if="monitorModal.form.checkType === 'offline'" class="field">
-            <label class="field-label">Alert after offline for</label>
-            <div class="input-row">
-              <input v-model.number="monitorModal.form.offlineMinutes" type="number" min="1" class="field-input" style="max-width:90px" />
-              <span class="input-unit">minutes</span>
-            </div>
-          </div>
-          <div v-if="monitorModal.form.checkType === 'disk_space'" class="field">
-            <label class="field-label">Alert when free space below</label>
-            <div class="input-row">
-              <input v-model.number="monitorModal.form.diskGb" type="number" min="1" class="field-input" style="max-width:90px" />
-              <span class="input-unit">GB</span>
-            </div>
-          </div>
-          <div v-if="monitorModal.form.checkType === 'cpu_usage'" class="field">
-            <label class="field-label">CPU usage has reached</label>
-            <div class="input-row">
-              <input v-model.number="monitorModal.form.cpuPercent" type="number" min="1" max="100" class="field-input" style="max-width:90px" />
-              <span class="input-unit">%</span>
-            </div>
-            <p v-if="monitorModal.form.cpuPercent >= 95" class="field-hint field-hint-warn">
-              Monitoring at ≥95% alone may not alert reliably — a device at 100% CPU can fail to report. Consider a second monitor at a lower threshold (e.g. 85%) with a longer period and a High priority as an early warning.
-            </p>
-          </div>
-          <div v-if="monitorModal.form.checkType === 'memory_usage'" class="field">
-            <label class="field-label">Memory usage has reached</label>
-            <div class="input-row">
-              <input v-model.number="monitorModal.form.memPercent" type="number" min="1" max="100" class="field-input" style="max-width:90px" />
-              <span class="input-unit">%</span>
-            </div>
-          </div>
-          <div v-if="monitorModal.form.checkType === 'av_status'" class="field">
-            <label class="field-label">Alert when AV state is</label>
-            <select v-model="monitorModal.form.avState" class="field-input">
-              <option value="not_detected">Not Detected — no AV product found</option>
-              <option value="not_running">Not Running — AV installed but disabled</option>
-              <option value="running_not_up_to_date">Out of Date — definitions stale</option>
-            </select>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label class="field-label">For a period of</label>
-              <div class="input-row">
-                <input v-model.number="monitorModal.form.sustainedMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
-                <span class="input-unit">min</span>
-              </div>
-            </div>
-            <div class="field">
-              <label class="field-label">Alert priority</label>
-              <select v-model="monitorModal.form.alertPriority" class="field-input">
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="moderate">Moderate</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-          </div>
-          <label class="autoresolve-row">
-            <input type="checkbox" v-model="monitorModal.form.autoResolve" />
-            <span>Auto-resolve alert when condition is no longer met</span>
-          </label>
-          <div v-if="monitorModal.form.autoResolve" class="field" style="margin-top:8px">
-            <label class="field-label">Keep alert visible for at least</label>
-            <div class="input-row">
-              <input v-model.number="monitorModal.form.autoResolveAfterMinutes" type="number" min="1" class="field-input" style="max-width:90px" />
-              <span class="input-unit">min before resolving</span>
-            </div>
-          </div>
-          <div v-if="monitorModal.error" class="error-msg">{{ monitorModal.error }}</div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost btn-sm" @click="monitorModal.open = false">Cancel</button>
-          <button class="btn btn-primary btn-sm" :disabled="monitorModal.saving" @click="saveMonitor">
-            {{ monitorModal.saving ? 'Saving…' : (monitorModal.editId ? 'Save Changes' : 'Add Monitor') }}
-          </button>
-        </div>
-      </div>
-    </div>
-    </Teleport>
 
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed, watch } from 'vue';
-import { api, type Policy, type PolicyMonitor, type CheckType, type AlertPriority, type Tenant } from '../api';
+import { useRouter } from 'vue-router';
+import { api, type Policy, type PolicyMonitor, type CheckType, type Tenant } from '../api';
+
+const router = useRouter();
 
 const tab             = ref<'global' | 'company'>('global');
 const loading         = ref(true);
@@ -448,9 +287,8 @@ function toggleExpand(id: string) {
 
 function editSelected() {
   if (selectedIds.value.size !== 1) return;
-  const id     = [...selectedIds.value][0];
-  const policy = displayedPolicies.value.find(p => p.id === id);
-  if (policy) openEditPolicy(policy);
+  const id = [...selectedIds.value][0];
+  router.push('/global/policies/' + id);
 }
 
 async function bulkDelete() {
@@ -525,83 +363,6 @@ async function doOverride() {
   }
 }
 
-// ── Policy modal ──────────────────────────────────────────────────────────────
-
-const policyModal = reactive({
-  open:   false,
-  editId: null as string | null,
-  scope:  'global' as 'global' | 'company',
-  saving: false,
-  error:  '',
-  form: {
-    name:        '',
-    description: '',
-    companyId:   '',
-    targetOs:    ['windows', 'linux', 'macos'] as string[],
-    targetClass: ['server', 'workstation', 'laptop'] as string[],
-  },
-});
-
-function openNewPolicy(scope: 'global' | 'company') {
-  policyModal.editId            = null;
-  policyModal.scope             = scope;
-  policyModal.error             = '';
-  policyModal.form.name         = '';
-  policyModal.form.description  = '';
-  policyModal.form.companyId    = '';
-  policyModal.form.targetOs     = ['windows', 'linux', 'macos'];
-  policyModal.form.targetClass  = ['server', 'workstation', 'laptop'];
-  policyModal.open = true;
-}
-
-function openEditPolicy(policy: Policy) {
-  policyModal.editId            = policy.id;
-  policyModal.scope             = policy.scope;
-  policyModal.error             = '';
-  policyModal.form.name         = policy.name;
-  policyModal.form.description  = policy.description ?? '';
-  policyModal.form.companyId    = policy.companyId ?? '';
-  policyModal.form.targetOs     = JSON.parse(policy.targetOs) as string[];
-  policyModal.form.targetClass  = JSON.parse(policy.targetClass) as string[];
-  policyModal.open = true;
-}
-
-async function savePolicy() {
-  if (!policyModal.form.name.trim()) { policyModal.error = 'Name is required.'; return; }
-  if (policyModal.scope === 'company' && !policyModal.editId && !policyModal.form.companyId) {
-    policyModal.error = 'Select a company.'; return;
-  }
-  policyModal.saving = true;
-  policyModal.error  = '';
-  try {
-    if (policyModal.editId) {
-      await api.policies.update(policyModal.editId, {
-        name:         policyModal.form.name,
-        description:  policyModal.form.description || null,
-        target_os:    policyModal.form.targetOs,
-        target_class: policyModal.form.targetClass,
-      });
-      await load();
-      if (tab.value === 'company') await loadCompanyPolicies();
-    } else {
-      const newPolicy = await api.policies.create({
-        name:         policyModal.form.name,
-        description:  policyModal.form.description || null,
-        scope:        policyModal.scope,
-        company_id:   policyModal.scope === 'company' ? policyModal.form.companyId : null,
-        target_os:    policyModal.form.targetOs,
-        target_class: policyModal.form.targetClass,
-      });
-      if (policyModal.scope === 'global') globalPolicies.value.push(newPolicy);
-      else                                companyPolicies.value.push(newPolicy);
-    }
-    policyModal.open = false;
-  } catch (e: unknown) {
-    policyModal.error = e instanceof Error ? e.message : 'Failed to save.';
-  } finally {
-    policyModal.saving = false;
-  }
-}
 
 async function deletePolicy(policy: Policy) {
   if (!confirm(`Delete policy "${policy.name}"?`)) return;
@@ -614,110 +375,6 @@ async function deletePolicy(policy: Policy) {
   } catch {}
 }
 
-// ── Monitor modal ─────────────────────────────────────────────────────────────
-
-const monitorModal = reactive({
-  open:     false,
-  editId:   null as string | null,
-  policyId: '',
-  saving:   false,
-  error:    '',
-  form: {
-    checkType:               'offline' as CheckType,
-    alertPriority:           'high'    as AlertPriority,
-    sustainedMinutes:        5,
-    autoResolve:             true,
-    autoResolveAfterMinutes: 60,
-    offlineMinutes:          30,
-    diskGb:                  10,
-    cpuPercent:              90,
-    memPercent:              90,
-    avState:                 'not_detected',
-  },
-});
-
-function openAddMonitor(policy: Policy) {
-  monitorModal.editId   = null;
-  monitorModal.policyId = policy.id;
-  monitorModal.error    = '';
-  Object.assign(monitorModal.form, {
-    checkType: 'offline', alertPriority: 'high',
-    sustainedMinutes: 5, autoResolve: true, autoResolveAfterMinutes: 60,
-    offlineMinutes: 30, diskGb: 10, cpuPercent: 90, memPercent: 90, avState: 'not_detected',
-  });
-  monitorModal.open = true;
-}
-
-function openEditMonitor(policy: Policy, m: PolicyMonitor) {
-  monitorModal.editId   = m.id;
-  monitorModal.policyId = policy.id;
-  monitorModal.error    = '';
-  monitorModal.form.checkType               = m.checkType;
-  monitorModal.form.alertPriority           = m.alertPriority;
-  monitorModal.form.sustainedMinutes        = m.sustainedMinutes;
-  monitorModal.form.autoResolve             = m.autoResolve;
-  monitorModal.form.autoResolveAfterMinutes = m.autoResolveAfterMinutes;
-  try {
-    const cfg = JSON.parse(m.config) as Record<string, unknown>;
-    monitorModal.form.offlineMinutes = Math.round((cfg.offline_after_seconds as number ?? 1800) / 60);
-    monitorModal.form.diskGb         = Math.round((cfg.bytes_free_min as number ?? 10737418240) / 1073741824);
-    monitorModal.form.cpuPercent     = (cfg.percent_max as number) ?? 90;
-    monitorModal.form.memPercent     = (cfg.percent_max as number) ?? 90;
-    monitorModal.form.avState        = (cfg.av_state as string) ?? 'not_detected';
-  } catch {}
-  monitorModal.open = true;
-}
-
-function buildMonitorConfig(): Record<string, unknown> {
-  const f = monitorModal.form;
-  switch (f.checkType) {
-    case 'offline':      return { offline_after_seconds: f.offlineMinutes * 60 };
-    case 'disk_space':   return { bytes_free_min: f.diskGb * 1073741824 };
-    case 'cpu_usage':    return { percent_max: f.cpuPercent };
-    case 'memory_usage': return { percent_max: f.memPercent };
-    case 'av_status':    return { av_state: f.avState };
-    default:             return {};
-  }
-}
-
-async function saveMonitor() {
-  monitorModal.saving = true;
-  monitorModal.error  = '';
-  try {
-    const config = buildMonitorConfig();
-    const f      = monitorModal.form;
-    if (monitorModal.editId) {
-      await api.policies.monitors.update(monitorModal.policyId, monitorModal.editId, {
-        config, alert_priority: f.alertPriority,
-        sustained_minutes: f.sustainedMinutes,
-        auto_resolve: f.autoResolve,
-        auto_resolve_after_minutes: f.autoResolveAfterMinutes,
-      });
-    } else {
-      await api.policies.monitors.create(monitorModal.policyId, {
-        check_type: f.checkType, config, alert_priority: f.alertPriority,
-        sustained_minutes: f.sustainedMinutes,
-        auto_resolve: f.autoResolve,
-        auto_resolve_after_minutes: f.autoResolveAfterMinutes,
-      });
-    }
-    await load();
-    if (tab.value === 'company') await loadCompanyPolicies();
-    monitorModal.open = false;
-  } catch (e: unknown) {
-    monitorModal.error = e instanceof Error ? e.message : 'Failed to save.';
-  } finally {
-    monitorModal.saving = false;
-  }
-}
-
-async function deleteMonitor(policy: Policy, m: PolicyMonitor) {
-  if (!confirm('Delete this monitor?')) return;
-  try {
-    await api.policies.monitors.delete(policy.id, m.id);
-    policy.monitors = policy.monitors.filter(x => x.id !== m.id);
-  } catch {}
-}
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 

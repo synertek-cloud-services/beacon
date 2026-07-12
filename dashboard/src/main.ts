@@ -9,6 +9,7 @@ import JobsPage from './pages/JobsPage.vue';
 import ComponentsPage from './pages/ComponentsPage.vue';
 import GlobalAlertsPage from './pages/GlobalAlertsPage.vue';
 import GlobalPoliciesPage from './pages/GlobalPoliciesPage.vue';
+import PolicyFormPage from './pages/PolicyFormPage.vue';
 import './style.css';
 
 const router = createRouter({
@@ -22,6 +23,8 @@ const router = createRouter({
     { path: '/components', component: ComponentsPage },
     { path: '/global/alerts', component: GlobalAlertsPage },
     { path: '/global/policies', component: GlobalPoliciesPage },
+    { path: '/global/policies/new', component: PolicyFormPage },
+    { path: '/global/policies/:id', component: PolicyFormPage },
   ],
 });
 
