@@ -173,7 +173,8 @@ export interface DeviceCommand {
 
 // ── Monitor / Alert types ────────────────────────────────────
 
-export type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+export type CheckType    = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+export type AlertPriority = 'critical' | 'high' | 'moderate' | 'low';
 
 export interface AlertDefinition {
   id: string;
@@ -185,6 +186,7 @@ export interface AlertDefinition {
   threshold: string; // JSON
   consecutiveFailuresRequired: number;
   enabled: boolean;
+  priority: AlertPriority;
   createdAt: number;
 }
 
@@ -205,6 +207,7 @@ export interface AlertState {
   definition_id: string;
   check_type: CheckType;
   threshold: string; // JSON
+  priority: AlertPriority;
   consecutive_failures_required: number;
   definition_device_class: string | null;
 }
@@ -393,13 +396,16 @@ export const api = {
       check_type: CheckType;
       threshold: Record<string, number>;
       consecutive_failures_required?: number;
+      priority?: AlertPriority;
     }) => request<{ definition_id: string }>('POST', '/v1/admin/alert-definitions', body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/alert-definitions/${id}`),
   },
 
   alerts: {
-    list: (status: 'active' | 'all' = 'active') =>
-      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}`),
+    list: (status: 'active' | 'all' = 'active', search = '') =>
+      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+    resolve: (id: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
   },
 
   devices: {

@@ -114,6 +114,7 @@ export const alertDefinitions = sqliteTable('alert_definitions', {
   threshold: text('threshold').notNull(), // JSON — shape varies by check_type
   consecutiveFailuresRequired: integer('consecutive_failures_required').notNull().default(3),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  priority: text('priority', { enum: ['critical', 'high', 'moderate', 'low'] }).notNull().default('high'),
   createdAt: integer('created_at').notNull(),
 });
 

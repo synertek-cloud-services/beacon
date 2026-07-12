@@ -11,6 +11,7 @@ function requireAdmin(auth: string | undefined, secret: string): boolean {
 }
 
 type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 
 // GET /v1/admin/alert-definitions?tenant_id=<id>   → per-tenant list
 // GET /v1/admin/alert-definitions                   → all definitions with tenant name
@@ -53,6 +54,7 @@ alertDefs.post('/', async (c) => {
     check_type: CheckType;
     threshold: unknown;
     consecutive_failures_required?: number;
+    priority?: Priority;
   }>();
 
   const validTypes: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage'];
@@ -61,6 +63,9 @@ alertDefs.post('/', async (c) => {
   }
 
   const id = crypto.randomUUID();
+  const validPriorities: Priority[] = ['critical', 'high', 'moderate', 'low'];
+  const priority = body.priority && validPriorities.includes(body.priority) ? body.priority : 'high';
+
   await db.insert(schema.alertDefinitions).values({
     id,
     tenantId: body.tenant_id,
@@ -69,6 +74,7 @@ alertDefs.post('/', async (c) => {
     checkType: body.check_type,
     threshold: JSON.stringify(body.threshold),
     consecutiveFailuresRequired: body.consecutive_failures_required ?? 3,
+    priority,
     createdAt: now,
   });
 

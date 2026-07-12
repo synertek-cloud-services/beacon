@@ -119,6 +119,16 @@
             </select>
           </div>
 
+          <div class="field">
+            <label class="field-label">Priority</label>
+            <select v-model="form.priority" class="field-input">
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="moderate">Moderate</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+
           <div v-if="form.check_type !== 'offline'" class="field">
             <label class="field-label">Consecutive failures before alerting</label>
             <input v-model.number="form.consecutive_failures" type="number" min="1" max="20" class="field-input" style="max-width:80px" />
@@ -158,6 +168,7 @@ const form = ref({
   cpu_percent:          90,
   memory_percent:       90,
   consecutive_failures: 3,
+  priority:             'high' as 'critical' | 'high' | 'moderate' | 'low',
 });
 
 async function load() {
@@ -204,6 +215,7 @@ async function create() {
       threshold,
       device_class:                 form.value.device_class || undefined,
       consecutive_failures_required: form.value.check_type === 'offline' ? 1 : form.value.consecutive_failures,
+      priority:                     form.value.priority,
     });
     showModal.value = false;
     await load();

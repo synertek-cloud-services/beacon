@@ -1,190 +1,435 @@
 <template>
-  <div class="ga-page">
-    <div class="ga-toolbar">
-      <div class="ga-filters">
-        <button
-          class="filter-btn"
-          :class="{ active: showAll === false }"
-          @click="showAll = false"
-        >Active</button>
-        <button
-          class="filter-btn"
-          :class="{ active: showAll === true }"
-          @click="showAll = true"
-        >All</button>
+  <div class="al-page">
+
+    <!-- Search bar -->
+    <div class="al-search-wrap">
+      <span class="al-search-label">Search Alerts</span>
+      <div class="al-search-field">
+        <svg class="al-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input
+          v-model="searchQuery"
+          class="al-search-input"
+          type="search"
+          placeholder="Search…"
+          @input="onSearch"
+        />
       </div>
-      <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
     </div>
 
-    <div v-if="loading" class="ga-empty text-muted">Loading…</div>
+    <!-- Table card -->
+    <div class="al-card">
 
-    <div v-else-if="!alerts.length" class="ga-empty">
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);margin-bottom:8px">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-        <polyline points="22 4 12 14.01 9 11.01"/>
-      </svg>
-      <div style="font-weight:500">{{ showAll ? 'No alerts found' : 'No active alerts' }}</div>
-      <div class="text-muted text-xs" style="margin-top:4px">{{ showAll ? 'Monitor rules have not fired yet.' : 'All monitored devices are within thresholds.' }}</div>
-    </div>
+      <!-- Card header -->
+      <div class="al-card-header">
+        <div class="al-card-title">
+          Alerts
+          <span v-if="total > 0" class="al-count-badge">{{ total }}</span>
+        </div>
+        <div class="al-card-actions">
+          <button
+            class="btn-action"
+            :disabled="!selected.size || resolving"
+            @click="resolveSelected"
+          >{{ resolving ? 'Resolving…' : 'Resolve' }}</button>
+        </div>
+      </div>
 
-    <div v-else class="ga-table-wrap">
-      <table class="ga-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Company</th>
-            <th>Device</th>
-            <th>Monitor</th>
-            <th>Threshold</th>
-            <th>Since</th>
-            <th>Last Check</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="a in alerts" :key="a.id" :class="{ 'row-active': a.is_alerting === 1, 'row-resolved': a.is_alerting !== 1 }">
-            <td>
-              <span class="status-pill" :class="a.is_alerting === 1 ? 'pill-alert' : 'pill-ok'">
-                {{ a.is_alerting === 1 ? 'Alerting' : 'Resolved' }}
-              </span>
-            </td>
-            <td class="cell-company">{{ a.tenant_name }}</td>
-            <td class="cell-device">
-              <span class="hostname">{{ a.hostname ?? a.device_id }}</span>
-              <span class="text-xs text-muted">{{ a.os_type }}</span>
-            </td>
-            <td>
-              <span class="check-chip" :class="`chip-${a.check_type}`">{{ checkLabel(a.check_type) }}</span>
-              <span v-if="a.definition_device_class" class="text-xs text-muted"> · {{ a.definition_device_class }}</span>
-            </td>
-            <td class="mono text-xs">{{ formatThreshold(a.check_type, a.threshold) }}</td>
-            <td class="text-xs text-muted">{{ a.alerted_at ? formatAge(a.alerted_at) : '—' }}</td>
-            <td class="text-xs text-muted">{{ formatAge(a.updated_at) }}</td>
+      <!-- Filter pills -->
+      <div class="al-filters">
+        <span class="al-filters-label">Filtered by:</span>
+        <div class="al-pill-group">
+          <span class="al-filter-tag">Status</span>
+          <button
+            class="al-pill"
+            :class="{ 'al-pill-active': statusFilter === 'active' }"
+            @click="setStatus('active')"
+          >Open <span class="al-pill-x" @click.stop="setStatus('active')">×</span></button>
+          <button
+            class="al-pill"
+            :class="{ 'al-pill-active': statusFilter === 'all' }"
+            @click="setStatus('all')"
+          >All <span class="al-pill-x" @click.stop="setStatus('all')">×</span></button>
+        </div>
+        <div class="al-pill-group">
+          <span class="al-filter-tag">Created</span>
+          <span class="al-pill al-pill-static">Last 30 Days <span class="al-pill-x">×</span></span>
+        </div>
+        <button v-if="statusFilter !== 'active' || searchQuery" class="al-reset" @click="reset">Reset Filters</button>
+      </div>
 
-          </tr>
-        </tbody>
-      </table>
+      <!-- Table -->
+      <div class="al-table-wrap">
+        <div v-if="loading" class="al-state-msg text-muted">Loading…</div>
+
+        <div v-else-if="!pageRows.length" class="al-state-msg">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          <div style="margin-top:8px;font-weight:500">{{ statusFilter === 'active' ? 'No active alerts' : 'No alerts in the last 30 days' }}</div>
+        </div>
+
+        <table v-else class="al-table">
+          <thead>
+            <tr>
+              <th class="th-check">
+                <input type="checkbox" :checked="allSelected" @change="toggleAll" />
+              </th>
+              <th class="th-created" @click="toggleSort('alerted_at')">
+                Created
+                <span class="sort-arrow">{{ sortCol === 'alerted_at' ? (sortDir === 'asc' ? '↑' : '↓') : '↕' }}</span>
+              </th>
+              <th class="th-priority" @click="toggleSort('priority')">
+                Priority
+                <span class="sort-arrow">{{ sortCol === 'priority' ? (sortDir === 'asc' ? '↑' : '↓') : '↕' }}</span>
+              </th>
+              <th>Category</th>
+              <th class="th-message">Message</th>
+              <th>Company</th>
+              <th>Hostname</th>
+              <th>Monitor Type</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="a in pageRows"
+              :key="a.id"
+              :class="{ 'tr-selected': selected.has(a.id) }"
+              @click="toggleSelect(a.id)"
+            >
+              <td class="td-check" @click.stop>
+                <input type="checkbox" :checked="selected.has(a.id)" @change="toggleSelect(a.id)" />
+              </td>
+              <td class="td-created mono">{{ formatDate(a.alerted_at) }}</td>
+              <td>
+                <span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span>
+              </td>
+              <td class="td-category">{{ categoryLabel(a.check_type) }}</td>
+              <td class="td-message">
+                <span class="msg-link">{{ alertMessage(a) }}</span>
+              </td>
+              <td class="td-company">{{ a.tenant_name }}</td>
+              <td class="td-hostname">{{ a.hostname ?? '—' }}</td>
+              <td class="td-montype">{{ categoryLabel(a.check_type) }}</td>
+              <td>
+                <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
+                  {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1" class="al-pagination">
+        <button class="pg-btn" :disabled="page === 1" @click="page--">‹</button>
+        <span class="pg-info">{{ page }}</span>
+        <button class="pg-btn" :disabled="page >= totalPages" @click="page++">›</button>
+        <span class="pg-sep"></span>
+        <span class="pg-count">{{ perPage }} / page</span>
+      </div>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { api, type AlertState, type CheckType } from '../api';
 
-const alerts  = ref<AlertState[]>([]);
-const loading = ref(true);
-const showAll = ref(false);
+const allAlerts   = ref<AlertState[]>([]);
+const loading     = ref(true);
+const resolving   = ref(false);
+const statusFilter = ref<'active' | 'all'>('active');
+const searchQuery  = ref('');
+const selected     = ref(new Set<string>());
+const page         = ref(1);
+const perPage      = 20;
+const sortCol      = ref<'alerted_at' | 'priority'>('alerted_at');
+const sortDir      = ref<'asc' | 'desc'>('desc');
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function load() {
   loading.value = true;
+  selected.value.clear();
   try {
-    alerts.value = await api.alerts.list(showAll.value ? 'all' : 'active');
+    allAlerts.value = await api.alerts.list(statusFilter.value, searchQuery.value);
   } catch {
-    alerts.value = [];
+    allAlerts.value = [];
   } finally {
     loading.value = false;
   }
 }
 
-watch(showAll, load);
 onMounted(load);
+watch(statusFilter, () => { page.value = 1; load(); });
 
-function checkLabel(ct: CheckType): string {
+function onSearch() {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page.value = 1; load(); }, 350);
+}
+
+// ── Priority sort order ────────────────────────────────────────
+const priorityOrder: Record<string, number> = { critical: 0, high: 1, moderate: 2, low: 3 };
+
+const sorted = computed(() => {
+  const rows = [...allAlerts.value];
+  rows.sort((a, b) => {
+    let diff = 0;
+    if (sortCol.value === 'priority') {
+      diff = (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9);
+    } else {
+      diff = (a.alerted_at ?? 0) - (b.alerted_at ?? 0);
+    }
+    return sortDir.value === 'asc' ? diff : -diff;
+  });
+  return rows;
+});
+
+const total      = computed(() => allAlerts.value.length);
+const totalPages = computed(() => Math.max(1, Math.ceil(sorted.value.length / perPage)));
+const pageRows   = computed(() => sorted.value.slice((page.value - 1) * perPage, page.value * perPage));
+
+const allSelected = computed(() =>
+  pageRows.value.length > 0 && pageRows.value.every(r => selected.value.has(r.id)),
+);
+
+function toggleAll() {
+  if (allSelected.value) {
+    pageRows.value.forEach(r => selected.value.delete(r.id));
+  } else {
+    pageRows.value.forEach(r => selected.value.add(r.id));
+  }
+  selected.value = new Set(selected.value);
+}
+
+function toggleSelect(id: string) {
+  const s = new Set(selected.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  selected.value = s;
+}
+
+function toggleSort(col: typeof sortCol.value) {
+  if (sortCol.value === col) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortCol.value = col;
+    sortDir.value = 'desc';
+  }
+}
+
+function setStatus(v: 'active' | 'all') { statusFilter.value = v; }
+
+function reset() {
+  statusFilter.value = 'active';
+  searchQuery.value  = '';
+  page.value         = 1;
+  load();
+}
+
+async function resolveSelected() {
+  if (!selected.value.size) return;
+  resolving.value = true;
+  try {
+    await Promise.all([...selected.value].map(id => api.alerts.resolve(id)));
+    await load();
+  } catch {
+    // individual errors are silent; reload will show current state
+  } finally {
+    resolving.value = false;
+  }
+}
+
+// ── Formatters ─────────────────────────────────────────────────
+function formatDate(ts: number | null): string {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function categoryLabel(ct: CheckType): string {
   switch (ct) {
     case 'disk_space':   return 'Disk Space';
-    case 'offline':      return 'Offline';
+    case 'offline':      return 'Online Status';
     case 'cpu_usage':    return 'CPU';
     case 'memory_usage': return 'Memory';
     default:             return ct;
   }
 }
 
-function formatThreshold(ct: CheckType, raw: string): string {
+function alertMessage(a: AlertState): string {
   try {
-    const t = JSON.parse(raw) as Record<string, number>;
-    switch (ct) {
-      case 'disk_space':
-        return `< ${(t.bytes_free_min / 1073741824).toFixed(0)} GB free`;
-      case 'offline':
-        return `> ${Math.round(t.offline_after_seconds / 60)} min offline`;
-      case 'cpu_usage':
-        return `> ${t.percent_max}% CPU`;
-      case 'memory_usage':
-        return `> ${t.percent_max}% memory`;
-      default:
-        return raw;
+    const t = JSON.parse(a.threshold) as Record<string, number>;
+    switch (a.check_type) {
+      case 'offline':      return 'Device went Offline';
+      case 'disk_space':   return `Disk space below ${(t.bytes_free_min / 1073741824).toFixed(0)} GB`;
+      case 'cpu_usage':    return `CPU usage above ${t.percent_max}%`;
+      case 'memory_usage': return `Memory usage above ${t.percent_max}%`;
+      default:             return a.check_type;
     }
   } catch {
-    return raw;
+    return a.check_type;
   }
-}
-
-function formatAge(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
 }
 </script>
 
 <style scoped>
-.ga-page { display: flex; flex-direction: column; height: 100%; }
+.al-page { display: flex; flex-direction: column; gap: 16px; height: 100%; }
 
-.ga-toolbar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
+/* ── Search bar ─────────────────────────────────────────────── */
+.al-search-wrap {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
+  padding: 12px 16px;
   flex-shrink: 0;
 }
-.ga-filters { display: flex; gap: 4px; }
-.filter-btn {
-  padding: 4px 12px; font-size: 12px; font-weight: 500; border-radius: 5px;
-  border: 1px solid var(--border); background: transparent; color: var(--muted);
-  cursor: pointer; transition: background .1s, color .1s, border-color .1s;
+.al-search-label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.al-search-field { flex: 1; max-width: 480px; position: relative; display: flex; align-items: center; }
+.al-search-icon  { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.al-search-input {
+  width: 100%; padding: 6px 10px 6px 32px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text); font-size: 12px; font-family: var(--font); outline: none;
+  transition: border-color .12s;
 }
-.filter-btn:hover { background: var(--surface-2); color: var(--text); }
-.filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.al-search-input:focus { border-color: var(--accent); }
+.al-search-input::placeholder { color: var(--muted); }
+.al-search-input::-webkit-search-cancel-button { cursor: pointer; }
 
-.ga-empty {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; color: var(--text);
+/* ── Table card ─────────────────────────────────────────────── */
+.al-card {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
 }
 
-.ga-table-wrap { flex: 1; overflow: auto; }
-.ga-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.ga-table th {
-  text-align: left; padding: 6px 12px; font-size: 11px; font-weight: 600;
+.al-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 0;
+  flex-shrink: 0;
+}
+.al-card-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+.al-count-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+  border-radius: 10px;
+}
+.al-card-actions { display: flex; gap: 8px; }
+.btn-action {
+  padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-btn);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  cursor: pointer; transition: background .1s, border-color .1s;
+}
+.btn-action:hover:not(:disabled) { background: var(--border); border-color: var(--border-2); }
+.btn-action:disabled { opacity: .4; cursor: default; }
+
+/* ── Filter pills ───────────────────────────────────────────── */
+.al-filters {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.al-filters-label { font-size: 11px; font-weight: 600; color: var(--muted); }
+.al-pill-group { display: flex; align-items: center; gap: 5px; }
+.al-filter-tag { font-size: 11px; color: var(--muted-2); }
+.al-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted-2);
+  cursor: pointer; transition: background .1s, border-color .1s, color .1s;
+}
+.al-pill:hover { background: var(--border); color: var(--text); }
+.al-pill-active { background: rgba(78,126,247,.16); border-color: rgba(78,126,247,.4); color: var(--accent); }
+.al-pill-static { cursor: default; }
+.al-pill-x { opacity: .6; font-size: 13px; line-height: 1; }
+.al-reset { font-size: 11px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
+.al-reset:hover { text-decoration: underline; }
+
+/* ── Table ──────────────────────────────────────────────────── */
+.al-table-wrap { flex: 1; overflow: auto; }
+.al-state-msg {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 200px; gap: 4px; color: var(--text);
+}
+
+.al-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.al-table thead { position: sticky; top: 0; z-index: 1; }
+.al-table th {
+  background: var(--surface-2); padding: 7px 12px;
+  text-align: left; font-size: 11px; font-weight: 600;
   letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
-  border-bottom: 1px solid var(--border); position: sticky; top: 0;
-  background: var(--surface);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+  cursor: pointer; user-select: none;
 }
-.ga-table td {
+.al-table th:not(.th-check):hover { color: var(--text); }
+.sort-arrow { font-size: 11px; margin-left: 4px; opacity: .5; }
+.th-check  { width: 36px; cursor: default; }
+.th-created { width: 155px; }
+.th-priority { width: 100px; }
+.th-message  { min-width: 200px; }
+
+.al-table td {
   padding: 9px 12px; border-bottom: 1px solid var(--border);
-  vertical-align: middle;
+  vertical-align: middle; color: var(--text);
 }
-.ga-table tr:last-child td { border-bottom: none; }
-.ga-table tr.row-active:hover td { background: rgba(240,80,60,.04); }
-.ga-table tr.row-resolved:hover td { background: var(--surface-2); }
+.al-table tr:last-child td { border-bottom: none; }
+.al-table tr { cursor: pointer; transition: background .08s; }
+.al-table tr:hover td { background: var(--surface-2); }
+.al-table tr.tr-selected td { background: rgba(78,126,247,.07); }
+.al-table tr.tr-selected:hover td { background: rgba(78,126,247,.12); }
 
+.td-check    { width: 36px; }
+.td-created  { white-space: nowrap; color: var(--muted-2); font-size: 11px; }
+.td-category { white-space: nowrap; color: var(--muted-2); }
+.td-message  .msg-link { color: var(--accent); }
+.td-company  { font-weight: 500; white-space: nowrap; color: var(--accent); }
+.td-hostname { white-space: nowrap; color: var(--accent); }
+.td-montype  { white-space: nowrap; color: var(--accent); }
+.mono { font-family: var(--mono); }
+
+/* Priority badges — filled pill */
+.pri-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.pri-critical { background: var(--red);   color: #fff; }
+.pri-high     { background: #e07830;      color: #fff; }
+.pri-moderate { background: var(--amber); color: #1a1200; }
+.pri-low      { background: var(--muted); color: var(--surface); }
+
+/* Status pill */
 .status-pill {
-  display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.pill-alert { background: rgba(240,80,60,.14); color: #e04040; }
-.pill-ok    { background: rgba(50,200,100,.14); color: #28a864; }
+.status-open     { color: var(--text); }
+.status-resolved { color: var(--muted-2); }
 
-.cell-company { font-weight: 500; }
-.cell-device { display: flex; flex-direction: column; gap: 1px; }
-.hostname { font-weight: 500; }
-
-.check-chip {
-  display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600;
+/* ── Pagination ─────────────────────────────────────────────── */
+.al-pagination {
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+  padding: 10px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
 }
-.chip-disk_space   { background: rgba(130,80,240,.14); color: #8050f0; }
-.chip-offline      { background: rgba(240,168,64,.16); color: var(--amber); }
-.chip-cpu_usage    { background: rgba(240,80,60,.12); color: #e04040; }
-.chip-memory_usage { background: rgba(78,126,247,.14); color: var(--accent); }
-
-.mono { font-family: var(--font-mono, monospace); }
+.pg-btn {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2);
+  color: var(--text); font-size: 14px; cursor: pointer; transition: background .1s;
+}
+.pg-btn:hover:not(:disabled) { background: var(--border); }
+.pg-btn:disabled { opacity: .35; cursor: default; }
+.pg-info { font-size: 12px; font-weight: 600; color: var(--text); padding: 0 4px; }
+.pg-sep  { flex: 1; }
+.pg-count { font-size: 11px; color: var(--muted); }
 </style>
