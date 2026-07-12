@@ -38,13 +38,13 @@
             <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>
             <path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
           </svg>
-          <span class="sec-label">Sites</span>
+          <span class="sec-label">Companies</span>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.sites }">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
         </div>
         <div v-show="openSections.sites" class="sec-body">
-          <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Sites</RouterLink>
+          <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
           <template v-for="c in companies" :key="c.id">
             <div class="sbi sbi-company" :class="{ active: activeCompany === c.id }" @click="selectCompany(c.id)">
               <svg class="company-tri" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none" @click.stop="toggleCompany(c.id)">
@@ -221,7 +221,7 @@ function scheduleSearch() {
 const pageTitle = computed(() => {
   if (route.path === '/') return 'Dashboard';
   if (route.path.startsWith('/devices')) return 'Devices';
-  if (route.path.startsWith('/tenants')) return 'Sites';
+  if (route.path.startsWith('/tenants')) return 'Companies';
   if (route.path.startsWith('/components')) return 'Component Library';
   if (route.path.startsWith('/jobs')) return 'Jobs';
   if (route.path === '/global/alerts') return 'Global Alerts';
