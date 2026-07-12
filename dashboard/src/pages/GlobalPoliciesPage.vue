@@ -64,7 +64,7 @@
           </thead>
           <tbody>
             <template v-for="policy in displayedPolicies" :key="policy.id">
-              <tr :class="['policy-row', { selected: selectedIds.has(policy.id), 'row-open': expanded.has(policy.id) }]"
+              <tr :class="['policy-row', { selected: selectedIds.has(policy.id), 'row-open': expanded[policy.id] }]"
                   @click="toggleExpand(policy.id)">
                 <td class="col-check" @click.stop>
                   <input type="checkbox" :checked="selectedIds.has(policy.id)" @change="toggleSelect(policy.id)" />
@@ -90,7 +90,7 @@
               </tr>
 
               <!-- Expanded monitors panel -->
-              <tr v-if="expanded.has(policy.id)" :key="'exp-' + policy.id" class="expand-row">
+              <tr v-if="expanded[policy.id]" class="expand-row">
                 <td :colspan="tab === 'company' ? 8 : 7" class="expand-cell">
                   <div class="expand-panel">
                     <div class="expand-panel-header">
@@ -341,7 +341,7 @@ const loadingCompany  = ref(false);
 const globalPolicies  = ref<Policy[]>([]);
 const companyPolicies = ref<Policy[]>([]);
 const tenants         = ref<Tenant[]>([]);
-const expanded        = ref(new Set<string>());
+const expanded        = reactive<Record<string, boolean>>({});
 const selectedIds     = ref(new Set<string>());
 const companyFilter   = ref('');
 const headerCbRef     = ref<HTMLInputElement | null>(null);
@@ -408,7 +408,7 @@ onMounted(load);
 function switchTab(t: 'global' | 'company') {
   tab.value = t;
   selectedIds.value = new Set();
-  expanded.value    = new Set();
+  Object.keys(expanded).forEach(k => delete expanded[k]);
   if (t === 'company' && !companyPolicies.value.length && !loadingCompany.value) {
     loadCompanyPolicies();
   }
@@ -431,9 +431,8 @@ function toggleSelectAll() {
 // ── Expand ────────────────────────────────────────────────────────────────────
 
 function toggleExpand(id: string) {
-  const s = new Set(expanded.value);
-  s.has(id) ? s.delete(id) : s.add(id);
-  expanded.value = s;
+  if (expanded[id]) delete expanded[id];
+  else expanded[id] = true;
 }
 
 // ── Toolbar actions ───────────────────────────────────────────────────────────
@@ -453,7 +452,7 @@ async function bulkDelete() {
     globalPolicies.value  = globalPolicies.value.filter(p => !ids.includes(p.id));
     companyPolicies.value = companyPolicies.value.filter(p => !ids.includes(p.id));
     const next = new Set(selectedIds.value);
-    ids.forEach(id => { next.delete(id); expanded.value.delete(id); });
+    ids.forEach(id => { next.delete(id); delete expanded[id]; });
     selectedIds.value = next;
   } catch {}
 }
@@ -601,7 +600,7 @@ async function deletePolicy(policy: Policy) {
     await api.policies.delete(policy.id);
     globalPolicies.value  = globalPolicies.value.filter(p => p.id !== policy.id);
     companyPolicies.value = companyPolicies.value.filter(p => p.id !== policy.id);
-    expanded.value.delete(policy.id);
+    delete expanded[policy.id];
     const s = new Set(selectedIds.value); s.delete(policy.id); selectedIds.value = s;
   } catch {}
 }
