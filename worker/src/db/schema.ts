@@ -103,30 +103,41 @@ export const webhookEndpoints = sqliteTable('webhook_endpoints', {
   createdAt: integer('created_at').notNull(),
 });
 
-export const alertDefinitions = sqliteTable('alert_definitions', {
-  id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
-  // null = applies to all devices in tenant; set to scope to one device
-  deviceId: text('device_id').references(() => devices.id),
-  // null = applies to all device classes; set to scope by class
-  deviceClass: text('device_class', { enum: ['server', 'workstation', 'laptop'] }),
-  checkType: text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'] }).notNull(),
-  threshold: text('threshold').notNull(), // JSON — shape varies by check_type
-  consecutiveFailuresRequired: integer('consecutive_failures_required').notNull().default(3),
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  priority: text('priority', { enum: ['critical', 'high', 'moderate', 'low'] }).notNull().default('high'),
-  createdAt: integer('created_at').notNull(),
+export const policies = sqliteTable('policies', {
+  id:          text('id').primaryKey(),
+  name:        text('name').notNull(),
+  description: text('description'),
+  scope:       text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
+  companyId:   text('company_id').references(() => tenants.id),
+  enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  targetOs:    text('target_os').notNull().default('["windows","linux","macos"]'),
+  targetClass: text('target_class').notNull().default('["server","workstation","laptop"]'),
+  createdAt:   integer('created_at').notNull(),
+  updatedAt:   integer('updated_at').notNull(),
+});
+
+export const policyMonitors = sqliteTable('policy_monitors', {
+  id:                      text('id').primaryKey(),
+  policyId:                text('policy_id').notNull().references(() => policies.id),
+  checkType:               text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'] }).notNull(),
+  enabled:                 integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  config:                  text('config').notNull().default('{}'),
+  alertPriority:           text('alert_priority', { enum: ['critical', 'high', 'moderate', 'low'] }).notNull().default('high'),
+  sustainedMinutes:        integer('sustained_minutes').notNull().default(5),
+  autoResolve:             integer('auto_resolve', { mode: 'boolean' }).notNull().default(true),
+  autoResolveAfterMinutes: integer('auto_resolve_after_minutes').notNull().default(60),
+  createdAt:               integer('created_at').notNull(),
 });
 
 export const alertState = sqliteTable('alert_state', {
-  id: text('id').primaryKey(),
-  deviceId: text('device_id').notNull().references(() => devices.id),
-  alertDefinitionId: text('alert_definition_id').notNull().references(() => alertDefinitions.id),
-  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
-  isAlerting: integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
-  alertedAt: integer('alerted_at'),   // when the alert first fired
-  resolvedAt: integer('resolved_at'), // when it last resolved
-  updatedAt: integer('updated_at').notNull(),
+  id:                 text('id').primaryKey(),
+  deviceId:           text('device_id').notNull().references(() => devices.id),
+  policyMonitorId:    text('policy_monitor_id').notNull().references(() => policyMonitors.id),
+  conditionFirstSeen: integer('condition_first_seen'),
+  isAlerting:         integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
+  alertedAt:          integer('alerted_at'),
+  resolvedAt:         integer('resolved_at'),
+  updatedAt:          integer('updated_at').notNull(),
 });
 
 export const sessions = sqliteTable('sessions', {

@@ -173,43 +173,57 @@ export interface DeviceCommand {
 
 // ── Monitor / Alert types ────────────────────────────────────
 
-export type CheckType    = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
+export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
 export type AlertPriority = 'critical' | 'high' | 'moderate' | 'low';
 
-export interface AlertDefinition {
-  id: string;
-  tenantId: string;
-  tenantName?: string; // present in global listing
-  deviceId: string | null;
-  deviceClass: 'server' | 'workstation' | 'laptop' | null;
-  checkType: CheckType;
-  threshold: string; // JSON
-  consecutiveFailuresRequired: number;
-  enabled: boolean;
-  priority: AlertPriority;
-  createdAt: number;
+export interface PolicyMonitor {
+  id:                      string;
+  policyId:                string;
+  checkType:               CheckType;
+  enabled:                 boolean;
+  config:                  string; // JSON
+  alertPriority:           AlertPriority;
+  sustainedMinutes:        number;
+  autoResolve:             boolean;
+  autoResolveAfterMinutes: number;
+  createdAt:               number;
+}
+
+export interface Policy {
+  id:          string;
+  name:        string;
+  description: string | null;
+  scope:       'global' | 'company';
+  companyId:   string | null;
+  enabled:     boolean;
+  targetOs:    string; // JSON array
+  targetClass: string; // JSON array
+  createdAt:   number;
+  updatedAt:   number;
+  monitors:    PolicyMonitor[];
 }
 
 export interface AlertState {
-  id: string;
-  is_alerting: number; // SQLite boolean: 0 or 1
-  consecutive_failures: number;
-  alerted_at: number | null;
-  resolved_at: number | null;
-  updated_at: number;
-  device_id: string;
-  hostname: string | null;
-  os_type: string | null;
-  detected_class: string | null;
-  override_class: string | null;
-  tenant_id: string;
-  tenant_name: string;
-  definition_id: string;
-  check_type: CheckType;
-  threshold: string; // JSON
-  priority: AlertPriority;
-  consecutive_failures_required: number;
-  definition_device_class: string | null;
+  id:                   string;
+  is_alerting:          number; // SQLite boolean: 0 or 1
+  condition_first_seen: number | null;
+  alerted_at:           number | null;
+  resolved_at:          number | null;
+  updated_at:           number;
+  device_id:            string;
+  hostname:             string | null;
+  os_type:              string | null;
+  detected_class:       string | null;
+  override_class:       string | null;
+  tenant_id:            string;
+  tenant_name:          string;
+  monitor_id:           string;
+  check_type:           CheckType;
+  config:               string; // JSON
+  priority:             AlertPriority;
+  policy_id:            string;
+  policy_name:          string;
+  policy_scope:         string;
 }
 
 // ── Audit types ─────────────────────────────────────────────
@@ -384,21 +398,50 @@ export const api = {
     },
   },
 
-  monitors: {
-    list:   (tenantId?: string) => {
-      const qs = tenantId ? `?tenant_id=${tenantId}` : '';
-      return request<AlertDefinition[]>('GET', `/v1/admin/alert-definitions${qs}`);
+  policies: {
+    list: (params?: { scope?: 'global' | 'company'; company_id?: string }) => {
+      const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : '';
+      return request<Policy[]>('GET', `/v1/admin/policies${qs ? `?${qs}` : ''}`);
     },
     create: (body: {
-      tenant_id: string;
-      device_id?: string;
-      device_class?: 'server' | 'workstation' | 'laptop';
-      check_type: CheckType;
-      threshold: Record<string, unknown>;
-      consecutive_failures_required?: number;
-      priority?: AlertPriority;
-    }) => request<{ definition_id: string }>('POST', '/v1/admin/alert-definitions', body),
-    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/alert-definitions/${id}`),
+      name:          string;
+      description?:  string | null;
+      scope?:        'global' | 'company';
+      company_id?:   string | null;
+      target_os?:    string[];
+      target_class?: string[];
+      clone_from?:   string;
+    }) => request<Policy>('POST', '/v1/admin/policies', body),
+    update: (id: string, body: {
+      name?:         string;
+      description?:  string | null;
+      enabled?:      boolean;
+      target_os?:    string[];
+      target_class?: string[];
+    }) => request<{ ok: boolean }>('PATCH', `/v1/admin/policies/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${id}`),
+    monitors: {
+      list: (policyId: string) =>
+        request<PolicyMonitor[]>('GET', `/v1/admin/policies/${policyId}/monitors`),
+      create: (policyId: string, body: {
+        check_type:                CheckType;
+        config:                    Record<string, unknown>;
+        alert_priority?:           AlertPriority;
+        sustained_minutes?:        number;
+        auto_resolve?:             boolean;
+        auto_resolve_after_minutes?: number;
+      }) => request<{ monitor_id: string }>('POST', `/v1/admin/policies/${policyId}/monitors`, body),
+      update: (policyId: string, mid: string, body: {
+        enabled?:                boolean;
+        config?:                 Record<string, unknown>;
+        alert_priority?:         AlertPriority;
+        sustained_minutes?:      number;
+        auto_resolve?:           boolean;
+        auto_resolve_after_minutes?: number;
+      }) => request<{ ok: boolean }>('PATCH', `/v1/admin/policies/${policyId}/monitors/${mid}`, body),
+      delete: (policyId: string, mid: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/monitors/${mid}`),
+    },
   },
 
   alerts: {

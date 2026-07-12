@@ -11,8 +11,6 @@ function requireAdmin(auth: string | undefined, secret: string): boolean {
 }
 
 // GET /v1/admin/alerts?status=active|all&search=<text>
-// Returns alert states joined with device, tenant, and definition info.
-// Default: only currently-alerting states (status=active).
 alerts.get('/', async (c) => {
   if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
     return c.json({ error: 'unauthorized' }, 401);
@@ -20,7 +18,6 @@ alerts.get('/', async (c) => {
 
   const showAll  = c.req.query('status') === 'all';
   const search   = c.req.query('search')?.toLowerCase() ?? '';
-  // Last 30 days threshold for "all" view
   const since30d = Math.floor(Date.now() / 1000) - 30 * 86400;
 
   const whereClause = showAll
@@ -31,7 +28,7 @@ alerts.get('/', async (c) => {
     SELECT
       s.id,
       s.is_alerting,
-      s.consecutive_failures,
+      s.condition_first_seen,
       s.alerted_at,
       s.resolved_at,
       s.updated_at,
@@ -42,16 +39,19 @@ alerts.get('/', async (c) => {
       d.override_class,
       t.id   AS tenant_id,
       t.name AS tenant_name,
-      def.id              AS definition_id,
-      def.check_type,
-      def.threshold,
-      def.priority,
-      def.consecutive_failures_required,
-      def.device_class    AS definition_device_class
+      pm.id             AS monitor_id,
+      pm.check_type,
+      pm.config,
+      pm.alert_priority AS priority,
+      pm.sustained_minutes,
+      p.id   AS policy_id,
+      p.name AS policy_name,
+      p.scope AS policy_scope
     FROM alert_state s
-    JOIN devices d           ON s.device_id           = d.id
-    JOIN tenants t           ON d.tenant_id            = t.id
-    JOIN alert_definitions def ON s.alert_definition_id = def.id
+    JOIN devices d          ON s.device_id          = d.id
+    JOIN tenants t          ON d.tenant_id           = t.id
+    JOIN policy_monitors pm ON s.policy_monitor_id   = pm.id
+    JOIN policies p         ON pm.policy_id          = p.id
     ${whereClause}
     ORDER BY s.alerted_at DESC
     LIMIT 500
@@ -65,9 +65,10 @@ alerts.get('/', async (c) => {
 
   if (search) {
     rows = rows.filter(r =>
-      (r.hostname as string | null)?.toLowerCase().includes(search) ||
-      (r.tenant_name as string).toLowerCase().includes(search) ||
-      (r.check_type as string).toLowerCase().includes(search),
+      (r.hostname    as string | null)?.toLowerCase().includes(search) ||
+      (r.tenant_name as string).toLowerCase().includes(search)         ||
+      (r.check_type  as string).toLowerCase().includes(search)         ||
+      (r.policy_name as string).toLowerCase().includes(search),
     );
   }
 
@@ -93,10 +94,10 @@ alerts.post('/:id/resolve', async (c) => {
 
   await db.update(schema.alertState)
     .set({
-      isAlerting:          false,
-      consecutiveFailures: 0,
-      resolvedAt:          now,
-      updatedAt:           now,
+      isAlerting:         false,
+      conditionFirstSeen: null,
+      resolvedAt:         now,
+      updatedAt:          now,
     })
     .where(eq(schema.alertState.id, id));
 

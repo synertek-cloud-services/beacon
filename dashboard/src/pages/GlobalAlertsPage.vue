@@ -138,7 +138,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { api, type AlertState, type CheckType } from '../api';
+import { api, type AlertState } from '../api';
 
 const allAlerts   = ref<AlertState[]>([]);
 const loading     = ref(true);
@@ -255,7 +255,7 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function categoryLabel(ct: CheckType): string {
+function categoryLabel(ct: string): string {
   switch (ct) {
     case 'disk_space':   return 'Disk Space';
     case 'offline':      return 'Online Status';
@@ -268,14 +268,20 @@ function categoryLabel(ct: CheckType): string {
 
 function alertMessage(a: AlertState): string {
   try {
-    const t = JSON.parse(a.threshold) as Record<string, unknown>;
+    const cfg = JSON.parse(a.config) as Record<string, unknown>;
     switch (a.check_type) {
-      case 'offline':      return 'Device went Offline';
-      case 'disk_space':   return `Disk space below ${((t.bytes_free_min as number) / 1073741824).toFixed(0)} GB`;
-      case 'cpu_usage':    return `CPU usage above ${t.percent_max}%`;
-      case 'memory_usage': return `Memory usage above ${t.percent_max}%`;
-      case 'av_status':    return 'Antivirus issue detected';
-      default:             return a.check_type;
+      case 'offline':      return 'Device went offline';
+      case 'disk_space':   return `Disk space below ${((cfg.bytes_free_min as number) / 1073741824).toFixed(0)} GB`;
+      case 'cpu_usage':    return `CPU usage above ${cfg.percent_max}%`;
+      case 'memory_usage': return `Memory usage above ${cfg.percent_max}%`;
+      case 'av_status': {
+        const state = cfg.av_state as string;
+        if (state === 'not_detected')          return 'AV not detected';
+        if (state === 'not_running')            return 'AV not running';
+        if (state === 'running_not_up_to_date') return 'AV out of date';
+        return 'Antivirus issue';
+      }
+      default: return a.check_type;
     }
   } catch {
     return a.check_type;
