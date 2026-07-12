@@ -310,12 +310,10 @@
             </div>
           </div>
 
-          <div class="field">
-            <label class="check-row">
-              <input type="checkbox" v-model="monitorModal.form.autoResolve" />
-              <span>Auto-resolve when condition clears</span>
-            </label>
-          </div>
+          <label class="autoresolve-row">
+            <input type="checkbox" v-model="monitorModal.form.autoResolve" />
+            <span>Auto-resolve when condition clears</span>
+          </label>
 
           <div v-if="monitorModal.error" class="error-msg">{{ monitorModal.error }}</div>
         </div>
@@ -826,6 +824,7 @@ function monitorSummary(m: PolicyMonitor): string {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   width: 440px; max-width: 95vw; box-shadow: 0 12px 40px rgba(0,0,0,.25);
   display: flex; flex-direction: column; max-height: 90vh;
+  overflow: hidden;
 }
 .modal-header {
   display: flex; align-items: center; padding: 16px 18px 12px;
@@ -885,6 +884,14 @@ function monitorSummary(m: PolicyMonitor): string {
 }
 .check-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
 .check-row span { min-width: 0; }
+
+.autoresolve-row {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text);
+  width: 100%; box-sizing: border-box;
+}
+.autoresolve-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
+.autoresolve-row span { flex: 1; min-width: 0; }
 
 .error-msg { color: #e04040; font-size: 12px; }
 
