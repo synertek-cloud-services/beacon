@@ -30,7 +30,7 @@
           <RouterLink to="/" class="sbi" :class="{ active: route.path === '/' }">Default Dashboard</RouterLink>
         </div>
 
-        <!-- SITES -->
+        <!-- COMPANIES -->
         <div class="sec-head" @click="toggleSection('sites')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
@@ -45,17 +45,27 @@
         </div>
         <div v-show="openSections.sites" class="sec-body">
           <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
-          <template v-for="c in companies" :key="c.id">
-            <div class="sbi sbi-company" :class="{ active: activeCompany === c.id }" @click="selectCompany(c.id)">
-              <svg class="company-tri" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none" @click.stop="toggleCompany(c.id)">
-                <polygon v-if="expandedCompanies[c.id]" points="2,6 22,6 12,20"/>
-                <polygon v-else points="6,2 6,22 20,12"/>
-              </svg>
-              <span class="sbi-company-name">{{ c.name }}</span>
-            </div>
-            <div v-if="expandedCompanies[c.id]" class="sbi sbi-leaf" :class="{ active: activeCompany === c.id && route.path.startsWith('/devices') }" @click="selectCompany(c.id)">Devices</div>
-          </template>
         </div>
+
+        <!-- ACTIVE CLIENT -->
+        <template v-if="activeClientId">
+          <div class="client-head">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span class="client-name">{{ activeClientName }}</span>
+            <button class="client-clear" @click="clearActiveClient" title="Clear active client">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="sec-body">
+            <div class="sbi"
+                 :class="{ active: route.path.startsWith('/devices') && route.query.company === activeClientId }"
+                 @click="router.push({ path: '/devices', query: { company: activeClientId } })">
+              Devices
+            </div>
+          </div>
+        </template>
 
         <!-- DEVICES -->
         <div class="sec-head" @click="toggleSection('devices')">
@@ -162,10 +172,14 @@ const router = useRouter();
 const isLogin   = computed(() => route.path === '/login');
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
-const companies         = ref<Tenant[]>([]);
-const expandedCompanies = ref<Record<string, boolean>>({});
-const activeCompany     = computed(() => route.query.company as string | undefined);
-const pendingCount      = ref(0);
+const companies      = ref<Tenant[]>([]);
+const activeClientId = ref<string | null>(null);
+const activeCompany  = computed(() => route.query.company as string | undefined);
+const pendingCount   = ref(0);
+
+const activeClientName = computed(() =>
+  companies.value.find(c => c.id === activeClientId.value)?.name ?? ''
+);
 
 const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false });
 
@@ -185,20 +199,16 @@ onMounted(async () => {
 onUnmounted(() => { if (searchTimer) clearTimeout(searchTimer); });
 
 watch(activeCompany, (id) => {
-  if (id) expandedCompanies.value = { ...expandedCompanies.value, [id]: true };
+  if (id) activeClientId.value = id;
 }, { immediate: true });
 
 watch(() => route.query.search, (s) => {
   searchQuery.value = (s as string) ?? '';
 }, { immediate: true });
 
-function selectCompany(id: string | null) {
-  if (id) expandedCompanies.value = { ...expandedCompanies.value, [id]: true };
-  router.push({ path: '/devices', query: id ? { company: id } : {} });
-}
-
-function toggleCompany(id: string) {
-  expandedCompanies.value = { ...expandedCompanies.value, [id]: !expandedCompanies.value[id] };
+function clearActiveClient() {
+  activeClientId.value = null;
+  if (route.query.company) router.push({ path: '/devices' });
 }
 
 function toggleSection(key: keyof typeof openSections.value) {
@@ -301,14 +311,24 @@ function logout() {
 .sbi:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .sbi.active { background: rgba(78,126,247,.1); color: var(--accent); font-weight: 500; }
 
-/* company row */
-.sbi-company { padding-left: 24px; gap: 6px; }
-.sbi-company-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.company-tri { flex-shrink: 0; color: var(--muted); cursor: pointer; transition: color .12s; }
-.sbi-company:hover .company-tri, .sbi-company.active .company-tri { color: var(--text); }
-
-/* leaf item (Devices under a company) */
-.sbi-leaf { padding-left: 48px; }
+/* ── Active client section ── */
+.client-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 14px; margin: 4px 0 0;
+  background: rgba(78,126,247,.08);
+  border-left: 2px solid var(--accent);
+}
+.client-icon { color: var(--accent); flex-shrink: 0; opacity: .8; }
+.client-name {
+  flex: 1; font-size: 12px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.client-clear {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 3px; display: flex; align-items: center; border-radius: 3px; flex-shrink: 0;
+  transition: background .1s, color .1s;
+}
+.client-clear:hover { background: rgba(255,255,255,.08); color: var(--text); }
 
 /* pending badge inside an sbi */
 .sbi-badge {
