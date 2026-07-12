@@ -29,7 +29,7 @@
         </div>
       </div>
       <div class="section-card-head" style="padding:8px 16px;border-top:1px solid var(--border);border-bottom:none" v-if="activeCompany">
-        <span class="text-xs text-muted-2">Filtered by company: <strong>{{ devices.find(d => d.tenantId === activeCompany)?.tenantName ?? activeCompany }}</strong></span>
+        <span class="text-xs text-muted-2">Filtered by company: <strong>{{ tenants.find(t => t.id === activeCompany)?.name ?? activeCompany }}</strong></span>
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
@@ -485,7 +485,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AuditChange } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AuditChange, type Tenant } from '../api';
 
 interface Inventory {
   hostname: string;
@@ -499,6 +499,7 @@ interface Inventory {
 const route      = useRoute();
 const router     = useRouter();
 const devices    = ref<Device[]>([]);
+const tenants    = ref<Tenant[]>([]);
 const loading    = ref(true);
 const error      = ref('');
 const busy       = ref<string | null>(null);
@@ -657,7 +658,12 @@ async function load() {
   loading.value = devices.value.length === 0;
   error.value = '';
   try {
-    devices.value = await api.devices.list();
+    const [devList, tenantList] = await Promise.all([
+      api.devices.list(),
+      tenants.value.length ? Promise.resolve(tenants.value) : api.tenants.list(),
+    ]);
+    devices.value = devList;
+    tenants.value = tenantList;
   } catch (e: any) {
     error.value = e.message;
   } finally {
