@@ -64,12 +64,13 @@
           </thead>
           <tbody>
             <template v-for="policy in displayedPolicies" :key="policy.id">
-              <tr :class="['policy-row', { selected: selectedIds.has(policy.id), 'row-open': expanded.has(policy.id) }]">
-                <td class="col-check">
+              <tr :class="['policy-row', { selected: selectedIds.has(policy.id), 'row-open': expanded.has(policy.id) }]"
+                  @click="toggleExpand(policy.id)">
+                <td class="col-check" @click.stop>
                   <input type="checkbox" :checked="selectedIds.has(policy.id)" @change="toggleSelect(policy.id)" />
                 </td>
                 <td class="col-name">
-                  <button class="policy-link" @click="toggleExpand(policy.id)">{{ policy.name }}</button>
+                  <span class="policy-link">{{ policy.name }}</span>
                   <div v-if="policy.description" class="policy-desc">{{ policy.description }}</div>
                 </td>
                 <td class="col-targets">{{ targetSummary(policy) }}</td>
@@ -81,8 +82,8 @@
                   <span class="monitor-count-badge">{{ policy.monitors.length }}</span>
                 </td>
                 <td class="col-created">{{ formatDate(policy.createdAt) }}</td>
-                <td class="col-enabled">
-                  <button :class="['toggle-btn', { enabled: policy.enabled }]" @click.stop="togglePolicy(policy)">
+                <td class="col-enabled" @click.stop>
+                  <button :class="['toggle-btn', { enabled: policy.enabled }]" @click="togglePolicy(policy)">
                     <span class="toggle-track"><span class="toggle-thumb"></span></span>
                   </button>
                 </td>
@@ -879,6 +880,7 @@ function monitorSummary(m: PolicyMonitor): string {
   color: var(--text); vertical-align: middle;
 }
 .policy-row:last-child td { border-bottom: none; }
+.policy-row { cursor: pointer; }
 .policy-row:hover td { background: rgba(255,255,255,.025); }
 .policy-row.selected td { background: rgba(78,126,247,.07); }
 .policy-row.row-open td { background: var(--surface-2); }
@@ -890,11 +892,9 @@ function monitorSummary(m: PolicyMonitor): string {
 .col-enabled td { text-align: center; }
 
 .policy-link {
-  background: none; border: none; padding: 0; cursor: pointer; font-family: var(--font);
-  font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none;
-  display: block; text-align: left; transition: color .1s;
+  font-size: 13px; font-weight: 600; color: var(--accent);
 }
-.policy-link:hover { text-decoration: underline; }
+.policy-row:hover .policy-link { text-decoration: underline; }
 .policy-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 .scope-badge {
