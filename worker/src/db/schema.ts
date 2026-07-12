@@ -110,7 +110,7 @@ export const alertDefinitions = sqliteTable('alert_definitions', {
   deviceId: text('device_id').references(() => devices.id),
   // null = applies to all device classes; set to scope by class
   deviceClass: text('device_class', { enum: ['server', 'workstation', 'laptop'] }),
-  checkType: text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage'] }).notNull(),
+  checkType: text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'] }).notNull(),
   threshold: text('threshold').notNull(), // JSON — shape varies by check_type
   consecutiveFailuresRequired: integer('consecutive_failures_required').notNull().default(3),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

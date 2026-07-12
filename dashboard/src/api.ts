@@ -173,7 +173,7 @@ export interface DeviceCommand {
 
 // ── Monitor / Alert types ────────────────────────────────────
 
-export type CheckType    = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+export type CheckType    = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
 export type AlertPriority = 'critical' | 'high' | 'moderate' | 'low';
 
 export interface AlertDefinition {
@@ -394,7 +394,7 @@ export const api = {
       device_id?: string;
       device_class?: 'server' | 'workstation' | 'laptop';
       check_type: CheckType;
-      threshold: Record<string, number>;
+      threshold: Record<string, unknown>;
       consecutive_failures_required?: number;
       priority?: AlertPriority;
     }) => request<{ definition_id: string }>('POST', '/v1/admin/alert-definitions', body),

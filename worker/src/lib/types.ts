@@ -46,6 +46,9 @@ export interface Metrics {
   detected_class: DeviceClass;
   cpu_percent?: number;
   memory_percent?: number;
+  // "running_up_to_date" | "running_not_up_to_date" | "not_running" | "not_detected" | "" (unsupported)
+  av_status?: string;
+  av_product?: string;
 }
 
 export interface CheckInResponse {

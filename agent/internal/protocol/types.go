@@ -49,8 +49,11 @@ type Metrics struct {
 	UptimeSeconds  int64       `json:"uptime_seconds"`
 	DiskFreeBytes  int64       `json:"disk_free_bytes"`
 	DetectedClass  DeviceClass `json:"detected_class"`
-	CpuPercent     float64     `json:"cpu_percent"`
-	MemoryPercent  float64     `json:"memory_percent"`
+	CpuPercent    float64 `json:"cpu_percent"`
+	MemoryPercent float64 `json:"memory_percent"`
+	// av_status: "running_up_to_date" | "running_not_up_to_date" | "not_running" | "not_detected" | "" (unsupported platform)
+	AvStatus  string `json:"av_status,omitempty"`
+	AvProduct string `json:"av_product,omitempty"` // name of detected AV product
 }
 
 // CheckInResponse is returned by the server. Commands is omitted when empty.

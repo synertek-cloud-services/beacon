@@ -73,6 +73,7 @@
               <option value="disk_space">Disk Space — free space falls below limit</option>
               <option value="cpu_usage">CPU Usage — sustained high CPU</option>
               <option value="memory_usage">Memory Usage — sustained high memory</option>
+              <option value="av_status">Antivirus Status — AV not detected, not running, or out of date</option>
             </select>
           </div>
 
@@ -107,6 +108,25 @@
               <input v-model.number="form.memory_percent" type="number" min="1" max="100" class="field-input" style="max-width:100px" />
               <span class="input-unit">%</span>
             </div>
+          </div>
+
+          <div v-if="form.check_type === 'av_status'" class="field">
+            <label class="field-label">Alert when antivirus status is</label>
+            <div class="check-group">
+              <label class="check-row">
+                <input type="checkbox" v-model="form.av_alert_on" value="not_detected" />
+                <span>Not Detected — no AV product found</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" v-model="form.av_alert_on" value="not_running" />
+                <span>Not Running — AV installed but disabled or stopped</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" v-model="form.av_alert_on" value="running_not_up_to_date" />
+                <span>Running but Out of Date — signatures not current</span>
+              </label>
+            </div>
+            <div class="field-hint">Applies to Windows devices. Linux detects ClamAV, ESET, Sophos.</div>
           </div>
 
           <div class="field">
@@ -169,6 +189,7 @@ const form = ref({
   memory_percent:       90,
   consecutive_failures: 3,
   priority:             'high' as 'critical' | 'high' | 'moderate' | 'low',
+  av_alert_on:          ['not_detected', 'not_running'] as string[],
 });
 
 async function load() {
@@ -226,7 +247,7 @@ async function create() {
   }
 }
 
-function buildThreshold(): Record<string, number> {
+function buildThreshold(): Record<string, unknown> {
   switch (form.value.check_type) {
     case 'offline':
       return { offline_after_seconds: form.value.offline_minutes * 60 };
@@ -236,6 +257,8 @@ function buildThreshold(): Record<string, number> {
       return { percent_max: form.value.cpu_percent };
     case 'memory_usage':
       return { percent_max: form.value.memory_percent };
+    case 'av_status':
+      return { alert_on: form.value.av_alert_on };
     default:
       return {};
   }
@@ -255,19 +278,24 @@ function checkLabel(ct: CheckType): string {
     case 'offline':      return 'Offline';
     case 'cpu_usage':    return 'CPU';
     case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
     default:             return ct;
   }
 }
 
 function formatThreshold(ct: CheckType, raw: string): string {
   try {
-    const t = JSON.parse(raw) as Record<string, number>;
+    const t = JSON.parse(raw) as Record<string, unknown>;
     switch (ct) {
-      case 'disk_space':   return `< ${(t.bytes_free_min / 1073741824).toFixed(0)} GB free`;
-      case 'offline':      return `> ${Math.round(t.offline_after_seconds / 60)} min offline`;
+      case 'disk_space':   return `< ${((t.bytes_free_min as number) / 1073741824).toFixed(0)} GB free`;
+      case 'offline':      return `> ${Math.round((t.offline_after_seconds as number) / 60)} min offline`;
       case 'cpu_usage':    return `> ${t.percent_max}% CPU`;
       case 'memory_usage': return `> ${t.percent_max}% memory`;
-      default:             return raw;
+      case 'av_status': {
+        const states = (t.alert_on as string[]).map(s => s.replace(/_/g, ' '));
+        return states.join(', ');
+      }
+      default: return raw;
     }
   } catch {
     return raw;
@@ -314,8 +342,18 @@ function formatThreshold(ct: CheckType, raw: string): string {
 .chip-offline      { background: rgba(240,168,64,.16); color: var(--amber); }
 .chip-cpu_usage    { background: rgba(240,80,60,.12); color: #e04040; }
 .chip-memory_usage { background: rgba(78,126,247,.14); color: var(--accent); }
+.chip-av_status    { background: rgba(45,207,160,.14); color: var(--teal); }
 
 .mono { font-family: var(--font-mono, monospace); }
+
+/* AV checkbox group */
+.check-group { display: flex; flex-direction: column; gap: 8px; }
+.check-row {
+  display: flex; align-items: flex-start; gap: 8px; cursor: pointer;
+  font-size: 12px; color: var(--text);
+}
+.check-row input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+.field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
 /* ── Modal ── */
 .modal-backdrop {

@@ -158,6 +158,8 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			DetectedClass: protocol.DeviceClass(snap.DetectedClass),
 			CpuPercent:    snap.CpuPercent,
 			MemoryPercent: snap.MemoryPercent,
+			AvStatus:      snap.AvStatus,
+			AvProduct:     snap.AvProduct,
 		},
 		PendingCommandResults: results,
 	})

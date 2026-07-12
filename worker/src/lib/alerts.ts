@@ -80,14 +80,25 @@ export async function evaluateOfflineAlerts(
 // ── Shared logic ─────────────────────────────────────────────────────────────
 
 function evaluateCheck(def: AlertDef, metrics: Metrics): boolean {
-  const t = JSON.parse(def.threshold) as Record<string, number>;
   switch (def.checkType) {
-    case 'disk_space':
+    case 'disk_space': {
+      const t = JSON.parse(def.threshold) as { bytes_free_min: number };
       return metrics.disk_free_bytes < t.bytes_free_min;
-    case 'cpu_usage':
+    }
+    case 'cpu_usage': {
+      const t = JSON.parse(def.threshold) as { percent_max: number };
       return metrics.cpu_percent !== undefined && metrics.cpu_percent > t.percent_max;
-    case 'memory_usage':
+    }
+    case 'memory_usage': {
+      const t = JSON.parse(def.threshold) as { percent_max: number };
       return metrics.memory_percent !== undefined && metrics.memory_percent > t.percent_max;
+    }
+    case 'av_status': {
+      const status = metrics.av_status;
+      if (!status) return false; // no data yet (unsupported platform or first check-in)
+      const t = JSON.parse(def.threshold) as { alert_on: string[] };
+      return Array.isArray(t.alert_on) && t.alert_on.includes(status);
+    }
     default:
       return false;
   }

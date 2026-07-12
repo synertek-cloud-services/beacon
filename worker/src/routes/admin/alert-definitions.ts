@@ -10,7 +10,7 @@ function requireAdmin(auth: string | undefined, secret: string): boolean {
   return auth === `Bearer ${secret}`;
 }
 
-type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
 type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 
 // GET /v1/admin/alert-definitions?tenant_id=<id>   → per-tenant list
@@ -57,7 +57,7 @@ alertDefs.post('/', async (c) => {
     priority?: Priority;
   }>();
 
-  const validTypes: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage'];
+  const validTypes: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'];
   if (!validTypes.includes(body.check_type)) {
     return c.json({ error: 'invalid check_type' }, 400);
   }

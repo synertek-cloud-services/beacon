@@ -261,18 +261,20 @@ function categoryLabel(ct: CheckType): string {
     case 'offline':      return 'Online Status';
     case 'cpu_usage':    return 'CPU';
     case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
     default:             return ct;
   }
 }
 
 function alertMessage(a: AlertState): string {
   try {
-    const t = JSON.parse(a.threshold) as Record<string, number>;
+    const t = JSON.parse(a.threshold) as Record<string, unknown>;
     switch (a.check_type) {
       case 'offline':      return 'Device went Offline';
-      case 'disk_space':   return `Disk space below ${(t.bytes_free_min / 1073741824).toFixed(0)} GB`;
+      case 'disk_space':   return `Disk space below ${((t.bytes_free_min as number) / 1073741824).toFixed(0)} GB`;
       case 'cpu_usage':    return `CPU usage above ${t.percent_max}%`;
       case 'memory_usage': return `Memory usage above ${t.percent_max}%`;
+      case 'av_status':    return 'Antivirus issue detected';
       default:             return a.check_type;
     }
   } catch {
