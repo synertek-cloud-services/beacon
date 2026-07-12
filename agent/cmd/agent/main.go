@@ -156,6 +156,8 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			UptimeSeconds: snap.UptimeSeconds,
 			DiskFreeBytes: snap.DiskFreeBytes,
 			DetectedClass: protocol.DeviceClass(snap.DetectedClass),
+			CpuPercent:    snap.CpuPercent,
+			MemoryPercent: snap.MemoryPercent,
 		},
 		PendingCommandResults: results,
 	})

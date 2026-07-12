@@ -10,19 +10,33 @@ function requireAdmin(auth: string | undefined, secret: string): boolean {
   return auth === `Bearer ${secret}`;
 }
 
+type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+
+// GET /v1/admin/alert-definitions?tenant_id=<id>   → per-tenant list
+// GET /v1/admin/alert-definitions                   → all definitions with tenant name
 alertDefs.get('/', async (c) => {
   if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
   const tenantId = c.req.query('tenant_id');
-  if (!tenantId) return c.json({ error: 'tenant_id required' }, 400);
 
-  const defs = await db.select()
-    .from(schema.alertDefinitions)
-    .where(eq(schema.alertDefinitions.tenantId, tenantId));
+  if (tenantId) {
+    const defs = await db.select()
+      .from(schema.alertDefinitions)
+      .where(eq(schema.alertDefinitions.tenantId, tenantId));
+    return c.json(defs);
+  }
 
-  return c.json(defs);
+  // Global view: join with tenants to include tenant name
+  const rows = await c.env.DB.prepare(`
+    SELECT ad.*, t.name AS tenant_name
+    FROM alert_definitions ad
+    JOIN tenants t ON ad.tenant_id = t.id
+    ORDER BY t.name, ad.created_at DESC
+  `).all();
+
+  return c.json(rows.results);
 });
 
 alertDefs.post('/', async (c) => {
@@ -36,10 +50,15 @@ alertDefs.post('/', async (c) => {
     tenant_id: string;
     device_id?: string;
     device_class?: 'server' | 'workstation' | 'laptop';
-    check_type: 'disk_space' | 'offline';
+    check_type: CheckType;
     threshold: unknown;
     consecutive_failures_required?: number;
   }>();
+
+  const validTypes: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage'];
+  if (!validTypes.includes(body.check_type)) {
+    return c.json({ error: 'invalid check_type' }, 400);
+  }
 
   const id = crypto.randomUUID();
   await db.insert(schema.alertDefinitions).values({

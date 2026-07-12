@@ -84,6 +84,23 @@
           >All</RouterLink>
         </div>
 
+        <!-- GLOBAL -->
+        <div class="sec-head" @click="toggleSection('global')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          <span class="sec-label">Global</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.global }">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div v-show="openSections.global" class="sec-body">
+          <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
+          <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
+        </div>
+
         <!-- AUTOMATION -->
         <div class="sec-head" @click="toggleSection('automation')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
@@ -150,7 +167,7 @@ const expandedCompanies = ref<Record<string, boolean>>({});
 const activeCompany     = computed(() => route.query.company as string | undefined);
 const pendingCount      = ref(0);
 
-const openSections = ref({ dashboards: true, sites: true, devices: true, automation: false });
+const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false });
 
 const searchQuery = ref('');
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -207,6 +224,8 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/tenants')) return 'Sites';
   if (route.path.startsWith('/components')) return 'Component Library';
   if (route.path.startsWith('/jobs')) return 'Jobs';
+  if (route.path === '/global/alerts') return 'Global Alerts';
+  if (route.path === '/global/policies') return 'Global Policies';
   return 'Beacon';
 });
 

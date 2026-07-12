@@ -171,6 +171,44 @@ export interface DeviceCommand {
   completedAt: number | null;
 }
 
+// ── Monitor / Alert types ────────────────────────────────────
+
+export type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage';
+
+export interface AlertDefinition {
+  id: string;
+  tenantId: string;
+  tenantName?: string; // present in global listing
+  deviceId: string | null;
+  deviceClass: 'server' | 'workstation' | 'laptop' | null;
+  checkType: CheckType;
+  threshold: string; // JSON
+  consecutiveFailuresRequired: number;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export interface AlertState {
+  id: string;
+  is_alerting: number; // SQLite boolean: 0 or 1
+  consecutive_failures: number;
+  alerted_at: number | null;
+  resolved_at: number | null;
+  updated_at: number;
+  device_id: string;
+  hostname: string | null;
+  os_type: string | null;
+  detected_class: string | null;
+  override_class: string | null;
+  tenant_id: string;
+  tenant_name: string;
+  definition_id: string;
+  check_type: CheckType;
+  threshold: string; // JSON
+  consecutive_failures_required: number;
+  definition_device_class: string | null;
+}
+
 // ── Audit types ─────────────────────────────────────────────
 
 export interface CPUInfo    { model: string; cores: number; speed_mhz: number }
@@ -341,6 +379,27 @@ export const api = {
       delete: (tenantId: string, tokenId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}/permanent`),
     },
+  },
+
+  monitors: {
+    list:   (tenantId?: string) => {
+      const qs = tenantId ? `?tenant_id=${tenantId}` : '';
+      return request<AlertDefinition[]>('GET', `/v1/admin/alert-definitions${qs}`);
+    },
+    create: (body: {
+      tenant_id: string;
+      device_id?: string;
+      device_class?: 'server' | 'workstation' | 'laptop';
+      check_type: CheckType;
+      threshold: Record<string, number>;
+      consecutive_failures_required?: number;
+    }) => request<{ definition_id: string }>('POST', '/v1/admin/alert-definitions', body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/alert-definitions/${id}`),
+  },
+
+  alerts: {
+    list: (status: 'active' | 'all' = 'active') =>
+      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}`),
   },
 
   devices: {

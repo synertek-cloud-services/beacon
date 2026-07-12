@@ -83,8 +83,11 @@ function evaluateCheck(def: AlertDef, metrics: Metrics): boolean {
   const t = JSON.parse(def.threshold) as Record<string, number>;
   switch (def.checkType) {
     case 'disk_space':
-      // threshold: { bytes_free_min: <number> }
       return metrics.disk_free_bytes < t.bytes_free_min;
+    case 'cpu_usage':
+      return metrics.cpu_percent !== undefined && metrics.cpu_percent > t.percent_max;
+    case 'memory_usage':
+      return metrics.memory_percent !== undefined && metrics.memory_percent > t.percent_max;
     default:
       return false;
   }

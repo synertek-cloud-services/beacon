@@ -5,9 +5,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 type Snapshot struct {
@@ -17,6 +20,8 @@ type Snapshot struct {
 	UptimeSeconds int64
 	DiskFreeBytes int64
 	DetectedClass string
+	CpuPercent    float64
+	MemoryPercent float64
 }
 
 func Collect() (*Snapshot, error) {
@@ -34,6 +39,18 @@ func Collect() (*Snapshot, error) {
 		return nil, fmt.Errorf("disk usage: %w", err)
 	}
 
+	// cpu.Percent blocks for 200ms to sample usage; errors are non-fatal.
+	cpuPcts, _ := cpu.Percent(200*time.Millisecond, false)
+	var cpuPct float64
+	if len(cpuPcts) > 0 {
+		cpuPct = cpuPcts[0]
+	}
+
+	var memPct float64
+	if vm, err := mem.VirtualMemory(); err == nil {
+		memPct = vm.UsedPercent
+	}
+
 	return &Snapshot{
 		Hostname:      info.Hostname,
 		OSType:        runtime.GOOS,
@@ -41,6 +58,8 @@ func Collect() (*Snapshot, error) {
 		UptimeSeconds: int64(info.Uptime),
 		DiskFreeBytes: int64(du.Free),
 		DetectedClass: detectClass(info),
+		CpuPercent:    cpuPct,
+		MemoryPercent: memPct,
 	}, nil
 }
 

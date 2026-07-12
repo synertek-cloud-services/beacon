@@ -44,6 +44,8 @@ export interface Metrics {
   uptime_seconds: number;
   disk_free_bytes: number;
   detected_class: DeviceClass;
+  cpu_percent?: number;
+  memory_percent?: number;
 }
 
 export interface CheckInResponse {

@@ -7,6 +7,8 @@ import DevicesPage from './pages/DevicesPage.vue';
 import TenantsPage from './pages/TenantsPage.vue';
 import JobsPage from './pages/JobsPage.vue';
 import ComponentsPage from './pages/ComponentsPage.vue';
+import GlobalAlertsPage from './pages/GlobalAlertsPage.vue';
+import GlobalPoliciesPage from './pages/GlobalPoliciesPage.vue';
 import './style.css';
 
 const router = createRouter({
@@ -18,6 +20,8 @@ const router = createRouter({
     { path: '/tenants', component: TenantsPage },
     { path: '/jobs', component: JobsPage },
     { path: '/components', component: ComponentsPage },
+    { path: '/global/alerts', component: GlobalAlertsPage },
+    { path: '/global/policies', component: GlobalPoliciesPage },
   ],
 });
 

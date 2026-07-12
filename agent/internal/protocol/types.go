@@ -43,12 +43,14 @@ type CheckInRequest struct {
 // Metrics is the Phase 1 inventory payload. New fields can be added here in
 // later phases without breaking old agents reading the response.
 type Metrics struct {
-	Hostname      string      `json:"hostname"`
-	OSType        string      `json:"os_type"`
-	OSVersion     string      `json:"os_version"`
-	UptimeSeconds int64       `json:"uptime_seconds"`
-	DiskFreeBytes int64       `json:"disk_free_bytes"`
-	DetectedClass DeviceClass `json:"detected_class"`
+	Hostname       string      `json:"hostname"`
+	OSType         string      `json:"os_type"`
+	OSVersion      string      `json:"os_version"`
+	UptimeSeconds  int64       `json:"uptime_seconds"`
+	DiskFreeBytes  int64       `json:"disk_free_bytes"`
+	DetectedClass  DeviceClass `json:"detected_class"`
+	CpuPercent     float64     `json:"cpu_percent"`
+	MemoryPercent  float64     `json:"memory_percent"`
 }
 
 // CheckInResponse is returned by the server. Commands is omitted when empty.
