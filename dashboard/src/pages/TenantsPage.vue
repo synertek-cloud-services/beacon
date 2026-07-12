@@ -29,9 +29,9 @@
         <tbody>
           <template v-for="t in tenants" :key="t.id">
             <tr
-              :class="['tenant-row', expandedId === t.id ? 'tenant-row-active' : '']"
-              @click="toggleExpanded(t.id)"
+              class="tenant-row"
               style="cursor:pointer"
+              @click="router.push({ path: '/devices', query: { company: t.id } })"
             >
               <td>
                 <div style="font-weight:500;font-size:13px">{{ t.name }}</div>
@@ -51,6 +51,7 @@
               <td class="text-sm text-muted-2">{{ dateLabel(t.createdAt) }}</td>
               <td>
                 <div class="actions" @click.stop>
+                  <button class="btn btn-ghost btn-sm" @click="toggleExpanded(t.id)">Manage</button>
                   <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Edit</button>
                   <button v-if="t.status === 'active'"    class="btn btn-danger btn-sm" @click="setStatus(t, 'suspended')">Suspend</button>
                   <button v-if="t.status === 'suspended'" class="btn btn-primary btn-sm" @click="setStatus(t, 'active')">Activate</button>
@@ -451,10 +452,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, type Tenant, type TenantContact, type TenantLocation, type EnrollmentToken, type Address } from '../api';
 import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
+const router  = useRouter();
 const tenants = ref<Tenant[]>([]);
 const loading = ref(true);
 const error   = ref('');
