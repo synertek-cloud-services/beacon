@@ -3,7 +3,7 @@
     <RouterView />
   </div>
   <div v-else class="shell">
-    <nav class="sidebar">
+    <nav class="sidebar" :class="{ 'no-transition': isResizing }" :style="sidebarStyle">
       <div class="sidebar-brand">
         <div class="sidebar-brand-mark">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -127,11 +127,18 @@
       <div class="sidebar-footer">
         <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">Sign out</button>
       </div>
+
+      <div class="sidebar-resizer" @mousedown.prevent="startResize"></div>
     </nav>
 
     <!-- Main -->
     <div class="main-wrap">
       <div class="topbar">
+        <button class="topbar-toggle" @click="toggleSidebar" :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <span class="topbar-title">{{ pageTitle }}</span>
         <div class="topbar-search">
           <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -170,6 +177,47 @@ const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
 const companies      = ref<Tenant[]>([]);
 const activeClientId = ref<string | null>(null);
+
+// ── Sidebar resize / collapse ─────────────────────────────────────────────────
+
+const sidebarWidth     = ref(parseInt(localStorage.getItem('beacon-sidebar-w') ?? '220'));
+const sidebarCollapsed = ref(localStorage.getItem('beacon-sidebar-collapsed') === 'true');
+const isResizing       = ref(false);
+
+const sidebarStyle = computed(() =>
+  sidebarCollapsed.value
+    ? { width: '0px', minWidth: '0px' }
+    : { width: sidebarWidth.value + 'px', minWidth: sidebarWidth.value + 'px' }
+);
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem('beacon-sidebar-collapsed', String(sidebarCollapsed.value));
+}
+
+let _resizeStartX = 0;
+let _resizeStartW = 0;
+
+function startResize(e: MouseEvent) {
+  _resizeStartX  = e.clientX;
+  _resizeStartW  = sidebarWidth.value;
+  isResizing.value = true;
+  document.body.classList.add('sidebar-resizing');
+  document.addEventListener('mousemove', onResize);
+  document.addEventListener('mouseup', stopResize);
+}
+
+function onResize(e: MouseEvent) {
+  sidebarWidth.value = Math.min(400, Math.max(160, _resizeStartW + e.clientX - _resizeStartX));
+}
+
+function stopResize() {
+  isResizing.value = false;
+  document.body.classList.remove('sidebar-resizing');
+  localStorage.setItem('beacon-sidebar-w', String(sidebarWidth.value));
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+}
 const activeCompany  = computed(() => route.query.company as string | undefined);
 const pendingCount   = ref(0);
 
@@ -192,7 +240,11 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => { if (searchTimer) clearTimeout(searchTimer); });
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+});
 
 watch(activeCompany, (id) => {
   if (id) activeClientId.value = id;
@@ -336,6 +388,14 @@ function logout() {
   font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
   background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
 }
+
+/* ── Topbar toggle ── */
+.topbar-toggle {
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  padding: 6px; border-radius: 5px; display: flex; align-items: center;
+  transition: background .1s, color .1s; flex-shrink: 0; margin-right: 8px;
+}
+.topbar-toggle:hover { background: var(--surface-2); color: var(--text); }
 
 /* ── Topbar search ── */
 .topbar-search {

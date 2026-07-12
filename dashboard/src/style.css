@@ -45,7 +45,22 @@ button { font-family: var(--font); }
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  transition: width .2s ease, min-width .2s ease;
 }
+.sidebar.no-transition { transition: none !important; }
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0; right: -3px; bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background .15s;
+}
+.sidebar-resizer:hover { background: rgba(78,126,247,.35); }
+body.sidebar-resizing { cursor: col-resize !important; user-select: none !important; }
 
 .sidebar-brand {
   height: var(--topbar-h);
