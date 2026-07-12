@@ -272,14 +272,17 @@
             </div>
           </div>
           <div v-if="monitorModal.form.checkType === 'cpu_usage'" class="field">
-            <label class="field-label">Alert when CPU exceeds</label>
+            <label class="field-label">CPU usage has reached</label>
             <div class="input-row">
               <input v-model.number="monitorModal.form.cpuPercent" type="number" min="1" max="100" class="field-input" style="max-width:90px" />
               <span class="input-unit">%</span>
             </div>
+            <p v-if="monitorModal.form.cpuPercent >= 95" class="field-hint field-hint-warn">
+              Monitoring at ≥95% alone may not alert reliably — a device at 100% CPU can fail to report. Consider a second monitor at a lower threshold (e.g. 85%) with a longer period and a High priority as an early warning.
+            </p>
           </div>
           <div v-if="monitorModal.form.checkType === 'memory_usage'" class="field">
-            <label class="field-label">Alert when memory exceeds</label>
+            <label class="field-label">Memory usage has reached</label>
             <div class="input-row">
               <input v-model.number="monitorModal.form.memPercent" type="number" min="1" max="100" class="field-input" style="max-width:90px" />
               <span class="input-unit">%</span>
@@ -293,29 +296,35 @@
               <option value="running_not_up_to_date">Out of Date — definitions stale</option>
             </select>
           </div>
-          <div class="field">
-            <label class="field-label">Priority</label>
-            <select v-model="monitorModal.form.alertPriority" class="field-input">
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="moderate">Moderate</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
           <div class="field-row">
             <div class="field">
-              <label class="field-label">Sustained (minutes)</label>
-              <input v-model.number="monitorModal.form.sustainedMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
+              <label class="field-label">For a period of</label>
+              <div class="input-row">
+                <input v-model.number="monitorModal.form.sustainedMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
+                <span class="input-unit">min</span>
+              </div>
             </div>
             <div class="field">
-              <label class="field-label">Auto-resolve after (min)</label>
-              <input v-model.number="monitorModal.form.autoResolveAfterMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
+              <label class="field-label">Alert priority</label>
+              <select v-model="monitorModal.form.alertPriority" class="field-input">
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="moderate">Moderate</option>
+                <option value="low">Low</option>
+              </select>
             </div>
           </div>
           <label class="autoresolve-row">
             <input type="checkbox" v-model="monitorModal.form.autoResolve" />
-            <span>Auto-resolve when condition clears</span>
+            <span>Auto-resolve alert when condition is no longer met</span>
           </label>
+          <div v-if="monitorModal.form.autoResolve" class="field" style="margin-top:8px">
+            <label class="field-label">Keep alert visible for at least</label>
+            <div class="input-row">
+              <input v-model.number="monitorModal.form.autoResolveAfterMinutes" type="number" min="1" class="field-input" style="max-width:90px" />
+              <span class="input-unit">min before resolving</span>
+            </div>
+          </div>
           <div v-if="monitorModal.error" class="error-msg">{{ monitorModal.error }}</div>
         </div>
         <div class="modal-footer">
@@ -1058,6 +1067,17 @@ function monitorSummary(m: PolicyMonitor): string {
 }
 .autoresolve-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
 .autoresolve-row span { flex: 1; min-width: 0; }
+
+.field-hint {
+  font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5;
+}
+.field-hint-warn {
+  color: var(--amber);
+  background: rgba(240,168,64,.08);
+  border: 1px solid rgba(240,168,64,.2);
+  border-radius: 5px;
+  padding: 6px 10px;
+}
 
 .error-msg { color: #e04040; font-size: 12px; }
 
