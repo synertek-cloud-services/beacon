@@ -47,7 +47,7 @@
         </button>
       </form>
 
-      <div class="lp-footer">Managed by CodeNexus</div>
+      <div class="lp-footer">Synertek Cloud Services</div>
     </div>
   </div>
 </template>
