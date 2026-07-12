@@ -194,19 +194,25 @@
           </div>
           <div class="field">
             <label class="field-label">Target OS</label>
-            <div class="check-group horizontal">
-              <label class="check-row" v-for="os in ['windows', 'linux', 'macos']" :key="os">
-                <input type="checkbox" :value="os" v-model="policyModal.form.targetOs" />
-                <span>{{ os }}</span>
+            <div class="pill-group">
+              <label
+                v-for="os in ['windows', 'linux', 'macos']" :key="os"
+                class="pill-opt" :class="{ active: policyModal.form.targetOs.includes(os) }"
+              >
+                <input type="checkbox" :value="os" v-model="policyModal.form.targetOs" class="pill-cb" />
+                {{ os }}
               </label>
             </div>
           </div>
           <div class="field">
             <label class="field-label">Target Device Class</label>
-            <div class="check-group horizontal">
-              <label class="check-row" v-for="cls in ['server', 'workstation', 'laptop']" :key="cls">
-                <input type="checkbox" :value="cls" v-model="policyModal.form.targetClass" />
-                <span>{{ cls }}</span>
+            <div class="pill-group">
+              <label
+                v-for="cls in ['server', 'workstation', 'laptop']" :key="cls"
+                class="pill-opt" :class="{ active: policyModal.form.targetClass.includes(cls) }"
+              >
+                <input type="checkbox" :value="cls" v-model="policyModal.form.targetClass" class="pill-cb" />
+                {{ cls }}
               </label>
             </div>
           </div>
@@ -852,16 +858,26 @@ function monitorSummary(m: PolicyMonitor): string {
 .input-row   { display: flex; align-items: center; gap: 8px; }
 .input-unit  { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
-.check-group { display: flex; flex-direction: column; gap: 8px; }
-.check-group.horizontal {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px 0;
+.pill-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill-opt {
+  display: inline-flex; align-items: center;
+  padding: 5px 14px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  font-size: 12px; font-weight: 500; color: var(--muted);
+  cursor: pointer; user-select: none; text-transform: capitalize;
+  transition: border-color .12s, background .12s, color .12s;
 }
+.pill-opt.active {
+  border-color: var(--accent);
+  background: rgba(78,126,247,.12);
+  color: var(--accent);
+}
+.pill-cb { display: none; }
+
+.check-group { display: flex; flex-direction: column; gap: 8px; }
 .check-row {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
   font-size: 13px; color: var(--text); padding: 4px 0;
-  white-space: nowrap;
 }
 .check-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
 
