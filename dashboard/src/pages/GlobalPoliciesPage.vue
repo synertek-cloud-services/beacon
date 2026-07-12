@@ -1,180 +1,183 @@
 <template>
   <div class="gp-page">
 
-    <!-- Tab bar -->
+    <!-- Page header -->
+    <div class="gp-header">
+      <h1 class="gp-title">Policies</h1>
+      <div class="gp-header-actions">
+        <button class="btn btn-primary btn-sm" @click="openNewPolicy(tab)">Create Policy</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
     <div class="gp-tabs">
-      <button class="gp-tab" :class="{ active: tab === 'global' }" @click="tab = 'global'">Global Policies</button>
-      <button class="gp-tab" :class="{ active: tab === 'company' }" @click="tab = 'company'">Company Overrides</button>
+      <button :class="['gp-tab', { active: tab === 'global' }]" @click="switchTab('global')">
+        Global <span class="tab-count">{{ globalPolicies.length }}</span>
+      </button>
+      <button :class="['gp-tab', { active: tab === 'company' }]" @click="switchTab('company')">
+        Company <span class="tab-count">{{ companyPolicies.length }}</span>
+      </button>
     </div>
 
-    <!-- ── GLOBAL TAB ──────────────────────────────────────────────────────── -->
-    <div v-if="tab === 'global'" class="gp-content">
+    <div class="gp-content">
+
+      <!-- Company filter -->
+      <div v-if="tab === 'company'" class="gp-filter-bar">
+        <span class="filter-label">Filter by Company</span>
+        <input v-model="companyFilter" class="filter-input" placeholder="Enter company name…" />
+      </div>
+
+      <!-- Toolbar -->
       <div class="gp-toolbar">
-        <span class="gp-toolbar-label">{{ globalPolicies.length }} {{ globalPolicies.length === 1 ? 'policy' : 'policies' }}</span>
-        <button class="btn btn-primary btn-sm" @click="openNewPolicy('global')">+ New Policy</button>
+        <span class="row-count-label">Policies <span class="row-count-badge">{{ displayedPolicies.length }}</span></span>
+        <div class="toolbar-sep"></div>
+        <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size !== 1" @click="editSelected">Edit</button>
+        <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="bulkDelete">Delete</button>
+        <button v-if="tab === 'global'" class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="openOverrideModal">Override</button>
+        <span class="filter-status">Filtered by: {{ filterStatusLabel }}</span>
       </div>
 
-      <div v-if="loading" class="gp-empty text-muted">Loading…</div>
+      <!-- Loading -->
+      <div v-if="loading || loadingCompany" class="gp-state">Loading…</div>
 
-      <div v-else-if="!globalPolicies.length" class="gp-empty">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);margin-bottom:8px">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-        <div style="font-weight:500">No global policies yet</div>
-        <div class="text-muted text-xs" style="margin-top:4px">Create a global policy to start monitoring all devices.</div>
+      <!-- Empty -->
+      <div v-else-if="displayedPolicies.length === 0" class="gp-state">
+        No policies found.
       </div>
 
-      <div v-else class="policy-list">
-        <div v-for="policy in globalPolicies" :key="policy.id" class="policy-card">
-          <!-- Policy header -->
-          <div class="policy-header" @click="toggleExpand(policy.id)">
-            <div class="policy-header-left">
-              <button
-                class="policy-toggle-btn"
-                :class="{ enabled: policy.enabled }"
-                @click.stop="togglePolicy(policy)"
-                title="Toggle enabled"
-              >
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </button>
-              <div class="policy-info">
-                <div class="policy-name">{{ policy.name }}</div>
-                <div v-if="policy.description" class="policy-desc">{{ policy.description }}</div>
-              </div>
-            </div>
-            <div class="policy-header-right">
-              <div class="policy-meta">
-                <span class="meta-chip" v-for="os in parsedOs(policy.targetOs)" :key="os">{{ os }}</span>
-              </div>
-              <div class="policy-meta">
-                <span class="meta-chip class-chip" v-for="cls in parsedClass(policy.targetClass)" :key="cls">{{ cls }}</span>
-              </div>
-              <span class="monitor-count">{{ policy.monitors.length }} monitor{{ policy.monitors.length !== 1 ? 's' : '' }}</span>
-              <svg class="expand-icon" :class="{ open: expanded.has(policy.id) }"
-                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </div>
-          </div>
+      <!-- Table -->
+      <div v-else class="table-wrap">
+        <table class="policy-table">
+          <thead>
+            <tr>
+              <th class="col-check">
+                <input ref="headerCbRef" type="checkbox" :checked="allSelected" @change="toggleSelectAll" />
+              </th>
+              <th class="col-name">Name</th>
+              <th class="col-targets">Targets</th>
+              <th class="col-scope">Scope</th>
+              <th v-if="tab === 'company'" class="col-company">Company</th>
+              <th class="col-monitors">Monitors</th>
+              <th class="col-created">Created</th>
+              <th class="col-enabled">Enabled</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="policy in displayedPolicies" :key="policy.id">
+              <tr :class="['policy-row', { selected: selectedIds.has(policy.id), 'row-open': expanded.has(policy.id) }]">
+                <td class="col-check">
+                  <input type="checkbox" :checked="selectedIds.has(policy.id)" @change="toggleSelect(policy.id)" />
+                </td>
+                <td class="col-name">
+                  <button class="policy-link" @click="toggleExpand(policy.id)">{{ policy.name }}</button>
+                  <div v-if="policy.description" class="policy-desc">{{ policy.description }}</div>
+                </td>
+                <td class="col-targets">{{ targetSummary(policy) }}</td>
+                <td class="col-scope">
+                  <span :class="['scope-badge', 'scope-' + policy.scope]">{{ capitalize(policy.scope) }}</span>
+                </td>
+                <td v-if="tab === 'company'" class="col-company">{{ tenantName(policy.companyId) }}</td>
+                <td class="col-monitors">
+                  <span class="monitor-count-badge">{{ policy.monitors.length }}</span>
+                </td>
+                <td class="col-created">{{ formatDate(policy.createdAt) }}</td>
+                <td class="col-enabled">
+                  <button :class="['toggle-btn', { enabled: policy.enabled }]" @click.stop="togglePolicy(policy)">
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  </button>
+                </td>
+              </tr>
 
-          <!-- Expanded monitor list -->
-          <div v-if="expanded.has(policy.id)" class="policy-monitors">
-            <div v-if="!policy.monitors.length" class="monitors-empty text-muted text-xs">
-              No monitors — add one below.
-            </div>
-            <div v-for="m in policy.monitors" :key="m.id" class="monitor-row">
-              <span class="check-chip" :class="`chip-${m.checkType}`">{{ checkLabel(m.checkType) }}</span>
-              <span class="monitor-config">{{ monitorSummary(m) }}</span>
-              <span class="pri-badge" :class="`pri-${m.alertPriority}`">{{ capitalize(m.alertPriority) }}</span>
-              <span class="monitor-meta">{{ m.sustainedMinutes }}m sustained</span>
-              <span class="monitor-meta">{{ m.autoResolve ? `auto-resolve ${m.autoResolveAfterMinutes}m` : 'manual resolve' }}</span>
-              <div class="monitor-row-actions">
-                <button class="btn-text" @click="openEditMonitor(policy, m)">Edit</button>
-                <button class="btn-text danger" @click="deleteMonitor(policy, m)">Delete</button>
-              </div>
-            </div>
-            <div class="monitors-footer">
-              <button class="btn btn-ghost btn-sm" @click="openAddMonitor(policy)">+ Add Monitor</button>
-              <div class="policy-footer-actions">
-                <button class="btn btn-ghost btn-sm" @click="openEditPolicy(policy)">Edit Policy</button>
-                <button class="btn btn-ghost btn-sm danger" @click="deletePolicy(policy)">Delete</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── COMPANY TAB ─────────────────────────────────────────────────────── -->
-    <div v-if="tab === 'company'" class="gp-content">
-      <div class="gp-toolbar">
-        <div class="company-selector">
-          <label class="field-label">Company</label>
-          <select v-model="selectedCompanyId" class="field-input" style="width:240px" @change="loadCompanyPolicies">
-            <option value="">Select a company…</option>
-            <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
-        </div>
-        <button v-if="selectedCompanyId" class="btn btn-primary btn-sm" @click="openNewPolicy('company')">+ New Override</button>
-      </div>
-
-      <div v-if="!selectedCompanyId" class="gp-empty text-muted">Select a company to manage its policy overrides.</div>
-
-      <div v-else-if="loadingCompany" class="gp-empty text-muted">Loading…</div>
-
-      <div v-else class="policy-list">
-        <!-- Global (inherited) -->
-        <div class="section-label">Inherited Global Policies</div>
-        <div v-if="!globalPolicies.length" class="gp-empty text-muted text-xs">No global policies.</div>
-        <div v-for="policy in globalPolicies" :key="'g-' + policy.id" class="policy-card inherited">
-          <div class="policy-header">
-            <div class="policy-header-left">
-              <span class="global-badge">Global</span>
-              <div class="policy-info">
-                <div class="policy-name">{{ policy.name }}</div>
-                <div class="policy-monitor-summary text-xs text-muted">{{ policy.monitors.length }} monitors</div>
-              </div>
-            </div>
-            <div class="policy-header-right">
-              <button class="btn btn-ghost btn-sm" @click="cloneAsOverride(policy)">+ Override</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Company overrides -->
-        <div class="section-label" style="margin-top:20px">Company Overrides</div>
-        <div v-if="!companyPolicies.length" class="gp-empty text-muted text-xs" style="padding:12px 0">
-          No overrides — global policies apply as-is.
-        </div>
-        <div v-for="policy in companyPolicies" :key="'c-' + policy.id" class="policy-card">
-          <div class="policy-header" @click="toggleExpand(policy.id)">
-            <div class="policy-header-left">
-              <button
-                class="policy-toggle-btn"
-                :class="{ enabled: policy.enabled }"
-                @click.stop="togglePolicy(policy)"
-              >
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </button>
-              <div class="policy-info">
-                <div class="policy-name">{{ policy.name }}</div>
-                <div v-if="policy.description" class="policy-desc">{{ policy.description }}</div>
-              </div>
-            </div>
-            <div class="policy-header-right">
-              <span class="monitor-count">{{ policy.monitors.length }} monitor{{ policy.monitors.length !== 1 ? 's' : '' }}</span>
-              <svg class="expand-icon" :class="{ open: expanded.has(policy.id) }"
-                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </div>
-          </div>
-          <div v-if="expanded.has(policy.id)" class="policy-monitors">
-            <div v-for="m in policy.monitors" :key="m.id" class="monitor-row">
-              <span class="check-chip" :class="`chip-${m.checkType}`">{{ checkLabel(m.checkType) }}</span>
-              <span class="monitor-config">{{ monitorSummary(m) }}</span>
-              <span class="pri-badge" :class="`pri-${m.alertPriority}`">{{ capitalize(m.alertPriority) }}</span>
-              <span class="monitor-meta">{{ m.sustainedMinutes }}m sustained</span>
-              <div class="monitor-row-actions">
-                <button class="btn-text" @click="openEditMonitor(policy, m)">Edit</button>
-                <button class="btn-text danger" @click="deleteMonitor(policy, m)">Delete</button>
-              </div>
-            </div>
-            <div class="monitors-footer">
-              <button class="btn btn-ghost btn-sm" @click="openAddMonitor(policy)">+ Add Monitor</button>
-              <div class="policy-footer-actions">
-                <button class="btn btn-ghost btn-sm" @click="openEditPolicy(policy)">Edit Policy</button>
-                <button class="btn btn-ghost btn-sm danger" @click="deletePolicy(policy)">Delete</button>
-              </div>
-            </div>
-          </div>
-        </div>
+              <!-- Expanded monitors panel -->
+              <tr v-if="expanded.has(policy.id)" :key="'exp-' + policy.id" class="expand-row">
+                <td :colspan="tab === 'company' ? 8 : 7" class="expand-cell">
+                  <div class="expand-panel">
+                    <div class="expand-panel-header">
+                      <span class="expand-panel-title">Monitors</span>
+                      <div class="expand-panel-actions">
+                        <button class="btn btn-ghost btn-xs" @click="openAddMonitor(policy)">+ Add Monitor</button>
+                        <button class="btn btn-ghost btn-xs" @click="openEditPolicy(policy)">Edit Policy</button>
+                        <button class="btn btn-ghost btn-xs danger" @click="deletePolicy(policy)">Delete Policy</button>
+                      </div>
+                    </div>
+                    <div v-if="!policy.monitors.length" class="expand-empty">No monitors configured.</div>
+                    <table v-else class="monitor-table">
+                      <thead>
+                        <tr>
+                          <th>Type</th>
+                          <th>Condition</th>
+                          <th>Priority</th>
+                          <th>Sustained</th>
+                          <th>Auto-resolve</th>
+                          <th>Enabled</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="m in policy.monitors" :key="m.id" class="monitor-row">
+                          <td><span :class="['check-chip', 'chip-' + m.checkType]">{{ checkLabel(m.checkType) }}</span></td>
+                          <td class="monitor-config-cell">{{ monitorSummary(m) }}</td>
+                          <td><span :class="['pri-badge', 'pri-' + m.alertPriority]">{{ capitalize(m.alertPriority) }}</span></td>
+                          <td class="tab-nums">{{ m.sustainedMinutes }}m</td>
+                          <td class="tab-nums">{{ m.autoResolve ? m.autoResolveAfterMinutes + 'm' : '—' }}</td>
+                          <td>
+                            <button :class="['toggle-btn', 'toggle-sm', { enabled: m.enabled }]" @click="toggleMonitor(policy, m)">
+                              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                            </button>
+                          </td>
+                          <td class="monitor-row-actions">
+                            <button class="btn-text" @click="openEditMonitor(policy, m)">Edit</button>
+                            <button class="btn-text danger" @click="deleteMonitor(policy, m)">Delete</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- ── POLICY MODAL ────────────────────────────────────────────────────── -->
+    <!-- ── OVERRIDE MODAL ──────────────────────────────────────────────────────── -->
+    <Teleport to="body">
+    <div v-if="overrideModal.open" class="modal-backdrop" @click.self="overrideModal.open = false">
+      <div class="modal" style="max-width:380px">
+        <div class="modal-header">
+          <span class="modal-title">Create Company Override</span>
+          <button class="btn-icon" @click="overrideModal.open = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label class="field-label">Target Company</label>
+            <select v-model="overrideModal.companyId" class="field-input">
+              <option value="">Select a company…</option>
+              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </div>
+          <p class="override-hint">
+            Creates a company-scoped copy of the {{ selectedIds.size }} selected {{ selectedIds.size === 1 ? 'policy' : 'policies' }},
+            including all monitors. Customize without affecting global defaults.
+          </p>
+          <div v-if="overrideModal.error" class="error-msg">{{ overrideModal.error }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost btn-sm" @click="overrideModal.open = false">Cancel</button>
+          <button class="btn btn-primary btn-sm"
+            :disabled="!overrideModal.companyId || overrideModal.saving"
+            @click="doOverride">
+            {{ overrideModal.saving ? 'Creating…' : 'Create Override' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    </Teleport>
+
+    <!-- ── POLICY MODAL ────────────────────────────────────────────────────────── -->
     <Teleport to="body">
     <div v-if="policyModal.open" class="modal-backdrop" @click.self="policyModal.open = false">
       <div class="modal">
@@ -193,13 +196,18 @@
             <label class="field-label">Description</label>
             <input v-model="policyModal.form.description" class="field-input" type="text" placeholder="Optional" />
           </div>
+          <div v-if="policyModal.scope === 'company' && !policyModal.editId" class="field">
+            <label class="field-label">Company</label>
+            <select v-model="policyModal.form.companyId" class="field-input">
+              <option value="">Select a company…</option>
+              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </div>
           <div class="field">
             <label class="field-label">Target OS</label>
             <div class="pill-group">
-              <label
-                v-for="os in ['windows', 'linux', 'macos']" :key="os"
-                class="pill-opt" :class="{ active: policyModal.form.targetOs.includes(os) }"
-              >
+              <label v-for="os in ['windows', 'linux', 'macos']" :key="os"
+                class="pill-opt" :class="{ active: policyModal.form.targetOs.includes(os) }">
                 <input type="checkbox" :value="os" v-model="policyModal.form.targetOs" class="pill-cb" />
                 {{ os }}
               </label>
@@ -208,10 +216,8 @@
           <div class="field">
             <label class="field-label">Target Device Class</label>
             <div class="pill-group">
-              <label
-                v-for="cls in ['server', 'workstation', 'laptop']" :key="cls"
-                class="pill-opt" :class="{ active: policyModal.form.targetClass.includes(cls) }"
-              >
+              <label v-for="cls in ['server', 'workstation', 'laptop']" :key="cls"
+                class="pill-opt" :class="{ active: policyModal.form.targetClass.includes(cls) }">
                 <input type="checkbox" :value="cls" v-model="policyModal.form.targetClass" class="pill-cb" />
                 {{ cls }}
               </label>
@@ -229,7 +235,7 @@
     </div>
     </Teleport>
 
-    <!-- ── MONITOR MODAL ───────────────────────────────────────────────────── -->
+    <!-- ── MONITOR MODAL ───────────────────────────────────────────────────────── -->
     <Teleport to="body">
     <div v-if="monitorModal.open" class="modal-backdrop" @click.self="monitorModal.open = false">
       <div class="modal">
@@ -250,8 +256,6 @@
               <option value="av_status">Antivirus Status</option>
             </select>
           </div>
-
-          <!-- Config fields by type -->
           <div v-if="monitorModal.form.checkType === 'offline'" class="field">
             <label class="field-label">Alert after offline for</label>
             <div class="input-row">
@@ -288,7 +292,6 @@
               <option value="running_not_up_to_date">Out of Date — definitions stale</option>
             </select>
           </div>
-
           <div class="field">
             <label class="field-label">Priority</label>
             <select v-model="monitorModal.form.alertPriority" class="field-input">
@@ -298,23 +301,20 @@
               <option value="low">Low</option>
             </select>
           </div>
-
           <div class="field-row">
             <div class="field">
               <label class="field-label">Sustained (minutes)</label>
               <input v-model.number="monitorModal.form.sustainedMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
             </div>
             <div class="field">
-              <label class="field-label">Auto-resolve after (minutes)</label>
+              <label class="field-label">Auto-resolve after (min)</label>
               <input v-model.number="monitorModal.form.autoResolveAfterMinutes" type="number" min="0" class="field-input" style="max-width:90px" />
             </div>
           </div>
-
           <label class="autoresolve-row">
             <input type="checkbox" v-model="monitorModal.form.autoResolve" />
             <span>Auto-resolve when condition clears</span>
           </label>
-
           <div v-if="monitorModal.error" class="error-msg">{{ monitorModal.error }}</div>
         </div>
         <div class="modal-footer">
@@ -331,17 +331,47 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, computed, watch } from 'vue';
 import { api, type Policy, type PolicyMonitor, type CheckType, type AlertPriority, type Tenant } from '../api';
 
-const tab              = ref<'global' | 'company'>('global');
-const loading          = ref(true);
-const loadingCompany   = ref(false);
-const globalPolicies   = ref<Policy[]>([]);
-const companyPolicies  = ref<Policy[]>([]);
-const tenants          = ref<Tenant[]>([]);
-const selectedCompanyId = ref('');
-const expanded         = ref(new Set<string>());
+const tab             = ref<'global' | 'company'>('global');
+const loading         = ref(true);
+const loadingCompany  = ref(false);
+const globalPolicies  = ref<Policy[]>([]);
+const companyPolicies = ref<Policy[]>([]);
+const tenants         = ref<Tenant[]>([]);
+const expanded        = ref(new Set<string>());
+const selectedIds     = ref(new Set<string>());
+const companyFilter   = ref('');
+const headerCbRef     = ref<HTMLInputElement | null>(null);
+
+// ── Computed ──────────────────────────────────────────────────────────────────
+
+const displayedPolicies = computed(() => {
+  if (tab.value === 'global') return globalPolicies.value;
+  if (!companyFilter.value.trim()) return companyPolicies.value;
+  const q = companyFilter.value.trim().toLowerCase();
+  return companyPolicies.value.filter(p =>
+    tenantName(p.companyId).toLowerCase().includes(q)
+  );
+});
+
+const allSelected = computed(() =>
+  displayedPolicies.value.length > 0 &&
+  displayedPolicies.value.every(p => selectedIds.value.has(p.id))
+);
+
+const someSelected = computed(() =>
+  !allSelected.value && displayedPolicies.value.some(p => selectedIds.value.has(p.id))
+);
+
+const filterStatusLabel = computed(() =>
+  tab.value === 'company' && companyFilter.value.trim() ? companyFilter.value.trim() : 'Unfiltered'
+);
+
+watch(someSelected, val => {
+  if (headerCbRef.value) headerCbRef.value.indeterminate = val;
+});
 
 // ── Load ──────────────────────────────────────────────────────────────────────
 
@@ -362,10 +392,9 @@ async function load() {
 }
 
 async function loadCompanyPolicies() {
-  if (!selectedCompanyId.value) return;
   loadingCompany.value = true;
   try {
-    companyPolicies.value = await api.policies.list({ scope: 'company', company_id: selectedCompanyId.value });
+    companyPolicies.value = await api.policies.list({ scope: 'company' });
   } catch {
     companyPolicies.value = [];
   } finally {
@@ -375,6 +404,29 @@ async function loadCompanyPolicies() {
 
 onMounted(load);
 
+function switchTab(t: 'global' | 'company') {
+  tab.value = t;
+  selectedIds.value = new Set();
+  expanded.value    = new Set();
+  if (t === 'company' && !companyPolicies.value.length && !loadingCompany.value) {
+    loadCompanyPolicies();
+  }
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+
+function toggleSelect(id: string) {
+  const s = new Set(selectedIds.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  selectedIds.value = s;
+}
+
+function toggleSelectAll() {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(displayedPolicies.value.map(p => p.id));
+}
+
 // ── Expand ────────────────────────────────────────────────────────────────────
 
 function toggleExpand(id: string) {
@@ -383,7 +435,29 @@ function toggleExpand(id: string) {
   expanded.value = s;
 }
 
-// ── Toggle policy enabled ─────────────────────────────────────────────────────
+// ── Toolbar actions ───────────────────────────────────────────────────────────
+
+function editSelected() {
+  if (selectedIds.value.size !== 1) return;
+  const id     = [...selectedIds.value][0];
+  const policy = displayedPolicies.value.find(p => p.id === id);
+  if (policy) openEditPolicy(policy);
+}
+
+async function bulkDelete() {
+  const ids = [...selectedIds.value];
+  if (!ids.length || !confirm(`Delete ${ids.length} ${ids.length === 1 ? 'policy' : 'policies'}?`)) return;
+  try {
+    await Promise.all(ids.map(id => api.policies.delete(id)));
+    globalPolicies.value  = globalPolicies.value.filter(p => !ids.includes(p.id));
+    companyPolicies.value = companyPolicies.value.filter(p => !ids.includes(p.id));
+    const next = new Set(selectedIds.value);
+    ids.forEach(id => { next.delete(id); expanded.value.delete(id); });
+    selectedIds.value = next;
+  } catch {}
+}
+
+// ── Toggle policy / monitor enabled ──────────────────────────────────────────
 
 async function togglePolicy(policy: Policy) {
   try {
@@ -392,21 +466,53 @@ async function togglePolicy(policy: Policy) {
   } catch {}
 }
 
-// ── Clone as company override ─────────────────────────────────────────────────
-
-async function cloneAsOverride(globalPolicy: Policy) {
-  if (!selectedCompanyId.value) return;
+async function toggleMonitor(policy: Policy, m: PolicyMonitor) {
   try {
-    const clone = await api.policies.create({
-      name:       globalPolicy.name + ' (Override)',
-      scope:      'company',
-      company_id: selectedCompanyId.value,
-      clone_from: globalPolicy.id,
-    });
-    companyPolicies.value.push(clone);
-    expanded.value = new Set(expanded.value).add(clone.id);
+    await api.policies.monitors.update(policy.id, m.id, { enabled: !m.enabled });
+    m.enabled = !m.enabled;
+  } catch {}
+}
+
+// ── Override modal ────────────────────────────────────────────────────────────
+
+const overrideModal = reactive({
+  open:      false,
+  companyId: '',
+  saving:    false,
+  error:     '',
+});
+
+function openOverrideModal() {
+  overrideModal.companyId = '';
+  overrideModal.error     = '';
+  overrideModal.open      = true;
+}
+
+async function doOverride() {
+  if (!overrideModal.companyId) return;
+  overrideModal.saving = true;
+  overrideModal.error  = '';
+  try {
+    const ids    = [...selectedIds.value];
+    const clones = await Promise.all(
+      ids.map(id => {
+        const src = globalPolicies.value.find(p => p.id === id);
+        return api.policies.create({
+          name:       (src?.name ?? 'Policy') + ' (Override)',
+          scope:      'company',
+          company_id: overrideModal.companyId,
+          clone_from: id,
+        });
+      })
+    );
+    companyPolicies.value.push(...clones);
+    overrideModal.open = false;
+    selectedIds.value  = new Set();
+    switchTab('company');
   } catch (e: unknown) {
-    alert(e instanceof Error ? e.message : 'Failed to create override');
+    overrideModal.error = e instanceof Error ? e.message : 'Failed to create overrides.';
+  } finally {
+    overrideModal.saving = false;
   }
 }
 
@@ -421,37 +527,40 @@ const policyModal = reactive({
   form: {
     name:        '',
     description: '',
+    companyId:   '',
     targetOs:    ['windows', 'linux', 'macos'] as string[],
     targetClass: ['server', 'workstation', 'laptop'] as string[],
   },
 });
 
 function openNewPolicy(scope: 'global' | 'company') {
-  policyModal.editId      = null;
-  policyModal.scope       = scope;
-  policyModal.error       = '';
-  policyModal.form.name        = '';
-  policyModal.form.description = '';
-  policyModal.form.targetOs    = ['windows', 'linux', 'macos'];
-  policyModal.form.targetClass = ['server', 'workstation', 'laptop'];
+  policyModal.editId            = null;
+  policyModal.scope             = scope;
+  policyModal.error             = '';
+  policyModal.form.name         = '';
+  policyModal.form.description  = '';
+  policyModal.form.companyId    = '';
+  policyModal.form.targetOs     = ['windows', 'linux', 'macos'];
+  policyModal.form.targetClass  = ['server', 'workstation', 'laptop'];
   policyModal.open = true;
 }
 
 function openEditPolicy(policy: Policy) {
-  policyModal.editId      = policy.id;
-  policyModal.scope       = policy.scope;
-  policyModal.error       = '';
-  policyModal.form.name        = policy.name;
-  policyModal.form.description = policy.description ?? '';
-  policyModal.form.targetOs    = JSON.parse(policy.targetOs) as string[];
-  policyModal.form.targetClass = JSON.parse(policy.targetClass) as string[];
+  policyModal.editId            = policy.id;
+  policyModal.scope             = policy.scope;
+  policyModal.error             = '';
+  policyModal.form.name         = policy.name;
+  policyModal.form.description  = policy.description ?? '';
+  policyModal.form.companyId    = policy.companyId ?? '';
+  policyModal.form.targetOs     = JSON.parse(policy.targetOs) as string[];
+  policyModal.form.targetClass  = JSON.parse(policy.targetClass) as string[];
   policyModal.open = true;
 }
 
 async function savePolicy() {
-  if (!policyModal.form.name.trim()) {
-    policyModal.error = 'Name is required.';
-    return;
+  if (!policyModal.form.name.trim()) { policyModal.error = 'Name is required.'; return; }
+  if (policyModal.scope === 'company' && !policyModal.editId && !policyModal.form.companyId) {
+    policyModal.error = 'Select a company.'; return;
   }
   policyModal.saving = true;
   policyModal.error  = '';
@@ -470,15 +579,12 @@ async function savePolicy() {
         name:         policyModal.form.name,
         description:  policyModal.form.description || null,
         scope:        policyModal.scope,
-        company_id:   policyModal.scope === 'company' ? selectedCompanyId.value : null,
+        company_id:   policyModal.scope === 'company' ? policyModal.form.companyId : null,
         target_os:    policyModal.form.targetOs,
         target_class: policyModal.form.targetClass,
       });
-      if (policyModal.scope === 'global') {
-        globalPolicies.value.push(newPolicy);
-      } else {
-        companyPolicies.value.push(newPolicy);
-      }
+      if (policyModal.scope === 'global') globalPolicies.value.push(newPolicy);
+      else                                companyPolicies.value.push(newPolicy);
     }
     policyModal.open = false;
   } catch (e: unknown) {
@@ -495,6 +601,7 @@ async function deletePolicy(policy: Policy) {
     globalPolicies.value  = globalPolicies.value.filter(p => p.id !== policy.id);
     companyPolicies.value = companyPolicies.value.filter(p => p.id !== policy.id);
     expanded.value.delete(policy.id);
+    const s = new Set(selectedIds.value); s.delete(policy.id); selectedIds.value = s;
   } catch {}
 }
 
@@ -521,19 +628,14 @@ const monitorModal = reactive({
 });
 
 function openAddMonitor(policy: Policy) {
-  monitorModal.editId       = null;
-  monitorModal.policyId     = policy.id;
-  monitorModal.error        = '';
-  monitorModal.form.checkType = 'offline';
-  monitorModal.form.alertPriority = 'high';
-  monitorModal.form.sustainedMinutes = 5;
-  monitorModal.form.autoResolve = true;
-  monitorModal.form.autoResolveAfterMinutes = 60;
-  monitorModal.form.offlineMinutes = 30;
-  monitorModal.form.diskGb = 10;
-  monitorModal.form.cpuPercent = 90;
-  monitorModal.form.memPercent = 90;
-  monitorModal.form.avState = 'not_detected';
+  monitorModal.editId   = null;
+  monitorModal.policyId = policy.id;
+  monitorModal.error    = '';
+  Object.assign(monitorModal.form, {
+    checkType: 'offline', alertPriority: 'high',
+    sustainedMinutes: 5, autoResolve: true, autoResolveAfterMinutes: 60,
+    offlineMinutes: 30, diskGb: 10, cpuPercent: 90, memPercent: 90, avState: 'not_detected',
+  });
   monitorModal.open = true;
 }
 
@@ -549,10 +651,10 @@ function openEditMonitor(policy: Policy, m: PolicyMonitor) {
   try {
     const cfg = JSON.parse(m.config) as Record<string, unknown>;
     monitorModal.form.offlineMinutes = Math.round((cfg.offline_after_seconds as number ?? 1800) / 60);
-    monitorModal.form.diskGb         = Math.round((cfg.bytes_free_min        as number ?? 10737418240) / 1073741824);
+    monitorModal.form.diskGb         = Math.round((cfg.bytes_free_min as number ?? 10737418240) / 1073741824);
     monitorModal.form.cpuPercent     = (cfg.percent_max as number) ?? 90;
     monitorModal.form.memPercent     = (cfg.percent_max as number) ?? 90;
-    monitorModal.form.avState        = (cfg.av_state    as string) ?? 'not_detected';
+    monitorModal.form.avState        = (cfg.av_state as string) ?? 'not_detected';
   } catch {}
   monitorModal.open = true;
 }
@@ -575,27 +677,21 @@ async function saveMonitor() {
   try {
     const config = buildMonitorConfig();
     const f      = monitorModal.form;
-
     if (monitorModal.editId) {
       await api.policies.monitors.update(monitorModal.policyId, monitorModal.editId, {
-        config,
-        alert_priority:           f.alertPriority,
-        sustained_minutes:        f.sustainedMinutes,
-        auto_resolve:             f.autoResolve,
+        config, alert_priority: f.alertPriority,
+        sustained_minutes: f.sustainedMinutes,
+        auto_resolve: f.autoResolve,
         auto_resolve_after_minutes: f.autoResolveAfterMinutes,
       });
     } else {
       await api.policies.monitors.create(monitorModal.policyId, {
-        check_type:               f.checkType,
-        config,
-        alert_priority:           f.alertPriority,
-        sustained_minutes:        f.sustainedMinutes,
-        auto_resolve:             f.autoResolve,
+        check_type: f.checkType, config, alert_priority: f.alertPriority,
+        sustained_minutes: f.sustainedMinutes,
+        auto_resolve: f.autoResolve,
         auto_resolve_after_minutes: f.autoResolveAfterMinutes,
       });
     }
-
-    // Reload the relevant policy list to refresh monitors
     await load();
     if (tab.value === 'company') await loadCompanyPolicies();
     monitorModal.open = false;
@@ -607,7 +703,7 @@ async function saveMonitor() {
 }
 
 async function deleteMonitor(policy: Policy, m: PolicyMonitor) {
-  if (!confirm(`Delete this monitor?`)) return;
+  if (!confirm('Delete this monitor?')) return;
   try {
     await api.policies.monitors.delete(policy.id, m.id);
     policy.monitors = policy.monitors.filter(x => x.id !== m.id);
@@ -618,11 +714,27 @@ async function deleteMonitor(policy: Policy, m: PolicyMonitor) {
 
 function capitalize(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-function parsedOs(raw: string): string[] {
-  try { return JSON.parse(raw) as string[]; } catch { return []; }
+function parsedOs(raw: string):    string[] { try { return JSON.parse(raw) as string[]; } catch { return []; } }
+function parsedClass(raw: string): string[] { try { return JSON.parse(raw) as string[]; } catch { return []; } }
+
+function targetSummary(policy: Policy): string {
+  const os  = parsedOs(policy.targetOs);
+  const cls = parsedClass(policy.targetClass);
+  const osStr  = os.length  === 3 ? 'All OS'      : os.map(capitalize).join(' / ');
+  const clsStr = cls.length === 3 ? 'All Classes' : cls.map(capitalize).join(' / ');
+  return `${osStr} · ${clsStr}`;
 }
-function parsedClass(raw: string): string[] {
-  try { return JSON.parse(raw) as string[]; } catch { return []; }
+
+function tenantName(id: string | null): string {
+  if (!id) return '—';
+  return tenants.value.find(t => t.id === id)?.name ?? id;
+}
+
+function formatDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  const date = d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${date} ${time}`;
 }
 
 function checkLabel(ct: CheckType): string {
@@ -640,20 +752,16 @@ function monitorSummary(m: PolicyMonitor): string {
   try {
     const cfg = JSON.parse(m.config) as Record<string, unknown>;
     switch (m.checkType) {
-      case 'offline':
-        return `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
-      case 'disk_space':
-        return `< ${Math.round((cfg.bytes_free_min as number) / 1073741824)} GB free`;
-      case 'cpu_usage':
-        return `> ${cfg.percent_max}% CPU`;
-      case 'memory_usage':
-        return `> ${cfg.percent_max}% memory`;
+      case 'offline':      return `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
+      case 'disk_space':   return `< ${Math.round((cfg.bytes_free_min as number) / 1073741824)} GB free`;
+      case 'cpu_usage':    return `> ${cfg.percent_max}% CPU`;
+      case 'memory_usage': return `> ${cfg.percent_max}% memory`;
       case 'av_status': {
-        const state = cfg.av_state as string;
-        if (state === 'not_detected')          return 'AV: not detected';
-        if (state === 'not_running')            return 'AV: not running';
-        if (state === 'running_not_up_to_date') return 'AV: out of date';
-        return `AV: ${state}`;
+        const s = cfg.av_state as string;
+        if (s === 'not_detected')          return 'AV: not detected';
+        if (s === 'not_running')            return 'AV: not running';
+        if (s === 'running_not_up_to_date') return 'AV: out of date';
+        return `AV: ${s}`;
       }
       default: return m.config;
     }
@@ -662,136 +770,205 @@ function monitorSummary(m: PolicyMonitor): string {
 </script>
 
 <style scoped>
-.gp-page { display: flex; flex-direction: column; height: 100%; gap: 0; }
+.gp-page { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+/* ── Page header ── */
+.gp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 0 16px 0; flex-shrink: 0;
+}
+.gp-title { font-size: 20px; font-weight: 700; color: var(--text); margin: 0; }
 
 /* ── Tabs ── */
 .gp-tabs {
-  display: flex; gap: 0; border-bottom: 1px solid var(--border);
-  flex-shrink: 0; margin-bottom: 16px;
+  display: flex; border-bottom: 1px solid var(--border);
+  flex-shrink: 0; gap: 0;
 }
 .gp-tab {
-  padding: 8px 16px; font-size: 13px; font-weight: 500; font-family: var(--font);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 18px; font-size: 13px; font-weight: 500; font-family: var(--font);
   background: none; border: none; border-bottom: 2px solid transparent;
   color: var(--muted); cursor: pointer; transition: color .12s, border-color .12s;
   margin-bottom: -1px;
 }
 .gp-tab:hover  { color: var(--text); }
-.gp-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.gp-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-count {
+  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+  background: rgba(78,126,247,.15); color: var(--accent);
+}
 
-/* ── Content ── */
-.gp-content { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+/* ── Content area ── */
+.gp-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding-top: 14px; }
 
+/* ── Company filter ── */
+.gp-filter-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 7px 7px 0 0; border-bottom: none; flex-shrink: 0;
+}
+.filter-label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.filter-input {
+  flex: 1; max-width: 340px; padding: 5px 10px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text); font-size: 13px; font-family: var(--font); outline: none;
+  transition: border-color .12s;
+}
+.filter-input:focus { border-color: var(--accent); }
+
+/* ── Toolbar ── */
 .gp-toolbar {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 14px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-bottom: none; flex-shrink: 0;
 }
-.gp-toolbar-label { font-size: 12px; color: var(--muted); }
+.gp-filter-bar + .gp-toolbar { border-top: 1px solid var(--border); border-radius: 0; }
+.gp-toolbar:not(:has(+ .table-wrap)) { border-radius: 0 0 7px 7px; }
+.gp-toolbar:first-child { border-radius: 7px 7px 0 0; }
+.row-count-label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.row-count-badge {
+  display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; color: var(--text);
+}
+.toolbar-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+.filter-status { margin-left: auto; font-size: 11px; color: var(--muted); }
 
-.company-selector { display: flex; align-items: center; gap: 10px; }
+.btn-xs {
+  padding: 3px 10px; font-size: 12px; font-family: var(--font); font-weight: 500;
+  border-radius: 4px; cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); transition: background .1s, color .1s, opacity .1s;
+}
+.btn-xs:hover:not(:disabled) { background: var(--border); }
+.btn-xs:disabled { opacity: .38; cursor: default; }
+.btn-xs.danger:hover:not(:disabled) { color: var(--red); border-color: var(--red); }
 
-.gp-empty {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-height: 120px; gap: 4px; color: var(--text);
+/* ── State ── */
+.gp-state {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--muted); padding: 40px;
 }
 
-/* ── Policy list ── */
-.policy-list { display: flex; flex-direction: column; gap: 10px; }
+/* ── Table ── */
+.table-wrap {
+  flex: 1; overflow: auto;
+  border: 1px solid var(--border); border-radius: 0 0 7px 7px;
+}
+.policy-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.policy-table thead tr {
+  background: var(--surface-2); position: sticky; top: 0; z-index: 1;
+}
+.policy-table th {
+  padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.col-check    { width: 40px;  padding-left: 14px !important; }
+.col-name     { min-width: 180px; }
+.col-targets  { width: 220px; }
+.col-scope    { width: 90px; }
+.col-company  { width: 160px; }
+.col-monitors { width: 90px; text-align: center !important; }
+.col-created  { width: 160px; }
+.col-enabled  { width: 80px; text-align: center !important; }
 
-.section-label {
-  font-size: 11px; font-weight: 600; letter-spacing: .05em;
-  text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+.policy-row td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  color: var(--text); vertical-align: middle;
+}
+.policy-row:last-child td { border-bottom: none; }
+.policy-row:hover td { background: rgba(255,255,255,.025); }
+.policy-row.selected td { background: rgba(78,126,247,.07); }
+.policy-row.row-open td { background: var(--surface-2); }
+.policy-row.row-open td { border-bottom: none; }
+
+.col-check td,
+.col-check th { padding-left: 14px; }
+.col-monitors td,
+.col-enabled td { text-align: center; }
+
+.policy-link {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: var(--font);
+  font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none;
+  display: block; text-align: left; transition: color .1s;
+}
+.policy-link:hover { text-decoration: underline; }
+.policy-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.scope-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.scope-global  { background: rgba(78,126,247,.14);  color: var(--accent); }
+.scope-company { background: rgba(45,207,160,.14);  color: var(--teal); }
+
+.monitor-count-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; color: var(--muted);
 }
 
-.policy-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  overflow: hidden;
-}
-.policy-card.inherited {
-  opacity: .8;
-  background: var(--surface-2);
-}
+.col-created td { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.policy-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px; cursor: pointer; user-select: none;
-  transition: background .08s;
-}
-.policy-card.inherited .policy-header { cursor: default; }
-.policy-header:hover { background: var(--surface-2); }
-.policy-card.inherited .policy-header:hover { background: transparent; }
-
-.policy-header-left  { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-.policy-header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-
-.policy-info { min-width: 0; }
-.policy-name { font-size: 13px; font-weight: 600; color: var(--text); }
-.policy-desc { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.policy-monitor-summary { margin-top: 2px; }
-
-/* Toggle switch */
-.policy-toggle-btn {
+/* Toggle button */
+.toggle-btn {
   background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0;
 }
 .toggle-track {
   display: block; width: 28px; height: 16px; border-radius: 8px;
   background: var(--border); position: relative; transition: background .15s;
 }
-.policy-toggle-btn.enabled .toggle-track { background: var(--accent); }
+.toggle-btn.enabled .toggle-track { background: var(--accent); }
 .toggle-thumb {
   display: block; width: 12px; height: 12px; border-radius: 6px;
   background: #fff; position: absolute; top: 2px; left: 2px;
-  transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3);
 }
-.policy-toggle-btn.enabled .toggle-thumb { left: 14px; }
+.toggle-btn.enabled .toggle-thumb { left: 14px; }
+.toggle-btn.toggle-sm .toggle-track { width: 22px; height: 12px; border-radius: 6px; }
+.toggle-btn.toggle-sm .toggle-thumb { width: 8px; height: 8px; }
+.toggle-btn.toggle-sm.enabled .toggle-thumb { left: 12px; }
 
-.policy-meta { display: flex; gap: 4px; flex-wrap: wrap; }
-.meta-chip {
-  display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600;
-  background: rgba(78,126,247,.12); color: var(--accent); text-transform: capitalize;
+/* ── Expand row ── */
+.expand-row td { border-bottom: 1px solid var(--border); padding: 0; }
+.expand-cell { padding: 0 !important; }
+.expand-panel {
+  background: var(--surface-2); border-top: 1px solid var(--border);
+  padding: 10px 14px 14px;
 }
-.class-chip { background: rgba(45,207,160,.12); color: var(--teal); }
-
-.monitor-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
-
-.global-badge {
-  display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;
-  background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-  white-space: nowrap;
-}
-
-.expand-icon { color: var(--muted); transition: transform .15s; flex-shrink: 0; }
-.expand-icon.open { transform: rotate(180deg); }
-
-/* ── Monitor rows ── */
-.policy-monitors {
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-}
-
-.monitors-empty {
-  padding: 12px 14px;
-}
-
-.monitor-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.monitor-row:last-of-type { border-bottom: none; }
-
-.monitor-config { color: var(--muted-2); font-size: 11px; }
-.monitor-meta   { font-size: 11px; color: var(--muted); }
-
-.monitor-row-actions { margin-left: auto; display: flex; gap: 6px; }
-
-.monitors-footer {
+.expand-panel-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 14px; border-top: 1px solid var(--border);
+  margin-bottom: 10px;
 }
-.policy-footer-actions { display: flex; gap: 6px; }
+.expand-panel-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.expand-panel-actions { display: flex; gap: 6px; }
+.expand-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
+
+/* Monitor nested table */
+.monitor-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
+.monitor-table th {
+  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.monitor-row td {
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  color: var(--text); vertical-align: middle;
+}
+.monitor-row:last-child td { border-bottom: none; }
+.monitor-row:hover td { background: rgba(255,255,255,.02); }
+.monitor-config-cell { color: var(--muted); font-size: 11px; }
+.tab-nums { font-variant-numeric: tabular-nums; color: var(--muted); }
+.monitor-row-actions { white-space: nowrap; text-align: right; }
 
 .check-chip {
-  display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;
-  white-space: nowrap;
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
 }
 .chip-disk_space   { background: rgba(130,80,240,.14); color: #8050f0; }
 .chip-offline      { background: rgba(240,168,64,.16);  color: var(--amber); }
@@ -822,9 +999,8 @@ function monitorSummary(m: PolicyMonitor): string {
 }
 .modal {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  width: 440px; max-width: 95vw; box-shadow: 0 12px 40px rgba(0,0,0,.25);
-  display: flex; flex-direction: column; max-height: 90vh;
-  overflow: hidden;
+  width: 440px; max-width: 95vw; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;
 }
 .modal-header {
   display: flex; align-items: center; padding: 16px 18px 12px;
@@ -845,10 +1021,15 @@ function monitorSummary(m: PolicyMonitor): string {
   padding: 12px 18px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
 }
 
+.override-hint { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.5; }
+
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field-row { display: flex; gap: 12px; }
 .field-row .field { flex: 1; min-width: 0; }
-.field-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.field-label {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
 .field-input {
   padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--surface-2); color: var(--text); font-size: 13px; font-family: var(--font);
@@ -858,43 +1039,29 @@ function monitorSummary(m: PolicyMonitor): string {
 .field-input option { background: var(--surface); }
 .field-input:disabled { opacity: .5; cursor: default; }
 
-.input-row   { display: flex; align-items: center; gap: 8px; }
-.input-unit  { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.input-row  { display: flex; align-items: center; gap: 8px; }
+.input-unit { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
 .pill-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill-opt {
   display: inline-flex; align-items: center;
-  padding: 5px 14px; border-radius: 20px;
-  border: 1px solid var(--border); background: var(--surface-2);
-  font-size: 12px; font-weight: 500; color: var(--muted);
+  padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+  background: var(--surface-2); font-size: 12px; font-weight: 500; color: var(--muted);
   cursor: pointer; user-select: none; text-transform: capitalize;
   transition: border-color .12s, background .12s, color .12s;
 }
-.pill-opt.active {
-  border-color: var(--accent);
-  background: rgba(78,126,247,.12);
-  color: var(--accent);
-}
+.pill-opt.active { border-color: var(--accent); background: rgba(78,126,247,.12); color: var(--accent); }
 .pill-cb { display: none; }
-
-.check-group { display: flex; flex-direction: column; gap: 8px; }
-.check-row {
-  display: flex; align-items: center; gap: 8px; cursor: pointer;
-  font-size: 13px; color: var(--text); padding: 4px 0; min-width: 0;
-}
-.check-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
-.check-row span { min-width: 0; }
 
 .autoresolve-row {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
-  font-size: 13px; color: var(--text);
-  width: 100%; box-sizing: border-box;
+  font-size: 13px; color: var(--text); width: 100%; box-sizing: border-box;
 }
 .autoresolve-row input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); }
 .autoresolve-row span { flex: 1; min-width: 0; }
 
 .error-msg { color: #e04040; font-size: 12px; }
 
-.text-xs { font-size: 11px; }
+.text-xs   { font-size: 11px; }
 .text-muted { color: var(--muted); }
 </style>
