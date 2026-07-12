@@ -45,27 +45,23 @@
         </div>
         <div v-show="openSections.sites" class="sec-body">
           <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
-        </div>
-
-        <!-- ACTIVE CLIENT -->
-        <template v-if="activeClientId">
-          <div class="client-head">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-            <span class="client-name">{{ activeClientName }}</span>
-            <button class="client-clear" @click="clearActiveClient" title="Clear active client">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-          <div class="sec-body">
-            <div class="sbi"
+          <template v-if="activeClientId">
+            <div class="client-row">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+              <span class="client-name">{{ activeClientName }}</span>
+              <button class="client-clear" @click="clearActiveClient" title="Clear">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="sbi sbi-leaf"
                  :class="{ active: route.path.startsWith('/devices') && route.query.company === activeClientId }"
                  @click="router.push({ path: '/devices', query: { company: activeClientId } })">
               Devices
             </div>
-          </div>
-        </template>
+          </template>
+        </div>
 
         <!-- DEVICES -->
         <div class="sec-head" @click="toggleSection('devices')">
@@ -311,24 +307,28 @@ function logout() {
 .sbi:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .sbi.active { background: rgba(78,126,247,.1); color: var(--accent); font-weight: 500; }
 
-/* ── Active client section ── */
-.client-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px 6px 14px; margin: 4px 0 0;
+/* ── Active client row ── */
+.client-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px 5px 32px; margin: 2px 8px 0;
+  border-radius: 5px;
   background: rgba(78,126,247,.08);
   border-left: 2px solid var(--accent);
 }
-.client-icon { color: var(--accent); flex-shrink: 0; opacity: .8; }
+.client-icon { color: var(--accent); flex-shrink: 0; }
 .client-name {
   flex: 1; font-size: 12px; font-weight: 600; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .client-clear {
   background: none; border: none; color: var(--muted); cursor: pointer;
-  padding: 3px; display: flex; align-items: center; border-radius: 3px; flex-shrink: 0;
-  transition: background .1s, color .1s;
+  padding: 2px; display: flex; align-items: center; border-radius: 3px; flex-shrink: 0;
+  transition: color .1s;
 }
-.client-clear:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.client-clear:hover { color: var(--text); }
+
+/* leaf item under active client */
+.sbi-leaf { padding-left: 48px; }
 
 /* pending badge inside an sbi */
 .sbi-badge {
