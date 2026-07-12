@@ -22,7 +22,7 @@
               :key="tab.value"
               class="tab tab-sm"
               :class="{ active: activeTab === tab.value }"
-              @click="activeTab = tab.value; expandedId = null"
+              @click="setStatusTab(tab.value)"
             >{{ tab.label }}<span class="tab-count">{{ countFor(tab.value) }}</span></button>
           </div>
           <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
@@ -484,7 +484,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AuditChange } from '../api';
 
 interface Inventory {
@@ -497,11 +497,12 @@ interface Inventory {
 }
 
 const route      = useRoute();
+const router     = useRouter();
 const devices    = ref<Device[]>([]);
 const loading    = ref(true);
 const error      = ref('');
 const busy       = ref<string | null>(null);
-const activeTab  = ref<'all' | 'pending' | 'approved' | 'revoked'>('all');
+const activeTab  = computed(() => (route.query.status as string | undefined) ?? 'all');
 const classTab   = ref<'all' | 'server' | 'workstation' | 'network'>('all');
 const expandedId = ref<string | null>(null);
 
@@ -573,6 +574,15 @@ const visibleDevices = computed(() => {
   return list;
 });
 
+function setStatusTab(val: string) {
+  expandedId.value = null;
+  const q: Record<string, string> = {};
+  if (activeCompany.value) q.company = activeCompany.value;
+  if (searchQuery.value)   q.search  = searchQuery.value;
+  if (val !== 'all')       q.status  = val;
+  router.push({ path: '/devices', query: q });
+}
+
 function countFor(tab: typeof activeTab.value) {
   const base = companyDevices.value;
   return tab === 'all' ? base.length : base.filter(d => d.status === tab).length;
@@ -583,7 +593,7 @@ function classCountFor(cls: typeof classTab.value) {
   return cls === 'all' ? base.length : base.filter(d => (d.detectedClass ?? d.overrideClass) === cls).length;
 }
 
-watch(activeCompany, () => { expandedId.value = null; classTab.value = 'all'; activeTab.value = 'all'; });
+watch(activeCompany, () => { expandedId.value = null; classTab.value = 'all'; });
 watch(searchQuery,   () => { expandedId.value = null; });
 
 function toggleExpanded(id: string) {
