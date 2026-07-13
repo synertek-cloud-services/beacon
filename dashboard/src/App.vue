@@ -271,6 +271,20 @@ const openSections = ref({ dashboards: true, sites: true, devices: true, global:
 const searchQuery = ref('');
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+// pendingCount specifically needs to stay live, not just load once — it's
+// sidebar chrome that persists across every page, so it's the one place in
+// the app where a stale count is most visible (e.g. still showing "1" after
+// the device was approved elsewhere). Poll it like OverviewPage/JobsPage do
+// for their own summary data, rather than a one-shot fetch on mount.
+async function refreshPending() {
+  if (!api.hasToken()) return;
+  try {
+    pendingCount.value = (await api.summary.get()).pending;
+  } catch { /* keep last known value on a transient failure */ }
+}
+
+let pendingTimer: ReturnType<typeof setInterval>;
+
 onMounted(async () => {
   if (api.hasToken()) {
     try {
@@ -280,10 +294,14 @@ onMounted(async () => {
     } catch {}
     if (!authState.user) await loadCurrentUser().catch(() => {});
   }
+  pendingTimer = setInterval(refreshPending, 30_000);
+  window.addEventListener('beacon:pending-changed', refreshPending);
 });
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
+  clearInterval(pendingTimer);
+  window.removeEventListener('beacon:pending-changed', refreshPending);
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
 });

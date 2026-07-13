@@ -692,6 +692,7 @@ async function approve(id: string) {
     await api.devices.approve(id);
     const d = devices.value.find(x => x.id === id);
     if (d) { d.status = 'approved'; d.approvedAt = now.value; }
+    notifyPendingChanged();
   } catch (e: any) { error.value = e.message; }
   finally { busy.value = null; }
 }
@@ -702,6 +703,7 @@ async function revoke(id: string) {
     await api.devices.revoke(id);
     const d = devices.value.find(x => x.id === id);
     if (d) d.status = 'revoked';
+    notifyPendingChanged();
   } catch (e: any) { error.value = e.message; }
   finally { busy.value = null; }
 }
@@ -713,8 +715,16 @@ async function remove(id: string) {
     await api.devices.delete(id);
     devices.value = devices.value.filter(x => x.id !== id);
     if (expandedId.value === id) expandedId.value = null;
+    notifyPendingChanged();
   } catch (e: any) { error.value = e.message; }
   finally { busy.value = null; }
+}
+
+// Sidebar's pendingCount badge lives in App.vue (mounted once per page load,
+// polled every 30s) — dispatch this so it refreshes immediately after an
+// action taken here, instead of waiting for the next poll tick.
+function notifyPendingChanged() {
+  window.dispatchEvent(new Event('beacon:pending-changed'));
 }
 
 const filteredLib = computed(() => {
