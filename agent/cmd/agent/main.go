@@ -22,10 +22,14 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/updater"
 )
 
-const (
-	version         = "0.1.0"
-	checkInInterval = 60 * time.Second
-)
+// version is a var, not a const, so `go build -ldflags="-X main.version=..."`
+// (used by scripts/publish-agent.mjs) can actually override it at build time
+// -- linker -X only works on package-level string variables, silently no-ops
+// on a const. Defaults to this value for plain `go build`/`make` invocations
+// that don't pass ldflags.
+var version = "0.2.0"
+
+const checkInInterval = 60 * time.Second
 
 var (
 	pendingMu              sync.Mutex
