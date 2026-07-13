@@ -28,18 +28,50 @@
       </div>
     </div>
 
-    <!-- Active alerts list -->
-    <div class="section-card" v-if="activeAlerts.length">
+    <!-- Recent alerts -->
+    <div class="section-card" v-if="recentAlerts.length">
       <div class="section-card-head">
-        <span class="section-card-title">Active Alerts</span>
-        <RouterLink to="/global/alerts" style="font-size:11px">View all →</RouterLink>
+        <span class="section-card-title">Recent Alerts <span v-if="recentAlerts.length" class="ov-count-badge">{{ recentAlerts.length }}</span></span>
+        <div style="display:flex;align-items:center;gap:14px">
+          <button
+            class="btn btn-ghost btn-sm"
+            :disabled="!selected.size || resolving"
+            @click="resolveSelected"
+          >{{ resolving ? 'Resolving…' : 'Resolve' }}</button>
+          <RouterLink to="/global/alerts" style="font-size:11px">View all →</RouterLink>
+        </div>
       </div>
-      <div class="ov-alert-row" v-for="a in topAlerts" :key="a.id">
-        <span class="pri-badge" :class="`pri-${a.priority}`">{{ a.priority }}</span>
-        <span class="ov-alert-cat">{{ categoryLabel(a.check_type) }}</span>
-        <span class="ov-alert-msg">{{ alertMessage(a) }}</span>
-        <span class="ov-alert-host">{{ a.hostname ?? '—' }}</span>
-        <span class="ov-alert-company">{{ a.tenant_name }}</span>
+      <div class="ov-table-wrap">
+        <table class="ov-alert-table">
+          <thead>
+            <tr>
+              <th class="th-check"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
+              <th>Created</th>
+              <th>Priority</th>
+              <th>Category</th>
+              <th>Message</th>
+              <th>Company</th>
+              <th>Hostname</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="a in topAlerts" :key="a.id" :class="{ 'tr-selected': selected.has(a.id) }" @click="toggleSelect(a.id)">
+              <td class="td-check" @click.stop><input type="checkbox" :checked="selected.has(a.id)" @change="toggleSelect(a.id)" /></td>
+              <td class="mono ov-alert-created">{{ formatDate(a.alerted_at) }}</td>
+              <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ a.priority }}</span></td>
+              <td class="ov-alert-cat">{{ categoryLabel(a.check_type) }}</td>
+              <td class="ov-alert-msg">{{ alertMessage(a) }}</td>
+              <td class="ov-alert-company">{{ a.tenant_name }}</td>
+              <td class="ov-alert-host">{{ a.hostname ?? '—' }}</td>
+              <td>
+                <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
+                  {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -105,9 +137,13 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api, type Summary, type AlertState } from '../api';
 import DonutChart from '../components/DonutChart.vue';
 
-const summary = ref<Summary | null>(null);
-const activeAlerts = ref<AlertState[]>([]);
-const error = ref('');
+const summary   = ref<Summary | null>(null);
+const allAlerts = ref<AlertState[]>([]); // last 30 days, open + resolved — server-scoped by status=all
+const error     = ref('');
+const selected  = ref(new Set<string>());
+const resolving = ref(false);
+
+const activeAlerts = computed(() => allAlerts.value.filter(a => a.is_alerting === 1));
 
 const PRIORITY_COLORS: Record<string, string> = {
   critical: '#e8566a',
@@ -200,11 +236,48 @@ const alertBreakdown = computed(() => {
   return priorityData.value.map(p => `${p.value} ${p.label}`).join(', ');
 });
 
-const topAlerts = computed(() =>
-  [...activeAlerts.value]
-    .sort((a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority))
-    .slice(0, 8)
+const recentAlerts = computed(() =>
+  [...allAlerts.value].sort((a, b) => (b.alerted_at ?? 0) - (a.alerted_at ?? 0))
 );
+
+const topAlerts = computed(() => recentAlerts.value.slice(0, 12));
+
+const allSelected = computed(() =>
+  topAlerts.value.length > 0 && topAlerts.value.every(a => selected.value.has(a.id)),
+);
+
+function toggleAll() {
+  const s = new Set(selected.value);
+  if (allSelected.value) topAlerts.value.forEach(a => s.delete(a.id));
+  else                   topAlerts.value.forEach(a => s.add(a.id));
+  selected.value = s;
+}
+
+function toggleSelect(id: string) {
+  const s = new Set(selected.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  selected.value = s;
+}
+
+async function resolveSelected() {
+  if (!selected.value.size) return;
+  resolving.value = true;
+  try {
+    await Promise.all([...selected.value].map(id => api.alerts.resolve(id)));
+    selected.value = new Set();
+    await load();
+  } catch {
+    // individual errors are silent; reload will show current state
+  } finally {
+    resolving.value = false;
+  }
+}
+
+function formatDate(ts: number | null): string {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
 
 function categoryLabel(ct: string): string {
   switch (ct) {
@@ -277,9 +350,9 @@ function alertMessage(a: AlertState): string {
 
 async function load() {
   try {
-    const [s, alerts] = await Promise.all([api.summary.get(), api.alerts.list('active')]);
+    const [s, alerts] = await Promise.all([api.summary.get(), api.alerts.list('all')]);
     summary.value = s;
-    activeAlerts.value = alerts;
+    allAlerts.value = alerts;
   } catch (e: any) {
     error.value = e.message;
   }
@@ -296,16 +369,35 @@ onUnmounted(() => clearInterval(timer));
   height: 110px; font-size: 12px; color: var(--muted);
 }
 
-.ov-alert-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 20px; border-bottom: 1px solid var(--border);
-  font-size: 13px;
+.ov-count-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px;
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+  border-radius: 10px;
 }
-.ov-alert-row:last-child { border-bottom: none; }
+
+.ov-table-wrap { overflow-x: auto; }
+.ov-alert-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ov-alert-table th {
+  padding: 9px 16px; text-align: left; font-size: 10px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.ov-alert-table td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+.ov-alert-table tr:last-child td { border-bottom: none; }
+.ov-alert-table tr { cursor: pointer; transition: background .08s; }
+.ov-alert-table tr:hover td { background: var(--surface-2); }
+.ov-alert-table tr.tr-selected td { background: rgba(78,126,247,.07); }
+.th-check, .td-check { width: 36px; }
+.ov-alert-created { white-space: nowrap; color: var(--muted-2); font-size: 11px; }
 .ov-alert-cat  { color: var(--muted-2); font-size: 11px; white-space: nowrap; }
-.ov-alert-msg  { flex: 1; color: var(--text); }
+.ov-alert-msg  { color: var(--text); }
 .ov-alert-host { color: var(--accent); white-space: nowrap; }
-.ov-alert-company { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ov-alert-company { color: var(--muted); white-space: nowrap; }
+
+.status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.status-open     { color: var(--text); }
+.status-resolved { color: var(--muted-2); }
 
 /* Duplicated from GlobalAlertsPage.vue per this codebase's established
    duplication-over-sharing convention for small per-page presentational CSS. */
