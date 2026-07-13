@@ -178,9 +178,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, type Policy, type PolicyMonitor, type CheckType, type Tenant } from '../api';
 
+const route  = useRoute();
 const router = useRouter();
 
 const tab             = ref<'global' | 'company'>('global');
@@ -251,7 +252,19 @@ async function loadCompanyPolicies() {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  // Arriving from a company's sidebar context ("Acme" -> Policies) — jump
+  // straight to the Company tab, filtered to that company, instead of the
+  // global-scope default.
+  const companyId = route.query.company as string | undefined;
+  if (companyId) {
+    const name = tenants.value.find(t => t.id === companyId)?.name ?? '';
+    tab.value = 'company';
+    companyFilter.value = name;
+    await loadCompanyPolicies();
+  }
+});
 
 function switchTab(t: 'global' | 'company') {
   tab.value = t;

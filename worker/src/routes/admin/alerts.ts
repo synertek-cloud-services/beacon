@@ -7,19 +7,26 @@ import { requireUser } from '../../lib/auth';
 
 const alerts = new Hono<{ Bindings: Bindings }>();
 
-// GET /v1/admin/alerts?status=active|all&search=<text>
+// GET /v1/admin/alerts?status=active|all&search=<text>&company_id=<id>
 alerts.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  const showAll  = c.req.query('status') === 'all';
-  const search   = c.req.query('search')?.toLowerCase() ?? '';
-  const since30d = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const showAll   = c.req.query('status') === 'all';
+  const search    = c.req.query('search')?.toLowerCase() ?? '';
+  const companyId = c.req.query('company_id');
+  const since30d  = Math.floor(Date.now() / 1000) - 30 * 86400;
 
-  const whereClause = showAll
+  const params: (string | number)[] = [];
+  let whereClause = showAll
     ? 'WHERE s.alerted_at IS NOT NULL AND s.alerted_at > ?'
     : 'WHERE s.is_alerting = 1';
+  if (showAll) params.push(since30d);
+  if (companyId) {
+    whereClause += ' AND t.id = ?';
+    params.push(companyId);
+  }
 
   const sql = `
     SELECT
@@ -54,9 +61,7 @@ alerts.get('/', async (c) => {
     LIMIT 500
   `;
 
-  const result = showAll
-    ? await c.env.DB.prepare(sql).bind(since30d).all()
-    : await c.env.DB.prepare(sql).all();
+  const result = await c.env.DB.prepare(sql).bind(...params).all();
 
   let rows = result.results as Record<string, unknown>[];
 

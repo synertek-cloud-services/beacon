@@ -60,6 +60,16 @@
                  @click="router.push({ path: '/devices', query: { company: activeClientId } })">
               Devices
             </div>
+            <div class="sbi sbi-leaf"
+                 :class="{ active: route.path.startsWith('/global/alerts') && route.query.company === activeClientId }"
+                 @click="router.push({ path: '/global/alerts', query: { company: activeClientId } })">
+              Alerts
+            </div>
+            <div class="sbi sbi-leaf"
+                 :class="{ active: route.path.startsWith('/global/policies') && route.query.company === activeClientId }"
+                 @click="router.push({ path: '/global/policies', query: { company: activeClientId } })">
+              Policies
+            </div>
           </template>
         </div>
 

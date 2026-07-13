@@ -548,8 +548,8 @@ export const api = {
   },
 
   alerts: {
-    list: (status: 'active' | 'all' = 'active', search = '') =>
-      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+    list: (status: 'active' | 'all' = 'active', search = '', companyId = '') =>
+      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}${companyId ? `&company_id=${encodeURIComponent(companyId)}` : ''}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
   },

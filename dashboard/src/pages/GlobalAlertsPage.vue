@@ -56,7 +56,11 @@
           <span class="al-filter-tag">Created</span>
           <span class="al-pill al-pill-static">Last 30 Days <span class="al-pill-x">×</span></span>
         </div>
-        <button v-if="statusFilter !== 'active' || searchQuery" class="al-reset" @click="reset">Reset Filters</button>
+        <div class="al-pill-group" v-if="companyId">
+          <span class="al-filter-tag">Company</span>
+          <span class="al-pill al-pill-static">{{ companyName }} <span class="al-pill-x" @click="clearCompany">×</span></span>
+        </div>
+        <button v-if="statusFilter !== 'active' || searchQuery || companyId" class="al-reset" @click="reset">Reset Filters</button>
       </div>
 
       <!-- Table -->
@@ -138,9 +142,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { api, type AlertState } from '../api';
+import { useRoute, useRouter } from 'vue-router';
+import { api, type AlertState, type Tenant } from '../api';
+
+const route  = useRoute();
+const router = useRouter();
 
 const allAlerts   = ref<AlertState[]>([]);
+const tenants     = ref<Tenant[]>([]);
 const loading     = ref(true);
 const resolving   = ref(false);
 const statusFilter = ref<'active' | 'all'>('active');
@@ -153,11 +162,21 @@ const sortDir      = ref<'asc' | 'desc'>('desc');
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+const companyId   = computed(() => route.query.company as string | undefined);
+const companyName = computed(() =>
+  tenants.value.find(t => t.id === companyId.value)?.name ?? companyId.value ?? ''
+);
+
 async function load() {
   loading.value = true;
   selected.value.clear();
   try {
-    allAlerts.value = await api.alerts.list(statusFilter.value, searchQuery.value);
+    const [alerts, tenantList] = await Promise.all([
+      api.alerts.list(statusFilter.value, searchQuery.value, companyId.value ?? ''),
+      tenants.value.length ? Promise.resolve(tenants.value) : api.tenants.list(),
+    ]);
+    allAlerts.value = alerts;
+    tenants.value   = tenantList;
   } catch {
     allAlerts.value = [];
   } finally {
@@ -167,6 +186,11 @@ async function load() {
 
 onMounted(load);
 watch(statusFilter, () => { page.value = 1; load(); });
+watch(companyId, () => { page.value = 1; load(); });
+
+function clearCompany() {
+  router.push({ path: '/global/alerts' });
+}
 
 function onSearch() {
   if (searchTimer) clearTimeout(searchTimer);
@@ -228,7 +252,8 @@ function reset() {
   statusFilter.value = 'active';
   searchQuery.value  = '';
   page.value         = 1;
-  load();
+  if (companyId.value) router.push({ path: '/global/alerts' });
+  else load();
 }
 
 async function resolveSelected() {
