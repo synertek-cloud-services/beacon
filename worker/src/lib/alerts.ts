@@ -1,13 +1,18 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
-import type { Metrics } from './types';
+import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult } from './types';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
 type PolicyMonitor = typeof schema.policyMonitors.$inferSelect;
 type Policy = typeof schema.policies.$inferSelect;
 type EffectiveMonitor = PolicyMonitor & { policy: Policy };
+
+// A device counts as "currently online" for the offline monitor's online
+// direction if it checked in within this window — deliberately not the
+// user-configurable duration (that's sustainedMinutes, applied afterward).
+const ONLINE_PRESENCE_GRACE_SECONDS = 300;
 
 // ── Resolve which monitors apply to a device (company wins over global) ───────
 
@@ -33,40 +38,299 @@ async function resolveEffectiveMonitors(db: Db, device: Device): Promise<Effecti
     return osOk && classOk;
   });
 
-  // Deduplicate: company-scoped wins over global per (check_type[, av_state])
-  const byKey = new Map<string, EffectiveMonitor>();
+  // A policy's monitors of the same check_type coexist (e.g. two cpu_usage
+  // monitors — a 100%/critical trip and a 95%/high early warning — or
+  // av_status's three sub-states). Dedup happens per check_type group, not
+  // per individual monitor: if any company-scoped policy has monitors of a
+  // given check_type for this device, its monitors entirely replace the
+  // global ones for that check_type — never merged monitor-by-monitor.
+  const byCheckType = new Map<string, EffectiveMonitor[]>();
   for (const row of matched) {
     const pm     = row.policy_monitors;
     const policy = row.policies;
-    const cfg    = JSON.parse(pm.config) as Record<string, unknown>;
-    const key    = pm.checkType === 'av_status' && cfg.av_state
-      ? `av_status:${cfg.av_state}`
-      : pm.checkType;
-
-    const existing = byKey.get(key);
-    if (!existing || policy.scope === 'company') {
-      byKey.set(key, { ...pm, policy });
-    }
+    const group  = byCheckType.get(pm.checkType) ?? [];
+    group.push({ ...pm, policy });
+    byCheckType.set(pm.checkType, group);
   }
 
-  return [...byKey.values()];
+  const effective: EffectiveMonitor[] = [];
+  for (const group of byCheckType.values()) {
+    const companyMonitors = group.filter(m => m.policy.scope === 'company');
+    effective.push(...(companyMonitors.length > 0 ? companyMonitors : group));
+  }
+
+  return effective;
 }
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
+
+export interface CheckinAssignments {
+  fileSizeChecks: FileSizeCheck[];
+  pingChecks: PingCheck[];
+  processChecks: ProcessCheck[];
+  serviceChecks: ServiceCheck[];
+}
 
 export async function evaluateCheckinAlerts(
   DB: D1Database,
   device: Device,
   metrics: Metrics,
   now: number,
-): Promise<void> {
+): Promise<CheckinAssignments> {
   const db = drizzle(DB, { schema });
   const monitors = await resolveEffectiveMonitors(db, device);
+  const fileSizeChecks: FileSizeCheck[] = [];
+  const pingChecks: PingCheck[] = [];
+  const processChecks: ProcessCheck[] = [];
+  const serviceChecks: ServiceCheck[] = [];
+  const minuteBucket = Math.floor(now / 60);
 
   for (const monitor of monitors) {
     if (monitor.checkType === 'offline') continue; // handled by cron
+    // Throttle evaluation frequency below the 60s check-in cadence. Stateless
+    // by design — bucketing by wall-clock minute avoids needing a "last
+    // evaluated" timestamp, which would just reintroduce a write every
+    // check-in and defeat the point.
+    if (minuteBucket % monitor.checkIntervalMinutes !== 0) continue;
+
+    if (monitor.checkType === 'file_size') {
+      // Measured by the agent, not evaluated from metrics — assign the path
+      // to check now, evaluate the result it reports on a later check-in.
+      const cfg = JSON.parse(monitor.config) as { path: string };
+      fileSizeChecks.push({ monitor_id: monitor.id, path: cfg.path });
+      continue;
+    }
+
+    if (monitor.checkType === 'ping') {
+      // Measured by the agent, not evaluated from metrics — assign the
+      // target to ping now, evaluate the result it reports on a later check-in.
+      const cfg = JSON.parse(monitor.config) as { target: string; packet_count: number };
+      pingChecks.push({ monitor_id: monitor.id, target: cfg.target, count: cfg.packet_count });
+      continue;
+    }
+
+    if (monitor.checkType === 'process') {
+      // Measured by the agent, not evaluated from metrics — assign the
+      // process name to look up now, evaluate the result it reports on a
+      // later check-in.
+      const cfg = JSON.parse(monitor.config) as { process_name: string };
+      processChecks.push({ monitor_id: monitor.id, process_name: cfg.process_name });
+      continue;
+    }
+
+    if (monitor.checkType === 'service') {
+      // Measured by the agent, not evaluated from metrics — assign the
+      // service name to look up now, evaluate the result it reports on a
+      // later check-in. Skipped entirely (not even assigned) until the
+      // device has been up for boot_delay_minutes, so services still
+      // starting up right after boot don't cause false "stopped" alerts.
+      const cfg = JSON.parse(monitor.config) as { service_name: string; boot_delay_minutes?: number };
+      if (metrics.uptime_seconds < (cfg.boot_delay_minutes ?? 0) * 60) continue;
+      serviceChecks.push({ monitor_id: monitor.id, service_name: cfg.service_name });
+      continue;
+    }
+
     const failed = evaluateCheck(monitor, metrics);
     await processAlertState(db, device, monitor, failed, now);
+  }
+
+  return { fileSizeChecks, pingChecks, processChecks, serviceChecks };
+}
+
+// ── File size: results reported by the agent for a prior check-in's assignments
+
+export async function evaluateFileSizeAlerts(
+  DB: D1Database,
+  device: Device,
+  results: FileSizeResult[],
+  now: number,
+): Promise<void> {
+  const db = drizzle(DB, { schema });
+
+  for (const result of results) {
+    const row = await db.select()
+      .from(schema.policyMonitors)
+      .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+      .where(eq(schema.policyMonitors.id, result.monitor_id))
+      .get();
+    if (!row || row.policy_monitors.checkType !== 'file_size') continue; // deleted/changed since assignment
+
+    const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+    const cfg = JSON.parse(monitor.config) as { mode: 'below' | 'over'; threshold_mb: number };
+    const sizeMb = result.size_bytes / 1048576;
+    const failed = result.exists && (cfg.mode === 'over' ? sizeMb > cfg.threshold_mb : sizeMb < cfg.threshold_mb);
+
+    await processAlertState(db, device, monitor, failed, now);
+  }
+}
+
+// ── Ping: results reported by the agent for a prior check-in's assignments ───
+
+export async function evaluatePingAlerts(
+  DB: D1Database,
+  device: Device,
+  results: PingResult[],
+  now: number,
+): Promise<void> {
+  const db = drizzle(DB, { schema });
+
+  for (const result of results) {
+    const row = await db.select()
+      .from(schema.policyMonitors)
+      .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+      .where(eq(schema.policyMonitors.id, result.monitor_id))
+      .get();
+    if (!row || row.policy_monitors.checkType !== 'ping') continue; // deleted/changed since assignment
+
+    const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+    const cfg = JSON.parse(monitor.config) as {
+      check_unreachable: boolean;
+      packet_loss_pct: number | null;
+      latency_ms: number | null;
+    };
+
+    const unreachable = result.packets_received === 0;
+    // Packet-loss only alerts when the target is reachable but lossy —
+    // total loss is the unreachable condition's job, not this one's.
+    const lossPct = result.packets_sent > 0
+      ? (result.packets_sent - result.packets_received) / result.packets_sent * 100
+      : 0;
+
+    const failed =
+      (cfg.check_unreachable && unreachable) ||
+      (cfg.packet_loss_pct !== null && result.packets_received > 0 && lossPct >= cfg.packet_loss_pct) ||
+      (cfg.latency_ms !== null && result.packets_received > 0 && result.avg_rtt_ms > cfg.latency_ms);
+
+    await processAlertState(db, device, monitor, failed, now);
+  }
+}
+
+// ── Process: results reported by the agent for a prior check-in's assignments
+
+export async function evaluateProcessAlerts(
+  DB: D1Database,
+  device: Device,
+  results: ProcessResult[],
+  now: number,
+): Promise<void> {
+  const db = drizzle(DB, { schema });
+
+  for (const result of results) {
+    const row = await db.select()
+      .from(schema.policyMonitors)
+      .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+      .where(eq(schema.policyMonitors.id, result.monitor_id))
+      .get();
+    if (!row || row.policy_monitors.checkType !== 'process') continue; // deleted/changed since assignment
+
+    const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+    const cfg = JSON.parse(monitor.config) as {
+      mode: 'running' | 'stopped' | 'cpu' | 'memory';
+      threshold_pct: number | null;
+    };
+
+    let failed = false;
+    switch (cfg.mode) {
+      case 'running': failed = result.running; break;
+      case 'stopped': failed = !result.running; break;
+      case 'cpu':      failed = result.running && cfg.threshold_pct !== null && result.cpu_percent >= cfg.threshold_pct; break;
+      case 'memory':   failed = result.running && cfg.threshold_pct !== null && result.mem_percent >= cfg.threshold_pct; break;
+    }
+
+    await processAlertState(db, device, monitor, failed, now);
+  }
+}
+
+// ── Service: results reported by the agent for a prior check-in's assignments
+
+export async function evaluateServiceAlerts(
+  DB: D1Database,
+  device: Device,
+  results: ServiceResult[],
+  now: number,
+): Promise<void> {
+  const db = drizzle(DB, { schema });
+
+  for (const result of results) {
+    const row = await db.select()
+      .from(schema.policyMonitors)
+      .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+      .where(eq(schema.policyMonitors.id, result.monitor_id))
+      .get();
+    if (!row || row.policy_monitors.checkType !== 'service') continue; // deleted/changed since assignment
+
+    const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+    const cfg = JSON.parse(monitor.config) as {
+      mode: 'running' | 'stopped' | 'cpu' | 'memory';
+      threshold_pct: number | null;
+    };
+
+    let failed = false;
+    switch (cfg.mode) {
+      case 'running': failed = result.running; break;
+      case 'stopped': failed = !result.running; break;
+      case 'cpu':      failed = result.running && cfg.threshold_pct !== null && result.cpu_percent >= cfg.threshold_pct; break;
+      case 'memory':   failed = result.running && cfg.threshold_pct !== null && result.mem_percent >= cfg.threshold_pct; break;
+    }
+
+    await processAlertState(db, device, monitor, failed, now);
+  }
+}
+
+// ── Software: evaluated from the audit-diff flow, not check-in ───────────────
+// Event-driven, not state-driven — a software install/uninstall/version-change
+// is only ever observed on the exact audit where the diff detected it, never
+// re-observed on a later one. No sustained-window concept applies; matching
+// monitors always have sustainedMinutes=0 (see the processAlertState fix
+// above) so they fire on this single detection instead of needing a repeat.
+
+function matchesPattern(name: string, pattern: string): boolean {
+  if (!pattern.includes('%')) return name.toLowerCase() === pattern.toLowerCase();
+  const escaped = pattern
+    .split('%')
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${escaped}$`, 'i').test(name);
+}
+
+interface SoftwareChange {
+  changeType: string;
+  itemName: string;
+  field: string | null;
+}
+
+export async function evaluateSoftwareAlerts(
+  DB: D1Database,
+  device: Device,
+  changes: SoftwareChange[],
+  now: number,
+): Promise<void> {
+  if (changes.length === 0) return; // nothing changed this audit — nothing to check
+
+  const db = drizzle(DB, { schema });
+  const monitors = (await resolveEffectiveMonitors(db, device))
+    .filter(m => m.checkType === 'software');
+  if (monitors.length === 0) return;
+
+  for (const monitor of monitors) {
+    const cfg = JSON.parse(monitor.config) as {
+      name_pattern: string;
+      mode: 'installed' | 'uninstalled' | 'version_changed';
+    };
+    const wantedType = cfg.mode === 'installed' ? 'added' : cfg.mode === 'uninstalled' ? 'removed' : 'changed';
+
+    const matched = changes.some(ch =>
+      ch.changeType === wantedType &&
+      (wantedType !== 'changed' || ch.field === 'version') &&
+      matchesPattern(ch.itemName, cfg.name_pattern),
+    );
+
+    // Only called on a match — auto_resolve is always false for this type
+    // (Datto's spec: manual resolve only), so there's nothing to clear on a
+    // non-match; calling with failed=false would just be a pointless read.
+    if (matched) {
+      await processAlertState(db, device, monitor, true, now);
+    }
   }
 }
 
@@ -87,26 +351,61 @@ export async function evaluateOfflineAlerts(
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 
     for (const monitor of offlineMonitors) {
-      const cfg = JSON.parse(monitor.config) as { offline_after_seconds: number };
-      const isOffline =
-        device.lastSeen === null ||
-        device.lastSeen < now - cfg.offline_after_seconds;
-      await processAlertState(db, device, monitor, isOffline, now);
+      const cfg = JSON.parse(monitor.config) as { direction?: 'offline' | 'online'; offline_after_seconds: number };
+      const direction = cfg.direction ?? 'offline';
+
+      let failed: boolean;
+      if (direction === 'online') {
+        // "Currently checking in" presence check — how long it must stay true
+        // before alerting is handled by the existing sustainedMinutes debounce
+        // in processAlertState, same as every other check type.
+        failed = device.lastSeen !== null && (now - device.lastSeen) < ONLINE_PRESENCE_GRACE_SECONDS;
+      } else {
+        failed = device.lastSeen === null || device.lastSeen < now - cfg.offline_after_seconds;
+      }
+
+      await processAlertState(db, device, monitor, failed, now);
     }
   }
 }
 
 // ── Shared logic ─────────────────────────────────────────────────────────────
 
+const GB = 1073741824;
+
+function diskBreaches(d: NonNullable<Metrics['disks']>[number], thresholdType: string, thresholdValue: number): boolean {
+  switch (thresholdType) {
+    case 'gb_free':      return d.free_bytes < thresholdValue * GB;
+    case 'gb_used':      return (d.total_bytes - d.free_bytes) > thresholdValue * GB;
+    case 'percent_used': return d.total_bytes > 0 && ((d.total_bytes - d.free_bytes) / d.total_bytes) * 100 >= thresholdValue;
+    default:              return false;
+  }
+}
+
 function evaluateCheck(monitor: PolicyMonitor, metrics: Metrics): boolean {
   const cfg = JSON.parse(monitor.config) as Record<string, unknown>;
   switch (monitor.checkType) {
-    case 'disk_space':
-      return metrics.disk_free_bytes < (cfg.bytes_free_min as number);
+    case 'disk_space': {
+      const disks = metrics.disks;
+      if (!disks || disks.length === 0) return false;
+      const drive          = (cfg.drive as string) ?? 'any';
+      const thresholdType  = (cfg.threshold_type as string) ?? 'gb_free';
+      const thresholdValue = cfg.threshold_value as number;
+      const minDiskGb      = cfg.min_disk_gb as number | null | undefined;
+
+      let candidates = disks;
+      if (minDiskGb) candidates = candidates.filter(d => d.total_bytes >= minDiskGb * GB);
+      if (drive !== 'any') {
+        const target = drive.trim().toLowerCase();
+        candidates = candidates.filter(d =>
+          d.device.trim().toLowerCase() === target || d.label.trim().toLowerCase() === target);
+      }
+      return candidates.some(d => diskBreaches(d, thresholdType, thresholdValue));
+    }
     case 'cpu_usage':
-      return metrics.cpu_percent !== undefined && metrics.cpu_percent > (cfg.percent_max as number);
+      return metrics.cpu_percent !== undefined && metrics.cpu_percent >= (cfg.percent_max as number);
     case 'memory_usage':
-      return metrics.memory_percent !== undefined && metrics.memory_percent > (cfg.percent_max as number);
+      return metrics.memory_percent !== undefined && metrics.memory_percent >= (cfg.percent_max as number);
     case 'av_status': {
       const status = metrics.av_status;
       if (!status) return false;
@@ -133,14 +432,31 @@ async function processAlertState(
     .get();
 
   if (!existing) {
+    // A monitor that's never failed doesn't need a row yet — nothing reads
+    // alert_state by existence, only by is_alerting/alerted_at once a real
+    // breach occurs (see admin/alerts.ts). Avoids a write on every healthy
+    // device's first-ever check-in for every monitor.
+    if (!failed) return;
+    // sustainedMinutes === 0 means no debounce is wanted — fire on this very
+    // first detection rather than waiting for a second consecutive failure.
+    // For continuously-sampled monitors (60s check-ins) the old always-seed
+    // behavior was invisible (a confirming sample arrives a minute later
+    // anyway), but for one-shot/edge-triggered checks like software installs
+    // — evaluated once per audit, sometimes 24h apart — a transition never
+    // repeats, so waiting for a "second" failure meant it could never fire.
+    const fireImmediately = monitor.sustainedMinutes === 0;
     await db.insert(schema.alertState).values({
       id:                 crypto.randomUUID(),
       deviceId:           device.id,
       policyMonitorId:    monitor.id,
-      conditionFirstSeen: failed ? now : null,
-      isAlerting:         false,
+      conditionFirstSeen: now,
+      isAlerting:         fireImmediately,
+      alertedAt:          fireImmediately ? now : null,
       updatedAt:          now,
     });
+    if (fireImmediately) {
+      await fireWebhooks(db, device, monitor, 'alert.triggered', now);
+    }
     return;
   }
 
@@ -150,14 +466,25 @@ async function processAlertState(
     const sustained      = (now - firstSeen) >= sustainedSecs;
     const shouldFire     = sustained && !existing.isAlerting;
 
-    await db.update(schema.alertState)
-      .set({
-        conditionFirstSeen: existing.conditionFirstSeen ?? now,
-        isAlerting:         shouldFire || existing.isAlerting,
-        alertedAt:          shouldFire ? now : existing.alertedAt,
-        updatedAt:          now,
-      })
-      .where(eq(schema.alertState.id, existing.id));
+    const newConditionFirstSeen = existing.conditionFirstSeen ?? now;
+    const newIsAlerting         = shouldFire || existing.isAlerting;
+    const newAlertedAt          = shouldFire ? now : existing.alertedAt;
+
+    const changed =
+      newConditionFirstSeen !== existing.conditionFirstSeen ||
+      newIsAlerting          !== existing.isAlerting ||
+      newAlertedAt           !== existing.alertedAt;
+
+    if (changed) {
+      await db.update(schema.alertState)
+        .set({
+          conditionFirstSeen: newConditionFirstSeen,
+          isAlerting:         newIsAlerting,
+          alertedAt:          newAlertedAt,
+          updatedAt:          now,
+        })
+        .where(eq(schema.alertState.id, existing.id));
+    }
 
     if (shouldFire) {
       await fireWebhooks(db, device, monitor, 'alert.triggered', now);
@@ -170,14 +497,24 @@ async function processAlertState(
       existing.alertedAt !== null &&
       (now - existing.alertedAt) >= monitor.autoResolveAfterMinutes * 60;
 
-    await db.update(schema.alertState)
-      .set({
-        conditionFirstSeen: null,
-        isAlerting:         shouldAutoResolve ? false : existing.isAlerting,
-        resolvedAt:         shouldAutoResolve ? now   : existing.resolvedAt,
-        updatedAt:          now,
-      })
-      .where(eq(schema.alertState.id, existing.id));
+    const newIsAlerting = shouldAutoResolve ? false : existing.isAlerting;
+    const newResolvedAt = shouldAutoResolve ? now   : existing.resolvedAt;
+
+    const changed =
+      existing.conditionFirstSeen !== null ||
+      newIsAlerting                !== existing.isAlerting ||
+      newResolvedAt                !== existing.resolvedAt;
+
+    if (changed) {
+      await db.update(schema.alertState)
+        .set({
+          conditionFirstSeen: null,
+          isAlerting:         newIsAlerting,
+          resolvedAt:         newResolvedAt,
+          updatedAt:          now,
+        })
+        .where(eq(schema.alertState.id, existing.id));
+    }
 
     if (wasAlerting && shouldAutoResolve) {
       await fireWebhooks(db, device, monitor, 'alert.resolved', now);

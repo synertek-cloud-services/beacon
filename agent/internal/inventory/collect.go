@@ -14,6 +14,9 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/synertekcs/beacon/agent/internal/diskutil"
+	"github.com/synertekcs/beacon/agent/internal/protocol"
 )
 
 type Snapshot struct {
@@ -22,6 +25,7 @@ type Snapshot struct {
 	OSVersion     string
 	UptimeSeconds int64
 	DiskFreeBytes int64
+	Disks         []protocol.DiskInfo
 	DetectedClass string
 	CpuPercent    float64
 	MemoryPercent float64
@@ -57,6 +61,7 @@ func Collect() (*Snapshot, error) {
 	}
 
 	avStatus, avProduct := collectAvStatus()
+	disks, _ := diskutil.CollectDisks()
 
 	return &Snapshot{
 		Hostname:      info.Hostname,
@@ -64,6 +69,7 @@ func Collect() (*Snapshot, error) {
 		OSVersion:     fmt.Sprintf("%s %s", info.Platform, info.PlatformVersion),
 		UptimeSeconds: int64(info.Uptime),
 		DiskFreeBytes: int64(du.Free),
+		Disks:         disks,
 		DetectedClass: detectClass(info),
 		CpuPercent:    cpuPct,
 		MemoryPercent: memPct,

@@ -10,10 +10,10 @@ function requireAdmin(auth: string | undefined, secret: string): boolean {
   return auth === `Bearer ${secret}`;
 }
 
-type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
+type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
 type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 
-const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'];
+const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software'];
 const VALID_PRIORITIES:  Priority[]  = ['critical', 'high', 'moderate', 'low'];
 
 // Fetch policies + their monitors in two queries, merge in TS
@@ -203,6 +203,7 @@ policies.post('/:id/monitors', async (c) => {
     config:                    Record<string, unknown>;
     alert_priority?:           Priority;
     sustained_minutes?:        number;
+    check_interval_minutes?:  number;
     auto_resolve?:             boolean;
     auto_resolve_after_minutes?: number;
   }>();
@@ -222,6 +223,7 @@ policies.post('/:id/monitors', async (c) => {
     config:                  JSON.stringify(body.config ?? {}),
     alertPriority:           priority,
     sustainedMinutes:        body.sustained_minutes        ?? 5,
+    checkIntervalMinutes:    body.check_interval_minutes   ?? 1,
     autoResolve:             body.auto_resolve             ?? true,
     autoResolveAfterMinutes: body.auto_resolve_after_minutes ?? 60,
     createdAt:               now,
@@ -243,6 +245,7 @@ policies.patch('/:id/monitors/:mid', async (c) => {
     config?:                 Record<string, unknown>;
     alert_priority?:         Priority;
     sustained_minutes?:      number;
+    check_interval_minutes?: number;
     auto_resolve?:           boolean;
     auto_resolve_after_minutes?: number;
   }>();
@@ -252,6 +255,7 @@ policies.patch('/:id/monitors/:mid', async (c) => {
   if (body.config                     !== undefined) patch.config                   = JSON.stringify(body.config);
   if (body.alert_priority             !== undefined) patch.alertPriority            = body.alert_priority;
   if (body.sustained_minutes          !== undefined) patch.sustainedMinutes         = body.sustained_minutes;
+  if (body.check_interval_minutes     !== undefined) patch.checkIntervalMinutes     = body.check_interval_minutes;
   if (body.auto_resolve               !== undefined) patch.autoResolve              = body.auto_resolve;
   if (body.auto_resolve_after_minutes !== undefined) patch.autoResolveAfterMinutes  = body.auto_resolve_after_minutes;
 

@@ -10,20 +10,12 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 	psnet "github.com/shirou/gopsutil/v3/net"
 
+	"github.com/synertekcs/beacon/agent/internal/diskutil"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
 )
-
-var excludedFSTypes = map[string]bool{
-	"overlay": true, "overlayfs": true, "squashfs": true,
-	"tmpfs": true, "devtmpfs": true, "ramfs": true,
-	"sysfs": true, "proc": true, "cgroup": true, "cgroup2": true,
-	"devfs": true, "autofs": true, "bpf": true, "tracefs": true,
-	"hugetlbfs": true, "mqueue": true, "debugfs": true, "fusectl": true,
-}
 
 func collectHardware() (*protocol.HardwareInfo, error) {
 	hw := &protocol.HardwareInfo{}
@@ -39,7 +31,7 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 	}
 
 	// Disks
-	if disks, err := collectDisks(); err == nil {
+	if disks, err := diskutil.CollectDisks(); err == nil {
 		hw.Disks = disks
 	}
 
@@ -65,35 +57,6 @@ func collectCPU() ([]protocol.CPUInfo, error) {
 		Cores:    int32(physicalCount),
 		SpeedMHz: infos[0].Mhz,
 	}}, nil
-}
-
-func collectDisks() ([]protocol.DiskInfo, error) {
-	parts, err := disk.Partitions(false)
-	if err != nil {
-		return nil, err
-	}
-	var disks []protocol.DiskInfo
-	for _, p := range parts {
-		if excludedFSTypes[p.Fstype] {
-			continue
-		}
-		usage, err := disk.Usage(p.Mountpoint)
-		if err != nil || usage.Total == 0 {
-			continue
-		}
-		label := p.Mountpoint
-		if p.Device != "" {
-			label = p.Device
-		}
-		disks = append(disks, protocol.DiskInfo{
-			Device:     p.Device,
-			Label:      label,
-			FSType:     p.Fstype,
-			TotalBytes: usage.Total,
-			FreeBytes:  usage.Free,
-		})
-	}
-	return disks, nil
 }
 
 func collectNetwork() ([]protocol.NetworkInfo, error) {

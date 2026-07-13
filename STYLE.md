@@ -77,18 +77,27 @@ Each badge has a 4px dot pseudo-element via `::before`.
 
 ## Type/priority chips (policy monitors)
 
+Full palette, 10 colors deep as of this session — check this table before adding a new check type's chip so the color stays distinct:
+
 ```css
-.check-chip.chip-disk_space    /* purple tint */
-.check-chip.chip-offline       /* amber tint */
-.check-chip.chip-cpu_usage     /* red tint */
-.check-chip.chip-memory_usage  /* accent blue tint */
-.check-chip.chip-av_status     /* teal tint */
+.check-chip.chip-disk_space    /* purple tint  — rgba(130,80,240,.14)  / #8050f0 */
+.check-chip.chip-offline       /* amber tint   — var(--amber) tint (also used for "Online Status" label) */
+.check-chip.chip-cpu_usage     /* red tint     — rgba(240,80,60,.12)   / #e04040 */
+.check-chip.chip-memory_usage  /* accent blue  — rgba(78,126,247,.14)  / var(--accent) */
+.check-chip.chip-av_status     /* teal tint    — rgba(45,207,160,.14)  / var(--teal) */
+.check-chip.chip-file_size     /* grey tint    — rgba(132,134,168,.16) / var(--muted-2) */
+.check-chip.chip-ping          /* teal tint    — rgba(45,207,160,.14)  / var(--teal) (shares teal with av_status, contexts don't collide) */
+.check-chip.chip-process       /* amber tint   — rgba(240,168,64,.16)  / var(--amber) (shares amber with offline) */
+.check-chip.chip-service       /* pink/magenta — rgba(200,80,180,.14)  / #c850b4 */
+.check-chip.chip-software      /* green tint   — rgba(80,180,120,.14)  / #50b478 */
 
 .pri-badge.pri-critical  /* solid red, white text */
 .pri-badge.pri-high      /* solid #e07830, white text */
 .pri-badge.pri-moderate  /* amber bg, dark text */
 .pri-badge.pri-low       /* muted bg */
 ```
+
+Chip CSS is duplicated (not shared) between `PolicyFormPage.vue` and `GlobalPoliciesPage.vue`, matching this codebase's established duplication-over-sharing convention for small per-page presentational logic.
 
 ## Scope badges (policy scope)
 
@@ -243,6 +252,40 @@ The `<input>` is visually hidden (`display: none`) — the entire `<label>` is t
 ```
 
 Used when CPU threshold ≥ 95% to warn about 100% CPU reliability.
+
+**Note**: `.field-hint` is defined per-component (scoped styles), not globally — it exists independently in `PolicyFormPage.vue`, `GlobalPoliciesPage.vue`, and `TenantsPage.vue`. Adding it to a new component that doesn't already have it needs its own copy of the CSS rule (`display:block; font-size:11px; color:var(--muted); margin-top:6px;`), not just the class name — Vue scoped styles don't leak across components.
+
+## Optional-condition checkbox (checkbox toggles between a value and `null`)
+
+Used for the Add Monitor drawer's optional numeric conditions (disk's min-size filter, ping's packet-loss/latency thresholds) — the checkbox's checked-state *is* whether the field is `null`, there's no separate boolean flag:
+
+```html
+<label class="mf-check-row">
+  <input type="checkbox" :checked="form.x !== null"
+    @change="form.x = ($event.target as HTMLInputElement).checked ? DEFAULT_VALUE : null" style="accent-color:var(--accent)" />
+  <span>Alert when...</span>
+</label>
+<div v-if="form.x !== null" class="mf-row" style="margin-top:6px">
+  <input v-model.number="form.x" type="number" class="mf-input" style="max-width:90px"/>
+</div>
+```
+
+Uses `:checked`/`@change` rather than `v-model` on the checkbox itself, since `v-model` would need a separate boolean ref to bind to — deriving checked-state from `!== null` keeps the number field as the single source of truth.
+
+## Per-check-type field visibility in the Add Monitor drawer
+
+Each check type's own fields are a single `v-if="monPanel.form.checkType === 'x'"` block, inserted before the shared `mf-pair` (period/check-interval/priority). When a check type doesn't need one of the *shared* fields (e.g. `software` has no sustained-period or check-interval concept, and never auto-resolves), wrap just those fields in `<template v-if="monPanel.form.checkType !== 'x'">` rather than hiding the whole shared block — `mf-pair` is one flex row and usually only some of its fields are irrelevant (priority still applies even when period/interval don't).
+
+Type-specific config values that don't make sense for a given type should be force-set when that type is selected, not left to a stale default — the type-card click handler is a named function (`selectCheckType(ct)`), not an inline `@click` assignment, specifically so it has a place to do this:
+```typescript
+function selectCheckType(ct: CheckType) {
+  monPanel.form.checkType = ct;
+  if (ct === 'software') {
+    monPanel.form.sustainedMinutes = 0;
+    monPanel.form.autoResolve = false;
+  }
+}
+```
 
 ## Active client block (sidebar)
 

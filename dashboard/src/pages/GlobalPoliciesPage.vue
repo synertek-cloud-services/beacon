@@ -406,10 +406,15 @@ function formatDate(ts: number): string {
 function checkLabel(ct: CheckType): string {
   switch (ct) {
     case 'disk_space':   return 'Disk Space';
-    case 'offline':      return 'Offline';
+    case 'offline':      return 'Online Status';
     case 'cpu_usage':    return 'CPU';
     case 'memory_usage': return 'Memory';
     case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
     default:             return ct;
   }
 }
@@ -418,16 +423,53 @@ function monitorSummary(m: PolicyMonitor): string {
   try {
     const cfg = JSON.parse(m.config) as Record<string, unknown>;
     switch (m.checkType) {
-      case 'offline':      return `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
-      case 'disk_space':   return `< ${Math.round((cfg.bytes_free_min as number) / 1073741824)} GB free`;
-      case 'cpu_usage':    return `> ${cfg.percent_max}% CPU`;
-      case 'memory_usage': return `> ${cfg.percent_max}% memory`;
+      case 'offline':      return (cfg.direction as string) === 'online'
+        ? `online for ${m.sustainedMinutes}m`
+        : `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
+      case 'disk_space':   {
+        const drive = (cfg.drive as string) === 'any' ? 'any drive' : (cfg.drive as string);
+        const type  = (cfg.threshold_type as string) ?? 'gb_free';
+        const value = cfg.threshold_value as number;
+        const unit  = type === 'percent_used' ? '%' : ' GB';
+        const cmp   = type === 'gb_free' ? '<' : type === 'percent_used' ? '≥' : '>';
+        const label = type === 'gb_free' ? 'free' : 'used';
+        return `${drive} ${cmp} ${value}${unit} ${label}`;
+      }
+      case 'cpu_usage':    return `≥ ${cfg.percent_max}% CPU`;
+      case 'memory_usage': return `≥ ${cfg.percent_max}% memory`;
       case 'av_status': {
         const s = cfg.av_state as string;
         if (s === 'not_detected')          return 'AV: not detected';
         if (s === 'not_running')            return 'AV: not running';
         if (s === 'running_not_up_to_date') return 'AV: out of date';
         return `AV: ${s}`;
+      }
+      case 'file_size': {
+        const cmp = (cfg.mode as string) === 'over' ? '>' : '<';
+        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
+      }
+      case 'ping': {
+        const parts: string[] = [];
+        if (cfg.check_unreachable) parts.push('unreachable');
+        if (cfg.packet_loss_pct !== null && cfg.packet_loss_pct !== undefined) parts.push(`>${cfg.packet_loss_pct}% loss`);
+        if (cfg.latency_ms !== null && cfg.latency_ms !== undefined) parts.push(`>${cfg.latency_ms}ms`);
+        return `${cfg.target}: ${parts.join(', ') || 'no conditions set'}`;
+      }
+      case 'process': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
+        return `${cfg.process_name} ${mode} ≥ ${cfg.threshold_pct}%`;
+      }
+      case 'service': {
+        const mode = cfg.mode as string;
+        const delay = (cfg.boot_delay_minutes as number) > 0 ? ` (${cfg.boot_delay_minutes}m after boot)` : '';
+        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}${delay}`;
+        return `${cfg.service_name} ${mode} ≥ ${cfg.threshold_pct}%${delay}`;
+      }
+      case 'software': {
+        const mode = cfg.mode as string;
+        const verb = mode === 'installed' ? 'is installed' : mode === 'uninstalled' ? 'is uninstalled' : 'changes version';
+        return `${cfg.name_pattern} ${verb}`;
       }
       default: return m.config;
     }
@@ -640,6 +682,11 @@ function monitorSummary(m: PolicyMonitor): string {
 .chip-cpu_usage    { background: rgba(240,80,60,.12);   color: #e04040; }
 .chip-memory_usage { background: rgba(78,126,247,.14);  color: var(--accent); }
 .chip-av_status    { background: rgba(45,207,160,.14);  color: var(--teal); }
+.chip-file_size    { background: rgba(132,134,168,.16);  color: var(--muted-2); }
+.chip-ping         { background: rgba(45,207,160,.14);   color: var(--teal); }
+.chip-process      { background: rgba(240,168,64,.16);   color: var(--amber); }
+.chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
+.chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
 
 .pri-badge {
   display: inline-block; padding: 1px 7px; border-radius: 10px;

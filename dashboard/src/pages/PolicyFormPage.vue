@@ -162,7 +162,7 @@
             <div class="mo-type-grid">
               <button v-for="ct in checkTypeOptions" :key="ct.value"
                 :class="['mo-type-card', { selected: monPanel.form.checkType === ct.value }]"
-                @click="monPanel.form.checkType = ct.value as CheckType">
+                @click="selectCheckType(ct.value as CheckType)">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" v-html="ct.iconPaths"></svg>
                 <span>{{ ct.label }}</span>
               </button>
@@ -180,17 +180,48 @@
             <p class="mo-sec-sub">Configure the Monitor alert criteria</p>
 
             <div v-if="monPanel.form.checkType === 'offline'" class="mf-field">
-              <label class="mf-label">Alert after offline for</label>
-              <div class="mf-row">
-                <input v-model.number="monPanel.form.offlineMinutes" type="number" min="1" class="mf-input" style="max-width:90px"/>
-                <span class="mf-unit">minutes</span>
+              <label class="mf-label">Alert when device</label>
+              <div class="seg-bar">
+                <button :class="['seg-btn', { active: monPanel.form.offlineDirection === 'offline' }]" @click="monPanel.form.offlineDirection = 'offline'">Goes Offline</button>
+                <button :class="['seg-btn', { active: monPanel.form.offlineDirection === 'online' }]" @click="monPanel.form.offlineDirection = 'online'">Comes Online</button>
               </div>
+              <template v-if="monPanel.form.offlineDirection === 'offline'">
+                <label class="mf-label" style="margin-top:12px">Alert after offline for</label>
+                <div class="mf-row">
+                  <input v-model.number="monPanel.form.offlineMinutes" type="number" min="1" max="43200" class="mf-input" style="max-width:90px"/>
+                  <span class="mf-unit">minutes</span>
+                </div>
+              </template>
+              <p v-else class="field-hint">Duration is set by "For a period of" below.</p>
             </div>
 
             <div v-if="monPanel.form.checkType === 'disk_space'" class="mf-field">
-              <label class="mf-label">Alert when free space below</label>
+              <label class="mf-label">Drive</label>
+              <div class="seg-bar">
+                <button :class="['seg-btn', { active: monPanel.form.diskDrive === 'any' }]" @click="monPanel.form.diskDrive = 'any'">Any Drive</button>
+                <button :class="['seg-btn', { active: monPanel.form.diskDrive !== 'any' }]" @click="monPanel.form.diskDrive = (monPanel.form.diskDrive === 'any' ? '' : monPanel.form.diskDrive)">Specific Drive</button>
+              </div>
+              <input v-if="monPanel.form.diskDrive !== 'any'" v-model="monPanel.form.diskDrive" type="text"
+                placeholder="e.g. C:\ or /data" class="mf-input" style="margin-top:8px"/>
+
+              <label class="mf-label" style="margin-top:12px">Alert when</label>
               <div class="mf-row">
-                <input v-model.number="monPanel.form.diskGb" type="number" min="1" class="mf-input" style="max-width:90px"/>
+                <select v-model="monPanel.form.diskThresholdType" class="mf-input mf-select" style="max-width:150px">
+                  <option value="gb_free">Free space below</option>
+                  <option value="gb_used">Used space above</option>
+                  <option value="percent_used">% used above</option>
+                </select>
+                <input v-model.number="monPanel.form.diskThresholdValue" type="number" min="1" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">{{ monPanel.form.diskThresholdType === 'percent_used' ? '%' : 'GB' }}</span>
+              </div>
+
+              <label v-if="monPanel.form.diskDrive === 'any'" class="mf-check-row" style="margin-top:10px">
+                <input type="checkbox" :checked="monPanel.form.diskMinGb !== null"
+                  @change="monPanel.form.diskMinGb = ($event.target as HTMLInputElement).checked ? 50 : null" style="accent-color:var(--accent)" />
+                <span>Only apply to disks larger than</span>
+              </label>
+              <div v-if="monPanel.form.diskMinGb !== null" class="mf-row" style="margin-top:6px">
+                <input v-model.number="monPanel.form.diskMinGb" type="number" min="1" class="mf-input" style="max-width:90px"/>
                 <span class="mf-unit">GB</span>
               </div>
             </div>
@@ -223,14 +254,127 @@
               </select>
             </div>
 
-            <div class="mf-pair">
-              <div class="mf-field">
-                <label class="mf-label">For a period of</label>
-                <div class="mf-row">
-                  <input v-model.number="monPanel.form.sustainedMinutes" type="number" min="0" class="mf-input" style="max-width:90px"/>
-                  <span class="mf-unit">min</span>
+            <div v-if="monPanel.form.checkType === 'file_size'" class="mf-field">
+              <label class="mf-label">Full path to file/folder</label>
+              <input v-model="monPanel.form.fileSizePath" type="text" placeholder="e.g. C:\Logs or /var/log/app.log" class="mf-input"/>
+
+              <label class="mf-label" style="margin-top:12px">Size is</label>
+              <div class="mf-row">
+                <div class="seg-bar">
+                  <button :class="['seg-btn', { active: monPanel.form.fileSizeMode === 'below' }]" @click="monPanel.form.fileSizeMode = 'below'">Below</button>
+                  <button :class="['seg-btn', { active: monPanel.form.fileSizeMode === 'over' }]" @click="monPanel.form.fileSizeMode = 'over'">Over</button>
                 </div>
+                <input v-model.number="monPanel.form.fileSizeThresholdMb" type="number" min="1" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">MB</span>
               </div>
+            </div>
+
+            <div v-if="monPanel.form.checkType === 'ping'" class="mf-field">
+              <label class="mf-label">IP address / hostname</label>
+              <input v-model="monPanel.form.pingTarget" type="text" placeholder="e.g. 8.8.8.8 or gateway.local" class="mf-input"/>
+
+              <label class="mf-label" style="margin-top:12px">Send ping packets</label>
+              <div class="mf-row">
+                <input v-model.number="monPanel.form.pingCount" type="number" min="1" max="40" class="mf-input" style="max-width:90px"/>
+              </div>
+
+              <label class="mf-check-row" style="margin-top:10px">
+                <input type="checkbox" v-model="monPanel.form.pingCheckUnreachable" style="accent-color:var(--accent)" />
+                <span>Alert when host is unreachable</span>
+              </label>
+
+              <label class="mf-check-row" style="margin-top:8px">
+                <input type="checkbox" :checked="monPanel.form.pingPacketLossPct !== null"
+                  @change="monPanel.form.pingPacketLossPct = ($event.target as HTMLInputElement).checked ? 20 : null" style="accent-color:var(--accent)" />
+                <span>Alert when % packets are lost</span>
+              </label>
+              <div v-if="monPanel.form.pingPacketLossPct !== null" class="mf-row" style="margin-top:6px">
+                <input v-model.number="monPanel.form.pingPacketLossPct" type="number" min="5" max="95" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">%</span>
+              </div>
+
+              <label class="mf-check-row" style="margin-top:8px">
+                <input type="checkbox" :checked="monPanel.form.pingLatencyMs !== null"
+                  @change="monPanel.form.pingLatencyMs = ($event.target as HTMLInputElement).checked ? 200 : null" style="accent-color:var(--accent)" />
+                <span>Alert when average roundtrip exceeds</span>
+              </label>
+              <div v-if="monPanel.form.pingLatencyMs !== null" class="mf-row" style="margin-top:6px">
+                <input v-model.number="monPanel.form.pingLatencyMs" type="number" min="1" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">ms</span>
+              </div>
+            </div>
+
+            <div v-if="monPanel.form.checkType === 'process'" class="mf-field">
+              <label class="mf-label">The process</label>
+              <input v-model="monPanel.form.processName" type="text" placeholder="e.g. bittorrent (without .exe)" class="mf-input"/>
+
+              <label class="mf-label" style="margin-top:12px">Alert when</label>
+              <select v-model="monPanel.form.processMode" class="mf-input mf-select">
+                <option value="running">Process is running</option>
+                <option value="stopped">Process is stopped</option>
+                <option value="cpu">CPU usage has reached</option>
+                <option value="memory">Memory usage has reached</option>
+              </select>
+              <div v-if="monPanel.form.processMode === 'cpu' || monPanel.form.processMode === 'memory'" class="mf-row" style="margin-top:8px">
+                <input v-model.number="monPanel.form.processThresholdPct" type="number" min="0" max="100" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">%</span>
+              </div>
+            </div>
+
+            <div v-if="monPanel.form.checkType === 'service'" class="mf-field">
+              <label class="mf-label">The service</label>
+              <input v-model="monPanel.form.serviceName" type="text" placeholder="e.g. wuauserv" class="mf-input"/>
+              <p class="field-hint">Windows only.</p>
+
+              <label class="mf-label" style="margin-top:12px">Alert when</label>
+              <select v-model="monPanel.form.serviceMode" class="mf-input mf-select">
+                <option value="running">Service is running</option>
+                <option value="stopped">Service is stopped</option>
+                <option value="cpu">CPU usage has reached</option>
+                <option value="memory">Memory usage has reached</option>
+              </select>
+              <div v-if="monPanel.form.serviceMode === 'cpu' || monPanel.form.serviceMode === 'memory'" class="mf-row" style="margin-top:8px">
+                <input v-model.number="monPanel.form.serviceThresholdPct" type="number" min="0" max="100" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">%</span>
+              </div>
+
+              <label class="mf-label" style="margin-top:12px">After the machine has booted</label>
+              <div class="mf-row">
+                <input v-model.number="monPanel.form.serviceBootDelayMinutes" type="number" min="0" max="60" class="mf-input" style="max-width:90px"/>
+                <span class="mf-unit">min (0 = immediately)</span>
+              </div>
+            </div>
+
+            <div v-if="monPanel.form.checkType === 'software'" class="mf-field">
+              <label class="mf-label">After a software package matching</label>
+              <input v-model="monPanel.form.softwareNamePattern" type="text" placeholder="e.g. %torrent% or exact name" class="mf-input"/>
+              <p class="field-hint">Use % as a wildcard. This monitor fires once per change and does not auto-resolve — alerts must be resolved manually.</p>
+
+              <label class="mf-label" style="margin-top:12px">Alert when the package</label>
+              <select v-model="monPanel.form.softwareMode" class="mf-input mf-select">
+                <option value="installed">Is installed</option>
+                <option value="uninstalled">Is uninstalled</option>
+                <option value="version_changed">Changes version</option>
+              </select>
+            </div>
+
+            <div class="mf-pair">
+              <template v-if="monPanel.form.checkType !== 'software'">
+                <div class="mf-field">
+                  <label class="mf-label">For a period of</label>
+                  <div class="mf-row">
+                    <input v-model.number="monPanel.form.sustainedMinutes" type="number" min="1" max="60" class="mf-input" style="max-width:90px"/>
+                    <span class="mf-unit">min</span>
+                  </div>
+                </div>
+                <div class="mf-field">
+                  <label class="mf-label">Check interval</label>
+                  <div class="mf-row">
+                    <input v-model.number="monPanel.form.checkIntervalMinutes" type="number" min="1" :max="monPanel.form.checkType === 'ping' ? 120 : 60" class="mf-input" style="max-width:90px"/>
+                    <span class="mf-unit">min</span>
+                  </div>
+                </div>
+              </template>
               <div class="mf-field">
                 <label class="mf-label">Alert priority</label>
                 <select v-model="monPanel.form.alertPriority" class="mf-input mf-select">
@@ -242,17 +386,19 @@
               </div>
             </div>
 
-            <label class="mf-check-row">
-              <input type="checkbox" v-model="monPanel.form.autoResolve" style="accent-color:var(--accent)" />
-              <span>Auto-resolve alert when condition is no longer met</span>
-            </label>
-            <div v-if="monPanel.form.autoResolve" class="mf-field" style="margin-top:10px">
-              <label class="mf-label">Keep alert visible for at least</label>
-              <div class="mf-row">
-                <input v-model.number="monPanel.form.autoResolveAfterMinutes" type="number" min="1" class="mf-input" style="max-width:90px"/>
-                <span class="mf-unit">min before resolving</span>
+            <template v-if="monPanel.form.checkType !== 'software'">
+              <label class="mf-check-row">
+                <input type="checkbox" v-model="monPanel.form.autoResolve" style="accent-color:var(--accent)" />
+                <span>Auto-resolve alert when condition is no longer met</span>
+              </label>
+              <div v-if="monPanel.form.autoResolve" class="mf-field" style="margin-top:10px">
+                <label class="mf-label">Keep alert visible for at least</label>
+                <div class="mf-row">
+                  <input v-model.number="monPanel.form.autoResolveAfterMinutes" type="number" min="1" class="mf-input" style="max-width:90px"/>
+                  <span class="mf-unit">min before resolving</span>
+                </div>
               </div>
-            </div>
+            </template>
           </div>
 
           <div class="mo-div"></div>
@@ -330,7 +476,7 @@ const classOptions = [{ value: 'server', label: 'Server' }, { value: 'workstatio
 
 const checkTypeOptions = [
   { value: 'offline',
-    label: 'Offline',
+    label: 'Online Status',
     iconPaths: '<path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>' },
   { value: 'disk_space',
     label: 'Disk Space',
@@ -344,6 +490,21 @@ const checkTypeOptions = [
   { value: 'av_status',
     label: 'Antivirus',
     iconPaths: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>' },
+  { value: 'file_size',
+    label: 'File/Folder Size',
+    iconPaths: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' },
+  { value: 'ping',
+    label: 'Ping',
+    iconPaths: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' },
+  { value: 'process',
+    label: 'Process',
+    iconPaths: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>' },
+  { value: 'service',
+    label: 'Service',
+    iconPaths: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>' },
+  { value: 'software',
+    label: 'Software',
+    iconPaths: '<path d="M12.89 1.45l8 4A2 2 0 0 1 22 7.24v9.53a2 2 0 0 1-1.11 1.79l-8 4a2 2 0 0 1-1.79 0l-8-4a2 2 0 0 1-1.1-1.8V7.24a2 2 0 0 1 1.11-1.79l8-4a2 2 0 0 1 1.78 0z"/><polyline points="2.32 6.16 12 11 21.68 6.16"/><line x1="12" y1="22.76" x2="12" y2="11"/>' },
 ];
 
 // ── Site search ──
@@ -372,13 +533,35 @@ interface LocalMonitor {
   checkType:               CheckType;
   alertPriority:           AlertPriority;
   sustainedMinutes:        number;
+  checkIntervalMinutes:    number;
   autoResolve:             boolean;
   autoResolveAfterMinutes: number;
   offlineMinutes:          number;
-  diskGb:                  number;
+  offlineDirection:        'offline' | 'online';
+  diskDrive:               string;
+  diskThresholdType:       'gb_free' | 'gb_used' | 'percent_used';
+  diskThresholdValue:      number;
+  diskMinGb:               number | null;
   cpuPercent:              number;
   memPercent:              number;
   avState:                 string;
+  fileSizePath:            string;
+  fileSizeMode:            'below' | 'over';
+  fileSizeThresholdMb:     number;
+  pingTarget:              string;
+  pingCount:               number;
+  pingCheckUnreachable:    boolean;
+  pingPacketLossPct:       number | null;
+  pingLatencyMs:           number | null;
+  processName:             string;
+  processMode:             'running' | 'stopped' | 'cpu' | 'memory';
+  processThresholdPct:     number | null;
+  serviceName:             string;
+  serviceMode:             'running' | 'stopped' | 'cpu' | 'memory';
+  serviceThresholdPct:     number | null;
+  serviceBootDelayMinutes: number;
+  softwareNamePattern:     string;
+  softwareMode:            'installed' | 'uninstalled' | 'version_changed';
   sendWebhook:             boolean;
 }
 
@@ -396,25 +579,67 @@ const monPanel = reactive({
     checkType:               'offline' as CheckType,
     alertPriority:           'high'    as AlertPriority,
     sustainedMinutes:        5,
+    checkIntervalMinutes:    1,
     autoResolve:             true,
     autoResolveAfterMinutes: 60,
     offlineMinutes:          30,
-    diskGb:                  10,
+    offlineDirection:        'offline' as 'offline' | 'online',
+    diskDrive:               'any',
+    diskThresholdType:       'gb_free' as 'gb_free' | 'gb_used' | 'percent_used',
+    diskThresholdValue:      10,
+    diskMinGb:               null as number | null,
     cpuPercent:              90,
     memPercent:              90,
     avState:                 'not_detected',
+    fileSizePath:            '',
+    fileSizeMode:            'over' as 'below' | 'over',
+    fileSizeThresholdMb:     500,
+    pingTarget:              '',
+    pingCount:               4,
+    pingCheckUnreachable:    true,
+    pingPacketLossPct:       null as number | null,
+    pingLatencyMs:           null as number | null,
+    processName:             '',
+    processMode:             'stopped' as 'running' | 'stopped' | 'cpu' | 'memory',
+    processThresholdPct:     80 as number | null,
+    serviceName:             '',
+    serviceMode:             'stopped' as 'running' | 'stopped' | 'cpu' | 'memory',
+    serviceThresholdPct:     80 as number | null,
+    serviceBootDelayMinutes: 0,
+    softwareNamePattern:     '',
+    softwareMode:            'installed' as 'installed' | 'uninstalled' | 'version_changed',
     sendWebhook:             false,
   },
 });
+
+function selectCheckType(ct: CheckType) {
+  monPanel.form.checkType = ct;
+  // Software monitors are event-driven (install/uninstall/version-change),
+  // not state-driven — no sustained window applies (fire on first detection,
+  // see the alerts.ts fire-immediately fix) and Datto's own spec has this
+  // type never auto-resolve (alerts must be dismissed manually).
+  if (ct === 'software') {
+    monPanel.form.sustainedMinutes = 0;
+    monPanel.form.autoResolve = false;
+  }
+}
 
 function openAddMonitor() {
   monPanel.editIndex = null;
   monPanel.error     = '';
   Object.assign(monPanel.form, {
     checkType: 'offline', alertPriority: 'high',
-    sustainedMinutes: 5, autoResolve: true, autoResolveAfterMinutes: 60,
-    offlineMinutes: 30, diskGb: 10, cpuPercent: 90, memPercent: 90,
-    avState: 'not_detected', sendWebhook: false,
+    sustainedMinutes: 5, checkIntervalMinutes: 1, autoResolve: true, autoResolveAfterMinutes: 60,
+    offlineMinutes: 30, offlineDirection: 'offline',
+    diskDrive: 'any', diskThresholdType: 'gb_free', diskThresholdValue: 10, diskMinGb: null,
+    cpuPercent: 90, memPercent: 90,
+    avState: 'not_detected',
+    fileSizePath: '', fileSizeMode: 'over', fileSizeThresholdMb: 500,
+    pingTarget: '', pingCount: 4, pingCheckUnreachable: true, pingPacketLossPct: null, pingLatencyMs: null,
+    processName: '', processMode: 'stopped', processThresholdPct: 80,
+    serviceName: '', serviceMode: 'stopped', serviceThresholdPct: 80, serviceBootDelayMinutes: 0,
+    softwareNamePattern: '', softwareMode: 'installed',
+    sendWebhook: false,
   });
   monPanel.open = true;
 }
@@ -427,13 +652,35 @@ function openEditMonitor(index: number) {
     checkType:               m.checkType,
     alertPriority:           m.alertPriority,
     sustainedMinutes:        m.sustainedMinutes,
+    checkIntervalMinutes:    m.checkIntervalMinutes,
     autoResolve:             m.autoResolve,
     autoResolveAfterMinutes: m.autoResolveAfterMinutes,
     offlineMinutes:          m.offlineMinutes,
-    diskGb:                  m.diskGb,
+    offlineDirection:        m.offlineDirection,
+    diskDrive:               m.diskDrive,
+    diskThresholdType:       m.diskThresholdType,
+    diskThresholdValue:      m.diskThresholdValue,
+    diskMinGb:               m.diskMinGb,
     cpuPercent:              m.cpuPercent,
     memPercent:              m.memPercent,
     avState:                 m.avState,
+    fileSizePath:            m.fileSizePath,
+    fileSizeMode:            m.fileSizeMode,
+    fileSizeThresholdMb:     m.fileSizeThresholdMb,
+    pingTarget:              m.pingTarget,
+    pingCount:               m.pingCount,
+    pingCheckUnreachable:    m.pingCheckUnreachable,
+    pingPacketLossPct:       m.pingPacketLossPct,
+    pingLatencyMs:           m.pingLatencyMs,
+    processName:             m.processName,
+    processMode:             m.processMode,
+    processThresholdPct:     m.processThresholdPct,
+    serviceName:             m.serviceName,
+    serviceMode:             m.serviceMode,
+    serviceThresholdPct:     m.serviceThresholdPct,
+    serviceBootDelayMinutes: m.serviceBootDelayMinutes,
+    softwareNamePattern:     m.softwareNamePattern,
+    softwareMode:            m.softwareMode,
     sendWebhook:             m.sendWebhook,
   });
   monPanel.open = true;
@@ -441,11 +688,43 @@ function openEditMonitor(index: number) {
 
 function buildConfig(f: typeof monPanel.form): Record<string, unknown> {
   switch (f.checkType) {
-    case 'offline':      return { offline_after_seconds: f.offlineMinutes * 60 };
-    case 'disk_space':   return { bytes_free_min: f.diskGb * 1073741824 };
+    case 'offline':      return { direction: f.offlineDirection, offline_after_seconds: f.offlineMinutes * 60 };
+    case 'disk_space':   return {
+      drive:           f.diskDrive,
+      threshold_type:  f.diskThresholdType,
+      threshold_value: f.diskThresholdValue,
+      min_disk_gb:     f.diskMinGb,
+    };
     case 'cpu_usage':    return { percent_max: f.cpuPercent };
     case 'memory_usage': return { percent_max: f.memPercent };
     case 'av_status':    return { av_state: f.avState };
+    case 'file_size':    return {
+      path:         f.fileSizePath,
+      mode:         f.fileSizeMode,
+      threshold_mb: f.fileSizeThresholdMb,
+    };
+    case 'ping':         return {
+      target:            f.pingTarget,
+      packet_count:      f.pingCount,
+      check_unreachable: f.pingCheckUnreachable,
+      packet_loss_pct:   f.pingPacketLossPct,
+      latency_ms:        f.pingLatencyMs,
+    };
+    case 'process':      return {
+      process_name:  f.processName,
+      mode:          f.processMode,
+      threshold_pct: f.processThresholdPct,
+    };
+    case 'service':      return {
+      service_name:       f.serviceName,
+      mode:               f.serviceMode,
+      threshold_pct:      f.serviceThresholdPct,
+      boot_delay_minutes: f.serviceBootDelayMinutes,
+    };
+    case 'software':     return {
+      name_pattern: f.softwareNamePattern,
+      mode:         f.softwareMode,
+    };
     default:             return {};
   }
 }
@@ -465,6 +744,7 @@ async function saveMonitor() {
             config,
             alert_priority:             f.alertPriority,
             sustained_minutes:          f.sustainedMinutes,
+            check_interval_minutes:    f.checkIntervalMinutes,
             auto_resolve:               f.autoResolve,
             auto_resolve_after_minutes: f.autoResolveAfterMinutes,
           });
@@ -476,6 +756,7 @@ async function saveMonitor() {
           config,
           alert_priority:             f.alertPriority,
           sustained_minutes:          f.sustainedMinutes,
+          check_interval_minutes:    f.checkIntervalMinutes,
           auto_resolve:               f.autoResolve,
           auto_resolve_after_minutes: f.autoResolveAfterMinutes,
         });
@@ -541,13 +822,35 @@ onMounted(async () => {
           checkType:               m.checkType,
           alertPriority:           m.alertPriority,
           sustainedMinutes:        m.sustainedMinutes,
+          checkIntervalMinutes:    m.checkIntervalMinutes,
           autoResolve:             m.autoResolve,
           autoResolveAfterMinutes: m.autoResolveAfterMinutes,
           offlineMinutes:          Math.round(((cfg.offline_after_seconds as number) ?? 1800) / 60),
-          diskGb:                  Math.round(((cfg.bytes_free_min        as number) ?? 10737418240) / 1073741824),
+          offlineDirection:        (cfg.direction as 'offline' | 'online') ?? 'offline',
+          diskDrive:               (cfg.drive           as string) ?? 'any',
+          diskThresholdType:       (cfg.threshold_type  as 'gb_free' | 'gb_used' | 'percent_used') ?? 'gb_free',
+          diskThresholdValue:      (cfg.threshold_value as number) ?? 10,
+          diskMinGb:               (cfg.min_disk_gb     as number | null) ?? null,
           cpuPercent:              (cfg.percent_max as number) ?? 90,
           memPercent:              (cfg.percent_max as number) ?? 90,
           avState:                 (cfg.av_state   as string) ?? 'not_detected',
+          fileSizePath:            (cfg.path         as string) ?? '',
+          fileSizeMode:            (cfg.mode         as 'below' | 'over') ?? 'over',
+          fileSizeThresholdMb:     (cfg.threshold_mb as number) ?? 500,
+          pingTarget:              (cfg.target            as string) ?? '',
+          pingCount:               (cfg.packet_count      as number) ?? 4,
+          pingCheckUnreachable:    (cfg.check_unreachable as boolean) ?? true,
+          pingPacketLossPct:       (cfg.packet_loss_pct   as number | null) ?? null,
+          pingLatencyMs:           (cfg.latency_ms        as number | null) ?? null,
+          processName:             (cfg.process_name  as string) ?? '',
+          processMode:             (cfg.mode          as 'running' | 'stopped' | 'cpu' | 'memory') ?? 'stopped',
+          processThresholdPct:     (cfg.threshold_pct as number | null) ?? 80,
+          serviceName:             (cfg.service_name       as string) ?? '',
+          serviceMode:             (cfg.mode               as 'running' | 'stopped' | 'cpu' | 'memory') ?? 'stopped',
+          serviceThresholdPct:     (cfg.threshold_pct      as number | null) ?? 80,
+          serviceBootDelayMinutes: (cfg.boot_delay_minutes as number) ?? 0,
+          softwareNamePattern:     (cfg.name_pattern as string) ?? '',
+          softwareMode:            (cfg.mode         as 'installed' | 'uninstalled' | 'version_changed') ?? 'installed',
           sendWebhook:             false,
         };
       });
@@ -586,6 +889,7 @@ async function save() {
           config:                     buildConfig({ ...monPanel.form, ...m }),
           alert_priority:             m.alertPriority,
           sustained_minutes:          m.sustainedMinutes,
+          check_interval_minutes:    m.checkIntervalMinutes,
           auto_resolve:               m.autoResolve,
           auto_resolve_after_minutes: m.autoResolveAfterMinutes,
         });
@@ -610,20 +914,74 @@ async function save() {
 // ── Formatters ──
 
 function checkLabel(ct: CheckType): string {
-  const m: Record<CheckType, string> = { disk_space: 'Disk Space', offline: 'Offline', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus' };
+  const m: Record<CheckType, string> = { disk_space: 'Disk Space', offline: 'Online Status', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus', file_size: 'File/Folder Size', ping: 'Ping', process: 'Process', service: 'Service', software: 'Software' };
   return m[ct] ?? ct;
+}
+
+function diskSummary(m: LocalMonitor): string {
+  const drive = m.diskDrive === 'any' ? 'any drive' : m.diskDrive;
+  const unit  = m.diskThresholdType === 'percent_used' ? '%' : ' GB';
+  const cmp   = m.diskThresholdType === 'gb_free' ? '<' : m.diskThresholdType === 'percent_used' ? '≥' : '>';
+  const label = m.diskThresholdType === 'gb_free' ? 'free' : 'used';
+  return `alert when ${drive} ${cmp} ${m.diskThresholdValue}${unit} ${label}`;
+}
+
+function pingSummary(m: LocalMonitor): string {
+  const parts: string[] = [];
+  if (m.pingCheckUnreachable) parts.push('unreachable');
+  if (m.pingPacketLossPct !== null) parts.push(`>${m.pingPacketLossPct}% loss`);
+  if (m.pingLatencyMs !== null) parts.push(`>${m.pingLatencyMs}ms`);
+  const target = m.pingTarget || '(target)';
+  return parts.length ? `${target}: ${parts.join(', ')}` : `${target}: no conditions set`;
+}
+
+function processSummary(m: LocalMonitor): string {
+  const name = m.processName || '(process)';
+  switch (m.processMode) {
+    case 'running': return `alert when ${name} is running`;
+    case 'stopped': return `alert when ${name} is stopped`;
+    case 'cpu':     return `alert when ${name} CPU ≥ ${m.processThresholdPct ?? '?'}%`;
+    case 'memory':  return `alert when ${name} memory ≥ ${m.processThresholdPct ?? '?'}%`;
+  }
+}
+
+function serviceSummary(m: LocalMonitor): string {
+  const name = m.serviceName || '(service)';
+  const delay = m.serviceBootDelayMinutes > 0 ? ` (${m.serviceBootDelayMinutes}m after boot)` : '';
+  switch (m.serviceMode) {
+    case 'running': return `alert when ${name} is running${delay}`;
+    case 'stopped': return `alert when ${name} is stopped${delay}`;
+    case 'cpu':     return `alert when ${name} CPU ≥ ${m.serviceThresholdPct ?? '?'}%${delay}`;
+    case 'memory':  return `alert when ${name} memory ≥ ${m.serviceThresholdPct ?? '?'}%${delay}`;
+  }
+}
+
+function softwareSummary(m: LocalMonitor): string {
+  const name = m.softwareNamePattern || '(pattern)';
+  switch (m.softwareMode) {
+    case 'installed':        return `alert when ${name} is installed`;
+    case 'uninstalled':      return `alert when ${name} is uninstalled`;
+    case 'version_changed':  return `alert when ${name} changes version`;
+  }
 }
 
 function monitorSummaryLocal(m: LocalMonitor): string {
   switch (m.checkType) {
-    case 'offline':      return `alert after ${m.offlineMinutes}m offline`;
-    case 'disk_space':   return `alert when < ${m.diskGb} GB free`;
-    case 'cpu_usage':    return `alert at > ${m.cpuPercent}% CPU`;
-    case 'memory_usage': return `alert at > ${m.memPercent}% memory`;
+    case 'offline':      return m.offlineDirection === 'online'
+      ? `alert once online for ${m.sustainedMinutes}m`
+      : `alert after ${m.offlineMinutes}m offline`;
+    case 'disk_space':   return diskSummary(m);
+    case 'cpu_usage':    return `alert at ≥ ${m.cpuPercent}% CPU`;
+    case 'memory_usage': return `alert at ≥ ${m.memPercent}% memory`;
     case 'av_status': {
       const labels: Record<string, string> = { not_detected: 'AV not detected', not_running: 'AV not running', running_not_up_to_date: 'AV out of date' };
       return labels[m.avState] ?? `AV: ${m.avState}`;
     }
+    case 'file_size': return `alert when ${m.fileSizePath || '(path)'} ${m.fileSizeMode === 'over' ? '>' : '<'} ${m.fileSizeThresholdMb} MB`;
+    case 'ping': return pingSummary(m);
+    case 'process': return processSummary(m);
+    case 'service': return serviceSummary(m);
+    case 'software': return softwareSummary(m);
     default: return m.checkType;
   }
 }
@@ -771,6 +1129,11 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 .chip-cpu_usage    { background: rgba(240,80,60,.12);   color: #e04040; }
 .chip-memory_usage { background: rgba(78,126,247,.14);  color: var(--accent); }
 .chip-av_status    { background: rgba(45,207,160,.14);  color: var(--teal); }
+.chip-file_size    { background: rgba(132,134,168,.16);  color: var(--muted-2); }
+.chip-ping         { background: rgba(45,207,160,.14);   color: var(--teal); }
+.chip-process      { background: rgba(240,168,64,.16);   color: var(--amber); }
+.chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
+.chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
 
 /* ── btn-icon ── */
 .btn-icon {
@@ -847,6 +1210,7 @@ function monitorSummaryLocal(m: LocalMonitor): string {
   font-size: 11px; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .04em;
 }
+.field-hint { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; }
 .mf-row   { display: flex; align-items: center; gap: 8px; }
 .mf-unit  { font-size: 13px; color: var(--muted); white-space: nowrap; }
 .mf-input {

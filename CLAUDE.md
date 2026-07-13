@@ -74,10 +74,12 @@ go build ./...
 **Agent** (`agent/`)
 - Module: `github.com/synertekcs/beacon/agent`
 - Check-in interval: 60 seconds
-- Metrics sent on every check-in: hostname, OS, uptime, disk_free_bytes, cpu_percent, memory_percent, detected_class, av_status, av_product
+- Metrics sent on every check-in: hostname, OS, uptime, disk_free_bytes, disks[] (multi-drive), cpu_percent, memory_percent, detected_class, av_status, av_product
+- Check-in request also carries `pending_{file_size,ping,process,service}_results`; response carries `{file_size,ping,process,service}_checks` — see "Assign → measure → report pattern" below
 - Audit (full inventory snapshot) fires 5 min after startup, then every 24 h, or on `run_audit` command
 - Unknown command types are silently ignored for forward compatibility
 - New fields added to `Metrics` must remain optional (old agents won't send them)
+- Internal packages worth knowing: `diskutil` (shared multi-drive enumeration between check-in and audit), `filesize`, `pingutil`, `procutil`, `svcutil` — each is a small `Find`/`Measure`/`Ping` function following the same shell-out-or-gopsutil convention as the older `audit` package's AV/BIOS collectors
 
 **Dashboard** (`dashboard/src/`)
 - Router: Vue Router with hash history (`createWebHashHistory`)
@@ -94,7 +96,9 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
 3. Run `make migrate-local` to test locally
 4. Run `make migrate-remote` after deploying the worker
 
-Latest migration: `0011_default_policies.sql` (seeds default global policies).
+Latest migration: `0015_check_interval.sql` (adds `policy_monitors.check_interval_minutes`). Migrations 0012-0015 (disk_space config v2, Memory Usage seed, CPU Usage seed, check_interval_minutes) all shipped this session — none of them touched `check_type`, since that column has no `CHECK` constraint (see Two-Tier Policy System below).
+
+`worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
 ## Two-Tier Policy / Monitor System
 
@@ -102,26 +106,69 @@ The alert/monitoring system uses a **policy → monitor** hierarchy. The old fla
 
 ### Tables
 - `policies` — named policy with scope (`global` or `company`), OS/class targeting (JSON arrays), enabled flag
-- `policy_monitors` — individual check rules attached to a policy: check_type, config (JSON thresholds), alert_priority, sustained_minutes, auto_resolve, auto_resolve_after_minutes
+- `policy_monitors` — individual check rules attached to a policy: check_type, config (JSON, shape varies by check_type), alert_priority, sustained_minutes, check_interval_minutes, auto_resolve, auto_resolve_after_minutes
 - `alert_state` — per (device, policy_monitor) pair: condition_first_seen, is_alerting, alerted_at, resolved_at
+
+`check_type` is a bare `TEXT` column with no SQL `CHECK` constraint — adding a new check type is a TS-enum-only change (`schema.ts`, `routes/admin/policies.ts` `VALID_CHECK_TYPES`, `dashboard/src/api.ts`) with **no migration required**.
 
 ### Check types
 
-| Type | Config key | Evaluated |
+Eleven check types across three evaluation shapes:
+
+**A. Sampled every check-in (60s), evaluated directly against `Metrics`:**
+
+| Type | Config | Notes |
 |---|---|---|
-| `disk_space` | `bytes_free_min` | On each check-in |
-| `cpu_usage` | `percent_max` | On each check-in |
-| `memory_usage` | `percent_max` | On each check-in |
-| `offline` | `offline_after_seconds` | Cron (every 2 min) |
-| `av_status` | `av_state` | On each check-in |
+| `disk_space` | `{drive, threshold_type, threshold_value, min_disk_gb}` | `drive: "any"` or a specific device/label match; `threshold_type: gb_free\|gb_used\|percent_used` |
+| `cpu_usage` | `{percent_max}` | `>=` comparison ("has reached") |
+| `memory_usage` | `{percent_max}` | `>=` comparison |
+| `av_status` | `{av_state}` | key `av_status:${av_state}` allows 3 sub-monitors (not_detected/not_running/running_not_up_to_date) per policy |
+
+**B. Cron-evaluated (every 2 min), not tied to check-in:**
+
+| Type | Config | Notes |
+|---|---|---|
+| `offline` | `{direction: 'offline'\|'online', offline_after_seconds}` | `direction: 'offline'` (default) = alert when silent past threshold; `direction: 'online'` = alert once device has been checking in continuously for `sustained_minutes` (presence grace: 5 min) |
+
+**C. Agent-measured — "assign → measure → report" pattern** (see below): worker tells the agent what to check in the check-in *response*, agent measures async, reports back on the *next* check-in via a `pending_*_results` field:
+
+| Type | Config | Assigned via | Reported via |
+|---|---|---|---|
+| `file_size` | `{path, mode: below\|over, threshold_mb}` | `file_size_checks` | `pending_file_size_results` |
+| `ping` | `{target, packet_count, check_unreachable, packet_loss_pct, latency_ms}` — bundles all 3 Datto conditions into one monitor/one alert | `ping_checks` | `pending_ping_results` |
+| `process` | `{process_name, mode: running\|stopped\|cpu\|memory, threshold_pct}` | `process_checks` | `pending_process_results` |
+| `service` | `{service_name, mode, threshold_pct, boot_delay_minutes}` — Windows only; `boot_delay_minutes` gates *assignment* (not evaluation) using `metrics.uptime_seconds`, so services still starting after boot don't false-alert | `service_checks` | `pending_service_results` |
+
+**D. Audit-evaluated (not check-in) — event-driven, not state-driven:**
+
+| Type | Config | Notes |
+|---|---|---|
+| `software` | `{name_pattern, mode: installed\|uninstalled\|version_changed}` | Evaluated from `worker/src/routes/audit.ts`'s existing `diffSoftware()` output on every `POST /v1/audit`, not check-in. `%`-wildcard name matching. **Never auto-resolves** (hardcoded `auto_resolve: false`, hidden in UI) — Datto's own spec requires manual resolution. `sustained_minutes` is always `0` (fire on first detection; see fire-immediately fix below) |
+
+### "Assign → measure → report" pattern (agent-executed checks)
+
+Used by `file_size`/`ping`/`process`/`service`. Mirrors the pre-existing `commands`/`pending_command_results` shape:
+1. `evaluateCheckinAlerts` (in `worker/src/lib/alerts.ts`) resolves effective monitors for the device, and for these four types pushes an assignment (`{monitor_id, ...}`) into the check-in *response* instead of evaluating anything — returns a `CheckinAssignments` object (`{fileSizeChecks, pingChecks, processChecks, serviceChecks}`).
+2. Agent (`agent/cmd/agent/main.go`) receives the response, dispatches one goroutine per assignment (`agent/internal/{filesize,pingutil,procutil,svcutil}`), buffers results in a `pendingMu`-guarded package var, and sends them on the *next* check-in.
+3. Worker evaluates each category with its own `evaluate*Alerts` function (`evaluateFileSizeAlerts`, `evaluatePingAlerts`, `evaluateProcessAlerts`, `evaluateServiceAlerts`), all calling the shared `processAlertState`.
+4. `check_interval_minutes` throttles *assignment* (not just evaluation) — a monitor is only assigned on check-ins where `Math.floor(now/60) % checkIntervalMinutes === 0`, stateless (no "last checked" storage needed).
+
+Agent packages added this session (all follow the shell-out-to-native-tool or gopsutil convention already used by AV/BIOS collection): `diskutil` (multi-drive enumeration, shared with the audit collector), `filesize` (stat/walk), `pingutil` (shells to native `ping`, parses output), `procutil` (gopsutil `process` package), `svcutil` (Windows-only, `Get-CimInstance Win32_Service` → PID → gopsutil).
 
 ### Scope resolution
-Company-scoped policies win over global for the same check_type on a device belonging to that company. The map key for av_status monitors is `av_status:${av_state}` (allows multiple AV monitors per policy).
+`resolveEffectiveMonitors` groups matched monitors **by check_type**, not per-monitor: if any company-scoped policy has monitors of a given check_type for the device, its monitors *entirely replace* the global ones for that type — never merged monitor-by-monitor. This is what lets multiple monitors of the same check_type coexist on one policy (av_status's 3 states, cpu_usage's critical+warning pair, multiple ping targets, etc.) without a company override accidentally leaving a stray global monitor active alongside it.
+
+### Two bugs found and fixed this session (both in `processAlertState`, `worker/src/lib/alerts.ts`)
+1. **Dedup collision**: the old scope-resolution key was `checkType` alone (`av_status` special-cased) — two monitors of the same check_type (e.g. two `cpu_usage` thresholds) silently collapsed to one. Fixed by the group-based resolution above.
+2. **Fire-immediately**: the first-ever observed `failed=true` for a (device, monitor) pair only ever seeded `condition_first_seen` — it required a *second* consecutive failure to actually set `is_alerting=1`. Invisible for 60s-polled monitors (a confirming sample arrives a minute later) but fatal for one-shot/event-driven checks (`software`) where a transition is only ever observed once. Fixed: when `sustained_minutes === 0`, fire on first detection.
 
 ### Default global policies (seeded)
 - **Antivirus Health** — 3 monitors: not_detected (critical/5m), not_running (high/10m), running_not_up_to_date (moderate/60m)
-- **Disk Space** — 1 monitor: < 10 GB free (high/5m)
+- **Disk Space** — 1 monitor: any drive < 10 GB free (high/5m, auto-resolves in 120m)
 - **Device Offline** — 1 monitor: offline after 30 min (high, auto-resolves in 30m)
+- **Memory Usage** — 1 monitor: ≥ 90% (high/10m, auto-resolves in 30m)
+- **CPU Usage** — 2 monitors: ≥ 100% (critical/5m) + ≥ 95% early warning (high/15m) — per Datto's own recommended two-tier pattern
+- `file_size`/`ping`/`process`/`service`/`software` have no seeded defaults — no universal target/name/path/process is sane to bake in; operators create their own.
 
 ## Key backend routes
 
@@ -199,6 +246,29 @@ const [devices, tenants] = await Promise.all([api.devices.list(), api.tenants.li
 1. Monitors accumulate in local `ref<LocalMonitor[]>` — no API calls until Save
 2. On Save: POST policy → loop POST each monitor → navigate back
 3. For edit: monitor add/edit/delete hit API immediately; policy field save is deferred to Save Changes button
+
+### Adding a new check_type to the Add Monitor drawer (PolicyFormPage)
+Established over 6 check types added this session — each one touches the same ~9 spots, always in this order:
+1. `checkTypeOptions` entry (icon + label)
+2. `LocalMonitor` interface — new fields prefixed by check type (e.g. `pingTarget`, `pingCount`)
+3. `monPanel.form` defaults, `openAddMonitor()` reset, `openEditMonitor()` populate
+4. `buildConfig()` — maps form fields → the JSON `config` blob
+5. `onMounted`'s config-parse block — maps `config` blob back → form fields (mirror of #4)
+6. A `xSummary(m)` helper + its case in `monitorSummaryLocal()`'s switch
+7. Matching `checkLabel`/`monitorSummary` cases in `GlobalPoliciesPage.vue` (same summary logic, duplicated by design — not shared, matches this file's existing duplication convention)
+8. A new `.chip-{type}` CSS color in both `PolicyFormPage.vue` and `GlobalPoliciesPage.vue` — check existing chips before picking a color, the palette is now 10 colors deep (see STYLE.md)
+9. New UI block (`v-if="monPanel.form.checkType === 'x'"`) inserted before the shared `mf-pair` (period/interval/priority)
+
+**Type-specific side effects on switching type**: the type-card click handler is `selectCheckType(ct)`, not an inline `@click` assignment — use it to force config field values that don't make sense for a given type (e.g. `software` forces `sustainedMinutes = 0` and `autoResolve = false` when selected, since that type doesn't support either).
+
+**Optional numeric fields use a checkbox that toggles `null`, not a separate boolean flag**: e.g. ping's packet-loss/latency conditions —
+```html
+<input type="checkbox" :checked="form.x !== null" @change="form.x = ($event.target as HTMLInputElement).checked ? DEFAULT : null" />
+<div v-if="form.x !== null"><input v-model.number="form.x" .../></div>
+```
+`null` in the saved config means "this condition is disabled," not zero.
+
+**Hiding shared fields that don't apply to a type**: wrap the irrelevant fields in `<template v-if="...">` inside `mf-pair` rather than hiding the whole block, since e.g. `software` hides period+interval but still needs the priority selector alongside them in the same flex row.
 
 ## Commit rules
 

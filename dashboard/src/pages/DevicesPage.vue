@@ -203,7 +203,13 @@
                   <div v-if="inventoryOf(d)" class="ddev-section">
                     <div class="ddev-section-title">Hardware</div>
                     <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(d)!.uptime_seconds) }}</span></div>
-                    <div class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(d)!.disk_free_bytes) }}</span></div>
+                    <template v-if="inventoryOf(d)!.disks?.length">
+                      <div class="ddev-row" v-for="disk in inventoryOf(d)!.disks" :key="disk.device || disk.label">
+                        <span class="ddev-label">{{ disk.label }}</span>
+                        <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                      </div>
+                    </template>
+                    <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(d)!.disk_free_bytes) }}</span></div>
                   </div>
                 </div>
 
@@ -487,12 +493,21 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AuditChange, type Tenant } from '../api';
 
+interface DiskInfo {
+  device: string;
+  label: string;
+  fs_type: string;
+  total_bytes: number;
+  free_bytes: number;
+}
+
 interface Inventory {
   hostname: string;
   os_type: string;
   os_version: string;
   uptime_seconds: number;
   disk_free_bytes: number;
+  disks?: DiskInfo[];
   detected_class: string;
 }
 

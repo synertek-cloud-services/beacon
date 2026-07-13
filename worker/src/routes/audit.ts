@@ -4,6 +4,7 @@ import { eq, and, ne, desc } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { sha256hex } from '../lib/crypto';
+import { evaluateSoftwareAlerts } from '../lib/alerts';
 
 const audit = new Hono<{ Bindings: Bindings }>();
 
@@ -258,12 +259,20 @@ audit.post('/', async (c) => {
     const currSEC: SecurityInfo | null  = payload.security ?? null;
 
     if (prevHW && currHW)   changes.push(...diffHardware(prevHW, currHW, device.id, device.tenantId, auditId, now));
-    if (prevSW && currSW)   changes.push(...diffSoftware(prevSW, currSW, device.id, device.tenantId, auditId, now));
+    let swChanges: ChangeRecord[] = [];
+    if (prevSW && currSW) {
+      swChanges = diffSoftware(prevSW, currSW, device.id, device.tenantId, auditId, now);
+      changes.push(...swChanges);
+    }
     if (prevSVC && currSVC) changes.push(...diffServices(prevSVC, currSVC, device.id, device.tenantId, auditId, now));
     if (prevSEC && currSEC) changes.push(...diffSecurity(prevSEC, currSEC, device.id, device.tenantId, auditId, now));
 
     for (const ch of changes) {
       await db.insert(schema.deviceAuditChanges).values(ch);
+    }
+
+    if (swChanges.length > 0) {
+      await evaluateSoftwareAlerts(c.env.DB, device, swChanges, now);
     }
   }
 

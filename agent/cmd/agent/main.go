@@ -11,10 +11,14 @@ import (
 	"github.com/synertekcs/beacon/agent/internal/audit"
 	"github.com/synertekcs/beacon/agent/internal/credential"
 	"github.com/synertekcs/beacon/agent/internal/executor"
+	"github.com/synertekcs/beacon/agent/internal/filesize"
 	"github.com/synertekcs/beacon/agent/internal/inventory"
+	"github.com/synertekcs/beacon/agent/internal/pingutil"
+	"github.com/synertekcs/beacon/agent/internal/procutil"
 	"github.com/synertekcs/beacon/agent/internal/protocol"
 	"github.com/synertekcs/beacon/agent/internal/service"
 	"github.com/synertekcs/beacon/agent/internal/session"
+	"github.com/synertekcs/beacon/agent/internal/svcutil"
 	"github.com/synertekcs/beacon/agent/internal/updater"
 )
 
@@ -24,9 +28,13 @@ const (
 )
 
 var (
-	pendingMu      sync.Mutex
-	pendingResults []protocol.CommandResult
-	auditTrigger   = make(chan struct{}, 1)
+	pendingMu              sync.Mutex
+	pendingResults         []protocol.CommandResult
+	pendingFileSizeResults []protocol.FileSizeResult
+	pendingPingResults     []protocol.PingResult
+	pendingProcessResults  []protocol.ProcessResult
+	pendingServiceResults  []protocol.ServiceResult
+	auditTrigger           = make(chan struct{}, 1)
 )
 
 func main() {
@@ -142,6 +150,14 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 	pendingMu.Lock()
 	results := pendingResults
 	pendingResults = nil
+	fileSizeResults := pendingFileSizeResults
+	pendingFileSizeResults = nil
+	pingResults := pendingPingResults
+	pendingPingResults = nil
+	processResults := pendingProcessResults
+	pendingProcessResults = nil
+	serviceResults := pendingServiceResults
+	pendingServiceResults = nil
 	pendingMu.Unlock()
 
 	resp, err := client.CheckIn(cred.DeviceCredential, protocol.CheckInRequest{
@@ -155,19 +171,87 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			OSVersion:     snap.OSVersion,
 			UptimeSeconds: snap.UptimeSeconds,
 			DiskFreeBytes: snap.DiskFreeBytes,
+			Disks:         snap.Disks,
 			DetectedClass: protocol.DeviceClass(snap.DetectedClass),
 			CpuPercent:    snap.CpuPercent,
 			MemoryPercent: snap.MemoryPercent,
 			AvStatus:      snap.AvStatus,
 			AvProduct:     snap.AvProduct,
 		},
-		PendingCommandResults: results,
+		PendingCommandResults:  results,
+		PendingFileSizeResults: fileSizeResults,
+		PendingPingResults:     pingResults,
+		PendingProcessResults:  processResults,
+		PendingServiceResults:  serviceResults,
 	})
 	if err != nil {
 		pendingMu.Lock()
 		pendingResults = append(results, pendingResults...)
+		pendingFileSizeResults = append(fileSizeResults, pendingFileSizeResults...)
+		pendingPingResults = append(pingResults, pendingPingResults...)
+		pendingProcessResults = append(processResults, pendingProcessResults...)
+		pendingServiceResults = append(serviceResults, pendingServiceResults...)
 		pendingMu.Unlock()
 		return err
+	}
+
+	for _, chk := range resp.ServiceChecks {
+		go func(chk protocol.ServiceCheck) {
+			running, cpu, mem := svcutil.Find(chk.ServiceName)
+			pendingMu.Lock()
+			pendingServiceResults = append(pendingServiceResults, protocol.ServiceResult{
+				MonitorID:  chk.MonitorID,
+				Running:    running,
+				CpuPercent: cpu,
+				MemPercent: mem,
+			})
+			pendingMu.Unlock()
+		}(chk)
+	}
+
+	for _, chk := range resp.ProcessChecks {
+		go func(chk protocol.ProcessCheck) {
+			running, cpu, mem := procutil.Find(chk.ProcessName)
+			pendingMu.Lock()
+			pendingProcessResults = append(pendingProcessResults, protocol.ProcessResult{
+				MonitorID:  chk.MonitorID,
+				Running:    running,
+				CpuPercent: cpu,
+				MemPercent: mem,
+			})
+			pendingMu.Unlock()
+		}(chk)
+	}
+
+	for _, chk := range resp.PingChecks {
+		go func(chk protocol.PingCheck) {
+			sent, received, avgRtt := pingutil.Ping(chk.Target, chk.Count)
+			pendingMu.Lock()
+			pendingPingResults = append(pendingPingResults, protocol.PingResult{
+				MonitorID:       chk.MonitorID,
+				PacketsSent:     sent,
+				PacketsReceived: received,
+				AvgRttMs:        avgRtt,
+			})
+			pendingMu.Unlock()
+		}(chk)
+	}
+
+	for _, chk := range resp.FileSizeChecks {
+		go func(chk protocol.FileSizeCheck) {
+			exists, size, err := filesize.Measure(chk.Path)
+			if err != nil {
+				log.Printf("file_size measure %s: %v", chk.Path, err)
+				return
+			}
+			pendingMu.Lock()
+			pendingFileSizeResults = append(pendingFileSizeResults, protocol.FileSizeResult{
+				MonitorID: chk.MonitorID,
+				Exists:    exists,
+				SizeBytes: size,
+			})
+			pendingMu.Unlock()
+		}(chk)
 	}
 
 	for _, cmd := range resp.Commands {

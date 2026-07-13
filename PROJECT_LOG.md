@@ -1,5 +1,56 @@
 # Beacon — Project Log
 
+## Session: 2026-07-12 (Datto RMM monitor parity pass)
+
+### What was completed
+
+Went through Datto RMM's full monitor catalog (26 monitor types) one at a time, triaged which to build, and shipped **six new check types** plus **one performance initiative** plus **two core bug fixes**. Beacon now has 11 check types total (up from 3 at session start): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
+
+**Disk Space rebuilt for multi-drive** (`migrations/0012_disk_monitor_v2.sql`)
+- Agent now enumerates *all* drives (new `diskutil` package, shared with the audit collector's existing multi-drive logic) instead of just the system drive
+- Config gained `drive` ("any" or specific), `threshold_type` (gb_free/gb_used/percent_used), `min_disk_gb` filter — matches Datto's Any-Drive + threshold-mode + size-filter options
+
+**Seeded Memory Usage and CPU Usage default policies** (`0013`, `0014`) — CPU seeded as *two* monitors (100%/critical + 95%/high early-warning) per Datto's own recommended pattern.
+
+**D1 cost/performance pass** (`0015_check_interval.sql`) — prompted by the user asking why every monitor gets checked every 60s. Two changes: (1) `processAlertState` now skips writing `alert_state` when nothing actually changed (was writing identical rows every check-in even for healthy devices — cut steady-state D1 writes ~6-7x); (2) new `check_interval_minutes` per monitor lets operators throttle sampling below 60s for monitors where that matters.
+
+**Online Status monitor** — turned out to be mostly already-built (`offline` check type already did the "goes offline" direction). Added the "comes online" direction by reusing the existing `sustainedMinutes` field for the online-duration concept rather than inventing a new one.
+
+**File/Folder Size, Ping, Process, Service monitors** — all four follow the same new "assign → measure → report" protocol pattern (worker tells agent what to check in the check-in response, agent measures async, reports on the next check-in) — a generalization of the pre-existing `commands`/`pending_command_results` shape. See CLAUDE.md for the full pattern writeup. Notable pieces:
+- Ping bundles all 3 Datto conditions (unreachable/packet-loss/latency) into one monitor, not three, to avoid redundant pinging
+- Service adds a boot-delay concept, implemented by gating *assignment* (not evaluation) on `metrics.uptime_seconds`
+- Explicitly **skipped** Datto's auto-remediation response actions (kill process / start-restart service) — different risk class (unattended destructive action on production endpoints) from every read-only monitor built this session; confirmed with the user, deferred rather than silently dropped
+
+**Software monitor** — architecturally the odd one out: event-driven (install/uninstall/version-change), not state-driven. Discovered Beacon's existing audit-diff system (`worker/src/routes/audit.ts`'s `diffSoftware()`) already computes exactly this data on every `POST /v1/audit` — the feature was mostly wiring, not new detection logic. Datto's own spec: never auto-resolves (hardcoded, hidden in UI).
+
+**Two real bugs found and fixed in `processAlertState`** (both discovered organically while building the above, not pre-planned):
+1. Dedup collision — monitors were deduped by `checkType` alone; two monitors of the same type (CPU's critical+warning pair) would silently collapse to one. Fixed by generalizing to group-based scope resolution.
+2. Fire-immediately — first-ever detection of a failing condition only ever seeded `condition_first_seen`, requiring a second consecutive failure to actually alert. Invisible for 60s-polled monitors, but meant Software monitor would never fire on the actual event it exists to catch (audit-driven, transitions never repeat). Fixed: `sustained_minutes === 0` now fires on first detection.
+
+**Monitor catalog triage** — reviewed all 26 Datto monitor types, explicitly skipped: ESXi (5 monitors) and SNMP (2) — need network-node/agentless-device infrastructure Beacon doesn't have; Datto Continuity — tied to Datto's own backup appliance; Ransomware/Threat Detection — proprietary ML detection engines; Windows Defender AV — redundant with existing `av_status`; WMI and Windows Performance — generic power-user escape hatches, lower priority. Event Log remains parked (needs a filter mini-DSL + occurrence-based state — a different shape from everything else built this session).
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| "Assign → measure → report" generalized from `commands` pattern | Reuse over reinvention — the shape already existed for one-shot commands, just needed to persist across a check-in cycle for recurring measurements |
+| One `policy_monitor` per ping target, not per condition | Datto's UI is one monitor/one priority for 3 bundled conditions; splitting would mean redundant pinging of the same target |
+| `check_interval_minutes` throttles *assignment*, stateless | Bucketing by wall-clock minute avoids needing a "last checked" timestamp, which would reintroduce the exact write-per-check-in problem being solved |
+| Software monitor hooks the audit flow, not check-in | The data it needs (`diffSoftware` output) only exists on the audit ingestion path; forcing it through check-in would mean rebuilding delta detection that already exists |
+| `sustained_minutes === 0` means "fire on first detection" (post-fix) | A 0-minute debounce window literally means no debounce wanted — waiting for a second sample contradicted the setting |
+| Skip auto-remediation actions (kill process, start service) | Different risk class from read-only alerting — unattended destructive action on production endpoints deserves its own deliberate pass, not a bundled add-on |
+| gopsutil directly for Process/Service CPU/mem, shell-out only for service→PID resolution | gopsutil already a dependency; only the service name → PID step genuinely needs Windows-specific WMI |
+
+### Next logical steps
+
+1. **Event Log monitor** — still parked, scope decision pending (full Datto fidelity — description-matching DSL, occurrence counting, dedup/rate-limiting — vs. a reduced core-match v1). Genuinely different architecture from everything built this session (needs the agent to locally filter and only report matches, not a single measurement).
+
+2. **Auto-remediation actions** — Process monitor's "stop the process" and Service monitor's "start/restart the service" were explicitly deferred, not built. The plumbing exists (`commands`/`executor` already supports arbitrary command types) — would need a new `kill_process`/`start_service` command type plus UI opt-in, with real thought about safety (confirmation, allowlisting, audit trail) given it's unattended and destructive.
+
+3. **Software/Patch/Component monitors from the remaining triage list** — Software is done; Patch monitor needs new agent capability (WUA query, doesn't exist yet); Component monitor (run arbitrary script, alert on result) would be a general-purpose escape hatch covering the long tail of what's left on Datto's list, reusing Beacon's existing `/components` script library.
+
+4. **Real-fleet validation** — everything this session was verified against local D1 + simulated check-ins/audits via curl, not a real deployed agent. Worth an end-to-end pass with actual Windows/macOS/Linux agents once there's a fleet to test against, especially for the Windows-only monitors (`service`, and `svcutil`'s `Get-CimInstance` path) that couldn't be exercised on this Linux dev box.
+
 ## Session: 2026-07-10 / 2026-07-12
 
 ### What was completed

@@ -5,7 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
-import { evaluateCheckinAlerts } from '../lib/alerts';
+import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts } from '../lib/alerts';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
 
@@ -75,7 +75,27 @@ checkin.post('/', async (c) => {
   }
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
-  await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now);
+  const { fileSizeChecks, pingChecks, processChecks, serviceChecks } = await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now);
+
+  // Evaluate file_size measurements the agent took for a prior check-in's assignments
+  if (body.pending_file_size_results?.length) {
+    await evaluateFileSizeAlerts(c.env.DB, device, body.pending_file_size_results, now);
+  }
+
+  // Evaluate ping measurements the agent took for a prior check-in's assignments
+  if (body.pending_ping_results?.length) {
+    await evaluatePingAlerts(c.env.DB, device, body.pending_ping_results, now);
+  }
+
+  // Evaluate process measurements the agent took for a prior check-in's assignments
+  if (body.pending_process_results?.length) {
+    await evaluateProcessAlerts(c.env.DB, device, body.pending_process_results, now);
+  }
+
+  // Evaluate service measurements the agent took for a prior check-in's assignments
+  if (body.pending_service_results?.length) {
+    await evaluateServiceAlerts(c.env.DB, device, body.pending_service_results, now);
+  }
 
   // Pending devices: accept data for visibility, return no commands
   if (device.status === 'pending') {
@@ -103,6 +123,10 @@ checkin.post('/', async (c) => {
       type: cmd.type,
       payload: JSON.parse(cmd.payload),
     })),
+    file_size_checks: fileSizeChecks.length ? fileSizeChecks : undefined,
+    ping_checks: pingChecks.length ? pingChecks : undefined,
+    process_checks: processChecks.length ? processChecks : undefined,
+    service_checks: serviceChecks.length ? serviceChecks : undefined,
   });
 });
 

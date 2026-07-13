@@ -32,25 +32,30 @@ type EnrollResponse struct {
 
 // CheckInRequest is posted to /v1/check-in on every heartbeat.
 type CheckInRequest struct {
-	DeviceID              string          `json:"device_id"`
-	TenantID              string          `json:"tenant_id"`
-	Timestamp             int64           `json:"timestamp"`
-	AgentVersion          string          `json:"agent_version"`
-	Metrics               Metrics         `json:"metrics"`
-	PendingCommandResults []CommandResult `json:"pending_command_results"`
+	DeviceID               string           `json:"device_id"`
+	TenantID               string           `json:"tenant_id"`
+	Timestamp              int64            `json:"timestamp"`
+	AgentVersion           string           `json:"agent_version"`
+	Metrics                Metrics          `json:"metrics"`
+	PendingCommandResults  []CommandResult  `json:"pending_command_results"`
+	PendingFileSizeResults []FileSizeResult `json:"pending_file_size_results,omitempty"`
+	PendingPingResults     []PingResult     `json:"pending_ping_results,omitempty"`
+	PendingProcessResults  []ProcessResult  `json:"pending_process_results,omitempty"`
+	PendingServiceResults  []ServiceResult  `json:"pending_service_results,omitempty"`
 }
 
 // Metrics is the Phase 1 inventory payload. New fields can be added here in
 // later phases without breaking old agents reading the response.
 type Metrics struct {
-	Hostname       string      `json:"hostname"`
-	OSType         string      `json:"os_type"`
-	OSVersion      string      `json:"os_version"`
-	UptimeSeconds  int64       `json:"uptime_seconds"`
-	DiskFreeBytes  int64       `json:"disk_free_bytes"`
-	DetectedClass  DeviceClass `json:"detected_class"`
-	CpuPercent    float64 `json:"cpu_percent"`
-	MemoryPercent float64 `json:"memory_percent"`
+	Hostname      string      `json:"hostname"`
+	OSType        string      `json:"os_type"`
+	OSVersion     string      `json:"os_version"`
+	UptimeSeconds int64       `json:"uptime_seconds"`
+	DiskFreeBytes int64       `json:"disk_free_bytes"`
+	Disks         []DiskInfo  `json:"disks,omitempty"`
+	DetectedClass DeviceClass `json:"detected_class"`
+	CpuPercent    float64     `json:"cpu_percent"`
+	MemoryPercent float64     `json:"memory_percent"`
 	// av_status: "running_up_to_date" | "running_not_up_to_date" | "not_running" | "not_detected" | "" (unsupported platform)
 	AvStatus  string `json:"av_status,omitempty"`
 	AvProduct string `json:"av_product,omitempty"` // name of detected AV product
@@ -58,7 +63,73 @@ type Metrics struct {
 
 // CheckInResponse is returned by the server. Commands is omitted when empty.
 type CheckInResponse struct {
-	Commands []Command `json:"commands,omitempty"`
+	Commands       []Command       `json:"commands,omitempty"`
+	FileSizeChecks []FileSizeCheck `json:"file_size_checks,omitempty"`
+	PingChecks     []PingCheck     `json:"ping_checks,omitempty"`
+	ProcessChecks  []ProcessCheck  `json:"process_checks,omitempty"`
+	ServiceChecks  []ServiceCheck  `json:"service_checks,omitempty"`
+}
+
+// FileSizeCheck asks the agent to measure a path for a file_size monitor.
+// The agent measures it async and reports the result on the next check-in.
+type FileSizeCheck struct {
+	MonitorID string `json:"monitor_id"`
+	Path      string `json:"path"`
+}
+
+// FileSizeResult reports a measurement taken in response to a FileSizeCheck.
+type FileSizeResult struct {
+	MonitorID string `json:"monitor_id"`
+	Exists    bool   `json:"exists"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+// PingCheck asks the agent to ICMP-ping a target for a ping monitor. The
+// agent measures it async and reports the result on the next check-in.
+type PingCheck struct {
+	MonitorID string `json:"monitor_id"`
+	Target    string `json:"target"`
+	Count     int    `json:"count"`
+}
+
+// PingResult reports the outcome of a previously issued PingCheck.
+type PingResult struct {
+	MonitorID       string  `json:"monitor_id"`
+	PacketsSent     int     `json:"packets_sent"`
+	PacketsReceived int     `json:"packets_received"`
+	AvgRttMs        float64 `json:"avg_rtt_ms"`
+}
+
+// ProcessCheck asks the agent to look up a named process for a process
+// monitor. The agent measures it async and reports the result on the next
+// check-in.
+type ProcessCheck struct {
+	MonitorID   string `json:"monitor_id"`
+	ProcessName string `json:"process_name"`
+}
+
+// ProcessResult reports the outcome of a previously issued ProcessCheck.
+type ProcessResult struct {
+	MonitorID  string  `json:"monitor_id"`
+	Running    bool    `json:"running"`
+	CpuPercent float64 `json:"cpu_percent"`
+	MemPercent float64 `json:"mem_percent"`
+}
+
+// ServiceCheck asks the agent to look up a named Windows service for a
+// service monitor. The agent measures it async and reports the result on
+// the next check-in.
+type ServiceCheck struct {
+	MonitorID   string `json:"monitor_id"`
+	ServiceName string `json:"service_name"`
+}
+
+// ServiceResult reports the outcome of a previously issued ServiceCheck.
+type ServiceResult struct {
+	MonitorID  string  `json:"monitor_id"`
+	Running    bool    `json:"running"`
+	CpuPercent float64 `json:"cpu_percent"`
+	MemPercent float64 `json:"mem_percent"`
 }
 
 // Command is a unit of work issued by the server. The agent executes known
@@ -146,7 +217,7 @@ type SoftwareItem struct {
 type ServiceItem struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name"`
-	Status      string `json:"status"`   // "running" | "stopped"
+	Status      string `json:"status"` // "running" | "stopped"
 	StartType   string `json:"start_type"`
 }
 
@@ -156,9 +227,9 @@ type SecurityInfo struct {
 }
 
 type AVEntry struct {
-	Name      string `json:"name"`
-	Enabled   bool   `json:"enabled"`
-	UpToDate  bool   `json:"up_to_date"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	UpToDate bool   `json:"up_to_date"`
 }
 
 type AuditResponse struct {

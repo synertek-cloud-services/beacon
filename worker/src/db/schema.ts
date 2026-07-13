@@ -119,11 +119,12 @@ export const policies = sqliteTable('policies', {
 export const policyMonitors = sqliteTable('policy_monitors', {
   id:                      text('id').primaryKey(),
   policyId:                text('policy_id').notNull().references(() => policies.id),
-  checkType:               text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status'] }).notNull(),
+  checkType:               text('check_type', { enum: ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software'] }).notNull(),
   enabled:                 integer('enabled', { mode: 'boolean' }).notNull().default(true),
   config:                  text('config').notNull().default('{}'),
   alertPriority:           text('alert_priority', { enum: ['critical', 'high', 'moderate', 'low'] }).notNull().default('high'),
   sustainedMinutes:        integer('sustained_minutes').notNull().default(5),
+  checkIntervalMinutes:    integer('check_interval_minutes').notNull().default(1),
   autoResolve:             integer('auto_resolve', { mode: 'boolean' }).notNull().default(true),
   autoResolveAfterMinutes: integer('auto_resolve_after_minutes').notNull().default(60),
   createdAt:               integer('created_at').notNull(),

@@ -173,7 +173,7 @@ export interface DeviceCommand {
 
 // ── Monitor / Alert types ────────────────────────────────────
 
-export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status';
+export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
 export type AlertPriority = 'critical' | 'high' | 'moderate' | 'low';
 
 export interface PolicyMonitor {
@@ -184,6 +184,7 @@ export interface PolicyMonitor {
   config:                  string; // JSON
   alertPriority:           AlertPriority;
   sustainedMinutes:        number;
+  checkIntervalMinutes:    number;
   autoResolve:             boolean;
   autoResolveAfterMinutes: number;
   createdAt:               number;
@@ -428,6 +429,7 @@ export const api = {
         config:                    Record<string, unknown>;
         alert_priority?:           AlertPriority;
         sustained_minutes?:        number;
+        check_interval_minutes?:  number;
         auto_resolve?:             boolean;
         auto_resolve_after_minutes?: number;
       }) => request<{ monitor_id: string }>('POST', `/v1/admin/policies/${policyId}/monitors`, body),
@@ -436,6 +438,7 @@ export const api = {
         config?:                 Record<string, unknown>;
         alert_priority?:         AlertPriority;
         sustained_minutes?:      number;
+        check_interval_minutes?: number;
         auto_resolve?:           boolean;
         auto_resolve_after_minutes?: number;
       }) => request<{ ok: boolean }>('PATCH', `/v1/admin/policies/${policyId}/monitors/${mid}`, body),
