@@ -33,7 +33,7 @@ a:hover { text-decoration: underline; }
 button { font-family: var(--font); }
 
 /* ── Shell ─────────────────────────────────────────────────── */
-.shell { display: flex; height: 100%; overflow: hidden; }
+.shell { display: flex; height: 100%; overflow: hidden; position: relative; }
 
 /* ── Sidebar ───────────────────────────────────────────────── */
 .sidebar {

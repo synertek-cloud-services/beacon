@@ -153,14 +153,22 @@
       <div class="sidebar-resizer" @mousedown.prevent="startResize"></div>
     </nav>
 
+    <button
+      class="sidebar-toggle-btn"
+      :class="{ 'no-transition': isResizing }"
+      :style="{ left: (sidebarCollapsed ? 11 : sidebarWidth) + 'px' }"
+      @click="toggleSidebar"
+      :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline v-if="!sidebarCollapsed" points="15 18 9 12 15 6"/>
+        <polyline v-else points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+
     <!-- Main -->
     <div class="main-wrap">
       <div class="topbar">
-        <button class="topbar-toggle" @click="toggleSidebar" :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
-        </button>
         <span class="topbar-title">{{ pageTitle }}</span>
         <div class="topbar-search">
           <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -445,13 +453,27 @@ async function logout() {
   border-radius: 8px;
 }
 
-/* ── Topbar toggle ── */
-.topbar-toggle {
-  background: none; border: none; cursor: pointer; color: var(--muted);
-  padding: 6px; border-radius: 5px; display: flex; align-items: center;
-  transition: background .1s, color .1s; flex-shrink: 0; margin-right: 8px;
+/* ── Sidebar collapse toggle (floating arrow at the sidebar's edge) ── */
+.sidebar-toggle-btn {
+  position: absolute;
+  top: 14px;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-2);
+  cursor: pointer;
+  z-index: 601;
+  transition: left .2s ease, background .12s, color .12s, border-color .12s;
 }
-.topbar-toggle:hover { background: var(--surface-2); color: var(--text); }
+.sidebar-toggle-btn:hover { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.sidebar-toggle-btn.no-transition { transition: none !important; }
 
 /* ── Topbar search ── */
 .topbar-search {
