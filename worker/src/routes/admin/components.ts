@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../../index';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser, type Role } from '../../lib/auth';
 
 const adminComponents = new Hono<{ Bindings: Bindings }>();
 
-function auth(c: any): Promise<boolean> {
-  return requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET);
+function auth(c: any, minRole: Role = 'readonly') {
+  return requireUser(c.req.header('Authorization'), c.env, minRole);
 }
 
 function uid(): string {
@@ -48,7 +48,7 @@ adminComponents.get('/:id', async (c) => {
 
 // POST / — create component
 adminComponents.post('/', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const body = await c.req.json<{
     name: string;
     description?: string | null;
@@ -85,7 +85,7 @@ adminComponents.post('/', async (c) => {
 
 // PATCH /:id — update component
 adminComponents.patch('/:id', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const id   = c.req.param('id');
   const body = await c.req.json<Partial<{
     name: string;
@@ -118,7 +118,7 @@ adminComponents.patch('/:id', async (c) => {
 
 // DELETE /:id — delete component
 adminComponents.delete('/:id', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const id  = c.req.param('id');
   const row = await c.env.DB.prepare(`SELECT id FROM components WHERE id = ?`).bind(id).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);

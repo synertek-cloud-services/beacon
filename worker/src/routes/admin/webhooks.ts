@@ -3,12 +3,12 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser } from '../../lib/auth';
 
 const webhooks = new Hono<{ Bindings: Bindings }>();
 
 webhooks.get('/', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
@@ -23,7 +23,7 @@ webhooks.get('/', async (c) => {
 });
 
 webhooks.post('/', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
@@ -43,7 +43,7 @@ webhooks.post('/', async (c) => {
 });
 
 webhooks.delete('/:id', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });

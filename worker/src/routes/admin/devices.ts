@@ -3,12 +3,12 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser, type Role } from '../../lib/auth';
 
 const adminDevices = new Hono<{ Bindings: Bindings }>();
 
-function auth(c: any): Promise<boolean> {
-  return requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET);
+function auth(c: any, minRole: Role = 'readonly') {
+  return requireUser(c.req.header('Authorization'), c.env, minRole);
 }
 
 // GET /v1/admin/devices?status=pending|approved|revoked
@@ -47,7 +47,7 @@ adminDevices.get('/:id', async (c) => {
 
 // POST /v1/admin/devices/:id/approve
 adminDevices.post('/:id/approve', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
@@ -62,7 +62,7 @@ adminDevices.post('/:id/approve', async (c) => {
 
 // POST /v1/admin/devices/:id/revoke
 adminDevices.post('/:id/revoke', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
 
@@ -76,7 +76,7 @@ adminDevices.post('/:id/revoke', async (c) => {
 
 // DELETE /v1/admin/devices/:id
 adminDevices.delete('/:id', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   await db.delete(schema.devices).where(eq(schema.devices.id, c.req.param('id')));
@@ -101,7 +101,7 @@ adminDevices.get('/:id/commands', async (c) => {
 
 // POST /v1/admin/devices/:id/commands — queue a command for the device
 adminDevices.post('/:id/commands', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const deviceId = c.req.param('id');

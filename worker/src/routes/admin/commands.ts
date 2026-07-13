@@ -3,12 +3,12 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser } from '../../lib/auth';
 
 const adminCommands = new Hono<{ Bindings: Bindings }>();
 
 adminCommands.post('/', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 

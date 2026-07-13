@@ -1,5 +1,48 @@
 # Beacon — Project Log
 
+## Session: 2026-07-13 (Multi-user auth + RBAC)
+
+### What was completed
+
+Replaced the single shared `ADMIN_SECRET` bearer-token model with real accounts: local email/password login, global RBAC roles (`admin`/`technician`/`readonly`), and Microsoft Entra ID SSO with group-based auto-provisioning. This was the main gap called out in the previous session's README Security notes.
+
+**Schema** (`migrations/0016_users_auth.sql`) — six new tables: `users`, `user_sessions` (named to avoid colliding with the existing device shell/tunnel `sessions` table), `sso_providers` (Entra directory/client config, `directory_id` deliberately not named `tenant_id` to avoid confusion with Beacon's own client-company `tenants`), `sso_group_role_mappings`, `sso_login_state` (PKCE/CSRF state for the OAuth redirect), `sso_exchange_codes` (one-time code so the real session token never appears in a URL). Also added `sessions.client_auth_hash` — the pre-existing remote-shell WS auth scheme embedded the raw `ADMIN_SECRET` in the client's `?auth=` query param, which breaks once technicians (who never hold `ADMIN_SECRET`) can open sessions too; each session now gets its own random per-session token instead.
+
+**Password hashing** (`worker/src/lib/password.ts`) — PBKDF2-HMAC-SHA256 via native `crypto.subtle`, zero new dependency. Self-describing storage format `pbkdf2-sha256$<iterations>$<saltB64>$<hashB64>`, 210,000 iterations (OWASP's current floor).
+
+**Session model** — opaque bearer tokens (reusing `generateToken()`/`sha256hex()` from `crypto.ts`, same convention as `enrollmentTokens.tokenHash`), not JWTs — chosen for instant revocation (logout/disable/role-change take effect on the very next request) and to keep the dashboard's existing `Authorization: Bearer <token>` + `localStorage` pattern with no cookies/CSRF machinery.
+
+**Microsoft Entra ID SSO** (`worker/src/lib/oidc.ts`, `worker/src/routes/auth-microsoft.ts`) — added `jose` as a dependency (the one deliberate exception to the zero-third-party-crypto posture, scoped to this one file, justified by how easy JWKS/JWT verification is to get wrong by hand and how security-critical it is). Full PKCE authorization-code flow; always resolves group membership via Microsoft Graph `/me/memberOf` rather than the ID token's `groups` claim (Entra only embeds direct claims below ~200 groups); zero matching group mappings rejects the login outright with no user created; matching multiple mappings picks the highest-privilege role; role is re-resolved from group membership on every login.
+
+**Backend auth primitives** (`worker/src/lib/auth.ts`) — added `requireUser(authHeader, env, minRole)`, which accepts either a real session token or the `ADMIN_SECRET` break-glass token (kept working indefinitely as a bootstrap/recovery path, never exposed in the dashboard UI), plus a `Role`/`roleAtLeast`/`highestRole` role-hierarchy helper. Swept all 11 existing admin route files plus `sessions.ts` off `requireAdmin` onto `requireUser` with a per-route minimum role (GET/list → readonly; routine mutations → technician; user/SSO management → admin) — same shape as the prior timing-safe-auth migration.
+
+**New routes** — `/v1/auth/{login,logout,me}`, `/v1/auth/microsoft/{login,callback,exchange}`, `/v1/admin/users` CRUD, `/v1/admin/sso/providers` + nested group-mappings CRUD (admin-only, client secret AES-GCM-encrypted at rest via a new `CONFIG_ENCRYPTION_KEY` Workers secret, never returned in plaintext once stored).
+
+**Dashboard** — `LoginPage.vue` now has email/password fields plus a "Sign in with Microsoft" button (full navigation, not fetch); new `SsoCallbackPage.vue` exchanges the one-time SSO code for a session token; new `dashboard/src/auth.ts` reactive current-user singleton (no Pinia, matching the app's existing no-state-library convention); new admin-only `UsersPage.vue`/`UserFormPage.vue`/`SsoSettingsPage.vue`; `App.vue` gets a role-gated "Settings" sidebar section and shows the signed-in user's name/role; `api.ts`'s `request()` now clears the token and redirects to `/login` on any 401 outside a login attempt (previously only `LoginPage` handled expired/invalid credentials — a real gap now that session expiry is a real scenario, not just a wrong-secret scenario).
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Global roles only, no per-tenant scoping | Beacon's users are internal MSP staff, not client-facing logins — user's explicit call |
+| `ADMIN_SECRET` kept forever as break-glass | Bootstrap (create the first admin via curl) + recovery path; simpler than a seed script, accepted trade-off of the shared secret continuing to exist |
+| Opaque bearer tokens over JWTs | Instant revocation without a denylist; zero new dependency for the highest-traffic auth path |
+| SSO group→role mapping is JIT auto-provisioning | User's explicit design: map Entra groups to roles, anyone in a mapped group can sign in and gets a local account automatically |
+| Always call Graph for group membership, never the ID token's `groups` claim | Entra only embeds direct-membership claims below ~200 groups; above that requires a Graph call anyway, so always calling it keeps behavior uniform regardless of group size |
+| `jose` added as a dependency, scoped to `lib/oidc.ts` | The one narrow exception to the zero-crypto-dependency posture — hand-rolled JWKS/JWT verification is a well-known footgun class, and this gates admin authentication |
+| Per-session random WS auth token, not `ADMIN_SECRET` | The existing remote-shell WS scheme hardcoded the shared secret into the client's `?auth=` query param — broke the moment a non-break-glass technician needed to open a session |
+| No local password-reset email flow | No email infrastructure exists or was built; local accounts get admin-driven manual resets, SSO accounts recover entirely through Microsoft |
+
+Migration and dashboard build both verified locally: `wrangler d1 migrations apply --local` applied cleanly, `vue-tsc -b && vite build` succeeded. Full curl-based verification against local D1 (bootstrap via break-glass, login, `/me`, role gating across all three roles, instant revocation on logout, instant effect of a mid-session disable, password hash format, SSO provider CRUD + secret-at-rest encryption, PKCE/state on the Microsoft redirect, per-session WS auth token) all passed.
+
+**Browser-verified via Playwright MCP** (installed mid-session — headless Chromium via `playwright install chromium --with-deps`, registered at user scope pointed at the installed binary): login page renders (email/password + "Sign in with Microsoft"); logged in as a local admin and landed on `/devices`; sidebar footer shows signed-in identity/role; admin-only Settings section (Users, Single Sign-On) visible and both pages render real data (existing test users with role chips/status toggles; the SSO provider config + "IT Technicians" group mapping created earlier via curl, pre-populated correctly). Logged out, logged back in as the `readonly` test user — Settings section fully absent from the sidebar; direct navigation to `/settings/users` bounced to `/` via the router guard; clicking the (still-visible, not client-hidden) device "Revoke" button correctly got a 401 from the backend and triggered the global 401 handler — token cleared, redirected to `/login` — confirming both the role-gating defense-in-depth and the earlier-identified 401-handling gap are fixed end-to-end. Logged in as the `technician` test user and confirmed Settings is hidden for that role too (admin-only, not just non-readonly).
+
+### Next logical steps
+
+1. **Real Entra ID end-to-end test** — the full Microsoft SSO flow (authorize → callback → Graph group lookup → role resolution) needs a real Azure app registration, consented Graph permissions, and a real group with a real member; none of that is fabricable against local D1. Same category of gap as the Windows-only agent code that couldn't be exercised on this Linux dev box.
+2. **CONTRIBUTING.md** — still not written (carried over from the previous session).
+3. **Real-fleet validation** — still outstanding (carried over from the previous session).
+
 ## Session: 2026-07-13 (Open-source prep pass)
 
 ### What was completed

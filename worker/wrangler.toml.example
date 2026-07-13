@@ -28,3 +28,8 @@ class_name = "SessionRelay"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SessionRelay"]
+
+# Secrets (set via `wrangler secret put <NAME>`, not declared here):
+#   ADMIN_SECRET          — break-glass bootstrap/recovery bearer token
+#   CONFIG_ENCRYPTION_KEY — 32 random bytes hex (e.g. `openssl rand -hex 32`),
+#                           encrypts SSO provider client secrets at rest

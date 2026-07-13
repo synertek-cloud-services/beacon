@@ -3,13 +3,14 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
-import { requireAdmin, timingSafeEqual } from '../lib/auth';
+import { requireUser } from '../lib/auth';
+import { generateToken, sha256hex } from '../lib/crypto';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
 
 // POST /v1/sessions — create a session and queue open_session for the agent
 sessions.post('/', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -37,7 +38,11 @@ sessions.post('/', async (c) => {
   const sessionId = crypto.randomUUID();
   const origin = new URL(c.req.url).origin.replace(/^http/, 'ws');
   const agentWsUrl  = `${origin}/v1/sessions/${sessionId}/ws?role=agent`;
-  const clientWsUrl = `${origin}/v1/sessions/${sessionId}/ws?role=client&auth=${c.env.ADMIN_SECRET}`;
+
+  // Per-session random client auth token — not the shared ADMIN_SECRET, since
+  // technicians who open sessions never hold it.
+  const clientAuthToken = generateToken();
+  const clientWsUrl = `${origin}/v1/sessions/${sessionId}/ws?role=client&auth=${clientAuthToken}`;
 
   await db.insert(schema.sessions).values({
     id: sessionId,
@@ -46,6 +51,7 @@ sessions.post('/', async (c) => {
     sessionType: body.session_type,
     tcpPort: body.tcp_port ?? null,
     createdAt: now,
+    clientAuthHash: await sha256hex(clientAuthToken),
   });
 
   // Signal the agent via the existing command channel — agent picks it up on next check-in
@@ -75,7 +81,12 @@ sessions.get('/:id/ws', async (c) => {
 
   if (role === 'client') {
     const auth = c.req.query('auth');
-    if (!auth || !(await timingSafeEqual(auth, c.env.ADMIN_SECRET))) {
+    const db = drizzle(c.env.DB, { schema });
+    const row = await db.select({ hash: schema.sessions.clientAuthHash })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, c.req.param('id')))
+      .get();
+    if (!auth || !row?.hash || (await sha256hex(auth)) !== row.hash) {
       return c.json({ error: 'unauthorized' }, 401);
     }
   }

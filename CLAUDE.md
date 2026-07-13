@@ -5,8 +5,9 @@ Self-hosted RMM platform, originally built for Synertek Cloud Services (develope
 ## Project status (as of 2026-07-13)
 
 - **11 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
-- **Open-sourced this session** under AGPL-3.0 — repo is now public. `LICENSE`, `README.md` in place; `ADMIN_SECRET` checks hardened to timing-safe comparison; org-specific config (`wrangler.toml`, `dashboard/.env.production`) moved to gitignored files with `.example` templates; Go module path corrected to match the actual GitHub org.
-- **Known gap, not yet addressed**: single shared `ADMIN_SECRET` bearer token, no per-user/multi-user auth — acceptable for the current internal-primary-use case, called out in README's Security notes as the next thing a public-facing deployment would want.
+- **Multi-user auth + RBAC shipped this session** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path.
+- **Open-sourced under AGPL-3.0** — repo is public. `LICENSE`, `README.md` in place; org-specific config (`wrangler.toml`, `dashboard/.env.production`) moved to gitignored files with `.example` templates; Go module path corrected to match the actual GitHub org.
+- **Not yet done**: full end-to-end Microsoft SSO validation needs a real Entra app registration (can't be exercised against local D1). Dashboard auth UI (login, role-gated nav, Users/SSO settings pages) *was* browser-driven this session via Playwright MCP — see PROJECT_LOG.md.
 - Everything built so far has been verified against local D1 + simulated check-ins/audits via curl, not a real deployed fleet — see PROJECT_LOG.md's "Next logical steps" for real-fleet validation status.
 
 ## Repository layout
@@ -15,7 +16,7 @@ Self-hosted RMM platform, originally built for Synertek Cloud Services (develope
 agent/        Go agent (runs on managed endpoints)
 worker/       Cloudflare Worker (Hono + D1)
 dashboard/    Vue 3 + Vite SPA (Cloudflare Pages)
-migrations/   D1 SQL migrations (0000 … 0015)
+migrations/   D1 SQL migrations (0000 … 0016)
 scripts/      Utility scripts
 Makefile      Top-level task runner
 LICENSE       AGPL-3.0
@@ -57,12 +58,13 @@ go build ./...
 | Secret | Where it lives |
 |---|---|
 | `ADMIN_SECRET` | `worker/.dev.vars` (gitignored) |
+| `CONFIG_ENCRYPTION_KEY` | `worker/.dev.vars` (gitignored) — AES-GCM key (hex) encrypting SSO provider client secrets at rest |
 | `CLOUDFLARE_API_TOKEN` | direnv `.envrc` (gitignored) |
 | Ed25519 private key (agent signing) | Password manager only |
 
-`worker/.dev.vars` already has `ADMIN_SECRET="beacon-local-admin-secret"` for local dev.
+`worker/.dev.vars` already has `ADMIN_SECRET="beacon-local-admin-secret"` and a `CONFIG_ENCRYPTION_KEY` for local dev.
 
-`ADMIN_SECRET` is compared via `worker/src/lib/auth.ts`'s `requireAdmin`/`timingSafeEqual` (hash-then-compare, not `===`) everywhere it gates a route — never add a new inline `auth === \`Bearer ${secret}\`` check, import the shared helper instead.
+`ADMIN_SECRET` is compared via `worker/src/lib/auth.ts`'s `requireAdmin`/`timingSafeEqual` (hash-then-compare, not `===`) — now only reachable through `requireUser` (see Auth System below) as the break-glass fallback path. Never add a new inline `auth === \`Bearer ${secret}\`` check or a second hand-rolled admin check; every route goes through `requireUser`.
 
 ## Self-hosting config (not secrets, but org-specific — gitignored with `.example` templates)
 
@@ -83,7 +85,7 @@ go build ./...
 - Database: Cloudflare D1 (SQLite) via Drizzle ORM (`worker/src/db/schema.ts`)
 - Cron: runs every 2 minutes (`*/2 * * * *`) — evaluates offline alerts
 - Durable Object: `SessionRelay` for shell/TCP tunnel sessions
-- All admin routes under `/v1/admin/*` require `Authorization: Bearer <ADMIN_SECRET>`
+- All admin routes under `/v1/admin/*` and `/v1/auth/*` require `Authorization: Bearer <token>` — either a real user session token or the `ADMIN_SECRET` break-glass token, resolved by `requireUser` (see Auth System below)
 - CORS allows: production domain, localhost:5173, `*.beacon-dashboard-6f4.pages.dev`
 
 **Agent** (`agent/`)
@@ -111,9 +113,39 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
 3. Run `make migrate-local` to test locally
 4. Run `make migrate-remote` after deploying the worker
 
-Latest migration: `0015_check_interval.sql` (adds `policy_monitors.check_interval_minutes`). Migrations 0012-0015 (disk_space config v2, Memory Usage seed, CPU Usage seed, check_interval_minutes) all shipped this session — none of them touched `check_type`, since that column has no `CHECK` constraint (see Two-Tier Policy System below).
+Latest migration: `0016_users_auth.sql` (adds `users`, `user_sessions`, `sso_providers`, `sso_group_role_mappings`, `sso_login_state`, `sso_exchange_codes`, plus `sessions.client_auth_hash` — see Auth System below).
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
+
+## Auth System
+
+Multi-user auth replacing the old single-`ADMIN_SECRET`-only model. Local accounts + Microsoft Entra ID SSO, global RBAC (no per-tenant scoping — Beacon's users are internal MSP staff, not client-facing).
+
+### Roles
+`admin` > `technician` > `readonly` (hierarchy in `worker/src/lib/auth.ts`'s `ROLE_RANK`/`roleAtLeast`). Per-route convention: GET/list → `readonly`; routine mutations (approve device, run job, resolve alert, edit policy) → `technician`; user accounts and SSO config → `admin` only.
+
+### `requireUser` (`worker/src/lib/auth.ts`)
+Every `/v1/admin/*` and `/v1/sessions` route calls `requireUser(c.req.header('Authorization'), c.env, minRole)` instead of the old `requireAdmin`. It accepts either:
+1. `Bearer <ADMIN_SECRET>` — the break-glass token, resolves to a synthetic admin identity, kept working forever (bootstrap + recovery, never surfaced in the dashboard UI), or
+2. `Bearer <session token>` — hashed and looked up in `user_sessions` joined to `users`; rejected if revoked, expired, or the user is `disabled`; role checked against `minRole`.
+
+Sessions are opaque random tokens (`generateToken()`/`sha256hex()`, the same convention as `enrollmentTokens.tokenHash`), not JWTs — chosen so logout/disable/role-change take effect on the user's very next request, with no denylist. `user_sessions.last_used_at` is only bumped when stale by more than 5 minutes, to avoid a D1 write on every authenticated request.
+
+### Local auth routes (`worker/src/routes/auth.ts`)
+`POST /v1/auth/login` (email+password, generic error either way to avoid enumeration), `POST /v1/auth/logout` (revokes the current session), `GET /v1/auth/me`.
+
+### Microsoft Entra ID SSO (`worker/src/lib/oidc.ts`, `worker/src/routes/auth-microsoft.ts`)
+Admin configures one or more Entra security groups mapped to a Beacon role via `/v1/admin/sso/providers` + nested `/group-mappings` (client secret AES-GCM-encrypted at rest using the `CONFIG_ENCRYPTION_KEY` secret — the one place a secret is encrypted rather than hashed, since it must be recovered in plaintext to call Microsoft's token endpoint).
+
+Flow: `GET /v1/auth/microsoft/login` generates PKCE + a `state` row in `sso_login_state` (the row's own id *is* the `state` value — no cookie needed) and redirects to Microsoft; `GET /v1/auth/microsoft/callback` exchanges the code, verifies the ID token via `jose` (the one deliberate third-party-crypto dependency in the codebase, justified by how easy JWKS/JWT verification is to get wrong by hand), then **always** calls Microsoft Graph `GET /me/memberOf` for group membership — never the ID token's `groups` claim, since Entra only embeds direct-membership claims below ~200 groups and requires a Graph call above that anyway. Zero matching group mappings rejects the login with no user created; multiple matches pick the highest-privilege role (`highestRole()`); role is re-resolved from current group membership on every login. The callback hands the SPA a one-time `sso_exchange_codes` code (not the real token) via redirect, so the session token never appears in a URL; `POST /v1/auth/microsoft/exchange` trades it for the real token.
+
+Google Workspace is explicitly deferred (v2) but `sso_providers.type` and the group-mapping tables are provider-generic — adding it later reuses the same tables and the same `oidc.ts` verification helper.
+
+### Dashboard side
+`dashboard/src/auth.ts` is a small `reactive` current-user singleton (no Pinia, consistent with the app's existing no-state-library convention) — `loadCurrentUser()` calls `/v1/auth/me`, `hasRole(min)` gates nav items and admin-only routes. `dashboard/src/api.ts`'s `request()` clears the stored token and hard-redirects to `/login` on any 401 outside a login attempt (`skipAuthRedirect` opt-out used by the login/SSO-exchange calls themselves).
+
+### Remote-session WS auth
+The pre-existing shell/tunnel session WebSocket (`worker/src/routes/sessions.ts`) used to authenticate its client leg by embedding the raw `ADMIN_SECRET` in the `?auth=` query param — broken once technicians (who never hold `ADMIN_SECRET`) can open sessions too. Each session now gets its own random token at creation time, hashed into `sessions.client_auth_hash`, checked directly (not via `requireUser`, since it's a query param not a header).
 
 ## Two-Tier Policy / Monitor System
 
@@ -210,6 +242,25 @@ DELETE /v1/admin/policies/:id/monitors/:mid  Delete monitor
 
 GET  /v1/admin/jobs                          Automation jobs
 GET  /v1/admin/components                    Script component library
+
+POST /v1/auth/login                          Local email/password login
+POST /v1/auth/logout                         Revoke current session
+GET  /v1/auth/me                             Current user identity
+GET  /v1/auth/microsoft/login                Redirect to Entra authorize endpoint
+GET  /v1/auth/microsoft/callback              OAuth callback (code exchange, group resolution)
+POST /v1/auth/microsoft/exchange             Trade one-time code for a session token
+
+GET  /v1/admin/users                         List users
+POST /v1/admin/users                         Create local user
+PATCH  /v1/admin/users/:id                   Update role/name/status
+POST /v1/admin/users/:id/reset-password      Admin-driven password reset (local accounts only)
+DELETE /v1/admin/users/:id                   Soft-disable
+
+GET  /v1/admin/sso/providers                 List SSO providers (secret never returned)
+POST /v1/admin/sso/providers                 Configure a provider
+PATCH  /v1/admin/sso/providers/:id           Update config / rotate secret
+DELETE /v1/admin/sso/providers/:id           Remove provider
+GET/POST/DELETE /v1/admin/sso/providers/:id/group-mappings[/:mid]   Group → role mapping CRUD
 ```
 
 ## Dashboard routes
@@ -217,6 +268,7 @@ GET  /v1/admin/components                    Script component library
 ```
 /                      OverviewPage
 /login                 LoginPage
+/sso-callback          SsoCallbackPage    (receives the Microsoft SSO redirect)
 /devices               DevicesPage (filterable by ?company=<id>)
 /tenants               TenantsPage
 /jobs                  JobsPage
@@ -225,7 +277,12 @@ GET  /v1/admin/components                    Script component library
 /global/policies       GlobalPoliciesPage  (list — table with expand rows)
 /global/policies/new   PolicyFormPage      (create — full page form)
 /global/policies/:id   PolicyFormPage      (edit — full page form)
+/settings/users        UsersPage           (admin only)
+/settings/users/new    UserFormPage        (admin only)
+/settings/users/:id    UserFormPage        (admin only)
+/settings/sso          SsoSettingsPage     (admin only)
 ```
+Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects non-admins to `/`.
 
 ## Sidebar structure (App.vue)
 
@@ -233,6 +290,9 @@ GET  /v1/admin/components                    Script component library
 - **Companies** section: "All Companies" link + active-client block (appears when a company is selected via `?company=` query, persists until cleared)
 - **Devices** link
 - **Global** section: Alerts, Policies
+- **Automation** section: Jobs, Components
+- **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On
+- Sidebar footer shows the signed-in user's name/role above the Sign out button
 - Resizable via drag handle (`.sidebar-resizer`), collapsible via topbar hamburger button
 
 Active client state: `activeClientId` ref set by watching `route.query.company`. Cleared with the × button on the client block.

@@ -15,6 +15,10 @@ import adminWebhooks from './routes/admin/webhooks';
 import adminAgentVersions from './routes/admin/agent-versions';
 import adminComponents from './routes/admin/components';
 import adminJobs from './routes/admin/jobs';
+import authRoute from './routes/auth';
+import authMicrosoft from './routes/auth-microsoft';
+import adminUsers from './routes/admin/users';
+import adminSso from './routes/admin/sso';
 import { evaluateOfflineAlerts } from './lib/alerts';
 
 export { SessionRelay } from './durable-objects/session-relay';
@@ -27,11 +31,13 @@ export type Bindings = {
   ALLOWED_ORIGIN?: string;
   // Cloudflare Pages preview URL suffix, e.g. ".my-dashboard-1a2.pages.dev"
   PAGES_PREVIEW_SUFFIX?: string;
+  // AES-GCM key (hex) for encrypting SSO provider client secrets at rest
+  CONFIG_ENCRYPTION_KEY: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.use('/v1/admin/*', (c, next) => cors({
+const corsMiddleware = (c: any, next: any) => cors({
   origin: (origin) => {
     if (!origin) return '';
     if (
@@ -43,7 +49,10 @@ app.use('/v1/admin/*', (c, next) => cors({
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Authorization', 'Content-Type'],
-})(c, next));
+})(c, next);
+
+app.use('/v1/admin/*', corsMiddleware);
+app.use('/v1/auth/*', corsMiddleware);
 
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);
@@ -60,6 +69,10 @@ app.route('/v1/admin/webhooks', adminWebhooks);
 app.route('/v1/admin/agent/versions', adminAgentVersions);
 app.route('/v1/admin/components', adminComponents);
 app.route('/v1/admin/jobs', adminJobs);
+app.route('/v1/admin/users', adminUsers);
+app.route('/v1/admin/sso', adminSso);
+app.route('/v1/auth', authRoute);
+app.route('/v1/auth/microsoft', authMicrosoft);
 
 app.get('/health', (c) => c.json({ ok: true }));
 

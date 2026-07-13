@@ -18,19 +18,31 @@
 
       <div class="lp-divider"></div>
 
-      <p class="lp-lead">Enter your admin secret to access the dashboard.</p>
+      <p class="lp-lead">Sign in to access the dashboard.</p>
 
       <form @submit.prevent="submit" class="lp-form">
         <div class="lp-field">
-          <label class="lp-label" for="secret">Admin Secret</label>
+          <label class="lp-label" for="email">Email</label>
           <input
-            id="secret"
-            v-model="secret"
+            id="email"
+            v-model="email"
+            type="email"
+            class="lp-input"
+            placeholder="you@example.com"
+            autocomplete="username"
+            autofocus
+          />
+        </div>
+
+        <div class="lp-field">
+          <label class="lp-label" for="password">Password</label>
+          <input
+            id="password"
+            v-model="password"
             type="password"
             class="lp-input"
             placeholder="••••••••••••••••"
             autocomplete="current-password"
-            autofocus
           />
         </div>
 
@@ -43,9 +55,16 @@
 
         <button class="lp-btn" :disabled="loading">
           <span v-if="loading" class="lp-spinner"></span>
-          {{ loading ? 'Verifying…' : 'Sign in' }}
+          {{ loading ? 'Signing in…' : 'Sign in' }}
         </button>
       </form>
+
+      <div class="lp-sso-divider"><span>or</span></div>
+
+      <button class="lp-btn-ms" type="button" @click="signInWithMicrosoft">
+        <svg width="16" height="16" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        Sign in with Microsoft
+      </button>
 
       <div class="lp-footer">Beacon RMM</div>
     </div>
@@ -53,31 +72,48 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
+import { loadCurrentUser } from '../auth';
 
 const router = useRouter();
-const secret  = ref('');
-const error   = ref('');
-const loading = ref(false);
+const email    = ref('');
+const password = ref('');
+const error    = ref('');
+const loading  = ref(false);
+
+const SSO_ERROR_MESSAGES: Record<string, string> = {
+  no_group_mapping: 'Your Microsoft account isn\'t a member of any group mapped to a Beacon role. Contact an admin.',
+  email_already_registered_locally: 'That email is already registered as a local account. Contact an admin.',
+  account_disabled: 'This account has been disabled. Contact an admin.',
+  token_exchange_failed: 'Microsoft sign-in failed. Please try again.',
+  id_token_verification_failed: 'Microsoft sign-in failed. Please try again.',
+};
+
+onMounted(() => {
+  const ssoError = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('error');
+  if (ssoError) error.value = SSO_ERROR_MESSAGES[ssoError] ?? 'Microsoft sign-in failed. Please try again.';
+});
 
 async function submit() {
-  if (!secret.value.trim()) return;
+  if (!email.value.trim() || !password.value) return;
   loading.value = true;
   error.value   = '';
-  api.saveSecret(secret.value.trim());
   try {
-    await api.devices.list();
+    const { token } = await api.auth.login(email.value.trim(), password.value);
+    api.saveToken(token);
+    await loadCurrentUser().catch(() => {});
     router.push('/devices');
   } catch (e: unknown) {
-    api.clearSecret();
-    error.value = (e instanceof Error && e.message === 'unauthorized')
-      ? 'Incorrect secret — check your admin credentials.'
-      : (e instanceof Error ? e.message : 'Something went wrong.');
+    error.value = 'Invalid email or password.';
   } finally {
     loading.value = false;
   }
+}
+
+function signInWithMicrosoft() {
+  window.location.href = api.auth.microsoftLoginUrl();
 }
 </script>
 
@@ -242,6 +278,44 @@ async function submit() {
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── SSO divider ──────────────────────────────────────────────── */
+.lp-sso-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 14px;
+  color: #616480;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.lp-sso-divider::before, .lp-sso-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #232638;
+}
+
+/* ── Microsoft SSO button ─────────────────────────────────────── */
+.lp-btn-ms {
+  width: 100%;
+  padding: 10px;
+  background: #1c1f2e;
+  color: #d8daf0;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid #2d3148;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: border-color .12s, background .12s;
+}
+.lp-btn-ms:hover { border-color: #4e7ef7; background: #232638; }
 
 /* ── Footer ───────────────────────────────────────────────────── */
 .lp-footer {

@@ -150,6 +150,9 @@ export const sessions = sqliteTable('sessions', {
   status: text('status', { enum: ['pending', 'active', 'closed'] }).notNull().default('pending'),
   createdAt: integer('created_at').notNull(),
   closedAt: integer('closed_at'),
+  // sha256hex of a per-session random token — the WS client leg's credential.
+  // No longer the shared ADMIN_SECRET, since non-break-glass users don't hold it.
+  clientAuthHash: text('client_auth_hash'),
 });
 
 export const deviceAudits = sqliteTable('device_audits', {
@@ -206,6 +209,80 @@ export const jobs = sqliteTable('jobs', {
   expiresAt:    integer('expires_at'),
   createdAt:    integer('created_at').notNull(),
   createdBy:    text('created_by'),
+});
+
+// --- Auth: local accounts + Microsoft Entra ID SSO, global RBAC roles ---
+
+export const ssoProviders = sqliteTable('sso_providers', {
+  id:                     text('id').primaryKey(),
+  type:                   text('type', { enum: ['microsoft'] }).notNull().default('microsoft'), // 'google' reserved (v2)
+  name:                   text('name').notNull(),
+  directoryId:            text('directory_id').notNull(), // Entra directory (tenant) id — NOT Beacon's own `tenants`
+  clientId:               text('client_id').notNull(),
+  clientSecretCiphertext: text('client_secret_ciphertext').notNull(), // AES-GCM ciphertext, base64
+  clientSecretNonce:      text('client_secret_nonce').notNull(),      // AES-GCM 12-byte nonce, base64
+  enabled:                integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt:              integer('created_at').notNull(),
+  updatedAt:              integer('updated_at').notNull(),
+});
+
+export const ssoGroupRoleMappings = sqliteTable('sso_group_role_mappings', {
+  id:            text('id').primaryKey(),
+  ssoProviderId: text('sso_provider_id').notNull().references(() => ssoProviders.id),
+  groupId:       text('group_id').notNull(), // Entra security group object id
+  groupName:     text('group_name'),         // cached display name, cosmetic only
+  role:          text('role', { enum: ['admin', 'technician', 'readonly'] }).notNull(),
+  createdAt:     integer('created_at').notNull(),
+});
+
+// Short-lived, single-use CSRF/PKCE state for the OAuth redirect. id IS the `state`
+// value sent to Microsoft — no server-side session exists yet at this point in the flow.
+export const ssoLoginState = sqliteTable('sso_login_state', {
+  id:            text('id').primaryKey(),
+  ssoProviderId: text('sso_provider_id').notNull().references(() => ssoProviders.id),
+  codeVerifier:  text('code_verifier').notNull(), // PKCE
+  redirectUri:   text('redirect_uri').notNull(),
+  createdAt:     integer('created_at').notNull(),
+  expiresAt:     integer('expires_at').notNull(),
+});
+
+export const users = sqliteTable('users', {
+  id:            text('id').primaryKey(),
+  email:         text('email').notNull(),
+  displayName:   text('display_name'),
+  role:          text('role', { enum: ['admin', 'technician', 'readonly'] }).notNull().default('readonly'),
+  // Self-describing: "pbkdf2-sha256$<iterations>$<saltB64>$<hashB64>". NULL for SSO-only users.
+  passwordHash:  text('password_hash'),
+  authSource:    text('auth_source', { enum: ['local', 'microsoft'] }).notNull().default('local'),
+  ssoProviderId: text('sso_provider_id').references(() => ssoProviders.id),
+  ssoSubject:    text('sso_subject'), // Entra object id (`oid` claim); NULL for local accounts
+  status:        text('status', { enum: ['active', 'disabled'] }).notNull().default('active'),
+  createdAt:     integer('created_at').notNull(),
+  updatedAt:     integer('updated_at').notNull(),
+  lastLoginAt:   integer('last_login_at'),
+  createdBy:     text('created_by'),
+});
+
+export const userSessions = sqliteTable('user_sessions', {
+  id:          text('id').primaryKey(),
+  userId:      text('user_id').notNull().references(() => users.id),
+  // sha256hex(raw token) — same convention as enrollmentTokens.tokenHash / devices.deviceCredentialHash
+  tokenHash:   text('token_hash').notNull().unique(),
+  createdAt:   integer('created_at').notNull(),
+  expiresAt:   integer('expires_at').notNull(),
+  lastUsedAt:  integer('last_used_at'),
+  revokedAt:   integer('revoked_at'),
+  userAgent:   text('user_agent'),
+  ip:          text('ip'),
+});
+
+// One-time code handed to the SPA after an SSO login so the real session token never
+// appears in a URL. The SPA immediately POSTs it to /v1/auth/microsoft/exchange.
+export const ssoExchangeCodes = sqliteTable('sso_exchange_codes', {
+  id:           text('id').primaryKey(),
+  sessionToken: text('session_token').notNull(), // raw (unhashed), single-use, ~60s TTL
+  createdAt:    integer('created_at').notNull(),
+  expiresAt:    integer('expires_at').notNull(),
 });
 
 export const commands = sqliteTable('commands', {

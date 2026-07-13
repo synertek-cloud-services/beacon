@@ -3,13 +3,13 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser } from '../../lib/auth';
 
 const alerts = new Hono<{ Bindings: Bindings }>();
 
 // GET /v1/admin/alerts?status=active|all&search=<text>
 alerts.get('/', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -74,7 +74,7 @@ alerts.get('/', async (c) => {
 
 // POST /v1/admin/alerts/:id/resolve — manually clear an active alert
 alerts.post('/:id/resolve', async (c) => {
-  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 

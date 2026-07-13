@@ -1,20 +1,28 @@
 const baseUrl = import.meta.env.VITE_API_URL ?? '';
 
-function secret(): string {
-  return localStorage.getItem('beacon_secret') ?? '';
+function token(): string {
+  return localStorage.getItem('beacon_token') ?? '';
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, opts?: { skipAuthRedirect?: boolean }): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method,
     headers: {
-      'Authorization': `Bearer ${secret()}`,
+      'Authorization': `Bearer ${token()}`,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
-  if (res.status === 401) throw new Error('unauthorized');
+  if (res.status === 401) {
+    // A 401 outside of a login attempt means the session expired or was revoked —
+    // clear it and bounce to /login rather than leaving the page in a broken state.
+    if (!opts?.skipAuthRedirect) {
+      localStorage.removeItem('beacon_token');
+      window.location.hash = '#/login';
+    }
+    throw new Error('unauthorized');
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${text}`);
@@ -273,6 +281,53 @@ export interface AuditChange {
   detectedAt: number
 }
 
+// ── Auth types ───────────────────────────────────────────────
+
+export type Role = 'admin' | 'technician' | 'readonly';
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: Role;
+  source?: 'break-glass' | 'session';
+  authSource?: 'local' | 'microsoft';
+}
+
+export interface AppUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: Role;
+  authSource: 'local' | 'microsoft';
+  status: 'active' | 'disabled';
+  createdAt: number;
+  updatedAt: number;
+  lastLoginAt: number | null;
+  createdBy: string | null;
+}
+
+export interface SsoProvider {
+  id: string;
+  type: 'microsoft';
+  name: string;
+  directoryId: string;
+  clientId: string;
+  enabled: boolean;
+  hasSecret: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SsoGroupRoleMapping {
+  id: string;
+  ssoProviderId: string;
+  groupId: string;
+  groupName: string | null;
+  role: Role;
+  createdAt: number;
+}
+
 export interface Device {
   id: string;
   tenantId: string;
@@ -293,9 +348,50 @@ export interface Device {
 // ── API client ───────────────────────────────────────────────
 
 export const api = {
-  saveSecret(s: string)  { localStorage.setItem('beacon_secret', s); },
-  clearSecret()          { localStorage.removeItem('beacon_secret'); },
-  hasSecret(): boolean   { return !!secret(); },
+  saveToken(t: string)  { localStorage.setItem('beacon_token', t); },
+  clearToken()          { localStorage.removeItem('beacon_token'); },
+  hasToken(): boolean   { return !!token(); },
+
+  auth: {
+    login: (email: string, password: string) =>
+      request<{ token: string; user: CurrentUser }>('POST', '/v1/auth/login', { email, password }, { skipAuthRedirect: true }),
+    logout: () =>
+      request<{ ok: boolean }>('POST', '/v1/auth/logout', undefined, { skipAuthRedirect: true }),
+    me: () =>
+      request<CurrentUser>('GET', '/v1/auth/me'),
+    microsoftLoginUrl: () => `${baseUrl}/v1/auth/microsoft/login`,
+    microsoftExchange: (code: string) =>
+      request<{ token: string; user: CurrentUser }>('POST', '/v1/auth/microsoft/exchange', { code }, { skipAuthRedirect: true }),
+  },
+
+  users: {
+    list:   () => request<AppUser[]>('GET', '/v1/admin/users'),
+    create: (body: { email: string; displayName?: string; role: Role; password: string }) =>
+      request<{ id: string }>('POST', '/v1/admin/users', body),
+    update: (id: string, body: Partial<{ displayName: string; role: Role; status: 'active' | 'disabled' }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/users/${id}`, body),
+    resetPassword: (id: string, password: string) =>
+      request<{ ok: boolean }>('POST', `/v1/admin/users/${id}/reset-password`, { password }),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/users/${id}`),
+  },
+
+  sso: {
+    providers: {
+      list:   () => request<SsoProvider[]>('GET', '/v1/admin/sso/providers'),
+      create: (body: { name: string; directoryId: string; clientId: string; clientSecret: string }) =>
+        request<{ id: string }>('POST', '/v1/admin/sso/providers', body),
+      update: (id: string, body: Partial<{ name: string; directoryId: string; clientId: string; clientSecret: string; enabled: boolean }>) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/sso/providers/${id}`, body),
+      delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/sso/providers/${id}`),
+    },
+    groupMappings: {
+      list:   (providerId: string) => request<SsoGroupRoleMapping[]>('GET', `/v1/admin/sso/providers/${providerId}/group-mappings`),
+      create: (providerId: string, body: { groupId: string; groupName?: string; role: Role }) =>
+        request<{ id: string }>('POST', `/v1/admin/sso/providers/${providerId}/group-mappings`, body),
+      delete: (providerId: string, mappingId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/sso/providers/${providerId}/group-mappings/${mappingId}`),
+    },
+  },
 
   summary: {
     get: () => request<Summary>('GET', '/v1/admin/summary'),

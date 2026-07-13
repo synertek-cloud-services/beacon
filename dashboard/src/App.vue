@@ -122,9 +122,31 @@
           <RouterLink to="/components" class="sbi" :class="{ active: route.path.startsWith('/components') }">Components</RouterLink>
         </div>
 
+        <!-- SETTINGS (admin only) -->
+        <template v-if="hasRole('admin')">
+          <div class="sec-head" @click="toggleSection('settings')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span class="sec-label">Settings</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.settings }">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+          <div v-show="openSections.settings" class="sec-body">
+            <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
+            <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
+          </div>
+        </template>
+
       </div>
 
       <div class="sidebar-footer">
+        <div v-if="authState.user" class="sidebar-user">
+          <span class="sidebar-user-name">{{ authState.user.displayName || authState.user.email }}</span>
+          <span class="sidebar-user-role">{{ authState.user.role }}</span>
+        </div>
         <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">Sign out</button>
       </div>
 
@@ -168,11 +190,12 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Tenant } from './api';
+import { authState, hasRole, loadCurrentUser } from './auth';
 
 const route = useRoute();
 const router = useRouter();
 
-const isLogin   = computed(() => route.path === '/login');
+const isLogin   = computed(() => route.path === '/login' || route.path === '/sso-callback');
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
 const companies      = ref<Tenant[]>([]);
@@ -225,18 +248,19 @@ const activeClientName = computed(() =>
   companies.value.find(c => c.id === activeClientId.value)?.name ?? ''
 );
 
-const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false });
+const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false, settings: false });
 
 const searchQuery = ref('');
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(async () => {
-  if (api.hasSecret()) {
+  if (api.hasToken()) {
     try {
       const [tenantList, summary] = await Promise.all([api.tenants.list(), api.summary.get()]);
       companies.value = tenantList;
       pendingCount.value = summary.pending;
     } catch {}
+    if (!authState.user) await loadCurrentUser().catch(() => {});
   }
 });
 
@@ -284,11 +308,15 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/jobs')) return 'Jobs';
   if (route.path === '/global/alerts') return 'Global Alerts';
   if (route.path === '/global/policies') return 'Global Policies';
+  if (route.path.startsWith('/settings/users')) return 'Users';
+  if (route.path === '/settings/sso') return 'Single Sign-On';
   return 'Beacon';
 });
 
-function logout() {
-  api.clearSecret();
+async function logout() {
+  await api.auth.logout().catch(() => {});
+  api.clearToken();
+  authState.user = null;
   router.push('/login');
 }
 </script>
@@ -387,6 +415,34 @@ function logout() {
   margin-left: auto;
   font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
   background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
+}
+
+/* ── Sidebar user block ── */
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 8px;
+  font-size: 12px;
+}
+.sidebar-user-name {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-user-role {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted-2);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 8px;
 }
 
 /* ── Topbar toggle ── */

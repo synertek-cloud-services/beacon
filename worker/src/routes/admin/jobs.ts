@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../../index';
-import { requireAdmin } from '../../lib/auth';
+import { requireUser, type Role } from '../../lib/auth';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
-function auth(c: any): Promise<boolean> {
-  return requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET);
+function auth(c: any, minRole: Role = 'readonly') {
+  return requireUser(c.req.header('Authorization'), c.env, minRole);
 }
 function uid(): string {
   return crypto.randomUUID().replace(/-/g, '');
@@ -205,7 +205,7 @@ adminJobs.get('/:id', async (c) => {
 // ── POST / — create job + dispatch commands ───────────────────
 
 adminJobs.post('/', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
   const body = await c.req.json<{
     name: string;
@@ -293,7 +293,7 @@ adminJobs.post('/', async (c) => {
 // ── DELETE /:id — cancel job ──────────────────────────────────
 
 adminJobs.delete('/:id', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const id  = c.req.param('id');
   const job = await c.env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<any>();
   if (!job) return c.json({ error: 'not found' }, 404);
