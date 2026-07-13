@@ -9,7 +9,7 @@ const hash = createHash('sha256').update(token).digest('hex');
 
 const sql = `
 INSERT OR IGNORE INTO tenants (id, name, auto_approve_default, privacy_mode_default, status, created_at)
-VALUES ('ten_001', 'Synertek Cloud Services', 1, 0, 'active', unixepoch());
+VALUES ('ten_001', 'Example Company', 1, 0, 'active', unixepoch());
 
 INSERT OR IGNORE INTO enrollment_tokens (id, tenant_id, token_hash, agent_type, use_count, created_at, created_by)
 VALUES ('tok_001', 'ten_001', '${hash}', 'standard', 0, unixepoch(), 'seed');

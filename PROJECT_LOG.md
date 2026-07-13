@@ -1,5 +1,34 @@
 # Beacon — Project Log
 
+## Session: 2026-07-13 (Open-source prep pass)
+
+### What was completed
+
+Decision: Beacon is being open-sourced (still primarily used internally by Synertek, but the repo is going public under AGPL-3.0). Audited the repo for anything that assumed "private repo, single org" and fixed what could be fixed in-session:
+
+- **Auth hardening** — added `worker/src/lib/auth.ts` (`timingSafeEqual` via hash-then-compare, `requireAdmin`). Migrated all ~20 `ADMIN_SECRET` comparison call sites across 10 admin route files plus `sessions.ts` (including the WebSocket `?auth=` query-param check) off ad-hoc `===`/`!==` checks and 4 duplicated local `requireAdmin`/`auth()` helpers, onto the shared helper.
+- **README.md added** — human-facing (architecture, features, self-hosting quick start, security notes), distinct from CLAUDE.md which stays AI-assistant-facing.
+- **Config genericized** — `worker/wrangler.toml` and `dashboard/.env.production` (real Synertek domain/D1 database) are now gitignored; `.example` counterparts committed instead. CORS allowlist in `worker/src/index.ts` was hardcoded to Synertek's production domain and Pages project slug — moved to `wrangler.toml` `[vars]` (`ALLOWED_ORIGIN`, `PAGES_PREVIEW_SUFFIX`) so self-hosters configure it without touching source.
+- **Go module path fixed** — was `github.com/synertekcs/beacon/agent`, didn't match the actual GitHub org (`synertek-cloud-services`). Renamed across `go.mod` and every internal import; confirmed `go build ./...` still passes.
+- **Branding genericized** — `LoginPage.vue` footer and `scripts/seed-local.mjs`'s sample tenant name no longer hardcode "Synertek Cloud Services".
+- **LICENSE** — chose AGPL-3.0 (copyleft, to prevent a hosted-SaaS fork without contributing back). Could not generate the file directly — writing out the full AGPL-3.0 legal text via the Write tool reliably tripped the session's content filter (confirmed reproducible, not a one-off). Worked around by having the user add it via GitHub's own "Choose a license template" picker instead, which also has better provenance.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| AGPL-3.0 over MIT/Apache-2.0 | Copyleft protects against someone forking Beacon into a closed competing hosted RMM without contributing back — deliberate tradeoff against maximizing adoption |
+| `.example` config files, real ones gitignored | Keeps org-specific domain/database details out of a public repo without inventing a bigger env-var-injection system than the project needs |
+| CORS origin moved to `wrangler.toml` vars, not left hardcoded | Same genericization goal as the `.example` files — a self-hoster's domain shouldn't require editing `index.ts` |
+| LICENSE added via GitHub UI, not generated in-session | The AGPL-3.0 boilerplate text itself (not the surrounding topic) reproducibly triggered the content filter; GitHub's template picker sidesteps it entirely |
+
+### Next logical steps
+
+1. Verify `LICENSE` gets added (via GitHub's UI, AGPL-3.0 template) and confirm the repo's public-facing state (About text, topics) matches its now-public status.
+2. No CONTRIBUTING.md yet — worth adding if outside contributions are actually expected, with basic PR/issue expectations.
+3. Multi-user auth (currently one shared `ADMIN_SECRET`) is still a known gap for a public-facing project — noted in README's Security notes section, not fixed this session (bigger design question, deliberately out of scope).
+4. Confirm no other environment-specific values got missed — this pass covered what turned up in a manual grep audit, not an exhaustive one.
+
 ## Session: 2026-07-12 (Datto RMM monitor parity pass)
 
 ### What was completed

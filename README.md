@@ -1,0 +1,102 @@
+# Beacon
+
+Beacon is a self-hosted Remote Monitoring & Management (RMM) platform. It runs a lightweight Go agent on managed endpoints (Windows, macOS, Linux), a Cloudflare Workers backend for check-ins and administration, and a Vue 3 dashboard for day-to-day operations.
+
+It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation jobs, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
+
+## Architecture
+
+```
+agent/        Go agent — runs on managed endpoints, checks in every 60s
+worker/       Cloudflare Worker (Hono + D1) — backend API, cron alert evaluation,
+              Durable Object for remote shell/TCP tunnel sessions
+dashboard/    Vue 3 + Vite SPA — the admin UI (Cloudflare Pages)
+migrations/   D1 SQL migrations
+scripts/      Utility scripts (local dev seeding, etc.)
+```
+
+Data flow: agents enroll against the Worker API, then check in once a minute with host metrics (disk, CPU, memory, uptime, AV status). The Worker evaluates check-ins against a **policy → monitor** system (see below) and raises alerts. Remote shell/TCP sessions are proxied through a Durable Object so a technician's browser can reach an endpoint with no inbound firewall rule needed.
+
+## Features
+
+- **Device enrollment & approval** — token-based enrollment, per-tenant auto-approve or manual review
+- **Policy-based monitoring** — global or per-company policies, each made of one or more monitors (disk space, CPU/memory usage, antivirus health, device online/offline, file size, ping reachability/latency/packet-loss, process state, Windows service state, software install/uninstall/version-change)
+- **Alerting** — sustained-condition debounce, auto-resolve, webhook notification
+- **Remote shell & TCP tunnel sessions** — browser-based, no agent-side listening port
+- **Scripted automation** — a reusable script/component library, dispatched as one-off or scheduled jobs across a device selection
+- **Inventory auditing** — full hardware/software/services snapshot on enrollment, every 24h, or on demand
+- **Multi-tenant** — companies, contacts, locations, per-tenant defaults
+
+## Quick start (self-hosting)
+
+### Prerequisites
+
+- Node.js + [pnpm](https://pnpm.io/)
+- Go 1.22+
+- A [Cloudflare account](https://dash.cloudflare.com/) (Workers + D1 + Pages)
+- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (`npx wrangler`, no global install needed)
+
+### 1. Worker setup
+
+```bash
+cd worker
+cp wrangler.toml.example wrangler.toml
+```
+
+Edit `wrangler.toml`: set your own D1 `database_name`/`database_id` (`npx wrangler d1 create beacon`), and your own custom domain route (or remove the `[[routes]]` block to use the default `workers.dev` subdomain).
+
+Create `worker/.dev.vars` for local development:
+
+```
+ADMIN_SECRET="pick-a-long-random-string"
+```
+
+Then:
+
+```bash
+make migrate-local     # apply migrations to local D1
+make dev                # wrangler dev
+```
+
+For production: `make migrate-remote` (after creating your D1 database and setting the `ADMIN_SECRET` secret via `npx wrangler secret put ADMIN_SECRET`), then `make deploy`.
+
+### 2. Dashboard setup
+
+```bash
+cd dashboard
+cp .env.production.example .env.production
+```
+
+Edit `.env.production` to point `VITE_API_URL` at your deployed Worker URL. Then:
+
+```bash
+pnpm install
+pnpm dev          # local dev server on :5173
+pnpm run build    # production build (type-check + vite build) for Cloudflare Pages
+```
+
+Set the dashboard's Cloudflare Pages project root directory to `dashboard`, build command to `pnpm run build`, output directory to `dist`.
+
+### 3. Agent
+
+```bash
+make build-agent-windows   # dist/agent-windows-amd64.exe
+make build-agent-linux     # dist/agent-linux-amd64
+make build-agent-darwin    # dist/agent-darwin-arm64
+```
+
+The agent needs the Worker's enrollment endpoint URL and a per-tenant enrollment token (create one from the dashboard's Companies page) at first run.
+
+## Database migrations
+
+Migrations live in `migrations/`, applied via Wrangler/D1 — see `make migrate-local` / `make migrate-remote` above. `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than auto-generated; when adding a schema change, add a new migration file and hand-edit `schema.ts` to match.
+
+## Security notes
+
+- `ADMIN_SECRET` is a single shared bearer token gating all `/v1/admin/*` routes and remote session access — treat it like a root password. There's no per-user account system yet.
+- The agent-to-Worker enrollment/check-in flow uses per-device tokens, not the admin secret.
+- Released agent binaries are Ed25519-signed; see `agent/tools/keygen` and `agent/tools/sign`. Keep the private key out of source control (CI secret only).
+
+## License
+
+Beacon is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See `LICENSE`.

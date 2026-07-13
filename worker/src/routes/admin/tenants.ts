@@ -4,18 +4,19 @@ import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { sha256hex, generateToken } from '../../lib/crypto';
+import { requireAdmin } from '../../lib/auth';
 
 const adminTenants = new Hono<{ Bindings: Bindings }>();
 
-function auth(c: any): boolean {
-  return c.req.header('Authorization') === `Bearer ${c.env.ADMIN_SECRET}`;
+function auth(c: any): Promise<boolean> {
+  return requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET);
 }
 
 // ── Tenants ───────────────────────────────────────────────────
 
 // GET / — list tenants with device counts and primary contact via subqueries
 adminTenants.get('/', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(`
     SELECT
@@ -49,7 +50,7 @@ adminTenants.get('/', async (c) => {
 
 // POST / — create tenant + optional initial contact
 adminTenants.post('/', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
@@ -100,7 +101,7 @@ adminTenants.post('/', async (c) => {
 
 // PATCH /:id — update company info and settings
 adminTenants.patch('/:id', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const body = await c.req.json<{
@@ -129,7 +130,7 @@ adminTenants.patch('/:id', async (c) => {
 // ── Contacts ──────────────────────────────────────────────────
 
 adminTenants.get('/:id/contacts', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const contacts = await db
@@ -142,7 +143,7 @@ adminTenants.get('/:id/contacts', async (c) => {
 });
 
 adminTenants.post('/:id/contacts', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const tenantId = c.req.param('id');
@@ -180,7 +181,7 @@ adminTenants.post('/:id/contacts', async (c) => {
 });
 
 adminTenants.patch('/:id/contacts/:contactId', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const tenantId = c.req.param('id');
   const contactId = c.req.param('contactId');
@@ -213,7 +214,7 @@ adminTenants.patch('/:id/contacts/:contactId', async (c) => {
 });
 
 adminTenants.delete('/:id/contacts/:contactId', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   await db.delete(schema.tenantContacts).where(eq(schema.tenantContacts.id, c.req.param('contactId')));
@@ -223,7 +224,7 @@ adminTenants.delete('/:id/contacts/:contactId', async (c) => {
 // ── Locations ─────────────────────────────────────────────────
 
 adminTenants.get('/:id/locations', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const locations = await db
@@ -236,7 +237,7 @@ adminTenants.get('/:id/locations', async (c) => {
 });
 
 adminTenants.post('/:id/locations', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const tenantId = c.req.param('id');
@@ -278,7 +279,7 @@ adminTenants.post('/:id/locations', async (c) => {
 });
 
 adminTenants.patch('/:id/locations/:locationId', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const tenantId = c.req.param('id');
   const locationId = c.req.param('locationId');
@@ -315,7 +316,7 @@ adminTenants.patch('/:id/locations/:locationId', async (c) => {
 });
 
 adminTenants.delete('/:id/locations/:locationId', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   await db.delete(schema.tenantLocations).where(eq(schema.tenantLocations.id, c.req.param('locationId')));
@@ -325,7 +326,7 @@ adminTenants.delete('/:id/locations/:locationId', async (c) => {
 // ── Enrollment Tokens ─────────────────────────────────────────
 
 adminTenants.get('/:id/tokens', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const tokens = await db
@@ -338,7 +339,7 @@ adminTenants.get('/:id/tokens', async (c) => {
 });
 
 adminTenants.post('/:id/tokens', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
@@ -372,7 +373,7 @@ adminTenants.post('/:id/tokens', async (c) => {
 });
 
 adminTenants.delete('/:id/tokens/:tokenId', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
@@ -385,7 +386,7 @@ adminTenants.delete('/:id/tokens/:tokenId', async (c) => {
 });
 
 adminTenants.delete('/:id/tokens/:tokenId/permanent', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   await db

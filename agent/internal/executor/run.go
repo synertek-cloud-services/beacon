@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 const defaultScriptTimeout = 5 * time.Minute

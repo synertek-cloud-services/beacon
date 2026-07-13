@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/gorilla/websocket"
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 type openPayload struct {

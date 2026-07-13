@@ -1,6 +1,6 @@
 # Beacon — CLAUDE.md
 
-Self-hosted RMM platform built for Synertek Cloud Services (developed by CodeNexus). Monorepo: Go agent, Cloudflare Workers backend, Vue 3 dashboard.
+Self-hosted RMM platform, originally built for Synertek Cloud Services (developed by CodeNexus), now open-sourced under AGPL-3.0. Monorepo: Go agent, Cloudflare Workers backend, Vue 3 dashboard. See `README.md` for the human-facing overview and self-hosting quick start — this file is the AI-assistant-facing architecture/convention reference.
 
 ## Repository layout
 
@@ -53,6 +53,12 @@ go build ./...
 
 `worker/.dev.vars` already has `ADMIN_SECRET="beacon-local-admin-secret"` for local dev.
 
+`ADMIN_SECRET` is compared via `worker/src/lib/auth.ts`'s `requireAdmin`/`timingSafeEqual` (hash-then-compare, not `===`) everywhere it gates a route — never add a new inline `auth === \`Bearer ${secret}\`` check, import the shared helper instead.
+
+## Self-hosting config (not secrets, but org-specific — gitignored with `.example` templates)
+
+`worker/wrangler.toml` and `dashboard/.env.production` are gitignored (real values are Synertek's own domain/D1 database, not committed for a public repo). Tracked `.example` counterparts (`worker/wrangler.toml.example`, `dashboard/.env.production.example`) hold placeholder values — anyone self-hosting copies the `.example` file and fills in their own domain/database ID. `worker/wrangler.toml`'s `[vars]` block (`ALLOWED_ORIGIN`, `PAGES_PREVIEW_SUFFIX`) drives the CORS allowlist in `worker/src/index.ts` — don't hardcode a domain back into `index.ts`.
+
 ## Production URLs
 
 | Service | URL |
@@ -72,7 +78,7 @@ go build ./...
 - CORS allows: production domain, localhost:5173, `*.beacon-dashboard-6f4.pages.dev`
 
 **Agent** (`agent/`)
-- Module: `github.com/synertekcs/beacon/agent`
+- Module: `github.com/synertek-cloud-services/beacon/agent` (matches the GitHub org this repo is published under)
 - Check-in interval: 60 seconds
 - Metrics sent on every check-in: hostname, OS, uptime, disk_free_bytes, disks[] (multi-drive), cpu_percent, memory_percent, detected_class, av_status, av_product
 - Check-in request also carries `pending_{file_size,ping,process,service}_results`; response carries `{file_size,ping,process,service}_checks` — see "Assign → measure → report pattern" below
@@ -274,3 +280,7 @@ Established over 6 check types added this session — each one touches the same 
 
 - No `Co-Authored-By` or Claude attribution lines in commits
 - Do not add AI-generated co-author footers
+
+## License
+
+AGPL-3.0 (see `LICENSE` — added via GitHub's license template picker, not generated inline, since generating the full license text in-session reliably trips the content filter).

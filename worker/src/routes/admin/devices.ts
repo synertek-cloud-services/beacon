@@ -3,17 +3,17 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
+import { requireAdmin } from '../../lib/auth';
 
 const adminDevices = new Hono<{ Bindings: Bindings }>();
 
-function auth(c: any): boolean {
-  const header = c.req.header('Authorization');
-  return header === `Bearer ${c.env.ADMIN_SECRET}`;
+function auth(c: any): Promise<boolean> {
+  return requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET);
 }
 
 // GET /v1/admin/devices?status=pending|approved|revoked
 adminDevices.get('/', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   const statusFilter = c.req.query('status') as typeof schema.devices.$inferSelect['status'] | undefined;
@@ -37,7 +37,7 @@ adminDevices.get('/', async (c) => {
 
 // GET /v1/admin/devices/:id
 adminDevices.get('/:id', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
@@ -47,7 +47,7 @@ adminDevices.get('/:id', async (c) => {
 
 // POST /v1/admin/devices/:id/approve
 adminDevices.post('/:id/approve', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
@@ -62,7 +62,7 @@ adminDevices.post('/:id/approve', async (c) => {
 
 // POST /v1/admin/devices/:id/revoke
 adminDevices.post('/:id/revoke', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
 
@@ -76,7 +76,7 @@ adminDevices.post('/:id/revoke', async (c) => {
 
 // DELETE /v1/admin/devices/:id
 adminDevices.delete('/:id', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
   await db.delete(schema.devices).where(eq(schema.devices.id, c.req.param('id')));
@@ -86,7 +86,7 @@ adminDevices.delete('/:id', async (c) => {
 
 // GET /v1/admin/devices/:id/commands — list recent commands (newest first)
 adminDevices.get('/:id/commands', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const cmds = await db
@@ -101,7 +101,7 @@ adminDevices.get('/:id/commands', async (c) => {
 
 // POST /v1/admin/devices/:id/commands — queue a command for the device
 adminDevices.post('/:id/commands', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const deviceId = c.req.param('id');
@@ -159,7 +159,7 @@ adminDevices.post('/:id/commands', async (c) => {
 
 // GET /v1/admin/devices/:id/audit/latest
 adminDevices.get('/:id/audit/latest', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const row = await db.select()
@@ -187,7 +187,7 @@ adminDevices.get('/:id/audit/latest', async (c) => {
 
 // GET /v1/admin/devices/:id/audit/changes?limit=100
 adminDevices.get('/:id/audit/changes', async (c) => {
-  if (!auth(c)) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const limit = Math.min(Number(c.req.query('limit') ?? 100), 500);
 

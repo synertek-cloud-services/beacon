@@ -13,8 +13,8 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	psnet "github.com/shirou/gopsutil/v3/net"
 
-	"github.com/synertekcs/beacon/agent/internal/diskutil"
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/diskutil"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 func collectHardware() (*protocol.HardwareInfo, error) {

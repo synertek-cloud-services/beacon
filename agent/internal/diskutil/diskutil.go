@@ -6,7 +6,7 @@ package diskutil
 import (
 	"github.com/shirou/gopsutil/v3/disk"
 
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 var excludedFSTypes = map[string]bool{

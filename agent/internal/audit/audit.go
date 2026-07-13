@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 // Start launches the audit scheduler as a background goroutine.

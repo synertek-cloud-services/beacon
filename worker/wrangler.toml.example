@@ -2,14 +2,20 @@ name = "beacon"
 main = "src/index.ts"
 compatibility_date = "2026-07-09"
 
+# Custom domain route for production. Remove this block to use the default
+# *.workers.dev subdomain instead.
 [[routes]]
-pattern = "rmm-api.cloud.synertekcs.com"
+pattern = "your-api-domain.example.com"
 custom_domain = true
+
+[vars]
+ALLOWED_ORIGIN = "https://your-dashboard-domain.example.com"
+PAGES_PREVIEW_SUFFIX = ".your-pages-project.pages.dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "beacon"
-database_id = "4a25c09a-ecc7-4a06-9606-380e754cbd9d"
+database_id = "your-d1-database-id"
 migrations_dir = "../migrations"
 
 [triggers]

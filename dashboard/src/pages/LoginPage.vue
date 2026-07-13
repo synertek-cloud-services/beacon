@@ -47,7 +47,7 @@
         </button>
       </form>
 
-      <div class="lp-footer">Synertek Cloud Services</div>
+      <div class="lp-footer">Beacon RMM</div>
     </div>
   </div>
 </template>

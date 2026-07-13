@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/synertekcs/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
 )
 
 func collectSoftware() ([]protocol.SoftwareItem, error) {

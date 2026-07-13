@@ -1,4 +1,4 @@
-module github.com/synertekcs/beacon/agent
+module github.com/synertek-cloud-services/beacon/agent
 
 go 1.22
 

@@ -3,12 +3,9 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
+import { requireAdmin } from '../../lib/auth';
 
 const policies = new Hono<{ Bindings: Bindings }>();
-
-function requireAdmin(auth: string | undefined, secret: string): boolean {
-  return auth === `Bearer ${secret}`;
-}
 
 type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
 type Priority  = 'critical' | 'high' | 'moderate' | 'low';
@@ -48,7 +45,7 @@ async function listWithMonitors(
 
 // ── GET /v1/admin/policies?scope=global|company&company_id=<id> ───────────────
 policies.get('/', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db        = drizzle(c.env.DB, { schema });
@@ -62,7 +59,7 @@ policies.get('/', async (c) => {
 // ── POST /v1/admin/policies ────────────────────────────────────────────────────
 // Accepts optional clone_from: string to copy an existing policy + its monitors.
 policies.post('/', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db  = drizzle(c.env.DB, { schema });
@@ -141,7 +138,7 @@ policies.post('/', async (c) => {
 
 // ── PATCH /v1/admin/policies/:id ──────────────────────────────────────────────
 policies.patch('/:id', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db  = drizzle(c.env.DB, { schema });
@@ -171,7 +168,7 @@ policies.patch('/:id', async (c) => {
 
 // ── DELETE /v1/admin/policies/:id ─────────────────────────────────────────────
 policies.delete('/:id', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
@@ -181,7 +178,7 @@ policies.delete('/:id', async (c) => {
 
 // ── GET /v1/admin/policies/:id/monitors ───────────────────────────────────────
 policies.get('/:id/monitors', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
@@ -192,7 +189,7 @@ policies.get('/:id/monitors', async (c) => {
 
 // ── POST /v1/admin/policies/:id/monitors ──────────────────────────────────────
 policies.post('/:id/monitors', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db  = drizzle(c.env.DB, { schema });
@@ -234,7 +231,7 @@ policies.post('/:id/monitors', async (c) => {
 
 // ── PATCH /v1/admin/policies/:id/monitors/:mid ────────────────────────────────
 policies.patch('/:id/monitors/:mid', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db  = drizzle(c.env.DB, { schema });
@@ -267,7 +264,7 @@ policies.patch('/:id/monitors/:mid', async (c) => {
 
 // ── DELETE /v1/admin/policies/:id/monitors/:mid ───────────────────────────────
 policies.delete('/:id/monitors/:mid', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)))
     return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });

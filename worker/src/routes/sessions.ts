@@ -3,16 +3,13 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
+import { requireAdmin, timingSafeEqual } from '../lib/auth';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
 
-function requireAdmin(auth: string | undefined, secret: string): boolean {
-  return auth === `Bearer ${secret}`;
-}
-
 // POST /v1/sessions — create a session and queue open_session for the agent
 sessions.post('/', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -78,7 +75,9 @@ sessions.get('/:id/ws', async (c) => {
 
   if (role === 'client') {
     const auth = c.req.query('auth');
-    if (auth !== c.env.ADMIN_SECRET) return c.json({ error: 'unauthorized' }, 401);
+    if (!auth || !(await timingSafeEqual(auth, c.env.ADMIN_SECRET))) {
+      return c.json({ error: 'unauthorized' }, 401);
+    }
   }
 
   const doId = c.env.SESSION.idFromName(c.req.param('id'));

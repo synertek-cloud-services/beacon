@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
+import { requireAdmin } from '../../lib/auth';
 
 const adminAgentVersions = new Hono<{ Bindings: Bindings }>();
 
@@ -10,8 +11,7 @@ const adminAgentVersions = new Hono<{ Bindings: Bindings }>();
 // Registers a new agent binary version. Marks it as latest for its platform.
 // Body: { version, os, arch, download_url, signature_hex }
 adminAgentVersions.post('/', async (c) => {
-  const auth = c.req.header('Authorization');
-  if (!auth || auth !== `Bearer ${c.env.ADMIN_SECRET}`) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -59,8 +59,7 @@ adminAgentVersions.post('/', async (c) => {
 
 // GET /v1/admin/agent/versions — list all registered versions
 adminAgentVersions.get('/', async (c) => {
-  const auth = c.req.header('Authorization');
-  if (!auth || auth !== `Bearer ${c.env.ADMIN_SECRET}`) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 

@@ -23,23 +23,27 @@ export type Bindings = {
   DB: D1Database;
   ADMIN_SECRET: string;
   SESSION: DurableObjectNamespace;
+  // Production dashboard origin, e.g. "https://rmm.example.com"
+  ALLOWED_ORIGIN?: string;
+  // Cloudflare Pages preview URL suffix, e.g. ".my-dashboard-1a2.pages.dev"
+  PAGES_PREVIEW_SUFFIX?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.use('/v1/admin/*', cors({
+app.use('/v1/admin/*', (c, next) => cors({
   origin: (origin) => {
     if (!origin) return '';
     if (
-      origin === 'https://rmm.cloud.synertekcs.com' ||
+      origin === c.env.ALLOWED_ORIGIN ||
       origin === 'http://localhost:5173' ||
-      origin.endsWith('.beacon-dashboard-6f4.pages.dev')
+      (c.env.PAGES_PREVIEW_SUFFIX && origin.endsWith(c.env.PAGES_PREVIEW_SUFFIX))
     ) return origin;
     return '';
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Authorization', 'Content-Type'],
-}));
+})(c, next));
 
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);

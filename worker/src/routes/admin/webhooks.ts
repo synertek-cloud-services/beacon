@@ -3,15 +3,12 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
+import { requireAdmin } from '../../lib/auth';
 
 const webhooks = new Hono<{ Bindings: Bindings }>();
 
-function requireAdmin(auth: string | undefined, secret: string): boolean {
-  return auth === `Bearer ${secret}`;
-}
-
 webhooks.get('/', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
@@ -26,7 +23,7 @@ webhooks.get('/', async (c) => {
 });
 
 webhooks.post('/', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
@@ -46,7 +43,7 @@ webhooks.post('/', async (c) => {
 });
 
 webhooks.delete('/:id', async (c) => {
-  if (!requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET)) {
+  if (!(await requireAdmin(c.req.header('Authorization'), c.env.ADMIN_SECRET))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   const db = drizzle(c.env.DB, { schema });
