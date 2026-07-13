@@ -683,7 +683,7 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 .pf-err { font-size: 11px; color: var(--red); }
 
 /* ── Segmented bar ── */
-.seg-bar { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; }
+.seg-bar { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; align-self: flex-start; }
 .seg-btn {
   padding: 7px 18px; font-size: 13px; font-weight: 500; font-family: var(--font);
   background: var(--surface-2); color: var(--muted-2); border: none; cursor: pointer;
@@ -781,33 +781,33 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 .btn-icon:hover { background: var(--surface-2); color: var(--text); }
 
 /* ═══════════════════════════════════════════════════════
-   Add / Edit Monitor overlay
+   Add / Edit Monitor drawer (right-side panel)
    ═══════════════════════════════════════════════════════ */
 .mo-overlay {
   position: fixed; inset: 0;
-  background: var(--bg);
+  background: rgba(0,0,0,.45);
   z-index: 500;
-  display: flex; flex-direction: column;
-  overflow: hidden;
+  display: flex; align-items: stretch; justify-content: flex-end;
 }
 
 .mo-inner {
   display: flex; flex-direction: column;
+  width: 620px; max-width: calc(100vw - 160px);
   height: 100%;
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 0 28px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0,0,0,.4);
+  overflow: hidden;
 }
 
 .mo-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 0 16px;
+  padding: 20px 24px 16px;
   border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
 .mo-head-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0; }
 
-.mo-body { flex: 1; overflow-y: auto; padding: 0; }
+.mo-body { flex: 1; overflow-y: auto; padding: 0 24px; }
 .mo-sec  { padding: 24px 0; }
 .mo-div  { border-top: 1px solid var(--border); margin: 0; }
 
@@ -895,7 +895,7 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 
 .mo-foot {
   display: flex; justify-content: flex-end; gap: 8px;
-  padding: 16px 0 20px;
+  padding: 16px 24px 20px;
   border-top: 1px solid var(--border); flex-shrink: 0;
 }
 </style>
