@@ -1,8 +1,11 @@
 import { bytesToBase64, base64ToBytes } from './crypto';
 
-// OWASP's current floor for PBKDF2-SHA256. Self-describing storage format means this
-// can be raised later without invalidating existing hashes.
-const DEFAULT_ITERATIONS = 210_000;
+// Cloudflare Workers' crypto.subtle PBKDF2 implementation hard-caps iterations at
+// 100,000 (throws NotSupportedError above that) — confirmed against the real production
+// runtime, not just OWASP's higher recommended floor. Self-describing storage format
+// means this can be raised later (if the runtime cap ever lifts) without invalidating
+// existing hashes.
+const DEFAULT_ITERATIONS = 100_000;
 
 async function deriveBits(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);

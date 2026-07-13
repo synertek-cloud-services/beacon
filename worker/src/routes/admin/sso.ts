@@ -4,7 +4,8 @@ import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
-import { encryptSecret } from '../../lib/crypto';
+import { encryptSecret, decryptSecret } from '../../lib/crypto';
+import { getAppOnlyGraphToken, searchGroups } from '../../lib/oidc';
 
 const adminSso = new Hono<{ Bindings: Bindings }>();
 
@@ -86,6 +87,28 @@ adminSso.delete('/providers/:id', async (c) => {
   await db.delete(schema.ssoGroupRoleMappings).where(eq(schema.ssoGroupRoleMappings.ssoProviderId, c.req.param('id')));
   await db.delete(schema.ssoProviders).where(eq(schema.ssoProviders.id, c.req.param('id')));
   return c.json({ ok: true });
+});
+
+// GET /providers/:id/groups?search=<query> — live search of the tenant's Entra
+// security groups, so admins can pick a group instead of pasting its Object ID.
+adminSso.get('/providers/:id/groups', async (c) => {
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+
+  const query = (c.req.query('search') ?? '').trim();
+  if (!query) return c.json([]);
+
+  const db = drizzle(c.env.DB, { schema });
+  const provider = await db.select().from(schema.ssoProviders).where(eq(schema.ssoProviders.id, c.req.param('id'))).get();
+  if (!provider) return c.json({ error: 'provider not found' }, 404);
+
+  try {
+    const clientSecret = await decryptSecret(provider.clientSecretCiphertext, provider.clientSecretNonce, c.env.CONFIG_ENCRYPTION_KEY);
+    const token = await getAppOnlyGraphToken(provider.directoryId, provider.clientId, clientSecret);
+    const groups = await searchGroups(token, query);
+    return c.json(groups);
+  } catch {
+    return c.json({ error: 'group search failed — confirm Group.Read.All (Application permission) is added and admin-consented in the Entra app registration' }, 502);
+  }
 });
 
 // ── Group → role mappings ────────────────────────────────────

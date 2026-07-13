@@ -51,7 +51,10 @@ authMicrosoft.get('/login', async (c) => {
   authorizeUrl.searchParams.set('response_type', 'code');
   authorizeUrl.searchParams.set('redirect_uri', callbackUrl(c.req.url));
   authorizeUrl.searchParams.set('response_mode', 'query');
-  authorizeUrl.searchParams.set('scope', 'openid profile email');
+  // GroupMember.Read.All is required for the callback's Graph memberOf lookup — without
+  // it, the token exchange succeeds but the group lookup gets rejected as insufficient
+  // privilege. Requires admin consent in the Entra app registration.
+  authorizeUrl.searchParams.set('scope', 'openid profile email GroupMember.Read.All');
   authorizeUrl.searchParams.set('state', state);
   authorizeUrl.searchParams.set('code_challenge', await pkceChallenge(codeVerifier));
   authorizeUrl.searchParams.set('code_challenge_method', 'S256');

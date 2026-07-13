@@ -74,7 +74,36 @@
           </div>
         </div>
 
-        <div class="pf-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+        <div v-if="!manualEntry" class="pf-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <div class="pf-group-search-wrap">
+            <input
+              v-model="groupQuery"
+              class="pf-input"
+              style="max-width:280px"
+              placeholder="Search groups by name…"
+              @focus="groupDropOpen = true"
+              @blur="hideGroupDrop"
+              @input="scheduleGroupSearch"
+            />
+            <div v-if="groupDropOpen && groupQuery.trim()" class="pf-group-drop">
+              <div v-if="groupSearching" class="pf-group-opt-empty">Searching…</div>
+              <div v-else-if="groupSearchError" class="pf-group-opt-empty">{{ groupSearchError }}</div>
+              <div v-else-if="!groupResults.length" class="pf-group-opt-empty">No matches.</div>
+              <div v-for="g in groupResults" :key="g.id" class="pf-group-opt" @mousedown.prevent="selectGroup(g)">
+                <strong>{{ g.displayName || g.id }}</strong>
+                <span class="text-muted pf-group-opt-id">{{ g.id }}</span>
+              </div>
+            </div>
+          </div>
+          <select v-model="newMapping.role" class="pf-input" style="max-width:150px">
+            <option value="admin">Admin</option>
+            <option value="technician">Technician</option>
+            <option value="readonly">Read-only</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" :disabled="!newMapping.groupId" @click="addMapping">Add Mapping</button>
+        </div>
+
+        <div v-else class="pf-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
           <input v-model="newMapping.groupId" class="pf-input" placeholder="Group object ID" style="max-width:260px" />
           <input v-model="newMapping.groupName" class="pf-input" placeholder="Group name (optional)" style="max-width:200px" />
           <select v-model="newMapping.role" class="pf-input" style="max-width:150px">
@@ -84,6 +113,15 @@
           </select>
           <button class="btn btn-ghost btn-sm" :disabled="!newMapping.groupId" @click="addMapping">Add Mapping</button>
         </div>
+
+        <p v-if="!manualEntry && newMapping.groupId" class="field-hint">
+          Selected: <strong>{{ newMapping.groupName || newMapping.groupId }}</strong>
+          <button class="btn-text" style="margin-left:8px" @click="clearSelectedGroup">Clear</button>
+        </p>
+
+        <button class="btn-text" style="align-self:flex-start" @click="toggleManualEntry">
+          {{ manualEntry ? 'Use group search instead' : "Can't find it? Enter the Object ID manually" }}
+        </button>
       </div>
     </div>
   </div>
@@ -103,6 +141,14 @@ const provider = reactive<{ id: string | null; name: string; directoryId: string
 
 const mappings = ref<SsoGroupRoleMapping[]>([]);
 const newMapping = reactive<{ groupId: string; groupName: string; role: Role }>({ groupId: '', groupName: '', role: 'technician' });
+
+const manualEntry = ref(false);
+const groupQuery = ref('');
+const groupResults = ref<{ id: string; displayName?: string }[]>([]);
+const groupDropOpen = ref(false);
+const groupSearching = ref(false);
+const groupSearchError = ref('');
+let groupSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(async () => {
   const providers = await api.sso.providers.list();
@@ -164,6 +210,53 @@ async function addMapping() {
   newMapping.groupId = '';
   newMapping.groupName = '';
   newMapping.role = 'technician';
+  groupQuery.value = '';
+  groupResults.value = [];
+}
+
+function scheduleGroupSearch() {
+  if (groupSearchTimer) clearTimeout(groupSearchTimer);
+  groupSearchError.value = '';
+  const query = groupQuery.value.trim();
+  if (!query) { groupResults.value = []; return; }
+  groupSearchTimer = setTimeout(() => runGroupSearch(query), 300);
+}
+
+async function runGroupSearch(query: string) {
+  if (!provider.id) return;
+  groupSearching.value = true;
+  try {
+    groupResults.value = await api.sso.providers.searchGroups(provider.id, query);
+  } catch (e) {
+    groupSearchError.value = e instanceof Error ? e.message : 'Group search failed.';
+    groupResults.value = [];
+  } finally {
+    groupSearching.value = false;
+  }
+}
+
+function hideGroupDrop() {
+  // Delay so a click on a dropdown option (@mousedown.prevent) registers before we close it.
+  setTimeout(() => { groupDropOpen.value = false; }, 150);
+}
+
+function selectGroup(g: { id: string; displayName?: string }) {
+  newMapping.groupId = g.id;
+  newMapping.groupName = g.displayName ?? '';
+  groupQuery.value = g.displayName ?? g.id;
+  groupResults.value = [];
+  groupDropOpen.value = false;
+}
+
+function clearSelectedGroup() {
+  newMapping.groupId = '';
+  newMapping.groupName = '';
+  groupQuery.value = '';
+}
+
+function toggleManualEntry() {
+  manualEntry.value = !manualEntry.value;
+  clearSelectedGroup();
 }
 
 async function removeMapping(id: string) {
@@ -236,4 +329,19 @@ async function removeMapping(id: string) {
 .role-admin      { background: rgba(232,86,106,.14); color: var(--red); }
 .role-technician { background: rgba(78,126,247,.14); color: var(--accent); }
 .role-readonly   { background: var(--surface-2); color: var(--muted-2); }
+
+/* ── Group search combobox ── */
+.pf-group-search-wrap { position: relative; }
+.pf-group-drop {
+  position: absolute; top: calc(100% + 4px); left: 0; width: 280px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 50; overflow: hidden; max-height: 220px; overflow-y: auto;
+}
+.pf-group-opt {
+  padding: 8px 12px; font-size: 12px; color: var(--text); cursor: pointer;
+  transition: background .08s; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+}
+.pf-group-opt:hover { background: var(--surface-2); }
+.pf-group-opt-id { font-size: 10px; color: var(--muted); }
+.pf-group-opt-empty { padding: 10px 12px; font-size: 12px; color: var(--muted); }
 </style>

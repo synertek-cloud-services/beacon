@@ -383,6 +383,8 @@ export const api = {
       update: (id: string, body: Partial<{ name: string; directoryId: string; clientId: string; clientSecret: string; enabled: boolean }>) =>
         request<{ ok: boolean }>('PATCH', `/v1/admin/sso/providers/${id}`, body),
       delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/sso/providers/${id}`),
+      searchGroups: (id: string, search: string) =>
+        request<{ id: string; displayName?: string }[]>('GET', `/v1/admin/sso/providers/${id}/groups?search=${encodeURIComponent(search)}`),
     },
     groupMappings: {
       list:   (providerId: string) => request<SsoGroupRoleMapping[]>('GET', `/v1/admin/sso/providers/${providerId}/group-mappings`),
