@@ -33,6 +33,38 @@ Dark-first design system. All tokens defined in `dashboard/src/style.css` as CSS
 
 The sidebar has a CSS transition on width for collapse animation. Use `.no-transition` class during drag to suppress it.
 
+## Sidebar collapse toggle (floating chevron)
+
+Collapse/expand is **not** a topbar hamburger button — it's a small circular button that straddles the sidebar's right edge, sibling to `.sidebar`/`.main-wrap` inside `.shell` (which needs `position: relative` in `style.css` for this to anchor correctly):
+
+```html
+<button
+  class="sidebar-toggle-btn"
+  :class="{ 'no-transition': isResizing }"
+  :style="{ left: (sidebarCollapsed ? 11 : sidebarWidth) + 'px' }"
+  @click="toggleSidebar"
+>
+  <svg ...><polyline v-if="!sidebarCollapsed" points="15 18 9 12 15 6"/><polyline v-else points="9 18 15 12 9 6"/></svg>
+</button>
+```
+```css
+.sidebar-toggle-btn {
+  position: absolute; top: 14px; transform: translateX(-50%);
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border-2);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-2); z-index: 601; /* above .sidebar's z-index:600 */
+  transition: left .2s ease, background .12s, color .12s, border-color .12s;
+}
+.sidebar-toggle-btn.no-transition { transition: none !important; }
+```
+
+**Must be a sibling of `.sidebar`, not a child** — `.sidebar` has `overflow: hidden`, which would clip a button meant to poke halfway outside it. Position it via `left` relative to `.shell` instead, bound live to `sidebarWidth`/`sidebarCollapsed` so it tracks the sidebar during a resize drag (share the same `isResizing` no-transition flag the resizer uses).
+
+**The collapsed-state offset is `11px`, not `0`** — at `left: 0` the circle's center sits exactly on the viewport edge and half the button renders off-screen and unclickable. `11` (half the button's 22px width) keeps the whole circle on-screen, touching the true edge.
+
+Icon flips direction based on state (chevron-left when expanded → click collapses; chevron-right when collapsed → click expands) rather than a static hamburger glyph.
+
 ## Typography scale
 
 | Usage | Size | Weight | Color |
@@ -301,6 +333,55 @@ Appears inside the Companies `sec-body`, after "All Companies" link, when a comp
 ```
 
 Sub-links (e.g., Devices) use `.sbi-leaf` with `padding-left: 48px`.
+
+## Auth-shell pages (Login, SSO callback)
+
+`LoginPage.vue` and `SsoCallbackPage.vue` share a visual family (`.lp-bg` full-screen centered wrapper + `.lp-card`), duplicated per-component (not shared) matching this codebase's established duplication-over-sharing convention — keep both in sync by hand if you tweak one.
+
+- Card: **440px** max-width (not the general 400px — matches the modal-width precedent), `44px 40px 36px` padding, radial accent gradient behind it (`radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%)` over `var(--bg)`).
+- Use `var(--*)` custom properties for every color in these files, not hardcoded hex — they were originally hand-authored with raw hex matching the tokens, which drifts silently if the token palette ever changes. Converted this session.
+- **Input-with-leading-icon** pattern (mail/lock icons inside email/password fields):
+  ```html
+  <div class="lp-input-wrap">
+    <svg class="lp-input-icon" ...>...</svg>
+    <input class="lp-input" ... />
+  </div>
+  ```
+  ```css
+  .lp-input-wrap { position: relative; display: flex; align-items: center; }
+  .lp-input-icon { position: absolute; left: 13px; color: var(--muted); pointer-events: none; }
+  .lp-input { padding: 12px 14px 12px 38px; /* left padding clears the icon */ }
+  ```
+- **Gotcha**: don't put `letter-spacing` on a shared input class meant to space out password-dot rendering — it also tracks out any *typed plain text* sharing that class (an actual bug this session: email addresses rendered with unnatural character spacing because `.lp-input` applied `letter-spacing: .08em` to both the email and password fields). If you want wider password-dot spacing, scope it to `input[type="password"]`, not the shared class.
+- No footer branding repeating the product name — it's already in the header directly above; a repeated "Beacon RMM" at the bottom reads as filler, not polish.
+
+## Async search-as-you-type combobox
+
+Distinct from the client-side-filter combobox already documented above (`.pf-site-drop` in PolicyFormPage, which filters an already-loaded in-memory list) — this variant debounces and calls a backend API per keystroke, for searching data that isn't (and shouldn't be) fully loaded client-side, e.g. `SsoSettingsPage.vue`'s Entra group search:
+
+```typescript
+const query = ref('');
+const results = ref<T[]>([]);
+const searching = ref(false);
+const searchError = ref('');
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSearch() {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchError.value = '';
+  const q = query.value.trim();
+  if (!q) { results.value = []; return; }
+  searchTimer = setTimeout(() => runSearch(q), 300);
+}
+
+async function runSearch(q: string) {
+  searching.value = true;
+  try { results.value = await api.someSearch(q); }
+  catch (e) { searchError.value = e instanceof Error ? e.message : 'Search failed.'; results.value = []; }
+  finally { searching.value = false; }
+}
+```
+Dropdown markup reuses the same `position: relative` wrapper / `position: absolute` dropdown shape as `.pf-site-drop`, with `@mousedown.prevent` on each option (fires before the input's `@blur` would otherwise close the dropdown first) and a `setTimeout(..., 150)` delay on `@blur` itself for the same reason. Show three states in the dropdown: searching, error (surface `searchError` — don't swallow it, these calls can fail for real infra reasons like a missing API permission), and empty/no-match — not just a bare list.
 
 ## Sidebar resizer
 

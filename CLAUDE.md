@@ -5,10 +5,12 @@ Self-hosted RMM platform, originally built for Synertek Cloud Services (develope
 ## Project status (as of 2026-07-13)
 
 - **11 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
-- **Multi-user auth + RBAC shipped this session** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path.
+- **Multi-user auth + RBAC shipped and production-validated this session** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path. **This went through a real production rollout this session** (real Entra app registration, real `wrangler deploy`, real Microsoft login) — not just local D1/curl testing — and that rollout caught three real bugs now fixed: a missing Graph OAuth scope, direct-only vs. transitive group membership, and a Cloudflare Workers PBKDF2 iteration cap. See PROJECT_LOG.md's "Production rollout follow-up" for details — worth reading before touching `worker/src/lib/password.ts` or `worker/src/lib/oidc.ts` again.
+- **SSO group search** — Settings → Single Sign-On now has a live group-name search (backed by an app-only Graph client-credentials call) instead of requiring admins to paste a raw Entra group Object ID, with a manual-entry fallback.
+- **Dashboard visual polish this session**: login page rebuilt (wider card, input icons, fixed a real letter-spacing bug, dropped hardcoded hex in favor of the app's actual CSS custom properties); sidebar collapse control replaced — see "Sidebar structure" below, no longer a topbar hamburger.
 - **Open-sourced under AGPL-3.0** — repo is public. `LICENSE`, `README.md` in place; org-specific config (`wrangler.toml`, `dashboard/.env.production`) moved to gitignored files with `.example` templates; Go module path corrected to match the actual GitHub org.
-- **Not yet done**: full end-to-end Microsoft SSO validation needs a real Entra app registration (can't be exercised against local D1). Dashboard auth UI (login, role-gated nav, Users/SSO settings pages) *was* browser-driven this session via Playwright MCP — see PROJECT_LOG.md.
-- Everything built so far has been verified against local D1 + simulated check-ins/audits via curl, not a real deployed fleet — see PROJECT_LOG.md's "Next logical steps" for real-fleet validation status.
+- **Known gap**: the worker has no CI/CD — only the dashboard (Cloudflare Pages) auto-deploys on push to `main`. Every worker change needs a manual `cd worker && npx wrangler deploy`; there's no GitHub Actions workflow and no Cloudflare Workers Builds git integration configured.
+- Everything else has been verified against local D1 + simulated check-ins/audits via curl, not a real deployed agent fleet — see PROJECT_LOG.md's "Next logical steps" for real-fleet validation status.
 
 ## Repository layout
 
@@ -103,7 +105,7 @@ go build ./...
 - Routes defined in `main.ts`
 - All API calls via `dashboard/src/api.ts`; base URL from `VITE_API_URL` env var
 - `VITE_API_URL` set in `dashboard/.env.production` — must not be undefined in prod or all requests hit Pages origin
-- Sidebar is resizable (drag handle, stored in `localStorage` as `beacon-sidebar-w`) and collapsible (hamburger button, stored as `beacon-sidebar-collapsed`)
+- Sidebar is resizable (drag handle, stored in `localStorage` as `beacon-sidebar-w`) and collapsible (floating chevron button at the sidebar's edge, stored as `beacon-sidebar-collapsed` — see STYLE.md, this used to be a topbar hamburger button)
 
 ## Database
 
@@ -137,9 +139,15 @@ Sessions are opaque random tokens (`generateToken()`/`sha256hex()`, the same con
 ### Microsoft Entra ID SSO (`worker/src/lib/oidc.ts`, `worker/src/routes/auth-microsoft.ts`)
 Admin configures one or more Entra security groups mapped to a Beacon role via `/v1/admin/sso/providers` + nested `/group-mappings` (client secret AES-GCM-encrypted at rest using the `CONFIG_ENCRYPTION_KEY` secret — the one place a secret is encrypted rather than hashed, since it must be recovered in plaintext to call Microsoft's token endpoint).
 
-Flow: `GET /v1/auth/microsoft/login` generates PKCE + a `state` row in `sso_login_state` (the row's own id *is* the `state` value — no cookie needed) and redirects to Microsoft; `GET /v1/auth/microsoft/callback` exchanges the code, verifies the ID token via `jose` (the one deliberate third-party-crypto dependency in the codebase, justified by how easy JWKS/JWT verification is to get wrong by hand), then **always** calls Microsoft Graph `GET /me/memberOf` for group membership — never the ID token's `groups` claim, since Entra only embeds direct-membership claims below ~200 groups and requires a Graph call above that anyway. Zero matching group mappings rejects the login with no user created; multiple matches pick the highest-privilege role (`highestRole()`); role is re-resolved from current group membership on every login. The callback hands the SPA a one-time `sso_exchange_codes` code (not the real token) via redirect, so the session token never appears in a URL; `POST /v1/auth/microsoft/exchange` trades it for the real token.
+Flow: `GET /v1/auth/microsoft/login` generates PKCE + a `state` row in `sso_login_state` (the row's own id *is* the `state` value — no cookie needed) and redirects to Microsoft requesting `openid profile email GroupMember.Read.All` scope; `GET /v1/auth/microsoft/callback` exchanges the code, verifies the ID token via `jose` (the one deliberate third-party-crypto dependency in the codebase, justified by how easy JWKS/JWT verification is to get wrong by hand), then **always** calls Microsoft Graph `GET /me/transitiveMemberOf` for group membership (not `/me/memberOf` — that only returns direct membership and silently misses nested groups, which are the norm in real Entra tenants; caught during this session's real Entra rollout) — never the ID token's `groups` claim, since Entra only embeds direct-membership claims below ~200 groups and requires a Graph call above that anyway. Zero matching group mappings rejects the login with no user created; multiple matches pick the highest-privilege role (`highestRole()`); role is re-resolved from current group membership on every login. The callback hands the SPA a one-time `sso_exchange_codes` code (not the real token) via redirect, so the session token never appears in a URL; `POST /v1/auth/microsoft/exchange` trades it for the real token.
+
+**Entra app registration requirements** (see README/PROJECT_LOG for the full walkthrough): redirect URI `<worker-url>/v1/auth/microsoft/callback`; API permissions need **two** separate Graph permissions added, both requiring admin consent — `GroupMember.Read.All` as a **Delegated** permission (used at login time, in the scope above) and `Group.Read.All` as an **Application** permission (used by the group-search feature below, via client-credentials — a signed-in admin configuring SSO may not have a Microsoft delegated token available at all).
+
+**Group search** (`GET /v1/admin/sso/providers/:id/groups?search=`, admin-only) — lets the SSO settings page search real Entra groups by display name instead of requiring a pasted Object ID. Uses `getAppOnlyGraphToken()` (OAuth2 client-credentials grant against the provider's own stored client_id/secret) + `searchGroups()` (Graph `/groups?$search=`, requires the `ConsistencyLevel: eventual` header). Falls back to manual Object ID entry in the UI if search fails (e.g. the Application permission isn't granted yet).
 
 Google Workspace is explicitly deferred (v2) but `sso_providers.type` and the group-mapping tables are provider-generic — adding it later reuses the same tables and the same `oidc.ts` verification helper.
+
+**Password hashing runtime limit**: `worker/src/lib/password.ts`'s PBKDF2 iteration count is capped at 100,000, not OWASP's higher recommended floor — Cloudflare Workers' actual edge `crypto.subtle` implementation throws `NotSupportedError` above 100,000 iterations. This did **not** reproduce in local `wrangler dev` testing, only against the real deployed worker — don't trust local dev alone for anything touching `crypto.subtle` limits.
 
 ### Dashboard side
 `dashboard/src/auth.ts` is a small `reactive` current-user singleton (no Pinia, consistent with the app's existing no-state-library convention) — `loadCurrentUser()` calls `/v1/auth/me`, `hasRole(min)` gates nav items and admin-only routes. `dashboard/src/api.ts`'s `request()` clears the stored token and hard-redirects to `/login` on any 401 outside a login attempt (`skipAuthRedirect` opt-out used by the login/SSO-exchange calls themselves).
@@ -261,6 +269,7 @@ POST /v1/admin/sso/providers                 Configure a provider
 PATCH  /v1/admin/sso/providers/:id           Update config / rotate secret
 DELETE /v1/admin/sso/providers/:id           Remove provider
 GET/POST/DELETE /v1/admin/sso/providers/:id/group-mappings[/:mid]   Group → role mapping CRUD
+GET  /v1/admin/sso/providers/:id/groups?search=      Live Entra group search (app-only Graph token)
 ```
 
 ## Dashboard routes
@@ -293,7 +302,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 - **Automation** section: Jobs, Components
 - **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On
 - Sidebar footer shows the signed-in user's name/role above the Sign out button
-- Resizable via drag handle (`.sidebar-resizer`), collapsible via topbar hamburger button
+- Resizable via drag handle (`.sidebar-resizer`); collapsible via a floating chevron button straddling the sidebar's right edge (`.sidebar-toggle-btn`, absolutely positioned relative to `.shell`) — not a topbar hamburger, see STYLE.md
 
 Active client state: `activeClientId` ref set by watching `route.query.company`. Cleared with the × button on the client block.
 

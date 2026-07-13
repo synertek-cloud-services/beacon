@@ -47,10 +47,30 @@ The one thing flagged as impossible to verify locally — a real Entra ID app re
 
 Practical lesson for future sessions: "verified locally" and "verified end-to-end" are not the same claim for anything that depends on either (a) a real third-party identity provider, or (b) exact Workers-edge runtime behavior rather than Miniflare/local simulation. Both bit this session despite deliberate local verification effort.
 
+**End-to-end result**: after the three fixes above, the real rollout succeeded — bootstrap admin created via curl against the real deployed worker, real dashboard login at `rmm.cloud.synertekcs.com`, real Entra app registration configured through Settings → Single Sign-On, and a real "Sign in with Microsoft" login confirmed working (resolved the correct role from group membership). Microsoft SSO is no longer an unverified code path.
+
+### Group search for SSO settings (same day, added after a UX complaint)
+
+The Group → Role Mappings UI originally required pasting a raw Entra group Object ID — user feedback was that this should be a proper search/picker instead. Added:
+- `worker/src/lib/oidc.ts`: `getAppOnlyGraphToken()` (OAuth2 client-credentials grant using the provider's own stored client_id/secret — not a delegated user token, since the admin configuring SSO may be logged in locally, not via Microsoft) + `searchGroups()` (Graph `/groups?$search=`, needs the `ConsistencyLevel: eventual` header).
+- New route `GET /v1/admin/sso/providers/:id/groups?search=` (admin-only).
+- `SsoSettingsPage.vue`: debounced (300ms) live search-as-you-type combobox, same interaction shape as `PolicyFormPage.vue`'s existing site-search combobox but backed by an async API call instead of filtering an already-loaded list. Kept a "Can't find it? Enter the Object ID manually" fallback link for when search fails or the permission isn't granted yet.
+- **Needs a second, separate Entra permission**: `Group.Read.All` as an **Application** permission (distinct from the **Delegated** `GroupMember.Read.All` used at login time) — Application permissions are their own admin-consent step in the Entra app registration.
+
+### Dashboard visual polish (same day, user-reported)
+
+Two rounds of UI feedback, both resolved:
+
+1. **Login page redesign** — user reported the redesigned auth/RBAC login page (email/password + Microsoft button, shipped earlier this session) looked "squished." Investigation found the card rendered exactly as designed at the reported window size — not a layout bug, just objectively denser than the old single-field form. Found and fixed one real bug in the process: `.lp-input`'s shared `letter-spacing: .08em` (meant to space out password dots) was also tracking out *typed email text*, which read as unpolished. Rebuilt: card widened 400→440px, more internal spacing, leading mail/lock icons inside the inputs, a "Forgot your password? Ask an admin" hint (there's no self-service reset), dropped the redundant footer branding, and swapped every hardcoded hex color for the project's actual CSS custom properties (`var(--accent)` etc. instead of `#4e7ef7`). `SsoCallbackPage.vue`'s shared `.lp-bg`/`.lp-card` shell synced to match.
+2. **Sidebar collapse control** — user disliked the topbar hamburger-icon toggle, wanted something closer to a reference screenshot (a small circular chevron button straddling the sidebar's edge). Replaced: removed `.topbar-toggle` entirely, added `.sidebar-toggle-btn` — absolutely positioned relative to `.shell` (needed `position: relative` added there), `left` bound to `sidebarCollapsed ? 11 : sidebarWidth` so it tracks the sidebar's live width during a resize drag, chevron flips direction (`◀`/`▶`) based on collapsed state. The `11`px offset when collapsed (not `0`) matters — at `0` the circle's center sits exactly on the viewport edge and half of it renders off-screen.
+
+Both browser-verified via Playwright MCP at multiple viewport sizes before and after.
+
 ### Next logical steps
 
 1. **CONTRIBUTING.md** — still not written (carried over from the previous session).
-2. **Real-fleet validation** — still outstanding (carried over from the previous session).
+2. **Real-fleet validation** — still outstanding (carried over from the previous session) — everything (including the now-validated SSO flow) has been exercised by one real admin account, not a real multi-user fleet of technicians/readonly staff over time.
+3. **Worker has no CI/CD** — clarified with the user this session: only the dashboard (Cloudflare Pages) auto-deploys on push to `main`. The worker needs a manual `wrangler deploy` every time, and this bit us mid-session (a batch of worker fixes sat uncommitted/undeployed while only the dashboard side was pushed). Worth setting up Cloudflare Workers Builds or a GitHub Actions workflow if this keeps causing confusion.
 
 ## Session: 2026-07-13 (Open-source prep pass)
 
