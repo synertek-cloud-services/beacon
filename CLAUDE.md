@@ -2,15 +2,24 @@
 
 Self-hosted RMM platform, originally built for Synertek Cloud Services (developed by CodeNexus), now open-sourced under AGPL-3.0. Monorepo: Go agent, Cloudflare Workers backend, Vue 3 dashboard. See `README.md` for the human-facing overview and self-hosting quick start — this file is the AI-assistant-facing architecture/convention reference.
 
+## Project status (as of 2026-07-13)
+
+- **11 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
+- **Open-sourced this session** under AGPL-3.0 — repo is now public. `LICENSE`, `README.md` in place; `ADMIN_SECRET` checks hardened to timing-safe comparison; org-specific config (`wrangler.toml`, `dashboard/.env.production`) moved to gitignored files with `.example` templates; Go module path corrected to match the actual GitHub org.
+- **Known gap, not yet addressed**: single shared `ADMIN_SECRET` bearer token, no per-user/multi-user auth — acceptable for the current internal-primary-use case, called out in README's Security notes as the next thing a public-facing deployment would want.
+- Everything built so far has been verified against local D1 + simulated check-ins/audits via curl, not a real deployed fleet — see PROJECT_LOG.md's "Next logical steps" for real-fleet validation status.
+
 ## Repository layout
 
 ```
 agent/        Go agent (runs on managed endpoints)
 worker/       Cloudflare Worker (Hono + D1)
 dashboard/    Vue 3 + Vite SPA (Cloudflare Pages)
-migrations/   D1 SQL migrations (0000 … 0011)
+migrations/   D1 SQL migrations (0000 … 0015)
 scripts/      Utility scripts
 Makefile      Top-level task runner
+LICENSE       AGPL-3.0
+README.md     Human-facing overview + self-hosting quick start
 ```
 
 ## Commands
