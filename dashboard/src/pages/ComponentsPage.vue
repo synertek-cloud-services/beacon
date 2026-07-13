@@ -15,6 +15,11 @@
             <option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
           </select>
         </div>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="selectedCount === 0"
+          @click="openCreateJob"
+        >Create a Job{{ selectedCount ? ` (${selectedCount})` : '' }}</button>
         <button class="btn btn-primary btn-sm" @click="openCreate">+ New Component</button>
       </div>
 
@@ -28,6 +33,7 @@
       <table v-else>
         <thead>
           <tr>
+            <th class="th-check"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
             <th>Name</th>
             <th>Category</th>
             <th>Shell</th>
@@ -38,6 +44,9 @@
         </thead>
         <tbody>
           <tr v-for="comp in visible" :key="comp.id">
+            <td class="th-check" @click.stop>
+              <input type="checkbox" :checked="!!selected[comp.id]" @change="toggleSelect(comp.id)" />
+            </td>
             <td>
               <div class="comp-name">{{ comp.name }}</div>
               <div v-if="comp.description" class="text-xs text-muted-2" style="margin-top:2px">{{ comp.description }}</div>
@@ -59,6 +68,13 @@
         </tbody>
       </table>
     </div>
+
+    <CreateJobModal
+      v-if="jobModalOpen"
+      :initial-components="jobModalComponents"
+      @created="onJobCreated"
+      @close="jobModalOpen = false"
+    />
 
     <!-- Create / Edit modal -->
     <div v-if="modal" class="modal-backdrop" @click.self="modal = null">
@@ -147,8 +163,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { api, type Component } from '../api';
+import { ref, reactive, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { api, type Component, type Job } from '../api';
+import CreateJobModal from '../components/CreateJobModal.vue';
+
+const router = useRouter();
 
 const CATEGORIES = ['Maintenance', 'Diagnostic', 'Deployment', 'Monitoring', 'Security', 'Custom'] as const;
 
@@ -157,6 +177,36 @@ const loading       = ref(true);
 const error         = ref('');
 const search        = ref('');
 const filterCategory = ref('');
+
+// ── Bulk select → Create a Job ───────────────────────────────────
+const selected      = reactive<Record<string, boolean>>({});
+const jobModalOpen  = ref(false);
+const jobModalComponents = ref<Component[]>([]);
+
+const selectedCount = computed(() => Object.keys(selected).length);
+const allSelected   = computed(() =>
+  visible.value.length > 0 && visible.value.every(c => selected[c.id])
+);
+
+function toggleAll() {
+  if (allSelected.value) visible.value.forEach(c => delete selected[c.id]);
+  else                   visible.value.forEach(c => { selected[c.id] = true; });
+}
+function toggleSelect(id: string) {
+  if (selected[id]) delete selected[id];
+  else selected[id] = true;
+}
+
+function openCreateJob() {
+  jobModalComponents.value = visible.value.filter(c => selected[c.id]);
+  jobModalOpen.value = true;
+}
+
+function onJobCreated(_job: Job) {
+  jobModalOpen.value = false;
+  Object.keys(selected).forEach(id => delete selected[id]);
+  router.push('/jobs');
+}
 
 interface ModalState {
   id:            string | null;
@@ -307,6 +357,8 @@ onMounted(load);
   height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px;
   background: var(--surface); color: var(--text); font-size: 12px; font-family: var(--font);
 }
+
+.th-check { width: 36px; }
 
 .comp-name { font-size: 13px; font-weight: 500; color: var(--text); }
 

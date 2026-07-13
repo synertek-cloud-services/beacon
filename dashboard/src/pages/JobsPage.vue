@@ -14,8 +14,17 @@
             <span class="tab-count">{{ countFor(tab.value) }}</span>
           </button>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" @click="jobModalOpen = true">+ New Job</button>
+          <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
+        </div>
       </div>
+
+      <CreateJobModal
+        v-if="jobModalOpen"
+        @created="onJobCreated"
+        @close="jobModalOpen = false"
+      />
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
 
@@ -139,6 +148,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api, type Job, type JobDetail, type JobDeviceCommand } from '../api';
+import CreateJobModal from '../components/CreateJobModal.vue';
 
 interface CmdResult { stdout: string; stderr: string; exit_code: number; }
 
@@ -149,6 +159,12 @@ const expandedId = ref<string | null>(null);
 const detail     = ref<JobDetail | null>(null);
 const detailLoading = ref(false);
 const activeTab  = ref<'all' | 'quick' | 'scheduled' | 'active' | 'completed' | 'cancelled'>('all');
+const jobModalOpen = ref(false);
+
+function onJobCreated(job: Job) {
+  jobModalOpen.value = false;
+  jobs.value = [job, ...jobs.value];
+}
 
 const tabs = [
   { label: 'All',       value: 'all'       as const },
