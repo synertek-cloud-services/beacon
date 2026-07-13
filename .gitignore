@@ -18,3 +18,5 @@ Thumbs.db
 
 worker/wrangler.toml
 dashboard/.env.production
+
+.playwright-mcp/

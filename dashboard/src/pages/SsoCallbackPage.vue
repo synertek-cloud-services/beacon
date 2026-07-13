@@ -49,31 +49,34 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(78,126,247,.18) 0%, transparent 70%),
-    #0c0e16;
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%),
+    var(--bg);
   padding: 24px;
 }
 .lp-card {
   width: 100%;
-  max-width: 400px;
-  background: #141720;
-  border: 1px solid #2d3148;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 14px;
-  padding: 28px 32px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  padding: 32px 36px;
+  box-shadow:
+    0 0 0 1px rgba(78,126,247,.06),
+    0 8px 32px rgba(0,0,0,.5),
+    0 2px 8px rgba(0,0,0,.4);
 }
 .sso-status {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #8486a8;
+  color: var(--muted-2);
   font-size: 13px;
 }
 .sso-spinner {
   width: 15px;
   height: 15px;
   border: 2px solid rgba(78,126,247,.25);
-  border-top-color: #4e7ef7;
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin .65s linear infinite;
   flex-shrink: 0;
@@ -83,11 +86,12 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 13px;
+  padding: 10px 13px;
   background: rgba(232,86,106,.08);
   border: 1px solid rgba(232,86,106,.22);
   border-radius: 7px;
-  color: #e8566a;
+  color: var(--red);
   font-size: 12px;
+  line-height: 1.4;
 }
 </style>

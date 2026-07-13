@@ -23,27 +23,38 @@
       <form @submit.prevent="submit" class="lp-form">
         <div class="lp-field">
           <label class="lp-label" for="email">Email</label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
-            class="lp-input"
-            placeholder="you@example.com"
-            autocomplete="username"
-            autofocus
-          />
+          <div class="lp-input-wrap">
+            <svg class="lp-input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>
+            </svg>
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              class="lp-input"
+              placeholder="you@example.com"
+              autocomplete="username"
+              autofocus
+            />
+          </div>
         </div>
 
         <div class="lp-field">
           <label class="lp-label" for="password">Password</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            class="lp-input"
-            placeholder="••••••••••••••••"
-            autocomplete="current-password"
-          />
+          <div class="lp-input-wrap">
+            <svg class="lp-input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              class="lp-input"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+            />
+          </div>
+          <p class="lp-hint">Forgot your password? Ask an admin to reset it.</p>
         </div>
 
         <div v-if="error" class="lp-error">
@@ -62,11 +73,9 @@
       <div class="lp-sso-divider"><span>or</span></div>
 
       <button class="lp-btn-ms" type="button" @click="signInWithMicrosoft">
-        <svg width="16" height="16" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        <svg width="18" height="18" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
         Sign in with Microsoft
       </button>
-
-      <div class="lp-footer">Beacon RMM</div>
     </div>
   </div>
 </template>
@@ -125,19 +134,19 @@ function signInWithMicrosoft() {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(78,126,247,.18) 0%, transparent 70%),
-    #0c0e16;
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%),
+    var(--bg);
   padding: 24px;
 }
 
 /* ── Card ─────────────────────────────────────────────────────── */
 .lp-card {
   width: 100%;
-  max-width: 400px;
-  background: #141720;
-  border: 1px solid #2d3148;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 14px;
-  padding: 36px 36px 28px;
+  padding: 44px 40px 36px;
   box-shadow:
     0 0 0 1px rgba(78,126,247,.06),
     0 8px 32px rgba(0,0,0,.5),
@@ -149,7 +158,7 @@ function signInWithMicrosoft() {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 22px;
+  margin-bottom: 26px;
 }
 
 .lp-mark {
@@ -168,7 +177,7 @@ function signInWithMicrosoft() {
 .lp-product {
   font-size: 17px;
   font-weight: 700;
-  color: #d8daf0;
+  color: var(--text);
   letter-spacing: -.01em;
   line-height: 1.2;
 }
@@ -176,7 +185,7 @@ function signInWithMicrosoft() {
 .lp-sub {
   font-size: 11px;
   font-weight: 500;
-  color: #616480;
+  color: var(--muted);
   letter-spacing: .04em;
   text-transform: uppercase;
   margin-top: 2px;
@@ -185,68 +194,82 @@ function signInWithMicrosoft() {
 /* ── Divider ──────────────────────────────────────────────────── */
 .lp-divider {
   height: 1px;
-  background: #232638;
-  margin-bottom: 22px;
+  background: var(--border);
+  margin-bottom: 26px;
 }
 
 /* ── Lead text ────────────────────────────────────────────────── */
 .lp-lead {
   font-size: 13px;
-  color: #8486a8;
-  margin-bottom: 22px;
+  color: var(--muted-2);
+  margin-bottom: 26px;
   line-height: 1.55;
 }
 
 /* ── Form ─────────────────────────────────────────────────────── */
-.lp-form { display: flex; flex-direction: column; gap: 16px; }
+.lp-form { display: flex; flex-direction: column; gap: 20px; }
 
-.lp-field { display: flex; flex-direction: column; gap: 6px; }
+.lp-field { display: flex; flex-direction: column; gap: 7px; }
 
 .lp-label {
   font-size: 11px;
   font-weight: 600;
-  color: #616480;
+  color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .06em;
 }
 
+.lp-input-wrap { position: relative; display: flex; align-items: center; }
+.lp-input-icon {
+  position: absolute;
+  left: 13px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
 .lp-input {
   width: 100%;
-  padding: 10px 13px;
-  background: #1c1f2e;
-  border: 1px solid #2d3148;
+  padding: 12px 14px 12px 38px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
   border-radius: 7px;
-  color: #d8daf0;
+  color: var(--text);
   font-size: 14px;
   font-family: inherit;
   outline: none;
   transition: border-color .15s, box-shadow .15s;
-  letter-spacing: .08em;
 }
 .lp-input:focus {
-  border-color: #4e7ef7;
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(78,126,247,.18);
 }
-.lp-input::placeholder { color: #3a3d56; letter-spacing: .04em; }
+.lp-input::placeholder { color: #4a4d68; }
+
+.lp-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
 
 /* ── Error ────────────────────────────────────────────────────── */
 .lp-error {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 13px;
+  padding: 10px 13px;
   background: rgba(232,86,106,.08);
   border: 1px solid rgba(232,86,106,.22);
   border-radius: 7px;
-  color: #e8566a;
+  color: var(--red);
   font-size: 12px;
+  line-height: 1.4;
 }
 
 /* ── Submit button ────────────────────────────────────────────── */
 .lp-btn {
   width: 100%;
-  padding: 11px;
-  background: #4e7ef7;
+  padding: 13px;
+  background: var(--accent);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -284,8 +307,8 @@ function signInWithMicrosoft() {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 18px 0 14px;
-  color: #616480;
+  margin: 26px 0 20px;
+  color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -294,19 +317,19 @@ function signInWithMicrosoft() {
   content: '';
   flex: 1;
   height: 1px;
-  background: #232638;
+  background: var(--border);
 }
 
 /* ── Microsoft SSO button ─────────────────────────────────────── */
 .lp-btn-ms {
   width: 100%;
-  padding: 10px;
-  background: #1c1f2e;
-  color: #d8daf0;
-  font-size: 13px;
+  padding: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
   font-weight: 600;
   font-family: inherit;
-  border: 1px solid #2d3148;
+  border: 1px solid var(--border-2);
   border-radius: 7px;
   cursor: pointer;
   display: flex;
@@ -315,13 +338,5 @@ function signInWithMicrosoft() {
   gap: 10px;
   transition: border-color .12s, background .12s;
 }
-.lp-btn-ms:hover { border-color: #4e7ef7; background: #232638; }
-
-/* ── Footer ───────────────────────────────────────────────────── */
-.lp-footer {
-  margin-top: 24px;
-  text-align: center;
-  font-size: 11px;
-  color: #3a3d56;
-}
+.lp-btn-ms:hover { border-color: var(--accent); background: var(--border); }
 </style>
