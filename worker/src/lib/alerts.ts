@@ -16,27 +16,38 @@ const ONLINE_PRESENCE_GRACE_SECONDS = 300;
 
 // ── Resolve which monitors apply to a device (company wins over global) ───────
 
-async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
-  const rows = await db.select()
+type EnabledPolicyMonitorRow = { policies: Policy; policy_monitors: PolicyMonitor };
+
+// The enabled policies+monitors join is identical for every device — callers
+// that evaluate many devices in one invocation (the offline cron) should fetch
+// this once and reuse it, rather than re-querying per device.
+async function fetchEnabledPolicyMonitors(db: Db): Promise<EnabledPolicyMonitorRow[]> {
+  return db.select()
     .from(schema.policies)
     .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.policyId, schema.policies.id))
     .where(and(
       eq(schema.policies.enabled, true),
       eq(schema.policyMonitors.enabled, true),
     ));
+}
 
+// Whether a policy's scope/OS/class targeting covers a given device — does
+// NOT check enabled (callers that care already filtered for that) or the
+// same-check_type company-override dedup (that's a cross-policy concern,
+// only relevant when resolving the full effective set, not when re-checking
+// one already-known monitor).
+function deviceMatchesPolicy(p: Policy, device: Device): boolean {
+  if (p.scope === 'company' && p.companyId !== device.tenantId) return false;
+  const targetOs    = JSON.parse(p.targetOs)    as string[];
+  const targetClass = JSON.parse(p.targetClass) as string[];
   const devClass = device.overrideClass ?? device.detectedClass;
+  const osOk    = targetOs.length    === 0 || (device.osType ? targetOs.includes(device.osType) : false);
+  const classOk = targetClass.length === 0 || (devClass      ? targetClass.includes(devClass)   : false);
+  return osOk && classOk;
+}
 
-  const matched = rows.filter(row => {
-    const p = row.policies;
-    // Company-scoped policies only apply to their own company
-    if (p.scope === 'company' && p.companyId !== device.tenantId) return false;
-    const targetOs    = JSON.parse(p.targetOs)    as string[];
-    const targetClass = JSON.parse(p.targetClass) as string[];
-    const osOk    = targetOs.length    === 0 || (device.osType ? targetOs.includes(device.osType)       : false);
-    const classOk = targetClass.length === 0 || (devClass      ? targetClass.includes(devClass)         : false);
-    return osOk && classOk;
-  });
+function matchMonitorsForDevice(rows: EnabledPolicyMonitorRow[], device: Device): EffectiveMonitor[] {
+  const matched = rows.filter(row => deviceMatchesPolicy(row.policies, device));
 
   // A policy's monitors of the same check_type coexist (e.g. two cpu_usage
   // monitors — a 100%/critical trip and a 95%/high early warning — or
@@ -60,6 +71,15 @@ async function resolveEffectiveMonitors(db: Db, device: Device): Promise<Effecti
   }
 
   return effective;
+}
+
+// Single-device convenience wrapper for call sites that only ever evaluate
+// one device per invocation (check-in, audit) — the offline cron evaluates
+// many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
+// directly instead, to fetch the join only once per invocation.
+async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
+  const rows = await fetchEnabledPolicyMonitors(db);
+  return matchMonitorsForDevice(rows, device);
 }
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
@@ -346,8 +366,13 @@ export async function evaluateOfflineAlerts(
     .from(schema.devices)
     .where(eq(schema.devices.status, 'approved'));
 
+  // Fetched once for the whole cron tick — this join is identical for every
+  // device, so re-querying it per device (as before) was a redundant D1
+  // round trip per device every 2 minutes.
+  const policyMonitorRows = await fetchEnabledPolicyMonitors(db);
+
   for (const device of allDevices) {
-    const monitors = await resolveEffectiveMonitors(db, device);
+    const monitors = matchMonitorsForDevice(policyMonitorRows, device);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 
     for (const monitor of offlineMonitors) {
@@ -559,4 +584,69 @@ async function fireWebhooks(
       })
     )
   );
+}
+
+// ── Called from policy/monitor admin routes after an edit ────────────────────
+//
+// A monitor only ever gets re-evaluated when something calls processAlertState
+// for it — check-in, the offline cron, or an audit. If a policy/monitor edit
+// narrows targeting or disables something out from under a device that
+// currently has it alerting, nothing will ever evaluate that pair again, so
+// auto-resolve (which itself requires a fresh passing evaluation) can never
+// fire — the alert would otherwise stay open forever. These reconcile
+// existing open alert_state rows against the just-saved policy/monitor state.
+
+// After a policy or monitor PATCH: re-check each currently-open alert for the
+// given monitor ids against current (post-edit) targeting/enabled state, and
+// resolve the ones that no longer apply. Does not check the same-check_type
+// company-override dedup rule — that's a cross-policy effect triggered by a
+// *different* policy being created, out of scope for a single edit's reconcile.
+export async function reconcileOrphanedAlerts(
+  DB: D1Database,
+  monitorIds: string[],
+  now: number,
+): Promise<void> {
+  if (monitorIds.length === 0) return;
+  const db = drizzle(DB, { schema });
+
+  const rows = await db.select()
+    .from(schema.alertState)
+    .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.id, schema.alertState.policyMonitorId))
+    .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+    .innerJoin(schema.devices, eq(schema.devices.id, schema.alertState.deviceId))
+    .where(and(
+      inArray(schema.alertState.policyMonitorId, monitorIds),
+      eq(schema.alertState.isAlerting, true),
+    ));
+
+  for (const row of rows) {
+    const stillApplies =
+      row.policy_monitors.enabled &&
+      row.policies.enabled &&
+      deviceMatchesPolicy(row.policies, row.devices);
+    if (stillApplies) continue;
+
+    await db.update(schema.alertState)
+      .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
+      .where(eq(schema.alertState.id, row.alert_state.id));
+  }
+}
+
+// Before a policy/monitor DELETE: unconditionally resolve every open alert
+// for the monitor ids about to be removed — after deletion nothing could ever
+// match again, so there's no targeting check to run, just close them out.
+export async function resolveAllOpenAlerts(
+  DB: D1Database,
+  monitorIds: string[],
+  now: number,
+): Promise<void> {
+  if (monitorIds.length === 0) return;
+  const db = drizzle(DB, { schema });
+
+  await db.update(schema.alertState)
+    .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
+    .where(and(
+      inArray(schema.alertState.policyMonitorId, monitorIds),
+      eq(schema.alertState.isAlerting, true),
+    ));
 }

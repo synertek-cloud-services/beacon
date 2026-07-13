@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
+import { reconcileOrphanedAlerts, resolveAllOpenAlerts } from '../../lib/alerts';
 
 const policies = new Hono<{ Bindings: Bindings }>();
 
@@ -163,6 +164,14 @@ policies.patch('/:id', async (c) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.update(schema.policies).set(patch as any).where(eq(schema.policies.id, id));
 
+  // Narrowing target_os/target_class or disabling can leave an alert open
+  // forever for a device that no longer matches (nothing would ever
+  // re-evaluate it again) — reconcile any open alerts under this policy now.
+  const monitorIds = (await db.select({ id: schema.policyMonitors.id })
+    .from(schema.policyMonitors)
+    .where(eq(schema.policyMonitors.policyId, id))).map(m => m.id);
+  await reconcileOrphanedAlerts(c.env.DB, monitorIds, now);
+
   return c.json({ ok: true });
 });
 
@@ -172,7 +181,15 @@ policies.delete('/:id', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
-  await db.delete(schema.policies).where(eq(schema.policies.id, c.req.param('id')));
+  const id = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  const monitorIds = (await db.select({ id: schema.policyMonitors.id })
+    .from(schema.policyMonitors)
+    .where(eq(schema.policyMonitors.policyId, id))).map(m => m.id);
+  await resolveAllOpenAlerts(c.env.DB, monitorIds, now);
+
+  await db.delete(schema.policies).where(eq(schema.policies.id, id));
   return c.json({ ok: true });
 });
 
@@ -236,6 +253,7 @@ policies.patch('/:id/monitors/:mid', async (c) => {
 
   const db  = drizzle(c.env.DB, { schema });
   const mid = c.req.param('mid');
+  const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
     enabled?:                boolean;
@@ -259,6 +277,10 @@ policies.patch('/:id/monitors/:mid', async (c) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.update(schema.policyMonitors).set(patch as any).where(eq(schema.policyMonitors.id, mid));
 
+  // Disabling a monitor (or its parent policy elsewhere) can leave an alert
+  // open forever for a device that no longer matches — reconcile now.
+  await reconcileOrphanedAlerts(c.env.DB, [mid], now);
+
   return c.json({ ok: true });
 });
 
@@ -267,9 +289,12 @@ policies.delete('/:id/monitors/:mid', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
-  await db.delete(schema.policyMonitors)
-    .where(eq(schema.policyMonitors.id, c.req.param('mid')));
+  const db  = drizzle(c.env.DB, { schema });
+  const mid = c.req.param('mid');
+  const now = Math.floor(Date.now() / 1000);
+
+  await resolveAllOpenAlerts(c.env.DB, [mid], now);
+  await db.delete(schema.policyMonitors).where(eq(schema.policyMonitors.id, mid));
   return c.json({ ok: true });
 });
 

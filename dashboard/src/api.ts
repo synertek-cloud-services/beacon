@@ -41,6 +41,8 @@ export interface Summary {
   offline: number;
   by_os: Record<string, number>;
   by_class: Record<string, number>;
+  offline_by_class: Record<string, number>;
+  by_av_status: Record<string, number>;
 }
 
 export interface Address {

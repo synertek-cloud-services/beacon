@@ -4,7 +4,7 @@ Self-hosted RMM platform, originally built for Synertek Cloud Services (develope
 
 ## Project status (as of 2026-07-13)
 
-- **11 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
+- **10 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
 - **Multi-user auth + RBAC shipped and production-validated this session** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path. **This went through a real production rollout this session** (real Entra app registration, real `wrangler deploy`, real Microsoft login) — not just local D1/curl testing — and that rollout caught three real bugs now fixed: a missing Graph OAuth scope, direct-only vs. transitive group membership, and a Cloudflare Workers PBKDF2 iteration cap. See PROJECT_LOG.md's "Production rollout follow-up" for details — worth reading before touching `worker/src/lib/password.ts` or `worker/src/lib/oidc.ts` again.
 - **SSO group search** — Settings → Single Sign-On now has a live group-name search (backed by an app-only Graph client-credentials call) instead of requiring admins to paste a raw Entra group Object ID, with a manual-entry fallback.
 - **Dashboard visual polish this session**: login page rebuilt (wider card, input icons, fixed a real letter-spacing bug, dropped hardcoded hex in favor of the app's actual CSS custom properties); sidebar collapse control replaced — see "Sidebar structure" below, no longer a topbar hamburger.
@@ -168,7 +168,7 @@ The alert/monitoring system uses a **policy → monitor** hierarchy. The old fla
 
 ### Check types
 
-Eleven check types across three evaluation shapes:
+Ten check types across four evaluation shapes:
 
 **A. Sampled every check-in (60s), evaluated directly against `Metrics`:**
 

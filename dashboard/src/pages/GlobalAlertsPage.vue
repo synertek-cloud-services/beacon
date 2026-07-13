@@ -262,6 +262,11 @@ function categoryLabel(ct: string): string {
     case 'cpu_usage':    return 'CPU';
     case 'memory_usage': return 'Memory';
     case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
     default:             return ct;
   }
 }
@@ -270,8 +275,21 @@ function alertMessage(a: AlertState): string {
   try {
     const cfg = JSON.parse(a.config) as Record<string, unknown>;
     switch (a.check_type) {
-      case 'offline':      return 'Device went offline';
-      case 'disk_space':   return `Disk space below ${((cfg.bytes_free_min as number) / 1073741824).toFixed(0)} GB`;
+      case 'offline': {
+        const direction = (cfg.direction as string) ?? 'offline';
+        return direction === 'online'
+          ? 'Device came online'
+          : 'Device went offline';
+      }
+      case 'disk_space': {
+        const drive = (cfg.drive as string) === 'any' ? 'A drive' : (cfg.drive as string);
+        const type  = (cfg.threshold_type as string) ?? 'gb_free';
+        const value = cfg.threshold_value as number;
+        const unit  = type === 'percent_used' ? '%' : ' GB';
+        const label = type === 'gb_free' ? 'free space' : type === 'percent_used' ? 'used' : 'used space';
+        const cmp   = type === 'gb_free' ? 'below' : 'above';
+        return `${drive} ${label} ${cmp} ${value}${unit}`;
+      }
       case 'cpu_usage':    return `CPU usage above ${cfg.percent_max}%`;
       case 'memory_usage': return `Memory usage above ${cfg.percent_max}%`;
       case 'av_status': {
@@ -280,6 +298,26 @@ function alertMessage(a: AlertState): string {
         if (state === 'not_running')            return 'AV not running';
         if (state === 'running_not_up_to_date') return 'AV out of date';
         return 'Antivirus issue';
+      }
+      case 'file_size': {
+        const cmp = (cfg.mode as string) === 'over' ? 'above' : 'below';
+        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
+      }
+      case 'ping': return `${cfg.target} failing ping conditions`;
+      case 'process': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
+        return `${cfg.process_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'service': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}`;
+        return `${cfg.service_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'software': {
+        const mode = cfg.mode as string;
+        const verb = mode === 'installed' ? 'was installed' : mode === 'uninstalled' ? 'was uninstalled' : 'changed version';
+        return `${cfg.name_pattern} ${verb}`;
       }
       default: return a.check_type;
     }

@@ -23,8 +23,23 @@
       </div>
       <div class="stat-card c-red">
         <div class="stat-label">Active Alerts</div>
-        <div class="stat-value">0</div>
-        <div class="stat-sub">no issues detected</div>
+        <div class="stat-value">{{ activeAlerts.length }}</div>
+        <div class="stat-sub">{{ alertBreakdown }}</div>
+      </div>
+    </div>
+
+    <!-- Active alerts list -->
+    <div class="section-card" v-if="activeAlerts.length">
+      <div class="section-card-head">
+        <span class="section-card-title">Active Alerts</span>
+        <RouterLink to="/global/alerts" style="font-size:11px">View all →</RouterLink>
+      </div>
+      <div class="ov-alert-row" v-for="a in topAlerts" :key="a.id">
+        <span class="pri-badge" :class="`pri-${a.priority}`">{{ a.priority }}</span>
+        <span class="ov-alert-cat">{{ categoryLabel(a.check_type) }}</span>
+        <span class="ov-alert-msg">{{ alertMessage(a) }}</span>
+        <span class="ov-alert-host">{{ a.hostname ?? '—' }}</span>
+        <span class="ov-alert-company">{{ a.tenant_name }}</span>
       </div>
     </div>
 
@@ -51,6 +66,31 @@
           center-label="devices"
         />
       </div>
+      <div class="chart-card">
+        <div class="chart-card-title">Offline Devices by Type</div>
+        <DonutChart
+          v-if="summary.offline > 0"
+          :data="offlineClassData"
+          center-label="offline"
+        />
+        <div v-else class="ov-chart-empty">All devices online</div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">Antivirus Status</div>
+        <DonutChart
+          :data="avStatusData"
+          center-label="devices"
+        />
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">Alerts by Priority (Open)</div>
+        <DonutChart
+          v-if="activeAlerts.length > 0"
+          :data="priorityData"
+          center-label="alerts"
+        />
+        <div v-else class="ov-chart-empty">No open alerts</div>
+      </div>
     </div>
     <div class="chart-grid" v-else-if="!error">
       <div class="chart-card" v-for="i in 3" :key="i" style="min-height:140px">
@@ -62,11 +102,35 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { api, type Summary } from '../api';
+import { api, type Summary, type AlertState } from '../api';
 import DonutChart from '../components/DonutChart.vue';
 
 const summary = ref<Summary | null>(null);
+const activeAlerts = ref<AlertState[]>([]);
 const error = ref('');
+
+const PRIORITY_COLORS: Record<string, string> = {
+  critical: '#e8566a',
+  high:     '#e07830',
+  moderate: '#f0a840',
+  low:      '#616480',
+};
+
+const AV_COLORS: Record<string, string> = {
+  running_up_to_date:     '#2dcfa0',
+  running_not_up_to_date: '#f0a840',
+  not_running:            '#e8566a',
+  not_detected:           '#e8566a',
+  unknown:                '#616480',
+};
+
+const AV_LABELS: Record<string, string> = {
+  running_up_to_date:     'Up to date',
+  running_not_up_to_date: 'Out of date',
+  not_running:            'Not running',
+  not_detected:           'Not detected',
+  unknown:                'Unknown',
+};
 
 const OS_COLORS: Record<string, string> = {
   linux:   '#4e7ef7',
@@ -103,9 +167,119 @@ const classData = computed(() =>
   }))
 );
 
+const offlineClassData = computed(() =>
+  Object.entries(summary.value?.offline_by_class ?? {}).map(([cls, count]) => ({
+    label: cls,
+    value: count,
+    color: CLASS_COLORS[cls] ?? '#616480',
+  }))
+);
+
+const avStatusData = computed(() =>
+  Object.entries(summary.value?.by_av_status ?? {}).map(([status, count]) => ({
+    label: AV_LABELS[status] ?? status,
+    value: count,
+    color: AV_COLORS[status] ?? '#616480',
+  }))
+);
+
+const PRIORITY_ORDER = ['critical', 'high', 'moderate', 'low'];
+
+const priorityData = computed(() => {
+  const counts: Record<string, number> = {};
+  for (const a of activeAlerts.value) counts[a.priority] = (counts[a.priority] ?? 0) + 1;
+  return PRIORITY_ORDER.filter(p => counts[p]).map(p => ({
+    label: p,
+    value: counts[p],
+    color: PRIORITY_COLORS[p] ?? '#616480',
+  }));
+});
+
+const alertBreakdown = computed(() => {
+  if (!activeAlerts.value.length) return 'no issues detected';
+  return priorityData.value.map(p => `${p.value} ${p.label}`).join(', ');
+});
+
+const topAlerts = computed(() =>
+  [...activeAlerts.value]
+    .sort((a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority))
+    .slice(0, 8)
+);
+
+function categoryLabel(ct: string): string {
+  switch (ct) {
+    case 'disk_space':   return 'Disk Space';
+    case 'offline':      return 'Online Status';
+    case 'cpu_usage':    return 'CPU';
+    case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
+    default:             return ct;
+  }
+}
+
+function alertMessage(a: AlertState): string {
+  try {
+    const cfg = JSON.parse(a.config) as Record<string, unknown>;
+    switch (a.check_type) {
+      case 'offline': {
+        const direction = (cfg.direction as string) ?? 'offline';
+        return direction === 'online' ? 'Device came online' : 'Device went offline';
+      }
+      case 'disk_space': {
+        const drive = (cfg.drive as string) === 'any' ? 'A drive' : (cfg.drive as string);
+        const type  = (cfg.threshold_type as string) ?? 'gb_free';
+        const value = cfg.threshold_value as number;
+        const unit  = type === 'percent_used' ? '%' : ' GB';
+        const label = type === 'gb_free' ? 'free space' : type === 'percent_used' ? 'used' : 'used space';
+        const cmp   = type === 'gb_free' ? 'below' : 'above';
+        return `${drive} ${label} ${cmp} ${value}${unit}`;
+      }
+      case 'cpu_usage':    return `CPU usage above ${cfg.percent_max}%`;
+      case 'memory_usage': return `Memory usage above ${cfg.percent_max}%`;
+      case 'av_status': {
+        const state = cfg.av_state as string;
+        if (state === 'not_detected')          return 'AV not detected';
+        if (state === 'not_running')            return 'AV not running';
+        if (state === 'running_not_up_to_date') return 'AV out of date';
+        return 'Antivirus issue';
+      }
+      case 'file_size': {
+        const cmp = (cfg.mode as string) === 'over' ? 'above' : 'below';
+        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
+      }
+      case 'ping': return `${cfg.target} failing ping conditions`;
+      case 'process': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
+        return `${cfg.process_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'service': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}`;
+        return `${cfg.service_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'software': {
+        const mode = cfg.mode as string;
+        const verb = mode === 'installed' ? 'was installed' : mode === 'uninstalled' ? 'was uninstalled' : 'changed version';
+        return `${cfg.name_pattern} ${verb}`;
+      }
+      default: return a.check_type;
+    }
+  } catch {
+    return a.check_type;
+  }
+}
+
 async function load() {
   try {
-    summary.value = await api.summary.get();
+    const [s, alerts] = await Promise.all([api.summary.get(), api.alerts.list('active')]);
+    summary.value = s;
+    activeAlerts.value = alerts;
   } catch (e: any) {
     error.value = e.message;
   }
@@ -115,3 +289,32 @@ let timer: ReturnType<typeof setInterval>;
 onMounted(() => { load(); timer = setInterval(load, 30_000); });
 onUnmounted(() => clearInterval(timer));
 </script>
+
+<style scoped>
+.ov-chart-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 110px; font-size: 12px; color: var(--muted);
+}
+
+.ov-alert-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.ov-alert-row:last-child { border-bottom: none; }
+.ov-alert-cat  { color: var(--muted-2); font-size: 11px; white-space: nowrap; }
+.ov-alert-msg  { flex: 1; color: var(--text); }
+.ov-alert-host { color: var(--accent); white-space: nowrap; }
+.ov-alert-company { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* Duplicated from GlobalAlertsPage.vue per this codebase's established
+   duplication-over-sharing convention for small per-page presentational CSS. */
+.pri-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 700; white-space: nowrap; text-transform: capitalize;
+}
+.pri-critical { background: var(--red);   color: #fff; }
+.pri-high     { background: #e07830;      color: #fff; }
+.pri-moderate { background: var(--amber); color: #1a1200; }
+.pri-low      { background: var(--muted); color: var(--surface); }
+</style>
