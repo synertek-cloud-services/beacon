@@ -81,10 +81,12 @@ func Collect() (*Snapshot, error) {
 func detectClass(info *host.InfoStat) string {
 	switch runtime.GOOS {
 	case "windows":
-		// Rough heuristic — WMI Win32_SystemEnclosure/Win32_Battery comes in a later phase
 		if strings.Contains(strings.ToLower(info.Platform), "server") ||
 			strings.Contains(strings.ToLower(info.PlatformVersion), "server") {
 			return "server"
+		}
+		if hasBatteryWindows() {
+			return "laptop"
 		}
 		return "workstation"
 	case "linux":
@@ -101,6 +103,26 @@ func detectClass(info *host.InfoStat) string {
 func hasBattery() bool {
 	matches, _ := filepath.Glob("/sys/class/power_supply/BAT*")
 	return len(matches) > 0
+}
+
+// hasBatteryWindows checks WMI Win32_Battery for any instances — the
+// standard laptop indicator on Windows, mirroring hasBattery()'s /sys check
+// on Linux. Any failure (query error, timeout, no WMI provider) falls back
+// to false/"not a laptop" rather than a separate unknown state, same
+// fail-safe-to-workstation posture the rest of this function already has.
+func hasBatteryWindows() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+		`(Get-WmiObject -Class Win32_Battery | Measure-Object).Count`,
+	).Output()
+	if err != nil {
+		return false
+	}
+	count := strings.TrimSpace(string(out))
+	return count != "" && count != "0"
 }
 
 // collectAvStatus derives a single status string from the platform AV registry.
