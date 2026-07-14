@@ -60,8 +60,8 @@ func Start(serverURL, currentVersion, credDir string) {
 	// If a previous update swap wrote a state file, wait for check-in confirmation
 	// before the regular check interval begins.
 	if state, err := loadState(statePath); err == nil {
-		go awaitConfirmation(exe, state, statePath)
-		return // awaitConfirmation schedules the next check after confirming
+		go awaitConfirmation(serverURL, credDir, exe, state, statePath)
+		return
 	}
 
 	go runLoop(serverURL, currentVersion, credDir, exe, statePath)
@@ -80,8 +80,13 @@ func runLoop(serverURL, currentVersion, credDir, exe, statePath string) {
 }
 
 // awaitConfirmation waits for the first successful check-in after an update.
-// If none arrives before the deadline, it rolls back.
-func awaitConfirmation(exe string, state updateState, statePath string) {
+// If none arrives before the deadline, it rolls back. Either way, it must
+// hand off to runLoop afterward — this goroutine is this process's only
+// updater loop, and if it just returns here (a real bug this shipped with
+// for three releases), the process silently stops checking for updates for
+// the rest of its life, since the state file it was watching is already
+// gone by the time this function returns.
+func awaitConfirmation(serverURL, credDir, exe string, state updateState, statePath string) {
 	deadline := time.Unix(state.DeadlineUnix, 0)
 	log.Printf("updater: awaiting confirmation of update to %s (deadline %s)", state.PendingVersion, deadline.Format(time.RFC3339))
 
@@ -92,10 +97,21 @@ func awaitConfirmation(exe string, state updateState, statePath string) {
 		os.Remove(state.BackupPath)
 	case <-time.After(time.Until(deadline)):
 		log.Printf("updater: update to %s unconfirmed — rolling back", state.PendingVersion)
+		os.Remove(statePath)
 		if err := rollback(exe, state.BackupPath); err != nil {
 			log.Printf("updater: rollback failed: %v", err)
 		}
+		// On success, rollback() replaces this process's image (Unix) or
+		// spawns a fresh old-binary process and exits (Windows) — either
+		// way a new process starts and calls Start() itself from scratch,
+		// so falling through to runLoop below only matters when rollback
+		// itself failed and this process is still the one running.
 	}
+
+	// state.PendingVersion is what we just confirmed/rejected — pass it as
+	// the current version so the next check compares against the right
+	// baseline instead of the stale version this goroutine was started with.
+	runLoop(serverURL, state.PendingVersion, credDir, exe, statePath)
 }
 
 func checkAndApply(serverURL, currentVersion, credDir, exe, statePath string) error {
