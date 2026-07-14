@@ -1237,7 +1237,7 @@ async function openQuickJob() {
   libSearch.value = '';
   if (libraryComponents.value.length === 0) {
     libraryLoading.value = true;
-    try { libraryComponents.value = await api.components.list(); }
+    try { libraryComponents.value = await api.components.list(device.value?.tenantId); }
     finally { libraryLoading.value = false; }
   }
 }

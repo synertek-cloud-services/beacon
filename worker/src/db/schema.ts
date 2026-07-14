@@ -193,6 +193,9 @@ export const components = sqliteTable('components', {
   category:       text('category'), // freeform organizational tag — surfaced in the UI as "Group", not to be confused with `type`
   type:           text('type', { enum: ['script', 'application'] }).notNull().default('script'),
   origin:         text('origin', { enum: ['custom', 'store'] }).notNull().default('custom'),
+  // "Sites" scoping — mirrors policies.scope/companyId exactly (single company, not a many-to-many sites table)
+  scope:          text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
+  companyId:      text('company_id').references(() => tenants.id),
   shell:          text('shell').notNull().default('auto'),
   script:         text('script').notNull().default(''),
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),

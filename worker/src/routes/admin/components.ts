@@ -25,6 +25,10 @@ function mapRow(r: any) {
     category:       r.category,
     type:           r.type,
     origin:         r.origin,
+    scope:          r.scope,
+    companyId:      r.company_id,
+    // Only present when the query joined tenants (see companyJoinSelect) — undefined otherwise
+    companyName:    r.company_name ?? null,
     shell:          r.shell,
     script:         r.script,
     timeoutSeconds: r.timeout_seconds,
@@ -33,6 +37,10 @@ function mapRow(r: any) {
     updatedAt:      r.updated_at,
   };
 }
+
+// Shared SELECT fragment for routes that display components (embeds the
+// scoped company's name so the dashboard doesn't need a second round-trip)
+const componentSelectWithCompany = `SELECT c.*, t.name AS company_name FROM components c LEFT JOIN tenants t ON t.id = c.company_id`;
 
 function mapVariable(r: any) {
   return {
@@ -87,17 +95,25 @@ function validateVariableBody(body: any): string | null {
 adminComponents.get('/store', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const result = await c.env.DB.prepare(
-    `SELECT * FROM components WHERE origin = 'store' ORDER BY name ASC`
+    `${componentSelectWithCompany} WHERE c.origin = 'store' ORDER BY c.name ASC`
   ).all<any>();
   return c.json(await embedVariables(c.env.DB, result.results));
 });
 
-// GET / — list all components, alphabetical
+// GET /?company_id=<id> — list components. With no company_id, returns
+// everything (used by the library list page). With company_id, returns only
+// what's usable against that company: global components + that company's
+// own scoped ones — used by job-creation flows targeting a single company.
 adminComponents.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const result = await c.env.DB.prepare(
-    `SELECT * FROM components ORDER BY name ASC`
-  ).all<any>();
+  const companyId = c.req.query('company_id');
+
+  const result = companyId
+    ? await c.env.DB.prepare(
+        `${componentSelectWithCompany} WHERE c.scope = 'global' OR c.company_id = ? ORDER BY c.name ASC`
+      ).bind(companyId).all<any>()
+    : await c.env.DB.prepare(`${componentSelectWithCompany} ORDER BY c.name ASC`).all<any>();
+
   return c.json(await embedVariables(c.env.DB, result.results));
 });
 
@@ -105,7 +121,7 @@ adminComponents.get('/', async (c) => {
 adminComponents.get('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const row = await c.env.DB.prepare(
-    `SELECT * FROM components WHERE id = ?`
+    `${componentSelectWithCompany} WHERE c.id = ?`
   ).bind(c.req.param('id')).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
   const [withVars] = await embedVariables(c.env.DB, [row]);
@@ -121,6 +137,8 @@ adminComponents.post('/', async (c) => {
     description?: string | null;
     category?: string | null;
     type?: 'script' | 'application';
+    scope?: 'global' | 'company';
+    company_id?: string | null;
     shell?: string;
     script: string;
     timeout_seconds?: number;
@@ -129,18 +147,22 @@ adminComponents.post('/', async (c) => {
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
   if (!body.script?.trim()) return c.json({ error: 'script required' }, 400);
+  const scope = body.scope ?? 'global';
+  if (scope === 'company' && !body.company_id) return c.json({ error: 'company_id required for company scope' }, 400);
 
   const id  = uid();
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, company_id, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id,
     body.name.trim(),
     body.description ?? null,
     body.category ?? null,
     body.type ?? 'script',
+    scope,
+    scope === 'company' ? body.company_id : null,
     body.shell ?? 'auto',
     body.script,
     body.timeout_seconds ?? 300,
@@ -148,7 +170,7 @@ adminComponents.post('/', async (c) => {
     now, now,
   ).run();
 
-  const row = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(id).first<any>();
+  const row = await c.env.DB.prepare(`${componentSelectWithCompany} WHERE c.id = ?`).bind(id).first<any>();
   return c.json(mapRow(row!), 201);
 });
 
@@ -161,15 +183,21 @@ adminComponents.patch('/:id', async (c) => {
     description: string | null;
     category: string | null;
     type: 'script' | 'application';
+    scope: 'global' | 'company';
+    company_id: string | null;
     shell: string;
     script: string;
     timeout_seconds: number;
     post_conditions: PostCondition[];
   }>>();
 
-  const row = await c.env.DB.prepare(`SELECT id, origin FROM components WHERE id = ?`).bind(id).first<any>();
+  const row = await c.env.DB.prepare(`SELECT id, origin, scope, company_id FROM components WHERE id = ?`).bind(id).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+
+  const effectiveScope = body.scope ?? row.scope;
+  const effectiveCompanyId = body.company_id !== undefined ? body.company_id : row.company_id;
+  if (effectiveScope === 'company' && !effectiveCompanyId) return c.json({ error: 'company_id required for company scope' }, 400);
 
   const sets: string[] = ['updated_at = ?'];
   const vals: any[] = [Math.floor(Date.now() / 1000)];
@@ -178,6 +206,9 @@ adminComponents.patch('/:id', async (c) => {
   if (body.description !== undefined) { sets.push('description = ?');     vals.push(body.description); }
   if (body.category    !== undefined) { sets.push('category = ?');        vals.push(body.category); }
   if (body.type        !== undefined) { sets.push('type = ?');            vals.push(body.type); }
+  if (body.scope       !== undefined) { sets.push('scope = ?');           vals.push(body.scope); }
+  if (body.company_id  !== undefined) { sets.push('company_id = ?');      vals.push(effectiveScope === 'company' ? body.company_id : null); }
+  else if (body.scope === 'global')   { sets.push('company_id = ?');      vals.push(null); }
   if (body.shell       !== undefined) { sets.push('shell = ?');           vals.push(body.shell); }
   if (body.script      !== undefined) { sets.push('script = ?');          vals.push(body.script); }
   if (body.timeout_seconds !== undefined) { sets.push('timeout_seconds = ?'); vals.push(body.timeout_seconds); }
@@ -213,10 +244,11 @@ adminComponents.post('/:id/clone', async (c) => {
   const name  = body.name?.trim() || `${source.name} (Copy)`;
 
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, company_id, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     newId, name, source.description, source.category, source.type,
+    source.scope, source.company_id,
     source.shell, source.script, source.timeout_seconds, source.post_conditions,
     now, now,
   ).run();
@@ -232,7 +264,7 @@ adminComponents.post('/:id/clone', async (c) => {
     `).bind(uid(), newId, v.name, v.label, v.type, v.options, v.default_value, v.description, v.required, v.sort_order, now).run();
   }
 
-  const row = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(newId).first<any>();
+  const row = await c.env.DB.prepare(`${componentSelectWithCompany} WHERE c.id = ?`).bind(newId).first<any>();
   const [withVars] = await embedVariables(c.env.DB, [row]);
   return c.json(withVars, 201);
 });

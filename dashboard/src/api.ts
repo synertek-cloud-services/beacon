@@ -141,6 +141,9 @@ export interface Component {
   category: string | null; // freeform organizational tag — shown in the UI as "Group"
   type: 'script' | 'application';
   origin: 'custom' | 'store';
+  scope: 'global' | 'company'; // "Sites" scoping — mirrors Policy scope, single company
+  companyId: string | null;
+  companyName: string | null; // embedded when scope === 'company', null otherwise
   shell: string;
   script: string;
   timeoutSeconds: number;
@@ -454,13 +457,15 @@ export const api = {
   },
 
   components: {
-    list:   ()                    => request<Component[]>('GET', '/v1/admin/components'),
+    list:   (companyId?: string)  => request<Component[]>('GET', `/v1/admin/components${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
     get:    (id: string)          => request<Component>('GET', `/v1/admin/components/${id}`),
     create: (body: {
       name: string;
       description?: string | null;
       category?: string | null;
       type?: 'script' | 'application';
+      scope?: 'global' | 'company';
+      company_id?: string | null;
       shell?: string;
       script: string;
       timeout_seconds?: number;
@@ -471,6 +476,8 @@ export const api = {
       description: string | null;
       category: string | null;
       type: 'script' | 'application';
+      scope: 'global' | 'company';
+      company_id: string | null;
       shell: string;
       script: string;
       timeout_seconds: number;
