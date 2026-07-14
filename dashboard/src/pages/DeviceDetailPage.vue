@@ -722,6 +722,11 @@ async function onIdChange(id: string | undefined) {
   const target = (route.query.section as string | undefined) ?? 'summary';
   activeSection.value = target;
   requestAnimationFrame(() => scrollNow(target, false));
+
+  // Section elements persist across a device switch (same v-if, same static
+  // template — Vue patches in place rather than recreating them), so the
+  // observer only needs to be wired up once, the first time they exist.
+  if (!scrollSpy) requestAnimationFrame(setupScrollSpy);
 }
 
 // watch (not onMounted) since Vue Router reuses this component instance
@@ -729,13 +734,72 @@ async function onIdChange(id: string | undefined) {
 // another via a hostname link elsewhere) — onMounted alone wouldn't refire.
 watch(() => route.params.id as string | undefined, onIdChange, { immediate: true });
 
+// Scroll-spy: highlights whichever section is currently in view as the user
+// scrolls manually, on top of the explicit click-to-scroll navigation above.
+// Deliberately doesn't touch the URL/?section= here — only clicking a nav
+// item does that — so casually scrolling through the page doesn't spam
+// history or rewrite the address bar underneath the user.
+let scrollSpy: IntersectionObserver | null = null;
+let scrollSpyRoot: HTMLElement | null = null;
+let onScrollSpyScroll: (() => void) | null = null;
+
+function setupScrollSpy() {
+  const root = document.querySelector('.page') as HTMLElement | null;
+  const targets = sections
+    .map(s => document.getElementById('ddev-sec-' + s.value))
+    .filter((el): el is HTMLElement => el !== null);
+  if (!root || targets.length === 0) return;
+
+  // Bottom-of-scroll special case: trailing sections (e.g. Change Log) are
+  // often shorter than the detection band below, so a taller earlier section
+  // can still win the "topmost" tie-break even once you've scrolled all the
+  // way down — same edge case Bootstrap's own scrollspy special-cases.
+  // Applied as the last step of every recomputation so it always has final
+  // say over the plain topmost-wins logic once you're at the scroll floor.
+  const atBottom = () => root.scrollTop + root.clientHeight >= root.scrollHeight - 2;
+
+  scrollSpy = new IntersectionObserver(
+    (entries) => {
+      if (atBottom()) { activeSection.value = sections[sections.length - 1].value; return; }
+      const visible = entries.filter(e => e.isIntersecting);
+      if (visible.length === 0) return;
+      // Topmost visible section — the one whose heading is closest to (or
+      // just past) the top of the viewport counts as "where you are."
+      const topMost = visible.reduce((a, b) =>
+        a.boundingClientRect.top <= b.boundingClientRect.top ? a : b
+      );
+      activeSection.value = topMost.target.id.replace('ddev-sec-', '');
+    },
+    { root, rootMargin: '-16px 0px -70% 0px', threshold: 0 }
+  );
+  targets.forEach(el => scrollSpy!.observe(el));
+
+  // A scroll increment landing exactly on the floor doesn't always change
+  // any target's isIntersecting state, so the IO callback above may not
+  // fire for it at all — a plain 'scroll' listener catches that remaining
+  // case. Deferred one macrotask so it runs after any IO callback the same
+  // scroll *did* trigger, rather than racing it. `.page` is the app-wide
+  // persistent scroll container (outlives this page component across
+  // navigations), so the listener is torn down explicitly on unmount.
+  scrollSpyRoot = root;
+  onScrollSpyScroll = () => {
+    setTimeout(() => { if (atBottom()) activeSection.value = sections[sections.length - 1].value; }, 0);
+  };
+  root.addEventListener('scroll', onScrollSpyScroll, { passive: true });
+}
+
 let timer: ReturnType<typeof setInterval>;
 timer = setInterval(() => {
   now.value = Math.floor(Date.now() / 1000);
   const id = route.params.id as string | undefined;
   if (id) loadDevice(id);
 }, 30_000);
-onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', closeMenuOnce); });
+onUnmounted(() => {
+  clearInterval(timer);
+  document.removeEventListener('click', closeMenuOnce);
+  scrollSpy?.disconnect();
+  if (scrollSpyRoot && onScrollSpyScroll) scrollSpyRoot.removeEventListener('scroll', onScrollSpyScroll);
+});
 
 function toggleAlertSelect(id: string) {
   if (alertsSelected[id]) delete alertsSelected[id];
@@ -1279,11 +1343,17 @@ function shellLabel(shell: string): string {
 .ddev-section { padding: 14px 20px; border-right: 1px solid var(--border); }
 .ddev-section:last-child { border-right: none; }
 .ddev-section-title {
-  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted); margin-bottom: 10px;
 }
-.ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.ddev-label { font-size: 11px; color: var(--muted); min-width: 72px; flex-shrink: 0; }
+.ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.ddev-label { font-size: 12px; color: var(--muted); min-width: 76px; flex-shrink: 0; }
+
+/* Bumped up from the app's global .text-sm/.text-xs (12px/11px) — scoped to
+   just this page since Vue scoped styles auto-namespace class selectors,
+   not a global change; this page reads text-dense enough to warrant it. */
+.text-sm { font-size: 13px; }
+.text-xs { font-size: 12px; }
 
 /* ── Quick Job modal ── */
 .modal-backdrop {
@@ -1367,18 +1437,24 @@ function shellLabel(shell: string): string {
 .ddev-nav-item.active { background: rgba(78,126,247,.1); color: var(--accent); border-left-color: var(--accent); font-weight: 500; }
 .ddev-content { flex: 1; min-width: 0; }
 
-/* ── Page sections (one continuous scroll, nav just scrolls to these) ── */
-.ddev-page-section { border-bottom: 1px solid var(--border); scroll-margin-top: 12px; }
+/* ── Page sections (one continuous scroll, nav just scrolls to these) ──
+   Each section gets a distinct title bar (same visual weight as the app's
+   established .section-card-head pattern) so sections read as clearly
+   separate chunks instead of one long run-on block. */
+.ddev-page-section { border-bottom: 6px solid var(--bg); scroll-margin-top: 16px; }
 .ddev-page-section:last-child { border-bottom: none; }
 .ddev-section-heading {
-  font-size: 13px; font-weight: 700; color: var(--text);
-  padding: 14px 20px 0; margin: 0 0 4px;
+  display: flex; align-items: center;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  padding: 13px 20px; margin: 0;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+  letter-spacing: .01em;
 }
 
 /* ── Alerts section (device-scoped) — duplicated per-component convention ── */
 .alert-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .alert-mini-table th {
-  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+  padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
@@ -1411,14 +1487,14 @@ function shellLabel(shell: string): string {
   border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
 .monitor-table th {
-  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+  padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
 .monitor-row td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
 .monitor-row:last-child td { border-bottom: none; }
 .monitor-row:hover td { background: rgba(255,255,255,.02); }
-.monitor-config-cell { color: var(--muted); font-size: 11px; }
+.monitor-config-cell { color: var(--muted); font-size: 12px; }
 .tab-nums { font-variant-numeric: tabular-nums; color: var(--muted); }
 .check-chip {
   display: inline-block; padding: 1px 7px; border-radius: 4px;
