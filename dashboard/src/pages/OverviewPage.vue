@@ -185,6 +185,17 @@ const CLASS_COLORS: Record<string, string> = {
   unknown:     '#616480',
 };
 
+// Offline is a problem state — use red-family shades (not the neutral
+// per-class palette above) so this chart actually reads as a warning,
+// with distinct shades per class so multiple simultaneous offline
+// classes are still visually distinguishable in the ring.
+const OFFLINE_CLASS_COLORS: Record<string, string> = {
+  server:      '#e8566a',
+  workstation: '#c94456',
+  laptop:      '#f0707f',
+  unknown:     '#8a4a52',
+};
+
 const onlineData = computed(() => [
   { label: 'Online',  value: summary.value?.online  ?? 0, color: '#2dcfa0' },
   { label: 'Offline', value: summary.value?.offline ?? 0, color: '#2d3148' },
@@ -210,7 +221,7 @@ const offlineClassData = computed(() =>
   Object.entries(summary.value?.offline_by_class ?? {}).map(([cls, count]) => ({
     label: cls,
     value: count,
-    color: CLASS_COLORS[cls] ?? '#616480',
+    color: OFFLINE_CLASS_COLORS[cls] ?? '#8a4a52',
   }))
 );
 
