@@ -247,10 +247,11 @@ export interface AlertState {
 // ── Audit types ─────────────────────────────────────────────
 
 export interface CPUInfo    { model: string; cores: number; speed_mhz: number }
-export interface RAMInfo    { total_bytes: number }
+export interface RAMInfo    { total_bytes: number; installed_bytes?: number }
 export interface DiskInfo   { device: string; label: string; fs_type: string; total_bytes: number; free_bytes: number }
 export interface NetworkInfo { name: string; hardware_addr: string; addrs: string[] }
 export interface BIOSInfo   { vendor: string; version: string; release_date: string; serial_number?: string }
+export interface SystemInfo { manufacturer?: string; model?: string; motherboard_vendor?: string; motherboard_model?: string }
 export interface HardwareInfo {
   cpu: CPUInfo[]
   ram: RAMInfo
@@ -258,6 +259,9 @@ export interface HardwareInfo {
   network: NetworkInfo[]
   bios?: BIOSInfo
   last_logged_in_user?: string
+  architecture?: string
+  system?: SystemInfo
+  display_adapters?: string[]
 }
 export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
@@ -353,6 +357,7 @@ export interface Device {
   inventory: string | null;
   createdAt: number;
   approvedAt: number | null;
+  warrantyExpiresAt: number | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -565,6 +570,8 @@ export const api = {
   devices: {
     list:    (status?: DeviceStatus) => request<Device[]>('GET', `/v1/admin/devices${status ? `?status=${status}` : ''}`),
     get:     (id: string)            => request<Device>('GET', `/v1/admin/devices/${id}`),
+    update:  (id: string, body: { warranty_expires_at: number | null }) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/devices/${id}`, body),
     approve: (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),

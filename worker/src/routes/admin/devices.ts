@@ -93,6 +93,28 @@ adminDevices.post('/:id/revoke', async (c) => {
   return c.json({ ok: true });
 });
 
+// PATCH /v1/admin/devices/:id — edit manually-entered device metadata.
+// Currently just warranty_expires_at; there's no agent collector for this
+// the way there is for the rest of System — see migrations/0019.
+adminDevices.patch('/:id', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+
+  const db = drizzle(c.env.DB, { schema });
+  const deviceId = c.req.param('id');
+
+  const device = await db.select({ id: schema.devices.id }).from(schema.devices).where(eq(schema.devices.id, deviceId)).get();
+  if (!device) return c.json({ error: 'device not found' }, 404);
+
+  const body = await c.req.json<{ warranty_expires_at?: number | null }>();
+  if (!('warranty_expires_at' in body)) return c.json({ error: 'no recognized fields to update' }, 400);
+
+  await db.update(schema.devices)
+    .set({ warrantyExpiresAt: body.warranty_expires_at ?? null })
+    .where(eq(schema.devices.id, deviceId));
+
+  return c.json({ ok: true });
+});
+
 // DELETE /v1/admin/devices/:id
 adminDevices.delete('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);

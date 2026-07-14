@@ -170,6 +170,9 @@
                 <div class="ddev-section-title">System</div>
                 <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
                 <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Version</span><span class="mono text-sm">{{ osBuildLabel(device) }}</span></div>
+                <div v-if="auditData.hardware?.architecture" class="ddev-row">
+                  <span class="ddev-label">Architecture</span><span class="text-sm">{{ archLabel(auditData.hardware.architecture) }}</span>
+                </div>
                 <div v-if="auditData.hardware?.last_logged_in_user" class="ddev-row">
                   <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>
                 </div>
@@ -179,6 +182,17 @@
                 <div v-if="auditData.security" class="ddev-row">
                   <span class="ddev-label">Firewall</span><span class="text-sm">{{ auditData.security.firewall_enabled ? 'Yes' : 'No' }}</span>
                 </div>
+                <div class="ddev-row">
+                  <span class="ddev-label">Warranty</span>
+                  <input
+                    type="date"
+                    class="mono text-sm ddev-date-input"
+                    :value="warrantyDateInput"
+                    :disabled="warrantySaving"
+                    @change="onWarrantyChange"
+                  />
+                  <span v-if="warrantySaving" class="text-xs text-muted-2">Saving…</span>
+                </div>
                 <div v-if="auditData.services" class="ddev-row">
                   <span class="ddev-label">Services</span>
                   <a class="text-sm" style="color:var(--accent);cursor:pointer" @click="scrollToSection('services')">{{ auditData.services.length }}</a>
@@ -187,17 +201,33 @@
 
               <div class="ddev-section">
                 <div class="ddev-section-title">Hardware</div>
+                <div v-if="auditData.hardware?.system?.manufacturer" class="ddev-row">
+                  <span class="ddev-label">Manufacturer</span><span class="text-sm">{{ auditData.hardware.system.manufacturer }}</span>
+                </div>
+                <div v-if="auditData.hardware?.system?.model" class="ddev-row">
+                  <span class="ddev-label">Model</span><span class="text-sm">{{ auditData.hardware.system.model }}</span>
+                </div>
+                <div v-if="auditData.hardware?.system?.motherboard_vendor || auditData.hardware?.system?.motherboard_model" class="ddev-row">
+                  <span class="ddev-label">Motherboard</span>
+                  <span class="text-sm">{{ [auditData.hardware.system?.motherboard_vendor, auditData.hardware.system?.motherboard_model].filter(Boolean).join(' ') }}</span>
+                </div>
                 <div v-if="auditData.hardware?.bios?.serial_number" class="ddev-row">
                   <span class="ddev-label">Serial</span><span class="mono text-sm" style="user-select:all">{{ auditData.hardware.bios.serial_number }}</span>
                 </div>
                 <div v-if="processorSummary()" class="ddev-row"><span class="ddev-label">Processor</span><span class="text-sm">{{ processorSummary() }}</span></div>
                 <div v-if="totalCores()" class="ddev-row"><span class="ddev-label">Cores</span><span class="text-sm">{{ totalCores() }}</span></div>
                 <div v-if="auditData.hardware?.ram" class="ddev-row"><span class="ddev-label">Memory</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span></div>
+                <div v-if="auditData.hardware?.ram?.installed_bytes" class="ddev-row">
+                  <span class="ddev-label">Installed</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.installed_bytes) }}</span>
+                </div>
                 <div v-if="auditData.hardware?.bios" class="ddev-row">
                   <span class="ddev-label">BIOS</span><span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
                 </div>
                 <div v-if="auditData.hardware?.bios?.release_date" class="ddev-row">
                   <span class="ddev-label">BIOS Released</span><span class="text-sm">{{ auditData.hardware.bios.release_date }}</span>
+                </div>
+                <div v-if="auditData.hardware?.display_adapters?.length" class="ddev-row">
+                  <span class="ddev-label">Display</span><span class="text-sm">{{ auditData.hardware.display_adapters.join(', ') }}</span>
                 </div>
               </div>
             </div>
@@ -1041,6 +1071,33 @@ function totalCores(): number | null {
   if (!cpus?.length) return null;
   return cpus.reduce((sum, c) => sum + (c.cores ?? 0), 0);
 }
+function archLabel(arch: string): string {
+  if (arch === 'amd64' || arch === 'arm64') return '64-bit';
+  if (arch === '386') return '32-bit';
+  return arch;
+}
+
+// Warranty expiration — manually entered, no agent collector (see
+// migrations/0019). <input type="date"> works in local (unzoned) calendar
+// days, so store/compare at UTC midnight to avoid off-by-one-day drift.
+const warrantySaving = ref(false);
+const warrantyDateInput = computed(() => {
+  const ts = device.value?.warrantyExpiresAt;
+  if (!ts) return '';
+  return new Date(ts * 1000).toISOString().slice(0, 10);
+});
+async function onWarrantyChange(e: Event) {
+  if (!device.value) return;
+  const val = (e.target as HTMLInputElement).value;
+  const ts = val ? Math.floor(new Date(`${val}T00:00:00Z`).getTime() / 1000) : null;
+  warrantySaving.value = true;
+  try {
+    await api.devices.update(device.value.id, { warranty_expires_at: ts });
+    device.value.warrantyExpiresAt = ts;
+  } finally {
+    warrantySaving.value = false;
+  }
+}
 function absDate(ts: number) {
   return new Date(ts * 1000).toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -1363,6 +1420,11 @@ function shellLabel(shell: string): string {
 }
 .ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
 .ddev-label { font-size: 12px; color: var(--muted); min-width: 76px; flex-shrink: 0; }
+.ddev-date-input {
+  background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
+  padding: 3px 6px; color: var(--text); font-family: var(--font);
+}
+.ddev-date-input:focus { outline: none; border-color: var(--accent); }
 
 /* Bumped up from the app's global .text-sm/.text-xs (12px/11px) — scoped to
    just this page since Vue scoped styles auto-namespace class selectors,

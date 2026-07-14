@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 func collectHardware() (*protocol.HardwareInfo, error) {
 	hw := &protocol.HardwareInfo{}
 
+	hw.Architecture = runtime.GOARCH
+
 	// CPU
 	if cpus, err := collectCPU(); err == nil {
 		hw.CPU = cpus
@@ -30,6 +33,7 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 	if vmem, err := mem.VirtualMemory(); err == nil {
 		hw.RAM = protocol.RAMInfo{TotalBytes: vmem.Total}
 	}
+	hw.RAM.InstalledBytes = collectInstalledRAM()
 
 	// Disks
 	if disks, err := diskutil.CollectDisks(); err == nil {
@@ -43,6 +47,12 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 
 	// BIOS
 	hw.BIOS = collectBIOS()
+
+	// System (manufacturer/model/motherboard)
+	hw.System = collectSystemInfo()
+
+	// Display adapters
+	hw.DisplayAdapters = collectDisplayAdapters()
 
 	// Last logged-in user
 	hw.LastLoggedInUser = collectLastLoggedInUser()
@@ -168,6 +178,270 @@ func collectBIOSDarwin() *protocol.BIOSInfo {
 		return nil
 	}
 	return &protocol.BIOSInfo{Vendor: "Apple", Version: version, SerialNumber: serial}
+}
+
+func collectSystemInfo() *protocol.SystemInfo {
+	switch runtime.GOOS {
+	case "linux":
+		return collectSystemInfoLinux()
+	case "windows":
+		return collectSystemInfoWindows()
+	case "darwin":
+		return collectSystemInfoDarwin()
+	}
+	return nil
+}
+
+func collectSystemInfoLinux() *protocol.SystemInfo {
+	read := func(name string) string {
+		b, err := os.ReadFile("/sys/class/dmi/id/" + name)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	// Unlike product_serial, these DMI fields are world-readable on most
+	// distros — no root requirement here.
+	vendor := read("sys_vendor")
+	model := read("product_name")
+	boardVendor := read("board_vendor")
+	boardModel := read("board_name")
+	if vendor == "" && model == "" && boardVendor == "" && boardModel == "" {
+		return nil
+	}
+	return &protocol.SystemInfo{
+		Manufacturer:      vendor,
+		Model:             model,
+		MotherboardVendor: boardVendor,
+		MotherboardModel:  boardModel,
+	}
+}
+
+func collectSystemInfoWindows() *protocol.SystemInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`$cs = Get-WmiObject Win32_ComputerSystem | Select-Object Manufacturer,Model; `+
+			`$bb = Get-WmiObject Win32_BaseBoard | Select-Object Manufacturer,Product; `+
+			`[PSCustomObject]@{ SysVendor=$cs.Manufacturer; SysModel=$cs.Model; BoardVendor=$bb.Manufacturer; BoardModel=$bb.Product } | ConvertTo-Json -Compress`,
+	).Output()
+	if err != nil {
+		return nil
+	}
+	var v struct {
+		SysVendor   string `json:"SysVendor"`
+		SysModel    string `json:"SysModel"`
+		BoardVendor string `json:"BoardVendor"`
+		BoardModel  string `json:"BoardModel"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return nil
+	}
+	return &protocol.SystemInfo{
+		Manufacturer:      strings.TrimSpace(v.SysVendor),
+		Model:             strings.TrimSpace(v.SysModel),
+		MotherboardVendor: strings.TrimSpace(v.BoardVendor),
+		MotherboardModel:  strings.TrimSpace(v.BoardModel),
+	}
+}
+
+func collectSystemInfoDarwin() *protocol.SystemInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "system_profiler", "SPHardwareDataType").Output()
+	if err != nil {
+		return nil
+	}
+	var model string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Model Name:") {
+			model = strings.TrimSpace(strings.TrimPrefix(line, "Model Name:"))
+		}
+	}
+	if model == "" {
+		return nil
+	}
+	// No separate motherboard concept to report — Macs are unibody.
+	return &protocol.SystemInfo{Manufacturer: "Apple", Model: model}
+}
+
+// collectDisplayAdapters reports installed GPU/video adapter names.
+func collectDisplayAdapters() []string {
+	switch runtime.GOOS {
+	case "linux":
+		return collectDisplayAdaptersLinux()
+	case "windows":
+		return collectDisplayAdaptersWindows()
+	case "darwin":
+		return collectDisplayAdaptersDarwin()
+	}
+	return nil
+}
+
+func collectDisplayAdaptersLinux() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "lspci").Output()
+	if err != nil {
+		return nil
+	}
+	var adapters []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "VGA compatible controller") &&
+			!strings.Contains(line, "3D controller") &&
+			!strings.Contains(line, "Display controller") {
+			continue
+		}
+		if idx := strings.Index(line, ": "); idx != -1 {
+			adapters = append(adapters, strings.TrimSpace(line[idx+2:]))
+		}
+	}
+	return adapters
+}
+
+func collectDisplayAdaptersWindows() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	// Wrapped in a single PSCustomObject so ConvertTo-Json can't collapse a
+	// one-element (or zero-element) result back to a bare scalar/omitted
+	// property the way it would for a top-level piped array.
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`$names = @(Get-WmiObject Win32_VideoController | ForEach-Object { $_.Name }); `+
+			`[PSCustomObject]@{ Names = $names } | ConvertTo-Json -Compress`,
+	).Output()
+	if err != nil {
+		return nil
+	}
+	var v struct {
+		Names []string `json:"Names"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return nil
+	}
+	return v.Names
+}
+
+func collectDisplayAdaptersDarwin() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "system_profiler", "SPDisplaysDataType").Output()
+	if err != nil {
+		return nil
+	}
+	var adapters []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Chipset Model:") {
+			adapters = append(adapters, strings.TrimSpace(strings.TrimPrefix(line, "Chipset Model:")))
+		}
+	}
+	return adapters
+}
+
+// collectInstalledRAM reports raw physical DIMM capacity, distinct from the
+// OS-visible/usable figure gopsutil's mem.VirtualMemory() already provides.
+func collectInstalledRAM() uint64 {
+	switch runtime.GOOS {
+	case "linux":
+		return collectInstalledRAMLinux()
+	case "windows":
+		return collectInstalledRAMWindows()
+	case "darwin":
+		return collectInstalledRAMDarwin()
+	}
+	return 0
+}
+
+func collectInstalledRAMLinux() uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	// dmidecode reads /dev/mem — root-only, same permission gotcha as the
+	// BIOS serial number. Silently 0 when unreadable.
+	out, err := exec.CommandContext(ctx, "dmidecode", "--type", "17").Output()
+	if err != nil {
+		return 0
+	}
+	var total uint64
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Size:") {
+			continue
+		}
+		val := strings.TrimSpace(strings.TrimPrefix(line, "Size:"))
+		if val == "No Module Installed" || val == "Unknown" {
+			continue
+		}
+		parts := strings.Fields(val)
+		if len(parts) != 2 {
+			continue
+		}
+		n, err := strconv.ParseFloat(parts[0], 64)
+		if err != nil {
+			continue
+		}
+		switch strings.ToUpper(parts[1]) {
+		case "GB":
+			total += uint64(n * 1e9)
+		case "MB":
+			total += uint64(n * 1e6)
+		}
+	}
+	return total
+}
+
+func collectInstalledRAMWindows() uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`(Get-WmiObject Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum`,
+	).Output()
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func collectInstalledRAMDarwin() uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "system_profiler", "SPHardwareDataType").Output()
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Memory:") {
+			continue
+		}
+		parts := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "Memory:")))
+		if len(parts) != 2 {
+			continue
+		}
+		n, err := strconv.ParseFloat(parts[0], 64)
+		if err != nil {
+			continue
+		}
+		switch strings.ToUpper(parts[1]) {
+		case "TB":
+			return uint64(n * 1e12)
+		case "GB":
+			return uint64(n * 1e9)
+		case "MB":
+			return uint64(n * 1e6)
+		}
+	}
+	return 0
 }
 
 // collectLastLoggedInUser reports the current/most-recent interactive

@@ -56,6 +56,10 @@ export const devices = sqliteTable('devices', {
   rustdeskId: text('rustdesk_id'), // populated on first on-demand install
   // Inherits tenants.privacy_mode_default when null. Never silently overwritten.
   privacyModeOverride: integer('privacy_mode_override', { mode: 'boolean' }),
+  // Manually-entered — no OS/hardware API exposes OEM warranty status, so
+  // there's no agent collector for this the way there is for other System
+  // fields. A real auto-lookup would need per-vendor API integrations.
+  warrantyExpiresAt: integer('warranty_expires_at'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

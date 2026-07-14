@@ -176,6 +176,11 @@ type HardwareInfo struct {
 	Network          []NetworkInfo `json:"network"`
 	BIOS             *BIOSInfo     `json:"bios,omitempty"`
 	LastLoggedInUser string        `json:"last_logged_in_user,omitempty"`
+	// Architecture is runtime.GOARCH — trivially known at compile time, no
+	// platform-specific collection needed.
+	Architecture    string      `json:"architecture,omitempty"`
+	System          *SystemInfo `json:"system,omitempty"`
+	DisplayAdapters []string    `json:"display_adapters,omitempty"`
 }
 
 type CPUInfo struct {
@@ -186,6 +191,21 @@ type CPUInfo struct {
 
 type RAMInfo struct {
 	TotalBytes uint64 `json:"total_bytes"`
+	// InstalledBytes is the raw physical DIMM capacity, distinct from
+	// TotalBytes (which is gopsutil's OS-visible/usable figure — can be
+	// slightly lower due to firmware/iGPU-reserved memory). Omitted when the
+	// platform-specific collector can't read it (e.g. non-root on Linux).
+	InstalledBytes uint64 `json:"installed_bytes,omitempty"`
+}
+
+// SystemInfo covers chassis-level identity: who made the machine and what
+// it's called, plus motherboard identity where that's a meaningful concept
+// (not on macOS — Macs are unibody, there's no separate board to report).
+type SystemInfo struct {
+	Manufacturer      string `json:"manufacturer,omitempty"`
+	Model             string `json:"model,omitempty"`
+	MotherboardVendor string `json:"motherboard_vendor,omitempty"`
+	MotherboardModel  string `json:"motherboard_model,omitempty"`
 }
 
 type DiskInfo struct {
