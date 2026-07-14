@@ -29,7 +29,7 @@ import (
 // -- linker -X only works on package-level string variables, silently no-ops
 // on a const. Defaults to this value for plain `go build`/`make` invocations
 // that don't pass ldflags.
-var version = "0.2.5"
+var version = "0.2.6"
 
 const checkInInterval = 60 * time.Second
 
