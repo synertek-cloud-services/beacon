@@ -3,14 +3,14 @@
 
     <!-- Page header -->
     <div class="gp-header">
-      <h1 class="gp-title">Policies</h1>
+      <h1 class="gp-title">Policies<span v-if="companyMode" class="gp-title-sub">for {{ companyName }}</span></h1>
       <div class="gp-header-actions">
-        <button class="btn btn-primary btn-sm" @click="router.push('/global/policies/new?scope=' + tab)">Create Policy</button>
+        <button class="btn btn-primary btn-sm" @click="createPolicy">Create Policy</button>
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="gp-tabs">
+    <!-- Tabs (hidden in company-context mode — that view merges both scopes) -->
+    <div class="gp-tabs" v-if="!companyMode">
       <button :class="['gp-tab', { active: tab === 'global' }]" @click="switchTab('global')">
         Global <span class="tab-count">{{ globalPolicies.length }}</span>
       </button>
@@ -22,7 +22,7 @@
     <div class="gp-content">
 
       <!-- Company filter -->
-      <div v-if="tab === 'company'" class="gp-filter-bar">
+      <div v-if="tab === 'company' && !companyMode" class="gp-filter-bar">
         <span class="filter-label">Filter by Company</span>
         <input v-model="companyFilter" class="filter-input" placeholder="Enter company name…" />
       </div>
@@ -33,7 +33,7 @@
         <div class="toolbar-sep"></div>
         <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size !== 1" @click="editSelected">Edit</button>
         <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="bulkDelete">Delete</button>
-        <button v-if="tab === 'global'" class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="openOverrideModal">Override</button>
+        <button v-if="canOverrideSelected" class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="openOverrideModal">Override</button>
         <span class="filter-status">Filtered by: {{ filterStatusLabel }}</span>
       </div>
 
@@ -56,7 +56,7 @@
               <th class="col-name">Name</th>
               <th class="col-targets">Targets</th>
               <th class="col-scope">Scope</th>
-              <th v-if="tab === 'company'" class="col-company">Company</th>
+              <th v-if="tab === 'company' && !companyMode" class="col-company">Company</th>
               <th class="col-monitors">Monitors</th>
               <th class="col-created">Created</th>
               <th class="col-enabled">Enabled</th>
@@ -77,7 +77,7 @@
                 <td class="col-scope">
                   <span :class="['scope-badge', 'scope-' + policy.scope]">{{ capitalize(policy.scope) }}</span>
                 </td>
-                <td v-if="tab === 'company'" class="col-company">{{ tenantName(policy.companyId) }}</td>
+                <td v-if="tab === 'company' && !companyMode" class="col-company">{{ tenantName(policy.companyId) }}</td>
                 <td class="col-monitors">
                   <span class="monitor-count-badge">{{ policy.monitors.length }}</span>
                 </td>
@@ -91,7 +91,7 @@
 
               <!-- Expanded monitors panel -->
               <tr v-if="expanded[policy.id]" class="expand-row">
-                <td :colspan="tab === 'company' ? 8 : 7" class="expand-cell">
+                <td :colspan="(tab === 'company' && !companyMode) ? 8 : 7" class="expand-cell">
                   <div class="expand-panel">
                     <div class="expand-panel-header">
                       <span class="expand-panel-title">Monitors</span>
@@ -197,13 +197,42 @@ const headerCbRef     = ref<HTMLInputElement | null>(null);
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 
+// Arriving from a company's sidebar context ("Acme" → Policies) — show a
+// single merged view (all global policies + this company's overrides)
+// instead of forcing a tab pick that hides whichever scope isn't selected.
+// Global policies apply to every company regardless of scope, so hiding
+// them behind a tab switch was actively misleading here.
+const companyMode    = computed(() => !!route.query.company);
+const companyIdParam = computed(() => route.query.company as string | undefined);
+const companyName    = computed(() =>
+  companyIdParam.value ? (tenants.value.find(t => t.id === companyIdParam.value)?.name ?? companyIdParam.value) : ''
+);
+
+const effectivePolicies = computed(() =>
+  companyMode.value
+    ? [...globalPolicies.value, ...companyPolicies.value.filter(p => p.companyId === companyIdParam.value)]
+    : []
+);
+
 const displayedPolicies = computed(() => {
+  if (companyMode.value) return effectivePolicies.value;
   if (tab.value === 'global') return globalPolicies.value;
   if (!companyFilter.value.trim()) return companyPolicies.value;
   const q = companyFilter.value.trim().toLowerCase();
   return companyPolicies.value.filter(p =>
     tenantName(p.companyId).toLowerCase().includes(q)
   );
+});
+
+// Override only makes sense for global policies (cloning a global default
+// into a company-scoped copy) — in the merged company view, only allow it
+// when every currently-selected row is actually global-scoped.
+const canOverrideSelected = computed(() => {
+  if (selectedIds.value.size === 0) return false;
+  if (companyMode.value) {
+    return [...selectedIds.value].every(id => globalPolicies.value.some(p => p.id === id));
+  }
+  return tab.value === 'global';
 });
 
 const allSelected = computed(() =>
@@ -215,9 +244,10 @@ const someSelected = computed(() =>
   !allSelected.value && displayedPolicies.value.some(p => selectedIds.value.has(p.id))
 );
 
-const filterStatusLabel = computed(() =>
-  tab.value === 'company' && companyFilter.value.trim() ? companyFilter.value.trim() : 'Unfiltered'
-);
+const filterStatusLabel = computed(() => {
+  if (companyMode.value) return companyName.value || 'Unfiltered';
+  return tab.value === 'company' && companyFilter.value.trim() ? companyFilter.value.trim() : 'Unfiltered';
+});
 
 watch(someSelected, val => {
   if (headerCbRef.value) headerCbRef.value.indeterminate = val;
@@ -254,17 +284,16 @@ async function loadCompanyPolicies() {
 
 onMounted(async () => {
   await load();
-  // Arriving from a company's sidebar context ("Acme" -> Policies) — jump
-  // straight to the Company tab, filtered to that company, instead of the
-  // global-scope default.
-  const companyId = route.query.company as string | undefined;
-  if (companyId) {
-    const name = tenants.value.find(t => t.id === companyId)?.name ?? '';
-    tab.value = 'company';
-    companyFilter.value = name;
-    await loadCompanyPolicies();
-  }
+  if (companyMode.value) await loadCompanyPolicies();
 });
+
+function createPolicy() {
+  if (companyMode.value && companyIdParam.value) {
+    router.push(`/global/policies/new?scope=company&company_id=${companyIdParam.value}`);
+  } else {
+    router.push('/global/policies/new?scope=' + tab.value);
+  }
+}
 
 function switchTab(t: 'global' | 'company') {
   tab.value = t;
@@ -343,7 +372,7 @@ const overrideModal = reactive({
 });
 
 function openOverrideModal() {
-  overrideModal.companyId = '';
+  overrideModal.companyId = companyMode.value ? (companyIdParam.value ?? '') : '';
   overrideModal.error     = '';
   overrideModal.open      = true;
 }
@@ -368,7 +397,7 @@ async function doOverride() {
     companyPolicies.value.push(...clones);
     overrideModal.open = false;
     selectedIds.value  = new Set();
-    switchTab('company');
+    if (!companyMode.value) switchTab('company');
   } catch (e: unknown) {
     overrideModal.error = e instanceof Error ? e.message : 'Failed to create overrides.';
   } finally {
@@ -499,6 +528,7 @@ function monitorSummary(m: PolicyMonitor): string {
   padding: 0 0 16px 0; flex-shrink: 0;
 }
 .gp-title { font-size: 20px; font-weight: 700; color: var(--text); margin: 0; }
+.gp-title-sub { font-size: 14px; font-weight: 400; color: var(--muted-2); margin-left: 8px; }
 
 /* ── Tabs ── */
 .gp-tabs {
