@@ -193,8 +193,13 @@ export const components = sqliteTable('components', {
   category:       text('category'), // freeform organizational tag — surfaced in the UI as "Group", not to be confused with `type`
   type:           text('type', { enum: ['script', 'application'] }).notNull().default('script'),
   origin:         text('origin', { enum: ['custom', 'store'] }).notNull().default('custom'),
-  // "Sites" scoping — mirrors policies.scope/companyId exactly (single company, not a many-to-many sites table)
+  // "Sites" scoping — 'global' means usable everywhere; 'company' means
+  // restricted to the sites listed in component_sites (a real many-to-many,
+  // not a single company — see that table for the actual membership list).
   scope:          text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
+  // Vestigial — superseded by component_sites (0022) before this ever saw
+  // real usage. No longer read or written; kept only because the physical
+  // column exists and D1's SQLite doesn't make DROP COLUMN worth it here.
   companyId:      text('company_id').references(() => tenants.id),
   shell:          text('shell').notNull().default('auto'),
   script:         text('script').notNull().default(''),
@@ -216,6 +221,16 @@ export const componentVariables = sqliteTable('component_variables', {
   required:      integer('required', { mode: 'boolean' }).notNull().default(true),
   sortOrder:     integer('sort_order').notNull().default(0),
   createdAt:     integer('created_at').notNull(),
+});
+
+// Multi-site "Sites" membership for company-scoped components — a component
+// can be restricted to several sites at once, added/removed one at a time
+// (mirrors Datto's "Add Site" flyout).
+export const componentSites = sqliteTable('component_sites', {
+  id:          text('id').primaryKey(),
+  componentId: text('component_id').notNull().references(() => components.id, { onDelete: 'cascade' }),
+  tenantId:    text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt:   integer('created_at').notNull(),
 });
 
 export const jobs = sqliteTable('jobs', {

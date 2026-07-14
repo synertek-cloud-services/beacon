@@ -134,6 +134,11 @@ export interface PostCondition {
   enabled: boolean;
 }
 
+export interface ComponentSite {
+  tenantId: string;
+  name: string;
+}
+
 export interface Component {
   id: string;
   name: string;
@@ -141,9 +146,8 @@ export interface Component {
   category: string | null; // freeform organizational tag — shown in the UI as "Group"
   type: 'script' | 'application';
   origin: 'custom' | 'store';
-  scope: 'global' | 'company'; // "Sites" scoping — mirrors Policy scope, single company
-  companyId: string | null;
-  companyName: string | null; // embedded when scope === 'company', null otherwise
+  scope: 'global' | 'company'; // "Sites" scoping — 'company' means restricted to `sites` below (a real multi-site list, not a single company)
+  sites: ComponentSite[];
   shell: string;
   script: string;
   timeoutSeconds: number;
@@ -465,7 +469,6 @@ export const api = {
       category?: string | null;
       type?: 'script' | 'application';
       scope?: 'global' | 'company';
-      company_id?: string | null;
       shell?: string;
       script: string;
       timeout_seconds?: number;
@@ -477,7 +480,6 @@ export const api = {
       category: string | null;
       type: 'script' | 'application';
       scope: 'global' | 'company';
-      company_id: string | null;
       shell: string;
       script: string;
       timeout_seconds: number;
@@ -487,6 +489,11 @@ export const api = {
     clone:  (id: string, name?: string) => request<Component>('POST', `/v1/admin/components/${id}/clone`, { name }),
     store: {
       list: () => request<Component[]>('GET', '/v1/admin/components/store'),
+    },
+    sites: {
+      list:   (componentId: string) => request<ComponentSite[]>('GET', `/v1/admin/components/${componentId}/sites`),
+      add:    (componentId: string, tenantId: string) => request<{ ok: boolean }>('POST', `/v1/admin/components/${componentId}/sites`, { tenant_id: tenantId }),
+      remove: (componentId: string, tenantId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/sites/${tenantId}`),
     },
     variables: {
       list:   (componentId: string) => request<ComponentVariable[]>('GET', `/v1/admin/components/${componentId}/variables`),

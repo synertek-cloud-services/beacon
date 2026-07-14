@@ -66,22 +66,54 @@
         <label class="pf-label">Sites</label>
         <div class="seg-bar">
           <button :class="['seg-btn', { active: form.scope === 'global' }]" @click="form.scope = 'global'">All Sites</button>
-          <button :class="['seg-btn', { active: form.scope === 'company' }]" @click="form.scope = 'company'">Selected Site</button>
+          <button :class="['seg-btn', { active: form.scope === 'company' }]" @click="form.scope = 'company'">Selected Sites</button>
         </div>
-        <div v-if="form.scope === 'company'" class="pf-site-wrap">
-          <div class="pf-site-row">
-            <input v-model="siteQuery" class="pf-input pf-site-input" placeholder="Enter Site name"
-              @focus="siteOpen = true" @blur="hideSiteDrop" />
-            <svg class="pf-site-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
+        <template v-if="form.scope === 'company'">
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn btn-primary btn-sm" @click="sitesFlyoutOpen = true">Add Site</button>
+            <button class="btn btn-ghost btn-sm" :disabled="selectedSites.length === 0" @click="removeAllSites">Remove all</button>
           </div>
-          <div v-if="siteOpen && siteMatches.length" class="pf-site-drop">
-            <div v-for="t in siteMatches" :key="t.id" class="pf-site-opt" @mousedown.prevent="selectSite(t)">{{ t.name }}</div>
+          <div class="pf-monitors" style="margin-top:8px">
+            <div v-if="selectedSites.length === 0" class="pf-mon-empty">
+              <p>Select which Sites to add to this Component.</p>
+            </div>
+            <div v-else v-for="s in selectedSites" :key="s.tenantId" class="pf-mon-row">
+              <span class="pf-mon-desc">{{ s.name }}</span>
+              <div class="pf-mon-actions">
+                <button class="btn-text danger" @click="removeSite(s.tenantId)">Remove</button>
+              </div>
+            </div>
           </div>
-        </div>
-        <span v-if="fieldErr.companyId" class="pf-err">{{ fieldErr.companyId }}</span>
+        </template>
+        <span v-if="fieldErr.sites" class="pf-err">{{ fieldErr.sites }}</span>
       </div>
+
+      <!-- Add Site flyout -->
+      <Teleport to="body">
+        <div v-if="sitesFlyoutOpen" class="sf-overlay" @click.self="sitesFlyoutOpen = false">
+          <div class="sf-panel">
+            <div class="sf-head">
+              <h2 class="sf-title">Sites</h2>
+              <button class="btn-icon" @click="sitesFlyoutOpen = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div class="sf-search">
+              <input v-model="siteFlyoutQuery" class="pf-input" placeholder="Search" />
+            </div>
+            <div class="sf-list">
+              <div v-for="t in siteFlyoutMatches" :key="t.id" class="sf-row" :class="{ selected: isSiteSelected(t.id) }">
+                <span>{{ t.name }}</span>
+                <button v-if="isSiteSelected(t.id)" class="btn btn-primary btn-sm" @click="removeSite(t.id)">Remove</button>
+                <button v-else class="btn btn-ghost btn-sm" @click="addSite(t)">Add</button>
+              </div>
+              <div v-if="siteFlyoutMatches.length === 0" class="pf-mon-empty"><p>No matching sites.</p></div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
 
       <!-- Shell -->
       <div class="pf-group">
@@ -226,7 +258,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Component, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Tenant } from '../api';
+import { api, type Component, type ComponentSite, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Tenant } from '../api';
 
 const router = useRouter();
 const route  = useRoute();
@@ -241,33 +273,59 @@ const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
 const tenants   = ref<Tenant[]>([]);
-const siteQuery = ref('');
-const siteOpen  = ref(false);
-const fieldErr  = reactive({ name: '', companyId: '', script: '' });
+const fieldErr  = reactive({ name: '', sites: '', script: '' });
 
 const form = reactive({
   name: '', description: '', category: '', type: 'script' as 'script' | 'application',
-  scope: 'global' as 'global' | 'company', companyId: '',
+  scope: 'global' as 'global' | 'company',
   shell: 'auto', script: '', timeoutSeconds: 300,
 });
 
 const postConditions = ref<PostCondition[]>([]);
 const variables       = ref<ComponentVariable[]>([]);
 
-// ── Site search ──
+// ── Sites (multi-select — a component can be restricted to several sites,
+// added/removed one at a time via the "Add Site" flyout) ──
 
-const siteMatches = computed(() => {
-  if (!siteQuery.value) return tenants.value.slice(0, 10);
-  const q = siteQuery.value.toLowerCase();
-  return tenants.value.filter(t => t.name.toLowerCase().includes(q)).slice(0, 10);
+const selectedSites   = ref<ComponentSite[]>([]);
+const sitesFlyoutOpen = ref(false);
+const siteFlyoutQuery = ref('');
+
+const siteFlyoutMatches = computed(() => {
+  const q = siteFlyoutQuery.value.trim().toLowerCase();
+  const list = q ? tenants.value.filter(t => t.name.toLowerCase().includes(q)) : tenants.value;
+  return list.slice(0, 50);
 });
 
-function selectSite(t: Tenant) {
-  form.companyId = t.id;
-  siteQuery.value = t.name;
-  siteOpen.value  = false;
+function isSiteSelected(tenantId: string): boolean {
+  return selectedSites.value.some(s => s.tenantId === tenantId);
 }
-function hideSiteDrop() { setTimeout(() => { siteOpen.value = false; }, 150); }
+
+async function addSite(t: Tenant) {
+  if (isSiteSelected(t.id)) return;
+  if (!isNew.value && componentId.value) {
+    try { await api.components.sites.add(componentId.value, t.id); }
+    catch (e: any) { saveError.value = e.message; return; }
+  }
+  selectedSites.value.push({ tenantId: t.id, name: t.name });
+}
+
+async function removeSite(tenantId: string) {
+  if (!isNew.value && componentId.value) {
+    try { await api.components.sites.remove(componentId.value, tenantId); }
+    catch (e: any) { saveError.value = e.message; return; }
+  }
+  selectedSites.value = selectedSites.value.filter(s => s.tenantId !== tenantId);
+}
+
+async function removeAllSites() {
+  if (!isNew.value && componentId.value) {
+    for (const s of selectedSites.value) {
+      try { await api.components.sites.remove(componentId.value, s.tenantId); } catch { /* best-effort, continue clearing locally */ }
+    }
+  }
+  selectedSites.value = [];
+}
 
 // ── Variables sub-form ──
 
@@ -400,14 +458,12 @@ onMounted(async () => {
       form.category        = comp.category ?? '';
       form.type             = comp.type;
       form.scope           = comp.scope;
-      form.companyId       = comp.companyId ?? '';
       form.shell           = comp.shell;
       form.script          = comp.script;
       form.timeoutSeconds = comp.timeoutSeconds;
       postConditions.value = comp.postConditions.map(pc => ({ ...pc }));
       variables.value       = comp.variables.map(v => ({ ...v }));
-
-      if (form.scope === 'company' && comp.companyName) siteQuery.value = comp.companyName;
+      selectedSites.value   = comp.sites.map(s => ({ ...s }));
     } catch (e: any) {
       loadError.value = e.message;
     } finally {
@@ -419,14 +475,14 @@ onMounted(async () => {
 // ── Save ──
 
 async function save() {
-  fieldErr.name      = '';
-  fieldErr.companyId = '';
-  fieldErr.script    = '';
-  saveError.value    = '';
+  fieldErr.name   = '';
+  fieldErr.sites  = '';
+  fieldErr.script = '';
+  saveError.value = '';
 
   if (!form.name.trim())   { fieldErr.name   = 'Name is required.';   return; }
   if (!form.script.trim()) { fieldErr.script = 'Script is required.'; return; }
-  if (form.scope === 'company' && !form.companyId) { fieldErr.companyId = 'Select a site.'; return; }
+  if (form.scope === 'company' && selectedSites.value.length === 0) { fieldErr.sites = 'Add at least one site.'; return; }
 
   saving.value = true;
   try {
@@ -437,7 +493,6 @@ async function save() {
         category:        form.category || null,
         type:            form.type,
         scope:           form.scope,
-        company_id:      form.scope === 'company' ? form.companyId : null,
         shell:           form.shell,
         script:          form.script,
         timeout_seconds: form.timeoutSeconds,
@@ -450,6 +505,9 @@ async function save() {
           description: v.description, required: v.required,
         });
       }
+      for (const s of selectedSites.value) {
+        await api.components.sites.add(created.id, s.tenantId);
+      }
     } else if (componentId.value) {
       await api.components.update(componentId.value, {
         name:            form.name.trim(),
@@ -457,7 +515,6 @@ async function save() {
         category:        form.category || null,
         type:            form.type,
         scope:           form.scope,
-        company_id:      form.scope === 'company' ? form.companyId : null,
         shell:           form.shell,
         script:          form.script,
         timeout_seconds: form.timeoutSeconds,
@@ -570,4 +627,30 @@ async function save() {
   display: flex; align-items: center; justify-content: center; transition: background .1s, color .1s; flex-shrink: 0;
 }
 .btn-icon:hover:not(:disabled) { background: var(--border); color: var(--text); }
+
+/* ── Add Site flyout (right-side panel, mirrors PolicyFormPage's monitor drawer) ── */
+.sf-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  z-index: 500; display: flex; align-items: stretch; justify-content: flex-end;
+}
+.sf-panel {
+  display: flex; flex-direction: column;
+  width: 420px; max-width: calc(100vw - 80px); height: 100%;
+  background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden;
+}
+.sf-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.sf-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
+.sf-search { padding: 14px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.sf-search .pf-input { max-width: none; }
+.sf-list { flex: 1; overflow-y: auto; }
+.sf-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--text);
+}
+.sf-row.selected { background: rgba(78,126,247,.06); }
 </style>

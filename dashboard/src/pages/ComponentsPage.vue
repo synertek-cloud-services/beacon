@@ -83,7 +83,9 @@
               </td>
               <td><span :class="['kind-badge', `kind-${comp.type}`]">{{ kindLabel(comp.type) }}</span></td>
               <td>
-                <span v-if="comp.scope === 'company'" class="scope-badge scope-company">{{ comp.companyName ?? 'Site' }}</span>
+                <span v-if="comp.scope === 'company'" class="scope-badge scope-company" :title="comp.sites.map(s => s.name).join(', ')">
+                  {{ comp.sites.length === 1 ? comp.sites[0].name : `${comp.sites.length} Sites` }}
+                </span>
                 <span v-else class="scope-badge scope-global">All Sites</span>
               </td>
               <td class="mono text-sm">{{ shellLabel(comp.shell) }}</td>
