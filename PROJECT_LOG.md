@@ -1,5 +1,49 @@
 # Beacon — Project Log
 
+## Session: 2026-07-13 (Device detail page overhaul + agent v0.2.2 release)
+
+### What was completed
+
+Continuation of the same-day auth/RBAC session's device-management work. Three phases, each driven by direct user feedback on a running local build (verified via Playwright MCP against `wrangler dev` + `vite dev` throughout):
+
+**1. Device detail page: inline accordion → dedicated page → one-page-with-anchor-nav.** The devices list's inline expand-on-click accordion didn't scale ("doesn't really scale with a lot of devices") — split into a dedicated `/devices/:id` page (`DeviceDetailPage.vue`, new). First redesign attempt, modeled on a Datto RMM reference screenshot, used a left-nav + `v-if`/`v-else-if` **tabs** shape (Summary/Hardware/Security/Software/Services/Alerts/Policies/Change Log, the latter two newly built — device-scoped alert history and effective-monitor resolution, reusing `GET /v1/admin/alerts?device_id=` and a new `GET /v1/admin/devices/:id/effective-monitors` route backed by the already-`export`ed `resolveEffectiveMonitors`). User corrected this explicitly: "it is still supposed to be one page. The links just make it quicker to navigate." Converted every section to an always-rendered `<section>` block; nav clicks now `scrollIntoView` + update `?section=` for deep-linking, rather than switching visibility.
+
+**2. Follow-up polish: section separation, scroll-spy, font size.** Three more rounds of feedback on the same page:
+- "A lot of it runs together" → gave each section a distinct title-bar treatment (background-tinted heading + gutter between sections) instead of a thin border.
+- "The highlight should update as I scroll" → added `IntersectionObserver`-based scroll-spy (see STYLE.md/CLAUDE.md for the pattern). Found and fixed a real edge case via actual scroll testing (not obvious from reading the code): the trailing "Change Log" section is short enough that a taller preceding section keeps winning the topmost tie-break even once fully scrolled down — added an explicit bottom-of-scroll override, applied both inside the observer callback and via a separately-deferred `scroll` listener (the observer alone doesn't always fire for the very last scroll increment).
+- "Font looks a little small" → bumped several label/table-header sizes.
+- Also fixed two bugs found only through Playwright scroll testing, not code review: sticky nav positioning silently broken by `.section-card`'s global `overflow:hidden`, and query-only navigation (`?section=` changing while already on the same device) not re-triggering the scroll since only `route.params.id` was watched.
+
+**3. Header + Summary redesign, matching the Datto reference more closely.** User wanted the hostname bigger, the approved/OS meta line gone, the online-status dot moved inline next to the name, an OS icon, and Device ID/Agent moved to a "top right" identifiers area — plus Last User, Last Reboot, Last Audit, and Serial Number added, Approved date dropped. The first four were pure UI reshuffling. The last four required checking what data actually exists first (dispatched to an Explore subagent): Last Audit and Last Reboot were free (already-collected `auditData.createdAt` and a derivable `lastSeen - uptime_seconds`), but Last User and Serial Number were **not collected by the agent at all** — user chose to build the real agent-side collectors rather than defer:
+- `BIOSInfo.serial_number` — DMI (`/sys/class/dmi/id/product_serial`, Linux), WMI `Win32_BIOS.SerialNumber` (Windows), `system_profiler` "Serial Number (system)" line (macOS).
+- `HardwareInfo.last_logged_in_user` — gopsutil `host.Users()` (Linux/Darwin; picks the most-recently-started session), WMI `Win32_ComputerSystem.UserName` (Windows, since gopsutil's `Users()` is unimplemented there — confirmed by reading gopsutil's own source, not assumed).
+- Both ride the existing `hardware` audit JSON blob — no migration needed, confirmed by checking `audit.ts` stores the payload as an opaque JSON blob rather than individual typed columns.
+- Explicitly did **not** fabricate M365 User/PSA Device ID/Network Node/SNMP Credential/Assigned Network Node/Patch Status/Software Status — none of these have any real data behind them (no PSA/M365/SNMP/patch-management integration exists), so they're left out of Summary entirely rather than shown as placeholders.
+
+**Agent v0.2.2 released end-to-end** — version bumped, all 5 platform/arch binaries built via `scripts/publish-agent.mjs` (run by the user directly, since it needs `BEACON_SIGNING_KEY`, which lives in the password manager only and was kept out of this session's transcript on purpose), registered with the worker. Found a real gap in the process itself: the script's default `download_url` (`${workerUrl}/dist/<name>`) is a dead placeholder — nothing serves that path, so agents would see `update_available: true` and then 404 trying to fetch it. Fixed by creating a real GitHub Release (`v0.2.2`, all 5 binaries attached) and re-registering each platform/arch's `download_url` to point at the real release asset URL, reusing the already-produced `signature_hex` (the signature covers binary bytes, not the URL, so no re-signing needed). Verified all 5 combinations end-to-end via the *unauthenticated* `GET /v1/agent/version` and `GET /v1/agent/download` endpoints (agents don't hold an admin credential, so these routes need none) — confirmed `HTTP/2 200` through to the real binary, not just a successful registration response.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| One continuous page with anchor-nav, not tabs | Explicit user correction — the left-nav is a navigation aid, not a visibility switch; matches the reference's own scroll behavior more closely than tabs would |
+| Eager `Promise.all` fetch on device load, not lazy-per-section | Once nothing is conditionally hidden, there's no "activation" moment left to hang a lazy fetch off of |
+| Scroll-spy never writes `?section=` on its own | Only explicit nav clicks update the URL — continuous scrolling would otherwise spam browser history on every section crossed |
+| Bottom-of-scroll forced to last section, both in the IO callback and a deferred `scroll` listener | Two different failure modes need covering: the observer's own tie-break logic losing to a taller section, and the final scroll increment sometimes not firing the observer at all |
+| Derive Last Reboot from `lastSeen - uptime_seconds` rather than add a new field | Already-collected data fully answers the question; no agent/schema change needed |
+| Build real Last User / Serial Number collectors rather than defer | User's explicit choice when presented with the tradeoff (bigger cross-platform Go change + new agent release vs. shipping only the two free fields today) |
+| Don't fabricate Patch Status / Software Status / M365 / PSA / Network Node fields | None of these have real data behind them in Beacon; a reference screenshot's layout is a guide for structure, not license to show placeholder values |
+| Fix `download_url` via a second registration reusing the original signature, not a re-sign | The signature covers binary bytes; the URL is just metadata. Re-signing would need the private key again for a problem that isn't about the binary at all |
+| Keep the production admin secret and signing key out of the session transcript | Both are meant to live in a password manager only (see CLAUDE.md Secrets table); anything typed via the `!` shell-passthrough becomes part of this conversation's stored history, which isn't an appropriate place for either credential — user ran both the publish script and the follow-up curl commands from their own terminal instead |
+
+Both the dashboard and worker changes are pushed/deployed; the agent is at v0.2.2 with a working release. No new D1 migration this session — everything rode existing JSON columns or was pure frontend reshuffling.
+
+### Next logical steps
+
+1. **`scripts/publish-agent.mjs` still produces a dead placeholder `download_url` by default** — this was manually corrected again this release (third time now, after v0.2.0/v0.2.1 presumably needed the same fix). Worth fixing the script itself — either upload directly to a GitHub release as part of the script, or accept the real hosting URL as a parameter — so this stops being a recurring manual step.
+2. **Confirm real devices actually pick up v0.2.2** — existing agents self-update on a 24h cycle; worth checking back after that window that Serial/Last User actually start appearing on real enrolled devices, not just the synthetic D1 test rows used to verify the UI this session.
+3. **Real-fleet validation generally** — still the longest-standing carried-over item (see prior sessions below) — most of this session's UI work was verified via Playwright + synthetic D1 rows, not a real multi-device fleet over time.
+
 ## Session: 2026-07-13 (Multi-user auth + RBAC)
 
 ### What was completed

@@ -4,10 +4,11 @@ Self-hosted RMM platform, originally built for Synertek Cloud Services (develope
 
 ## Project status (as of 2026-07-13)
 
+- **Agent is at v0.2.2**, released and registered this session — see "Agent release process" below before cutting another release, it has a real gotcha (dead placeholder download URL) that bit this session and needs a manual fix step every time.
+- **Device detail page redesigned this session** — dedicated `/devices/:id` page (was an inline expand-accordion on the devices list), rebuilt again into a Datto-RMM-style single continuous page with a left-nav + scroll-spy (not tabs — see "Device detail page" below, this shape was explicitly corrected mid-session after an initial tabs-based attempt). Header and Summary section also redesigned to mirror a Datto RMM reference screenshot as closely as Beacon's actual data allows.
 - **10 check types** shipped across the policy/monitor system (see Two-Tier Policy System below): `disk_space`, `cpu_usage`, `memory_usage`, `av_status`, `offline`, `file_size`, `ping`, `process`, `service`, `software`.
-- **Multi-user auth + RBAC shipped and production-validated this session** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path. **This went through a real production rollout this session** (real Entra app registration, real `wrangler deploy`, real Microsoft login) — not just local D1/curl testing — and that rollout caught three real bugs now fixed: a missing Graph OAuth scope, direct-only vs. transitive group membership, and a Cloudflare Workers PBKDF2 iteration cap. See PROJECT_LOG.md's "Production rollout follow-up" for details — worth reading before touching `worker/src/lib/password.ts` or `worker/src/lib/oidc.ts` again.
+- **Multi-user auth + RBAC shipped and production-validated** (see Auth System below) — local email/password accounts, global roles (`admin`/`technician`/`readonly`), Microsoft Entra ID SSO with group-based auto-provisioning. The single shared `ADMIN_SECRET` model (previously the main open-source gap) is now a break-glass fallback only, not the primary auth path. This went through a real production rollout (real Entra app registration, real `wrangler deploy`, real Microsoft login) — not just local D1/curl testing — and that rollout caught three real bugs now fixed: a missing Graph OAuth scope, direct-only vs. transitive group membership, and a Cloudflare Workers PBKDF2 iteration cap. See PROJECT_LOG.md's "Production rollout follow-up" for details — worth reading before touching `worker/src/lib/password.ts` or `worker/src/lib/oidc.ts` again.
 - **SSO group search** — Settings → Single Sign-On now has a live group-name search (backed by an app-only Graph client-credentials call) instead of requiring admins to paste a raw Entra group Object ID, with a manual-entry fallback.
-- **Dashboard visual polish this session**: login page rebuilt (wider card, input icons, fixed a real letter-spacing bug, dropped hardcoded hex in favor of the app's actual CSS custom properties); sidebar collapse control replaced — see "Sidebar structure" below, no longer a topbar hamburger.
 - **Open-sourced under AGPL-3.0** — repo is public. `LICENSE`, `README.md` in place; org-specific config (`wrangler.toml`, `dashboard/.env.production`) moved to gitignored files with `.example` templates; Go module path corrected to match the actual GitHub org.
 - **Known gap**: the worker has no CI/CD — only the dashboard (Cloudflare Pages) auto-deploys on push to `main`. Every worker change needs a manual `cd worker && npx wrangler deploy`; there's no GitHub Actions workflow and no Cloudflare Workers Builds git integration configured.
 - Everything else has been verified against local D1 + simulated check-ins/audits via curl, not a real deployed agent fleet — see PROJECT_LOG.md's "Next logical steps" for real-fleet validation status.
@@ -99,6 +100,15 @@ go build ./...
 - Unknown command types are silently ignored for forward compatibility
 - New fields added to `Metrics` must remain optional (old agents won't send them)
 - Internal packages worth knowing: `diskutil` (shared multi-drive enumeration between check-in and audit), `filesize`, `pingutil`, `procutil`, `svcutil` — each is a small `Find`/`Measure`/`Ping` function following the same shell-out-or-gopsutil convention as the older `audit` package's AV/BIOS collectors
+- `agent/internal/audit/hardware.go`'s `collectBIOS{Linux,Windows,Darwin}()` also collect `BIOSInfo.serial_number` now (DMI `/sys/class/dmi/id/product_serial` on Linux — root-only permission, silently empty if the agent isn't running as root; WMI `Win32_BIOS.SerialNumber` on Windows; `system_profiler SPHardwareDataType`'s "Serial Number (system)" line on macOS), and `collectHardware()` also sets `HardwareInfo.last_logged_in_user` via `collectLastLoggedInUser()` (gopsutil `host.Users()` on Linux/Darwin — picks the most-recently-started session; WMI `Win32_ComputerSystem.UserName` on Windows, since gopsutil's `host.Users()` is unimplemented there). Both ride the existing `hardware` audit JSON blob — no new DB column/migration needed for either.
+
+### Agent release process (`scripts/publish-agent.mjs`)
+
+Builds all 5 platform/arch binaries, signs each with `BEACON_SIGNING_KEY`, and registers each with the worker via `POST /v1/admin/agent/versions` — needs `BEACON_WORKER_URL`, `BEACON_ADMIN_SECRET`, `BEACON_SIGNING_KEY` env vars (signing key lives in the password manager only, never export it into a session whose transcript you don't want holding a private key). **Must be run from the repo root**, not `agent/` — it resolves `scripts/publish-agent.mjs` and `agent/` relative to its own script location, but the working directory still matters for the relative build paths it shells out to.
+
+**Known gotcha — the registered `download_url` is a dead placeholder.** The script's default `downloadUrl` is `${workerUrl}/dist/<name>`, which nothing actually serves (no R2/CDN hosting is configured) — the version registers fine and `update_available` correctly flips to `true`, but any agent attempting the download gets a 404 and never actually updates. The real fix used for v0.2.0 through v0.2.2: create a GitHub Release (`gh release create vX.Y.Z <binaries from dist/>`) and then **re-POST** `/v1/admin/agent/versions` for each platform/arch with the corrected `download_url` (the real `.../releases/download/vX.Y.Z/<asset>` URL) — reusing the *same* `signature_hex` already produced by the first registration, since the signature covers the binary bytes, not the URL, and a second POST for the same version/os/arch just supersedes the first (`isLatest` flips). This two-step dance (register once with a placeholder, then again with the real URL) is not automated — worth fixing `publish-agent.mjs` itself to either upload to the GitHub release directly or take the real hosting URL as a parameter, so this stops being a manual post-publish correction every release.
+
+Verify a release actually works end-to-end via the **unauthenticated** `GET /v1/agent/version?os=&arch=&current=` and `GET /v1/agent/download?os=&arch=` endpoints (`worker/src/routes/agent-update.ts`) — no admin secret needed, since agents themselves call these. A `curl -sIL` through `/v1/agent/download` should end in `HTTP/2 200`, not a 404, before considering a release done.
 
 **Dashboard** (`dashboard/src/`)
 - Router: Vue Router with hash history (`createWebHashHistory`)
@@ -278,7 +288,8 @@ GET  /v1/admin/sso/providers/:id/groups?search=      Live Entra group search (ap
 /                      OverviewPage
 /login                 LoginPage
 /sso-callback          SsoCallbackPage    (receives the Microsoft SSO redirect)
-/devices               DevicesPage (filterable by ?company=<id>)
+/devices               DevicesPage (filterable by ?company=<id>) — list only, row click navigates to detail page
+/devices/:id           DeviceDetailPage   (?section= for deep-linking to a section, see below)
 /tenants               TenantsPage
 /jobs                  JobsPage
 /components            ComponentsPage
@@ -306,6 +317,19 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 
 Active client state: `activeClientId` ref set by watching `route.query.company`. Cleared with the × button on the client block.
 
+## Device detail page (`dashboard/src/pages/DeviceDetailPage.vue`)
+
+**One continuous scrollable page, not tabs.** Explicitly corrected mid-session after an initial tabs-based (`v-if`/`v-else-if`) implementation — user feedback: "it is still supposed to be one page. The links just make it quicker to navigate." All sections (`Summary`, `Hardware`, `Security`, `Software`, `Services`, `Alerts`, `Policies`, `Change Log`) render simultaneously as `<section :id="'ddev-sec-' + name" class="ddev-page-section">` blocks; the left-nav only scrolls to and highlights a section, it never hides content. See STYLE.md for the section-separation/scroll-spy CSS+JS pattern in full.
+
+Data for every section is fetched eagerly once per device load (`onIdChange`'s `Promise.all([...])`), not lazily per-section-activation — there's no "activation" moment to hang a lazy fetch off now that nothing is hidden.
+
+**Identity header**: hostname is large (22px/700), with the online/offline status dot inline before it (not on a separate meta line below), and an OS icon (currently Windows-only — a simple 2×2 square grid, not a licensed logo asset) on the header's right edge. No "approved"/OS-text meta line — that reads as clutter once the dot is inline.
+
+**Summary section fields** — deliberately organized into three columns (System / Identifiers / Activity) modeled on a Datto RMM reference screenshot, but only ever showing fields Beacon actually has real data for:
+- Populated: Company, Class, OS (+ Build), Last User, Enrolled, Device ID, Serial (from BIOS), Agent Version, Antivirus status (real check-in `av_status`, badge-styled — `.inv-badge-{ok,warn,danger,muted}`), Last seen, Last Reboot (**derived**, `lastSeen - uptime_seconds` — no dedicated boot-time field exists), Last Audit (`auditData.createdAt`), Uptime, Disk free.
+- Deliberately excluded, not faked: M365 User, PSA Device ID, Network Node, SNMP Credential, Assigned Network Node, Patch Status, Software Status — none of these have any real data behind them in Beacon (no PSA/M365/SNMP integration, no patch-management feature). Don't add placeholder/fabricated values for these if asked to match a reference more closely — surface the gap instead.
+- "Approved" date was dropped per feedback (not useful at a glance); "Hostname" row was dropped (redundant with the now-large header hostname).
+
 ## Coding patterns — Dashboard
 
 ### Reactive expand/select state
@@ -322,6 +346,20 @@ function toggleExpand(id: string) {
 ```typescript
 const [devices, tenants] = await Promise.all([api.devices.list(), api.tenants.list()]);
 ```
+
+### Scroll-spy nav (one-page-with-anchor-nav, e.g. DeviceDetailPage)
+`IntersectionObserver` with a thin top-of-viewport detection band, rooted at `.page` (the app's real scroll container, not `window` — see STYLE.md):
+```typescript
+scrollSpy = new IntersectionObserver((entries) => {
+  const visible = entries.filter(e => e.isIntersecting);
+  if (visible.length === 0) return;
+  const topMost = visible.reduce((a, b) => a.boundingClientRect.top <= b.boundingClientRect.top ? a : b);
+  activeSection.value = topMost.target.id.replace('ddev-sec-', '');
+}, { root, rootMargin: '-16px 0px -70% 0px', threshold: 0 });
+```
+Deliberately doesn't touch the URL/`route.query` on scroll — only an explicit nav-item click does that (via `router.replace`), so casual scrolling doesn't spam browser history.
+
+**Bottom-of-scroll edge case** (found via real Playwright scroll testing, not obvious from reading the code): a short trailing section (e.g. "Change Log") can lose the "topmost visible" tie-break to a taller preceding section even once you've scrolled all the way down, because both still overlap the detection band simultaneously. Same edge case Bootstrap's own scrollspy special-cases. Fix: check `root.scrollTop + root.clientHeight >= root.scrollHeight - 2` and force the *last* section active when true — both inside the IntersectionObserver callback (covers most real scrolling) **and** in a separate `scroll` listener deferred one macrotask via `setTimeout(fn, 0)` (covers the remaining case where the final scroll increment doesn't change any element's `isIntersecting` state at all, so the IO callback never fires for it). The `.page` element is the app-wide persistent scroll container (outlives any one page component across navigations) — remove the `scroll` listener explicitly in `onUnmounted`, don't rely on the component unmounting to clean it up.
 
 ### Policy list includes monitors
 `GET /v1/admin/policies` returns `Policy[]` where each policy has a `.monitors` array already embedded. No second round-trip needed.

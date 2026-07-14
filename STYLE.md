@@ -383,6 +383,59 @@ async function runSearch(q: string) {
 ```
 Dropdown markup reuses the same `position: relative` wrapper / `position: absolute` dropdown shape as `.pf-site-drop`, with `@mousedown.prevent` on each option (fires before the input's `@blur` would otherwise close the dropdown first) and a `setTimeout(..., 150)` delay on `@blur` itself for the same reason. Show three states in the dropdown: searching, error (surface `searchError` — don't swallow it, these calls can fail for real infra reasons like a missing API permission), and empty/no-match — not just a bare list.
 
+## Device detail page: one-page-with-anchor-nav (not tabs)
+
+`DeviceDetailPage.vue`'s left-nav (Summary/Hardware/Security/Software/Services/Alerts/Policies/Change Log) looks like a tab bar but isn't one — every section renders simultaneously; the nav only scrolls to and highlights a section. This shape was arrived at after an explicit correction (an initial `v-if`/`v-else-if` tabs implementation was rejected: "it is still supposed to be one page. The links just make it quicker to navigate").
+
+**Section separation** — each section gets a distinct title-bar treatment, not just a thin divider (a thin border alone read as "runs together"):
+```css
+.ddev-page-section { border-bottom: 6px solid var(--bg); scroll-margin-top: 16px; }
+.ddev-page-section:last-child { border-bottom: none; }
+.ddev-section-heading {
+  display: flex; align-items: center;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  padding: 13px 20px; margin: 0;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+```
+The 6px `var(--bg)`-colored gutter between sections (not a 1px border) is what actually reads as visual separation at a glance.
+
+**Left-nav + sticky positioning gotcha**: the nav's wrapping element needs its own class overriding `.section-card`'s global `overflow: hidden` (which otherwise silently breaks `position: sticky` on any descendant — found only by testing actual scroll behavior, not by reading the CSS):
+```css
+.section-card.ddev-card { overflow: visible; }
+.ddev-nav { position: sticky; top: 12px; align-self: flex-start; }
+```
+
+**Scroll-spy** (nav highlight tracks scroll position automatically) — see CLAUDE.md's "Scroll-spy nav" coding pattern for the full `IntersectionObserver` implementation and its bottom-of-scroll edge case. Nav item active-state CSS matches the app's existing active-state formula (`App.vue`'s `.sbi.active`, `GlobalPoliciesPage.vue`'s `.al-pill-active`) — accent-tinted background + left border + accent text color.
+
+**Deep-linking**: `?section=` on the same route (not a URL hash fragment — the app already uses `createWebHashHistory()`, so a second `#fragment` would collide with vue-router's own hash). Clicking a nav item does `router.replace` (not `push`, so scrolling around doesn't spam history) and calls `scrollIntoView`; a dedicated `watch(() => route.query.section)` handles the case where `?section=` changes while already mounted on the same device (e.g. a second click) — watching only `route.params.id` misses this.
+
+## Identity header (device/entity detail pages)
+
+Large bold name with the status dot inline (not a separate meta line below it), and an optional trailing OS/type icon on the header's opposite edge:
+```css
+.ddev-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; }
+.ddev-header-name { display: flex; align-items: center; gap: 10px; }
+.ddev-status-dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot-online  { background: var(--teal); box-shadow: 0 0 0 3px rgba(45,207,160,.15); }
+.dot-offline { background: var(--muted); }
+.ddev-hostname { font-size: 22px; font-weight: 700; color: var(--text); }
+```
+A previous version had a secondary meta line below the name (status/approved/OS, `·`-separated) — dropped per feedback once the dot moved inline, since it read as clutter rather than useful context.
+
+**OS icon**: a plain geometric glyph (e.g. a static 2×2 square grid for Windows), not a licensed vendor logo asset — inline SVG, `currentColor` fill, shown conditionally (`v-if="isWindows(device)"`) rather than always rendering a generic fallback for other OSes.
+
+## Status badges (ok / warn / danger / muted)
+
+Four-state badge palette, used for things like antivirus status where "unknown" is a real, distinct state from "bad":
+```css
+.inv-badge-ok     { background: rgba(45,207,160,.12); color: var(--teal); }
+.inv-badge-warn   { background: rgba(240,168,64,.12);  color: var(--amber); }
+.inv-badge-danger { background: rgba(232,86,106,.12);  color: #e8566a; }
+.inv-badge-muted  { background: rgba(97,100,128,.15);  color: var(--muted); }
+```
+(all four share `font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px;`). Same status vocabulary as `OverviewPage.vue`'s antivirus widget (`running_up_to_date` / `running_not_up_to_date` / `not_running` / `not_detected` / `unknown`) — labels/colors duplicated per-component rather than shared, matching this codebase's established convention.
+
 ## Sidebar resizer
 
 ```css
