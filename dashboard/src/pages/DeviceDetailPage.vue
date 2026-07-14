@@ -158,6 +158,51 @@
             </div>
           </section>
 
+          <!-- ── System (at-a-glance OS + hardware overview) ── -->
+          <section :id="'ddev-sec-system'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">System</h2>
+            <div v-if="auditLoading" class="inv-empty">Loading system info…</div>
+            <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+              <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+            </div>
+            <div v-else class="ddev-grid">
+              <div class="ddev-section">
+                <div class="ddev-section-title">System</div>
+                <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
+                <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Version</span><span class="mono text-sm">{{ osBuildLabel(device) }}</span></div>
+                <div v-if="auditData.hardware?.last_logged_in_user" class="ddev-row">
+                  <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>
+                </div>
+                <div v-if="inventoryOf(device)?.av_product" class="ddev-row">
+                  <span class="ddev-label">Antivirus</span><span class="text-sm">{{ inventoryOf(device)!.av_product }}</span>
+                </div>
+                <div v-if="auditData.security" class="ddev-row">
+                  <span class="ddev-label">Firewall</span><span class="text-sm">{{ auditData.security.firewall_enabled ? 'Yes' : 'No' }}</span>
+                </div>
+                <div v-if="auditData.services" class="ddev-row">
+                  <span class="ddev-label">Services</span>
+                  <a class="text-sm" style="color:var(--accent);cursor:pointer" @click="scrollToSection('services')">{{ auditData.services.length }}</a>
+                </div>
+              </div>
+
+              <div class="ddev-section">
+                <div class="ddev-section-title">Hardware</div>
+                <div v-if="auditData.hardware?.bios?.serial_number" class="ddev-row">
+                  <span class="ddev-label">Serial</span><span class="mono text-sm" style="user-select:all">{{ auditData.hardware.bios.serial_number }}</span>
+                </div>
+                <div v-if="processorSummary()" class="ddev-row"><span class="ddev-label">Processor</span><span class="text-sm">{{ processorSummary() }}</span></div>
+                <div v-if="totalCores()" class="ddev-row"><span class="ddev-label">Cores</span><span class="text-sm">{{ totalCores() }}</span></div>
+                <div v-if="auditData.hardware?.ram" class="ddev-row"><span class="ddev-label">Memory</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span></div>
+                <div v-if="auditData.hardware?.bios" class="ddev-row">
+                  <span class="ddev-label">BIOS</span><span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
+                </div>
+                <div v-if="auditData.hardware?.bios?.release_date" class="ddev-row">
+                  <span class="ddev-label">BIOS Released</span><span class="text-sm">{{ auditData.hardware.bios.release_date }}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- ── Hardware (audit) ── -->
           <section :id="'ddev-sec-hardware'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Hardware</h2>
@@ -562,6 +607,7 @@ interface Inventory {
   disks?: DiskInfo[];
   detected_class: string;
   av_status?: string;
+  av_product?: string;
 }
 
 const route  = useRoute();
@@ -577,6 +623,7 @@ const now     = ref(Math.floor(Date.now() / 1000));
 // query-param-as-view-state idiom used by DevicesPage/GlobalAlertsPage.
 const sections = [
   { value: 'summary',   label: 'Summary' },
+  { value: 'system',    label: 'System' },
   { value: 'hardware',  label: 'Hardware' },
   { value: 'security',  label: 'Security' },
   { value: 'software',  label: 'Software' },
@@ -983,6 +1030,16 @@ function osBuildLabel(d: Device) {
   if (!d.osVersion) return null;
   const m = d.osVersion.match(/(\d+\.\d+(?:\.\d+)+)/g);
   return m ? m[m.length - 1] : null;
+}
+function processorSummary(): string | null {
+  const cpus = auditData.value?.hardware?.cpu;
+  if (!cpus?.length) return null;
+  return cpus.map(c => c.model).join(', ');
+}
+function totalCores(): number | null {
+  const cpus = auditData.value?.hardware?.cpu;
+  if (!cpus?.length) return null;
+  return cpus.reduce((sum, c) => sum + (c.cores ?? 0), 0);
 }
 function absDate(ts: number) {
   return new Date(ts * 1000).toLocaleString(undefined, {
