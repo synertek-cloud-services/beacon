@@ -239,7 +239,7 @@ Sidebar stays visible because `.sidebar { z-index: 600 }` is above the drawer's 
 
 Use `<Teleport to="body">` so the drawer escapes any `overflow: hidden` parent.
 
-## PolicyFormPage layout
+## PolicyFormPage layout (the full-page form pattern)
 
 Full-page form pattern:
 
@@ -254,6 +254,27 @@ Full-page form pattern:
 ```
 
 Each `.pf-group` is max-width 760px. The label font-size is larger (15px) than the global field label (11px uppercase) to match Datto-style section headers.
+
+**Second real example: `ComponentFormPage.vue`** (`/components/new`, `/components/:id`) — reuses this exact shell (`.pf-page`/`.pf-crumb`/`.pf-topbar`/`.pf-body`/`.pf-group`/`.pf-label` class names, copied per-component like everything else in this pattern) rather than inventing new class names, even though it replaced what used to be a modal on `ComponentsPage.vue`. If you're building a third full-page create/edit form, start from this shell before reaching for a modal — the modal-first instinct is what this session explicitly moved away from.
+
+### Variables / Post-conditions editor (inline add-form, not a drawer)
+
+A lighter-weight sibling of the Add Monitor right-side drawer below — used in `ComponentFormPage.vue` for a component's input variables. The list itself reuses the monitor-list chrome (`.pf-monitors`/`.pf-mon-empty`/`.pf-mon-row`/`.pf-mon-actions`/`.pf-mon-add` — same classes as PolicyFormPage's monitor list, copied per-component), but instead of opening a full drawer, "Add Variable"/"Edit" opens a small inline sub-form directly below the list:
+
+```html
+<div v-if="varForm" class="var-form">
+  <div class="var-form-grid"><!-- 2-col grid of fields --></div>
+  <div class="var-form-actions"><!-- Cancel / Save Variable --></div>
+</div>
+```
+```css
+.var-form { margin-top: 10px; padding: 12px; border: 1px solid var(--border-2); border-radius: 7px; background: var(--surface-2); }
+.var-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+```
+
+Use this lighter pattern (not the full `.mo-overlay` drawer) when the sub-form has ≤~8 simple fields and doesn't need its own type-selector-grid + multi-section layout — the drawer earns its complexity for Add Monitor specifically because that form has real branching structure (10 check types, each with different fields) that a component variable (4 simple types) doesn't.
+
+Post-conditions, by contrast, don't get their own add-form at all — each row's fields (stream/match_type/pattern/enabled) are simple enough to edit inline directly in the list row, with just an add/remove button, no separate panel.
 
 ## Pill checkboxes (OS / class targeting)
 
@@ -462,6 +483,84 @@ Four-state badge palette, used for things like antivirus status where "unknown" 
 .inv-badge-muted  { background: rgba(97,100,128,.15);  color: var(--muted); }
 ```
 (all four share `font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px;`). Same status vocabulary as `OverviewPage.vue`'s antivirus widget (`running_up_to_date` / `running_not_up_to_date` / `not_running` / `not_detected` / `unknown`) — labels/colors duplicated per-component rather than shared, matching this codebase's established convention.
+
+## List-page stat cards (Components page)
+
+A row of at-a-glance counts above a list-page table, added when the real Datto Component Library screen showed the same thing:
+
+```html
+<div class="stat-row">
+  <div class="stat-card">
+    <span class="stat-label">Total</span>
+    <span class="stat-value">{{ stats.total }}</span>
+  </div>
+  <!-- one .stat-card per metric -->
+</div>
+```
+```css
+.stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat-card {
+  flex: 1; display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+}
+.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+```
+
+**Counts reflect the whole (unfiltered) collection, not the current search/filter result** — matches the reference, which shows totals separately from a "Filtered by: ..." indicator below. Compute stats from the raw data array, not the `computed` that already has search/category filters applied.
+
+## Kind badge vs. Group badge (don't reuse one class for both)
+
+`ComponentsPage.vue` has two independent badge concepts that look similar but must stay visually distinct, because they were previously conflated (a real, user-reported confusion this session fixed):
+- **Group** (`.cat-badge`) — the freeform organizational tag (Maintenance/Diagnostic/etc.), same palette as the pre-existing policy-monitor chip colors.
+- **Kind** (`.kind-badge`) — Script vs. Application, a real behavior-driving field. Deliberately a **separate CSS class**, not a repurposed `.cat-badge`:
+```css
+.kind-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
+.kind-script      { background: var(--surface-2); color: var(--muted); }
+.kind-application { background: rgba(78,126,247,.12); color: var(--accent); }
+```
+If you're ever tempted to reuse `.cat-badge` for a new "real" categorical field on this page, don't — that's exactly the naming collision this session had to un-do (the old `category` field vs. the new `type` field both being called "Category" in the UI at different points).
+
+## Add Site flyout (multi-select, stays open across picks)
+
+Used in `ComponentFormPage.vue`'s Sites section. **Not** a single-select combobox (that was the first, wrong attempt this session, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several sites, each row toggling in place:
+
+```html
+<Teleport to="body">
+  <div v-if="sitesFlyoutOpen" class="sf-overlay" @click.self="sitesFlyoutOpen = false">
+    <div class="sf-panel">
+      <div class="sf-head"><h2 class="sf-title">Sites</h2><button class="btn-icon" @click="sitesFlyoutOpen = false">×</button></div>
+      <div class="sf-search"><input v-model="siteFlyoutQuery" class="pf-input" placeholder="Search" /></div>
+      <div class="sf-list">
+        <div v-for="t in siteFlyoutMatches" :key="t.id" class="sf-row" :class="{ selected: isSiteSelected(t.id) }">
+          <span>{{ t.name }}</span>
+          <button v-if="isSiteSelected(t.id)" class="btn btn-primary btn-sm" @click="removeSite(t.id)">Remove</button>
+          <button v-else class="btn btn-ghost btn-sm" @click="addSite(t)">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Teleport>
+```
+```css
+.sf-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500; display: flex; align-items: stretch; justify-content: flex-end; }
+.sf-panel { display: flex; flex-direction: column; width: 420px; max-width: calc(100vw - 80px); height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden; }
+.sf-row.selected { background: rgba(78,126,247,.06); }
+```
+
+Key behaviors, all confirmed against the real Datto reference (not guessed):
+- Clicking "Add" does **not** close the flyout or remove the row from its list — the button flips to "Remove" in place (with the `.selected` background), so a user can add several sites in one open/close cycle.
+- The panel's own list shows *every* site (selected or not) with the appropriate button state — it is not "available sites only."
+- The main form page shows a separate, simpler read-only list of currently-selected sites (name only, no per-row actions) plus a page-level "Remove all" button — removal from the *main* list happens by reopening the flyout and clicking "Remove" there, or via "Remove all."
+- Same right-side-panel shell as the Add Monitor drawer (`.mo-overlay`/`.mo-inner` — see below), just narrower (420px vs. 620px) and without the multi-section internal structure, since this only has one job (search + pick).
+
+## Mini-badge palette (Jobs page per-device command status)
+
+`JobsPage.vue`'s `.mini-badge` family (queued/sent/completed/failed) gained a fifth state this session:
+```css
+.mini-warning { background: rgba(240,168,64,.12); color: var(--amber); }
+```
+Shown instead of the `completed` badge specifically when `status === 'completed' && warning === true` (post-condition match) — computed via a small `badgeClass(cmd)`/`badgeLabel(cmd)` helper pair rather than a template ternary, since both the badge's class *and* its label text need to change together. `warning` never changes the underlying `status` value itself or the stdout/stderr/exit-code display — it's a purely additive visual state.
 
 ## Sidebar resizer
 
