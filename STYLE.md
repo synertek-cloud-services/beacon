@@ -385,7 +385,13 @@ Dropdown markup reuses the same `position: relative` wrapper / `position: absolu
 
 ## Device detail page: one-page-with-anchor-nav (not tabs)
 
-`DeviceDetailPage.vue`'s left-nav (Summary/Hardware/Security/Software/Services/Alerts/Policies/Change Log) looks like a tab bar but isn't one — every section renders simultaneously; the nav only scrolls to and highlights a section. This shape was arrived at after an explicit correction (an initial `v-if`/`v-else-if` tabs implementation was rejected: "it is still supposed to be one page. The links just make it quicker to navigate").
+`DeviceDetailPage.vue`'s left-nav (Summary/System/Alerts/Policies/Software/Services/Memory/Storage/Network/Security/Change Log) looks like a tab bar but isn't one — every section renders simultaneously; the nav only scrolls to and highlights a section. This shape was arrived at after an explicit correction (an initial `v-if`/`v-else-if` tabs implementation was rejected: "it is still supposed to be one page. The links just make it quicker to navigate").
+
+**Nav order and per-section scope is copied directly from a real Datto RMM device page, not invented** — a session that started with a single merged "System" section (OS + all hardware facts combined, itself replacing an even earlier standalone "Hardware" nav item) went through two corrections once actual Datto screenshots were shown:
+1. "stuff is getting scattered and duplicated" — fields were showing up in two places at once (Summary *and* System *and* Hardware all had OS/Serial/BIOS/CPU/RAM overlap), because System was bolted on without reconciling what already existed. Fix: each fact lives in exactly one section.
+2. Datto keeps Memory, Storage, and Network as their **own** nav items, not folded into System — an initial merge-everything-into-System pass was the wrong direction and had to be split back out. **System is identity-only** (OS/build/architecture/domain/last-user/AV product/firewall/warranty/services-count on one side, manufacturer/model/motherboard/serial/processor/cores/BIOS/display-adapters on the other) — no RAM, no disks, no network adapters. Those three get their own single-topic sections instead, each just `.inv-tab-body` > `.inv-section` with no internal grid (unlike System's two-column `.ddev-grid` layout, these sections only have one concern each).
+
+Skipped from the reference on purpose, not by oversight: Patch Management (no patch-management feature), Related Devices, Activities, Notes, UDFs (all deferred — "not need it for the moment"), and a historical-metrics-over-time tab (Beacon only stores the latest check-in snapshot per device, no time-series table — a real new feature, not a quick add, deferred until asked for explicitly). `.NET Version` and real vendor-API warranty lookups (Dell/HP/Lenovo warranty APIs — each needs its own partner-account registration, and would still miss VMs/white-box builds) were evaluated and explicitly declined; Warranty Expiration is a manually-entered date field instead (`devices.warranty_expires_at`, migration `0019`), since no OS/hardware API on any platform exposes real OEM warranty status.
 
 **Section separation** — each section gets a distinct title-bar treatment, not just a thin divider (a thin border alone read as "runs together"):
 ```css
@@ -409,6 +415,27 @@ The 6px `var(--bg)`-colored gutter between sections (not a 1px border) is what a
 **Scroll-spy** (nav highlight tracks scroll position automatically) — see CLAUDE.md's "Scroll-spy nav" coding pattern for the full `IntersectionObserver` implementation and its bottom-of-scroll edge case. Nav item active-state CSS matches the app's existing active-state formula (`App.vue`'s `.sbi.active`, `GlobalPoliciesPage.vue`'s `.al-pill-active`) — accent-tinted background + left border + accent text color.
 
 **Deep-linking**: `?section=` on the same route (not a URL hash fragment — the app already uses `createWebHashHistory()`, so a second `#fragment` would collide with vue-router's own hash). Clicking a nav item does `router.replace` (not `push`, so scrolling around doesn't spam history) and calls `scrollIntoView`; a dedicated `watch(() => route.query.section)` handles the case where `?section=` changes while already mounted on the same device (e.g. a second click) — watching only `route.params.id` misses this.
+
+## Inline-editable date field (Warranty Expiration)
+
+Only editable field on the whole device detail page (everything else is agent-reported and read-only) — a bare native `<input type="date">`, no separate "Edit"/"Save" button, saves immediately `@change`:
+```html
+<input
+  type="date"
+  class="mono text-sm ddev-date-input"
+  :value="warrantyDateInput"
+  :disabled="warrantySaving"
+  @change="onWarrantyChange"
+/>
+```
+```css
+.ddev-date-input {
+  background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
+  padding: 3px 6px; color: var(--text); font-family: var(--font);
+}
+.ddev-date-input:focus { outline: none; border-color: var(--accent); }
+```
+`:value`/`@change` rather than `v-model`, same reasoning as the optional-condition checkbox pattern above — the source of truth is `device.value.warrantyExpiresAt` (a unix timestamp or `null`), and the date string is a derived, one-way-bound view of it. Convert at UTC midnight in both directions (`new Date(ts * 1000).toISOString().slice(0, 10)` to display; `Math.floor(new Date(\`${val}T00:00:00Z\`).getTime() / 1000)` to save) — `<input type="date">` works in unzoned calendar days, so mixing in local-timezone `Date` parsing would drift the displayed date by one day near midnight in some timezones.
 
 ## Identity header (device/entity detail pages)
 
