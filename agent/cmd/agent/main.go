@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,6 +44,13 @@ var (
 )
 
 func main() {
+	// Windows services have no visible console — without this, every
+	// updater/audit/check-in log line goes nowhere anyone can ever see,
+	// which made a real production self-update failure indistinguishable
+	// from "hasn't tried yet" for an entire debugging session. credential.Dir()
+	// is a pure path computation (no I/O), safe to call before enrollment.
+	setupLogging(credential.Dir())
+
 	// Handle install/uninstall subcommands before the normal flag set.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -95,6 +104,21 @@ func main() {
 			time.Sleep(checkInInterval)
 		}
 	})
+}
+
+// setupLogging appends log output to <credDir>/agent.log in addition to
+// stderr. Best-effort: if the directory/file can't be created (e.g. this
+// is the very first run before enrollment has ever created credDir on some
+// platform), logging just stays on stderr and nothing else changes.
+func setupLogging(credDir string) {
+	if err := os.MkdirAll(credDir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(credDir, "agent.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
 }
 
 func runInstall() {
