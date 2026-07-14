@@ -7,7 +7,7 @@ import { requireUser } from '../../lib/auth';
 
 const alerts = new Hono<{ Bindings: Bindings }>();
 
-// GET /v1/admin/alerts?status=active|all&search=<text>&company_id=<id>
+// GET /v1/admin/alerts?status=active|all&search=<text>&company_id=<id>&device_id=<id>
 alerts.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly'))) {
     return c.json({ error: 'unauthorized' }, 401);
@@ -16,6 +16,7 @@ alerts.get('/', async (c) => {
   const showAll   = c.req.query('status') === 'all';
   const search    = c.req.query('search')?.toLowerCase() ?? '';
   const companyId = c.req.query('company_id');
+  const deviceId  = c.req.query('device_id');
   const since30d  = Math.floor(Date.now() / 1000) - 30 * 86400;
 
   const params: (string | number)[] = [];
@@ -26,6 +27,10 @@ alerts.get('/', async (c) => {
   if (companyId) {
     whereClause += ' AND t.id = ?';
     params.push(companyId);
+  }
+  if (deviceId) {
+    whereClause += ' AND s.device_id = ?';
+    params.push(deviceId);
   }
 
   const sql = `

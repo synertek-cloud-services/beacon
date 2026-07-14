@@ -97,211 +97,309 @@
         </div>
       </div>
 
-      <!-- Device detail tab bar -->
-      <div class="ddev-tabs">
-        <button class="ddev-tab" :class="{ active: activeDeviceTab === 'details' }"   @click="setDeviceTab('details')">Details</button>
-        <button class="ddev-tab" :class="{ active: activeDeviceTab === 'changelog' }" @click="setDeviceTab('changelog')">Change Log</button>
-      </div>
+      <!-- Section nav + content -->
+      <div class="ddev-body">
+        <nav class="ddev-nav">
+          <button
+            v-for="s in sections" :key="s.value"
+            class="ddev-nav-item" :class="{ active: activeSection === s.value }"
+            @click="setSection(s.value)"
+          >{{ s.label }}</button>
+        </nav>
 
-      <!-- ── Details tab ── -->
-      <template v-if="activeDeviceTab === 'details'">
+        <div class="ddev-content">
 
-      <!-- Detail grid -->
-      <div class="ddev-grid">
-        <div class="ddev-section">
-          <div class="ddev-section-title">System</div>
-          <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ device.tenantName ?? '—' }}</span></div>
-          <div class="ddev-row"><span class="ddev-label">Hostname</span><span class="mono text-sm">{{ device.hostname ?? '—' }}</span></div>
-          <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
-          <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
-          <div class="ddev-row">
-            <span class="ddev-label">Class</span>
-            <span class="text-sm">
-              {{ effectiveClass(device) ?? '—' }}
-              <span v-if="effectiveClass(device)" class="text-xs text-muted-2">({{ device.overrideClass ? 'manual' : 'auto' }})</span>
-            </span>
-          </div>
-          <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
-          <div class="ddev-row"><span class="ddev-label">Device ID</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ device.id }}</span></div>
-        </div>
-
-        <div class="ddev-section">
-          <div class="ddev-section-title">Activity</div>
-          <div class="ddev-row">
-            <span class="ddev-label">Last seen</span>
-            <span class="text-sm">{{ lastSeenLabel(device.lastSeen) }}<span v-if="device.lastSeen" class="text-xs text-muted-2"> · {{ absDate(device.lastSeen) }}</span></span>
-          </div>
-          <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
-          <div class="ddev-row"><span class="ddev-label">Approved</span><span class="text-sm">{{ device.approvedAt ? absDate(device.approvedAt) : '—' }}</span></div>
-        </div>
-
-        <div v-if="inventoryOf(device)" class="ddev-section">
-          <div class="ddev-section-title">Hardware</div>
-          <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
-          <template v-if="inventoryOf(device)!.disks?.length">
-            <div class="ddev-row" v-for="disk in inventoryOf(device)!.disks" :key="disk.device || disk.label">
-              <span class="ddev-label">{{ disk.label }}</span>
-              <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-            </div>
-          </template>
-          <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(device)!.disk_free_bytes) }}</span></div>
-        </div>
-      </div>
-
-      <!-- Inventory sections (from audit data) -->
-      <div class="inv-tab-body">
-        <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
-        <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
-          <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
-        </div>
-        <template v-else>
-          <div class="inv-toolbar">
-            <span class="text-xs text-muted-2">Last audit: {{ absDate(auditData.createdAt) }}</span>
-            <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
-          </div>
-
-          <!-- Hardware -->
-          <div v-if="auditData.hardware" class="inv-section">
-            <div class="inv-section-title">Hardware</div>
-            <div v-if="auditData.hardware.cpu?.length" class="inv-subsection">
-              <div class="inv-sub-title">CPU</div>
-              <div v-for="c in auditData.hardware.cpu" :key="c.model" class="ddev-row">
-                <span class="ddev-label">Model</span><span class="text-sm">{{ c.model }}</span>
-                <span class="ddev-label" style="margin-left:16px">Cores</span><span class="text-sm">{{ c.cores }}</span>
-                <span class="ddev-label" style="margin-left:16px">Speed</span><span class="text-sm">{{ c.speed_mhz.toFixed(0) }} MHz</span>
-              </div>
-            </div>
-            <div class="ddev-row" style="padding:0 20px 6px">
-              <span class="ddev-label">RAM</span>
-              <span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span>
-            </div>
-            <div v-if="auditData.hardware.disks?.length" class="inv-subsection">
-              <div class="inv-sub-title">Disks</div>
-              <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row">
-                <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
-                <div class="inv-disk-bar-wrap">
-                  <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
-                </div>
-                <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-              </div>
-            </div>
-            <div v-if="auditData.hardware.network?.length" class="inv-subsection">
-              <div class="inv-sub-title">Network Adapters</div>
-              <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:0 20px 4px">
-                <span class="ddev-label">{{ nic.name }}</span>
-                <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
-                <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
-              </div>
-            </div>
-            <div v-if="auditData.hardware.bios" class="ddev-row" style="padding:0 20px 6px">
-              <span class="ddev-label">BIOS</span>
-              <span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
-              <span v-if="auditData.hardware.bios.release_date" class="text-xs text-muted-2" style="margin-left:8px">{{ auditData.hardware.bios.release_date }}</span>
-            </div>
-          </div>
-
-          <!-- Security -->
-          <div v-if="auditData.security" class="inv-section">
-            <div class="inv-section-title">Security</div>
-            <div class="ddev-row" style="padding:0 20px 8px">
-              <span class="ddev-label">Firewall</span>
-              <span :class="auditData.security.firewall_enabled ? 'inv-badge-ok' : 'inv-badge-warn'">
-                {{ auditData.security.firewall_enabled ? 'Enabled' : 'Disabled' }}
-              </span>
-            </div>
-            <div v-if="auditData.security.antivirus?.length" style="padding:0 20px 8px">
-              <div class="inv-sub-title">Antivirus</div>
-              <div v-for="av in auditData.security.antivirus" :key="av.name" class="inv-av-row">
-                <span class="text-sm">{{ av.name }}</span>
-                <span :class="av.enabled ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:8px">{{ av.enabled ? 'Active' : 'Inactive' }}</span>
-                <span :class="av.up_to_date ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:4px">{{ av.up_to_date ? 'Up to date' : 'Outdated' }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Software -->
-          <div v-if="auditData.software?.length" class="inv-section">
-            <div class="inv-section-title">
-              Software
-              <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.software.length }} installed</span>
-            </div>
-            <div style="padding:0 20px 8px">
-              <input v-model="softwareSearch" class="inv-search" placeholder="Search software…" />
-            </div>
-            <div class="sw-list">
-              <div v-for="sw in pagedSoftware" :key="sw.name" class="sw-row">
-                <span class="sw-name text-sm">{{ sw.name }}</span>
-                <span class="sw-ver mono text-xs text-muted-2">{{ sw.version || '—' }}</span>
-                <span v-if="sw.publisher" class="sw-pub text-xs text-muted-2">{{ sw.publisher }}</span>
-              </div>
-              <div v-if="filteredSoftware.length === 0" class="inv-empty-row">No matches</div>
-            </div>
-            <div class="inv-pagination">
-              <select v-model="swPageSize" class="pag-size-select">
-                <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
-              </select>
-              <template v-if="softwarePageCount > 1">
-                <button class="pag-btn" :disabled="softwarePage === 0" @click="softwarePage--">‹</button>
-                <span class="pag-info text-xs text-muted-2">{{ softwarePage + 1 }} / {{ softwarePageCount }}</span>
-                <button class="pag-btn" :disabled="softwarePage >= softwarePageCount - 1" @click="softwarePage++">›</button>
-              </template>
-            </div>
-          </div>
-
-          <!-- Services -->
-          <div v-if="auditData.services?.length" class="inv-section">
-            <div class="inv-section-title">
-              Services
-              <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.services.length }} total</span>
-            </div>
-            <div class="svc-list">
-              <div v-for="svc in pagedServices" :key="svc.name" class="svc-row">
-                <span :class="['svc-dot', svc.status === 'running' ? 'svc-dot-run' : 'svc-dot-stop']"></span>
-                <span class="svc-name text-sm">{{ svc.display_name || svc.name }}</span>
-                <span v-if="svc.start_type" class="svc-start text-xs text-muted-2">{{ svc.start_type }}</span>
-              </div>
-            </div>
-            <div class="inv-pagination">
-              <select v-model="svcPageSize" class="pag-size-select">
-                <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
-              </select>
-              <template v-if="servicesPageCount > 1">
-                <button class="pag-btn" :disabled="servicesPage === 0" @click="servicesPage--">‹</button>
-                <span class="pag-info text-xs text-muted-2">{{ servicesPage + 1 }} / {{ servicesPageCount }}</span>
-                <button class="pag-btn" :disabled="servicesPage >= servicesPageCount - 1" @click="servicesPage++">›</button>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      </template><!-- end details tab -->
-
-      <!-- ── Change Log tab ── -->
-      <div v-else-if="activeDeviceTab === 'changelog'" class="inv-tab-body">
-        <div v-if="changesLoading" class="inv-empty">Loading change log…</div>
-        <div v-else-if="changeGroups.length === 0" class="inv-empty">No changes recorded yet. Changes appear after two or more audits.</div>
-        <div v-else>
-          <div v-for="group in changeGroups" :key="group.auditId" class="chg-group">
-            <div class="chg-group-head">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Audit — {{ absDate(group.detectedAt) }}
-              <span class="chg-count">{{ group.changes.length }} change{{ group.changes.length !== 1 ? 's' : '' }}</span>
-            </div>
-            <div v-for="ch in group.changes" :key="ch.id" class="chg-row">
-              <span :class="['chg-badge', `chg-badge-${ch.category}`]">{{ ch.category }}</span>
-              <span :class="['chg-type', `chg-type-${ch.changeType}`]">{{ ch.changeType }}</span>
-              <span class="chg-name text-sm">{{ ch.itemName }}</span>
-              <template v-if="ch.field && (ch.oldValue || ch.newValue)">
-                <span class="text-xs text-muted-2 chg-field">{{ ch.field }}:</span>
-                <span class="chg-diff mono text-xs">
-                  <span v-if="ch.oldValue" class="chg-old">{{ ch.oldValue }}</span>
-                  <span v-if="ch.oldValue && ch.newValue" class="chg-arrow">→</span>
-                  <span v-if="ch.newValue" class="chg-new">{{ ch.newValue }}</span>
+          <!-- ── Summary ── -->
+          <div v-if="activeSection === 'summary'" class="ddev-grid">
+            <div class="ddev-section">
+              <div class="ddev-section-title">System</div>
+              <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ device.tenantName ?? '—' }}</span></div>
+              <div class="ddev-row"><span class="ddev-label">Hostname</span><span class="mono text-sm">{{ device.hostname ?? '—' }}</span></div>
+              <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
+              <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
+              <div class="ddev-row">
+                <span class="ddev-label">Class</span>
+                <span class="text-sm">
+                  {{ effectiveClass(device) ?? '—' }}
+                  <span v-if="effectiveClass(device)" class="text-xs text-muted-2">({{ device.overrideClass ? 'manual' : 'auto' }})</span>
                 </span>
+              </div>
+              <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
+              <div class="ddev-row"><span class="ddev-label">Device ID</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ device.id }}</span></div>
+            </div>
+
+            <div class="ddev-section">
+              <div class="ddev-section-title">Activity</div>
+              <div class="ddev-row">
+                <span class="ddev-label">Last seen</span>
+                <span class="text-sm">{{ lastSeenLabel(device.lastSeen) }}<span v-if="device.lastSeen" class="text-xs text-muted-2"> · {{ absDate(device.lastSeen) }}</span></span>
+              </div>
+              <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
+              <div class="ddev-row"><span class="ddev-label">Approved</span><span class="text-sm">{{ device.approvedAt ? absDate(device.approvedAt) : '—' }}</span></div>
+            </div>
+
+            <div v-if="inventoryOf(device)" class="ddev-section">
+              <div class="ddev-section-title">Quick Status</div>
+              <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
+              <template v-if="inventoryOf(device)!.disks?.length">
+                <div class="ddev-row" v-for="disk in inventoryOf(device)!.disks" :key="disk.device || disk.label">
+                  <span class="ddev-label">{{ disk.label }}</span>
+                  <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                </div>
               </template>
+              <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(device)!.disk_free_bytes) }}</span></div>
             </div>
           </div>
+
+          <!-- ── Hardware (audit) ── -->
+          <div v-else-if="activeSection === 'hardware'" class="inv-tab-body">
+            <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+            <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+              <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+            </div>
+            <template v-else>
+              <div class="inv-toolbar">
+                <span class="text-xs text-muted-2">Last audit: {{ absDate(auditData.createdAt) }}</span>
+                <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              </div>
+              <div v-if="auditData.hardware" class="inv-section">
+                <div v-if="auditData.hardware.cpu?.length" class="inv-subsection">
+                  <div class="inv-sub-title">CPU</div>
+                  <div v-for="c in auditData.hardware.cpu" :key="c.model" class="ddev-row">
+                    <span class="ddev-label">Model</span><span class="text-sm">{{ c.model }}</span>
+                    <span class="ddev-label" style="margin-left:16px">Cores</span><span class="text-sm">{{ c.cores }}</span>
+                    <span class="ddev-label" style="margin-left:16px">Speed</span><span class="text-sm">{{ c.speed_mhz.toFixed(0) }} MHz</span>
+                  </div>
+                </div>
+                <div class="ddev-row" style="padding:0 20px 6px">
+                  <span class="ddev-label">RAM</span>
+                  <span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span>
+                </div>
+                <div v-if="auditData.hardware.disks?.length" class="inv-subsection">
+                  <div class="inv-sub-title">Disks</div>
+                  <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row">
+                    <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
+                    <div class="inv-disk-bar-wrap">
+                      <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
+                    </div>
+                    <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                  </div>
+                </div>
+                <div v-if="auditData.hardware.network?.length" class="inv-subsection">
+                  <div class="inv-sub-title">Network Adapters</div>
+                  <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:0 20px 4px">
+                    <span class="ddev-label">{{ nic.name }}</span>
+                    <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
+                    <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
+                  </div>
+                </div>
+                <div v-if="auditData.hardware.bios" class="ddev-row" style="padding:0 20px 6px">
+                  <span class="ddev-label">BIOS</span>
+                  <span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
+                  <span v-if="auditData.hardware.bios.release_date" class="text-xs text-muted-2" style="margin-left:8px">{{ auditData.hardware.bios.release_date }}</span>
+                </div>
+              </div>
+              <div v-else class="inv-empty">No hardware data in the last audit.</div>
+            </template>
+          </div>
+
+          <!-- ── Security (audit) ── -->
+          <div v-else-if="activeSection === 'security'" class="inv-tab-body">
+            <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+            <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+              <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+            </div>
+            <template v-else-if="auditData.security">
+              <div class="inv-section">
+                <div class="ddev-row" style="padding:12px 20px 8px">
+                  <span class="ddev-label">Firewall</span>
+                  <span :class="auditData.security.firewall_enabled ? 'inv-badge-ok' : 'inv-badge-warn'">
+                    {{ auditData.security.firewall_enabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                </div>
+                <div v-if="auditData.security.antivirus?.length" style="padding:0 20px 8px">
+                  <div class="inv-sub-title">Antivirus</div>
+                  <div v-for="av in auditData.security.antivirus" :key="av.name" class="inv-av-row">
+                    <span class="text-sm">{{ av.name }}</span>
+                    <span :class="av.enabled ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:8px">{{ av.enabled ? 'Active' : 'Inactive' }}</span>
+                    <span :class="av.up_to_date ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:4px">{{ av.up_to_date ? 'Up to date' : 'Outdated' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="inv-empty">No security data in the last audit.</div>
+          </div>
+
+          <!-- ── Software (audit) ── -->
+          <div v-else-if="activeSection === 'software'" class="inv-tab-body">
+            <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+            <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+              <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+            </div>
+            <template v-else-if="auditData.software?.length">
+              <div class="inv-section">
+                <div class="inv-section-title">
+                  Software
+                  <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.software.length }} installed</span>
+                </div>
+                <div style="padding:0 20px 8px">
+                  <input v-model="softwareSearch" class="inv-search" placeholder="Search software…" />
+                </div>
+                <div class="sw-list">
+                  <div v-for="sw in pagedSoftware" :key="sw.name" class="sw-row">
+                    <span class="sw-name text-sm">{{ sw.name }}</span>
+                    <span class="sw-ver mono text-xs text-muted-2">{{ sw.version || '—' }}</span>
+                    <span v-if="sw.publisher" class="sw-pub text-xs text-muted-2">{{ sw.publisher }}</span>
+                  </div>
+                  <div v-if="filteredSoftware.length === 0" class="inv-empty-row">No matches</div>
+                </div>
+                <div class="inv-pagination">
+                  <select v-model="swPageSize" class="pag-size-select">
+                    <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                  </select>
+                  <template v-if="softwarePageCount > 1">
+                    <button class="pag-btn" :disabled="softwarePage === 0" @click="softwarePage--">‹</button>
+                    <span class="pag-info text-xs text-muted-2">{{ softwarePage + 1 }} / {{ softwarePageCount }}</span>
+                    <button class="pag-btn" :disabled="softwarePage >= softwarePageCount - 1" @click="softwarePage++">›</button>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div v-else class="inv-empty">No software data in the last audit.</div>
+          </div>
+
+          <!-- ── Services (audit) ── -->
+          <div v-else-if="activeSection === 'services'" class="inv-tab-body">
+            <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+            <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+              <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+            </div>
+            <template v-else-if="auditData.services?.length">
+              <div class="inv-section">
+                <div class="inv-section-title">
+                  Services
+                  <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.services.length }} total</span>
+                </div>
+                <div class="svc-list">
+                  <div v-for="svc in pagedServices" :key="svc.name" class="svc-row">
+                    <span :class="['svc-dot', svc.status === 'running' ? 'svc-dot-run' : 'svc-dot-stop']"></span>
+                    <span class="svc-name text-sm">{{ svc.display_name || svc.name }}</span>
+                    <span v-if="svc.start_type" class="svc-start text-xs text-muted-2">{{ svc.start_type }}</span>
+                  </div>
+                </div>
+                <div class="inv-pagination">
+                  <select v-model="svcPageSize" class="pag-size-select">
+                    <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                  </select>
+                  <template v-if="servicesPageCount > 1">
+                    <button class="pag-btn" :disabled="servicesPage === 0" @click="servicesPage--">‹</button>
+                    <span class="pag-info text-xs text-muted-2">{{ servicesPage + 1 }} / {{ servicesPageCount }}</span>
+                    <button class="pag-btn" :disabled="servicesPage >= servicesPageCount - 1" @click="servicesPage++">›</button>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div v-else class="inv-empty">No services data in the last audit.</div>
+          </div>
+
+          <!-- ── Alerts (device-scoped) ── -->
+          <div v-else-if="activeSection === 'alerts'" class="inv-tab-body">
+            <div class="inv-toolbar">
+              <span class="text-xs text-muted-2">Last 30 days, open + resolved</span>
+              <button
+                class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px"
+                :disabled="!Object.keys(alertsSelected).length || alertsResolving"
+                @click="resolveSelectedAlerts"
+              >{{ alertsResolving ? 'Resolving…' : 'Resolve' }}</button>
+            </div>
+            <div v-if="deviceAlertsLoading" class="inv-empty">Loading alerts…</div>
+            <div v-else-if="deviceAlerts.length === 0" class="inv-empty">No alerts recorded for this device in the last 30 days.</div>
+            <table v-else class="alert-mini-table">
+              <thead>
+                <tr>
+                  <th class="col-check"><input type="checkbox" :checked="alertsAllSelected" @change="toggleAlertSelectAll" /></th>
+                  <th>Created</th>
+                  <th>Priority</th>
+                  <th>Category</th>
+                  <th>Message</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="a in deviceAlerts" :key="a.id" @click="toggleAlertSelect(a.id)">
+                  <td class="col-check" @click.stop><input type="checkbox" :checked="!!alertsSelected[a.id]" @change="toggleAlertSelect(a.id)" /></td>
+                  <td class="mono text-xs text-muted-2">{{ absDate(a.alerted_at ?? a.updated_at) }}</td>
+                  <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span></td>
+                  <td class="text-sm">{{ categoryLabel(a.check_type) }}</td>
+                  <td class="text-sm">{{ alertMessage(a) }}</td>
+                  <td>
+                    <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
+                      {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ── Policies (effective monitors) ── -->
+          <div v-else-if="activeSection === 'policies'" class="inv-tab-body">
+            <div v-if="effectiveMonitorsLoading" class="inv-empty">Loading policies…</div>
+            <div v-else-if="policyGroups.length === 0" class="inv-empty">No policies currently apply to this device.</div>
+            <div v-else v-for="group in policyGroups" :key="group.policy.id" class="inv-section">
+              <div class="inv-section-title">
+                {{ group.policy.name }}
+                <span class="scope-badge" :class="'scope-' + group.policy.scope" style="margin-left:8px">{{ capitalize(group.policy.scope) }}</span>
+              </div>
+              <table class="monitor-table" style="margin:0 20px 12px;width:calc(100% - 40px)">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Condition</th>
+                    <th>Priority</th>
+                    <th>Sustained</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="m in group.monitors" :key="m.id" class="monitor-row">
+                    <td><span :class="['check-chip', 'chip-' + m.checkType]">{{ checkLabel(m.checkType) }}</span></td>
+                    <td class="monitor-config-cell">{{ monitorSummary(m) }}</td>
+                    <td><span :class="['pri-badge', 'pri-' + m.alertPriority]">{{ capitalize(m.alertPriority) }}</span></td>
+                    <td class="tab-nums">{{ m.sustainedMinutes }}m</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── Change Log ── -->
+          <div v-else-if="activeSection === 'changelog'" class="inv-tab-body">
+            <div v-if="changesLoading" class="inv-empty">Loading change log…</div>
+            <div v-else-if="changeGroups.length === 0" class="inv-empty">No changes recorded yet. Changes appear after two or more audits.</div>
+            <div v-else>
+              <div v-for="group in changeGroups" :key="group.auditId" class="chg-group">
+                <div class="chg-group-head">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Audit — {{ absDate(group.detectedAt) }}
+                  <span class="chg-count">{{ group.changes.length }} change{{ group.changes.length !== 1 ? 's' : '' }}</span>
+                </div>
+                <div v-for="ch in group.changes" :key="ch.id" class="chg-row">
+                  <span :class="['chg-badge', `chg-badge-${ch.category}`]">{{ ch.category }}</span>
+                  <span :class="['chg-type', `chg-type-${ch.changeType}`]">{{ ch.changeType }}</span>
+                  <span class="chg-name text-sm">{{ ch.itemName }}</span>
+                  <template v-if="ch.field && (ch.oldValue || ch.newValue)">
+                    <span class="text-xs text-muted-2 chg-field">{{ ch.field }}:</span>
+                    <span class="chg-diff mono text-xs">
+                      <span v-if="ch.oldValue" class="chg-old">{{ ch.oldValue }}</span>
+                      <span v-if="ch.oldValue && ch.newValue" class="chg-arrow">→</span>
+                      <span v-if="ch.newValue" class="chg-new">{{ ch.newValue }}</span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -419,9 +517,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AuditChange } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AuditChange, type AlertState, type EffectiveMonitor, type CheckType } from '../api';
 
 interface DiskInfo {
   device: string;
@@ -450,8 +548,26 @@ const error   = ref('');
 const busy    = ref(false);
 const now     = ref(Math.floor(Date.now() / 1000));
 
+// Section nav — driven by ?section= so it's linkable, matching the same
+// query-param-as-view-state idiom used by DevicesPage/GlobalAlertsPage.
+const sections = [
+  { value: 'summary',   label: 'Summary' },
+  { value: 'hardware',  label: 'Hardware' },
+  { value: 'security',  label: 'Security' },
+  { value: 'software',  label: 'Software' },
+  { value: 'services',  label: 'Services' },
+  { value: 'alerts',    label: 'Alerts' },
+  { value: 'policies',  label: 'Policies' },
+  { value: 'changelog', label: 'Change Log' },
+];
+const activeSection = computed(() => (route.query.section as string | undefined) ?? 'summary');
+
+function setSection(s: string) {
+  router.push({ query: { ...route.query, section: s } });
+  ensureSectionData(s);
+}
+
 // Device detail tab state
-const activeDeviceTab = ref<'details' | 'changelog'>('details');
 const auditData       = ref<DeviceAudit | null>(null);
 const auditLoading    = ref(false);
 const auditChanges    = ref<AuditChange[]>([]);
@@ -459,6 +575,16 @@ const changesLoading  = ref(false);
 const softwareSearch  = ref('');
 const softwarePage    = ref(0);
 const servicesPage    = ref(0);
+
+// Alerts section (device-scoped)
+const deviceAlerts        = ref<AlertState[]>([]);
+const deviceAlertsLoading = ref(false);
+const alertsSelected      = reactive<Record<string, boolean>>({});
+const alertsResolving     = ref(false);
+
+// Policies section (effective monitors for this device)
+const effectiveMonitors        = ref<EffectiveMonitor[]>([]);
+const effectiveMonitorsLoading = ref(false);
 const swPageSize      = ref(20);
 const svcPageSize     = ref(20);
 const PAGE_SIZES      = [20, 50, 100];
@@ -492,17 +618,19 @@ async function loadDevice(id: string) {
 }
 
 // Runs whenever the route's :id actually changes (including the initial
-// load) — resets tab/audit/changelog/pagination state and fetches the new
-// device's audit-latest, mirroring the old expand-on-click behavior now
-// that this page IS the "expanded" view.
+// load) — resets audit/changelog/alerts/policies/pagination state and
+// fetches the new device's audit-latest, mirroring the old expand-on-click
+// behavior now that this page IS the "expanded" view. Section itself is
+// NOT reset here — it's route-query-derived, not local component state.
 async function onIdChange(id: string | undefined) {
   if (!id) return;
   loading.value = true;
   error.value = '';
   now.value = Math.floor(Date.now() / 1000);
-  activeDeviceTab.value = 'details';
   auditData.value = null;
   auditChanges.value = [];
+  deviceAlerts.value = [];
+  effectiveMonitors.value = [];
   softwareSearch.value = '';
   softwarePage.value = 0;
   servicesPage.value = 0;
@@ -515,6 +643,10 @@ async function onIdChange(id: string | undefined) {
   try { auditData.value = await api.devices.audit.latest(device.value.id); }
   catch { /* leave null — "Run Audit Now" empty state covers this */ }
   finally { auditLoading.value = false; }
+
+  // Covers direct navigation to e.g. /devices/:id?section=alerts — clicking
+  // a nav item calls this same function from setSection instead.
+  ensureSectionData(activeSection.value);
 }
 
 // watch (not onMounted) since Vue Router reuses this component instance
@@ -530,19 +662,222 @@ timer = setInterval(() => {
 }, 30_000);
 onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', closeMenuOnce); });
 
-async function setDeviceTab(tab: typeof activeDeviceTab.value) {
+// Lazy-load whichever section's data hasn't been fetched yet — called both
+// when clicking a nav item (setSection) and after the initial device load
+// (onIdChange), so direct-navigating to ?section=alerts works too.
+function ensureSectionData(s: string) {
   if (!device.value) return;
-  activeDeviceTab.value = tab;
-  if (tab === 'details' && !auditData.value) {
-    auditLoading.value = true;
-    try { auditData.value = await api.devices.audit.latest(device.value.id); }
-    finally { auditLoading.value = false; }
+  if (s === 'changelog' && auditChanges.value.length === 0 && !changesLoading.value) loadChangeLog();
+  if (s === 'alerts' && deviceAlerts.value.length === 0 && !deviceAlertsLoading.value) loadDeviceAlerts();
+  if (s === 'policies' && effectiveMonitors.value.length === 0 && !effectiveMonitorsLoading.value) loadEffectiveMonitors();
+}
+
+async function loadChangeLog() {
+  if (!device.value) return;
+  changesLoading.value = true;
+  try { auditChanges.value = await api.devices.audit.changes(device.value.id); }
+  finally { changesLoading.value = false; }
+}
+
+async function loadDeviceAlerts() {
+  if (!device.value) return;
+  deviceAlertsLoading.value = true;
+  try { deviceAlerts.value = await api.alerts.list('all', '', '', device.value.id); }
+  catch { deviceAlerts.value = []; }
+  finally { deviceAlertsLoading.value = false; }
+}
+
+async function loadEffectiveMonitors() {
+  if (!device.value) return;
+  effectiveMonitorsLoading.value = true;
+  try { effectiveMonitors.value = await api.devices.effectiveMonitors(device.value.id); }
+  catch { effectiveMonitors.value = []; }
+  finally { effectiveMonitorsLoading.value = false; }
+}
+
+function toggleAlertSelect(id: string) {
+  if (alertsSelected[id]) delete alertsSelected[id];
+  else alertsSelected[id] = true;
+}
+
+const alertsAllSelected = computed(() =>
+  deviceAlerts.value.length > 0 && deviceAlerts.value.every(a => alertsSelected[a.id])
+);
+
+function toggleAlertSelectAll() {
+  if (alertsAllSelected.value) deviceAlerts.value.forEach(a => delete alertsSelected[a.id]);
+  else deviceAlerts.value.forEach(a => { alertsSelected[a.id] = true; });
+}
+
+async function resolveSelectedAlerts() {
+  const ids = Object.keys(alertsSelected);
+  if (!ids.length) return;
+  alertsResolving.value = true;
+  try {
+    await Promise.all(ids.map(id => api.alerts.resolve(id)));
+    ids.forEach(id => delete alertsSelected[id]);
+    await loadDeviceAlerts();
+  } finally {
+    alertsResolving.value = false;
   }
-  if (tab === 'changelog' && auditChanges.value.length === 0) {
-    changesLoading.value = true;
-    try { auditChanges.value = await api.devices.audit.changes(device.value.id); }
-    finally { changesLoading.value = false; }
+}
+
+interface PolicyGroup { policy: EffectiveMonitor['policy']; monitors: EffectiveMonitor[] }
+const policyGroups = computed((): PolicyGroup[] => {
+  const map = new Map<string, PolicyGroup>();
+  for (const m of effectiveMonitors.value) {
+    let g = map.get(m.policy.id);
+    if (!g) { g = { policy: m.policy, monitors: [] }; map.set(m.policy.id, g); }
+    g.monitors.push(m);
   }
+  return [...map.values()];
+});
+
+function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── Duplicated from GlobalAlertsPage.vue per this codebase's established
+// per-component duplication convention ──
+function categoryLabel(ct: string): string {
+  switch (ct) {
+    case 'disk_space':   return 'Disk Space';
+    case 'offline':      return 'Online Status';
+    case 'cpu_usage':    return 'CPU';
+    case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
+    default:             return ct;
+  }
+}
+
+function alertMessage(a: AlertState): string {
+  try {
+    const cfg = JSON.parse(a.config) as Record<string, unknown>;
+    switch (a.check_type) {
+      case 'offline': {
+        const direction = (cfg.direction as string) ?? 'offline';
+        return direction === 'online' ? 'Device came online' : 'Device went offline';
+      }
+      case 'disk_space': {
+        const drive = (cfg.drive as string) === 'any' ? 'A drive' : (cfg.drive as string);
+        const type  = (cfg.threshold_type as string) ?? 'gb_free';
+        const value = cfg.threshold_value as number;
+        const unit  = type === 'percent_used' ? '%' : ' GB';
+        const label = type === 'gb_free' ? 'free space' : type === 'percent_used' ? 'used' : 'used space';
+        const cmp   = type === 'gb_free' ? 'below' : 'above';
+        return `${drive} ${label} ${cmp} ${value}${unit}`;
+      }
+      case 'cpu_usage':    return `CPU usage above ${cfg.percent_max}%`;
+      case 'memory_usage': return `Memory usage above ${cfg.percent_max}%`;
+      case 'av_status': {
+        const state = cfg.av_state as string;
+        if (state === 'not_detected')          return 'AV not detected';
+        if (state === 'not_running')            return 'AV not running';
+        if (state === 'running_not_up_to_date') return 'AV out of date';
+        return 'Antivirus issue';
+      }
+      case 'file_size': {
+        const cmp = (cfg.mode as string) === 'over' ? 'above' : 'below';
+        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
+      }
+      case 'ping': return `${cfg.target} failing ping conditions`;
+      case 'process': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
+        return `${cfg.process_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'service': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}`;
+        return `${cfg.service_name} ${mode} above ${cfg.threshold_pct}%`;
+      }
+      case 'software': {
+        const mode = cfg.mode as string;
+        const verb = mode === 'installed' ? 'was installed' : mode === 'uninstalled' ? 'was uninstalled' : 'changed version';
+        return `${cfg.name_pattern} ${verb}`;
+      }
+      default: return a.check_type;
+    }
+  } catch {
+    return a.check_type;
+  }
+}
+
+// ── Duplicated from GlobalPoliciesPage.vue per the same convention ──
+function checkLabel(ct: CheckType): string {
+  switch (ct) {
+    case 'disk_space':   return 'Disk Space';
+    case 'offline':      return 'Online Status';
+    case 'cpu_usage':    return 'CPU';
+    case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
+    default:             return ct;
+  }
+}
+
+function monitorSummary(m: EffectiveMonitor): string {
+  try {
+    const cfg = JSON.parse(m.config) as Record<string, unknown>;
+    switch (m.checkType) {
+      case 'offline':      return (cfg.direction as string) === 'online'
+        ? `online for ${m.sustainedMinutes}m`
+        : `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
+      case 'disk_space': {
+        const drive = (cfg.drive as string) === 'any' ? 'any drive' : (cfg.drive as string);
+        const type  = (cfg.threshold_type as string) ?? 'gb_free';
+        const value = cfg.threshold_value as number;
+        const unit  = type === 'percent_used' ? '%' : ' GB';
+        const cmp   = type === 'gb_free' ? '<' : type === 'percent_used' ? '≥' : '>';
+        const label = type === 'gb_free' ? 'free' : 'used';
+        return `${drive} ${cmp} ${value}${unit} ${label}`;
+      }
+      case 'cpu_usage':    return `≥ ${cfg.percent_max}% CPU`;
+      case 'memory_usage': return `≥ ${cfg.percent_max}% memory`;
+      case 'av_status': {
+        const s = cfg.av_state as string;
+        if (s === 'not_detected')          return 'AV: not detected';
+        if (s === 'not_running')            return 'AV: not running';
+        if (s === 'running_not_up_to_date') return 'AV: out of date';
+        return `AV: ${s}`;
+      }
+      case 'file_size': {
+        const cmp = (cfg.mode as string) === 'over' ? '>' : '<';
+        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
+      }
+      case 'ping': {
+        const parts: string[] = [];
+        if (cfg.check_unreachable) parts.push('unreachable');
+        if (cfg.packet_loss_pct !== null && cfg.packet_loss_pct !== undefined) parts.push(`>${cfg.packet_loss_pct}% loss`);
+        if (cfg.latency_ms !== null && cfg.latency_ms !== undefined) parts.push(`>${cfg.latency_ms}ms`);
+        return `${cfg.target}: ${parts.join(', ') || 'no conditions set'}`;
+      }
+      case 'process': {
+        const mode = cfg.mode as string;
+        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
+        return `${cfg.process_name} ${mode} ≥ ${cfg.threshold_pct}%`;
+      }
+      case 'service': {
+        const mode = cfg.mode as string;
+        const delay = (cfg.boot_delay_minutes as number) > 0 ? ` (${cfg.boot_delay_minutes}m after boot)` : '';
+        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}${delay}`;
+        return `${cfg.service_name} ${mode} ≥ ${cfg.threshold_pct}%${delay}`;
+      }
+      case 'software': {
+        const mode = cfg.mode as string;
+        const verb = mode === 'installed' ? 'is installed' : mode === 'uninstalled' ? 'is uninstalled' : 'changes version';
+        return `${cfg.name_pattern} ${verb}`;
+      }
+      default: return m.config;
+    }
+  } catch { return m.config; }
 }
 
 function toggleMenu() {
@@ -968,18 +1303,81 @@ function shellLabel(shell: string): string {
 }
 .code-area:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
 
-/* ── Device detail tabs ── */
-.ddev-tabs {
-  display: flex; gap: 0; border-bottom: 1px solid var(--border);
-  background: var(--surface);
+/* ── Section left-nav ── */
+.ddev-body { display: flex; align-items: stretch; min-height: 0; }
+.ddev-nav {
+  width: 170px; flex-shrink: 0; border-right: 1px solid var(--border);
+  padding: 10px 0; background: var(--surface);
 }
-.ddev-tab {
-  padding: 8px 16px; font-size: 11px; font-weight: 600; border: none; background: none;
-  color: var(--muted); cursor: pointer; font-family: var(--font);
-  border-bottom: 2px solid transparent; transition: color .1s, border-color .1s;
+.ddev-nav-item {
+  display: block; width: 100%; text-align: left; padding: 7px 16px;
+  font-size: 12px; color: var(--muted); background: none; border: none;
+  border-left: 2px solid transparent; cursor: pointer; font-family: var(--font);
+  transition: background .1s, color .1s, border-color .1s;
 }
-.ddev-tab:hover { color: var(--text-muted-2); }
-.ddev-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.ddev-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.ddev-nav-item.active { background: rgba(78,126,247,.1); color: var(--accent); border-left-color: var(--accent); font-weight: 500; }
+.ddev-content { flex: 1; min-width: 0; }
+
+/* ── Alerts section (device-scoped) — duplicated per-component convention ── */
+.alert-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.alert-mini-table th {
+  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.alert-mini-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.alert-mini-table tr:last-child td { border-bottom: none; }
+.alert-mini-table tr { cursor: pointer; transition: background .08s; }
+.alert-mini-table tr:hover td { background: var(--surface-2); }
+.alert-mini-table .col-check { width: 32px; }
+.status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.status-open     { color: var(--text); }
+.status-resolved { color: var(--muted-2); }
+.pri-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.pri-critical { background: var(--red);   color: #fff; }
+.pri-high     { background: #e07830;      color: #fff; }
+.pri-moderate { background: var(--amber); color: #1a1200; }
+.pri-low      { background: var(--muted); color: var(--surface); }
+
+/* ── Policies section — duplicated per-component convention ── */
+.scope-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.scope-global  { background: rgba(78,126,247,.14);  color: var(--accent); }
+.scope-company { background: rgba(45,207,160,.14);  color: var(--teal); }
+.monitor-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
+.monitor-table th {
+  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.monitor-row td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
+.monitor-row:last-child td { border-bottom: none; }
+.monitor-row:hover td { background: rgba(255,255,255,.02); }
+.monitor-config-cell { color: var(--muted); font-size: 11px; }
+.tab-nums { font-variant-numeric: tabular-nums; color: var(--muted); }
+.check-chip {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.chip-disk_space   { background: rgba(130,80,240,.14); color: #8050f0; }
+.chip-offline      { background: rgba(240,168,64,.16);  color: var(--amber); }
+.chip-cpu_usage    { background: rgba(240,80,60,.12);   color: #e04040; }
+.chip-memory_usage { background: rgba(78,126,247,.14);  color: var(--accent); }
+.chip-av_status    { background: rgba(45,207,160,.14);  color: var(--teal); }
+.chip-file_size    { background: rgba(132,134,168,.16);  color: var(--muted-2); }
+.chip-ping         { background: rgba(45,207,160,.14);   color: var(--teal); }
+.chip-process      { background: rgba(240,168,64,.16);   color: var(--amber); }
+.chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
+.chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
 
 /* ── Inventory tab ── */
 .inv-tab-body {}

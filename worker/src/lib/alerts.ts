@@ -77,7 +77,7 @@ function matchMonitorsForDevice(rows: EnabledPolicyMonitorRow[], device: Device)
 // one device per invocation (check-in, audit) — the offline cron evaluates
 // many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
 // directly instead, to fetch the join only once per invocation.
-async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
+export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
   const rows = await fetchEnabledPolicyMonitors(db);
   return matchMonitorsForDevice(rows, device);
 }

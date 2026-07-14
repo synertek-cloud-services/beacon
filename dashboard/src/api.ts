@@ -214,6 +214,13 @@ export interface Policy {
   monitors:    PolicyMonitor[];
 }
 
+// Returned by GET /v1/admin/devices/:id/effective-monitors — a monitor that
+// currently applies to this device, with its parent policy embedded (no
+// `monitors` field on that embedded policy, unlike the full Policy type).
+export interface EffectiveMonitor extends PolicyMonitor {
+  policy: Omit<Policy, 'monitors'>;
+}
+
 export interface AlertState {
   id:                   string;
   is_alerting:          number; // SQLite boolean: 0 or 1
@@ -548,8 +555,8 @@ export const api = {
   },
 
   alerts: {
-    list: (status: 'active' | 'all' = 'active', search = '', companyId = '') =>
-      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}${companyId ? `&company_id=${encodeURIComponent(companyId)}` : ''}`),
+    list: (status: 'active' | 'all' = 'active', search = '', companyId = '', deviceId = '') =>
+      request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}${companyId ? `&company_id=${encodeURIComponent(companyId)}` : ''}${deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ''}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
   },
@@ -560,6 +567,7 @@ export const api = {
     approve: (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
+    effectiveMonitors: (id: string)  => request<EffectiveMonitor[]>('GET', `/v1/admin/devices/${id}/effective-monitors`),
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),

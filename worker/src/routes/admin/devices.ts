@@ -4,6 +4,7 @@ import { eq, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
+import { resolveEffectiveMonitors } from '../../lib/alerts';
 
 const adminDevices = new Hono<{ Bindings: Bindings }>();
 
@@ -47,6 +48,20 @@ adminDevices.get('/:id', async (c) => {
     .from(schema.tenants).where(eq(schema.tenants.id, device.tenantId)).get();
 
   return c.json({ ...device, tenantName: tenant?.name ?? null });
+});
+
+// GET /v1/admin/devices/:id/effective-monitors — which policies/monitors
+// currently apply to this device (same resolution used for real alerting).
+adminDevices.get('/:id/effective-monitors', async (c) => {
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+
+  const db = drizzle(c.env.DB, { schema });
+  // Needs the full row — deviceMatchesPolicy reads overrideClass/detectedClass/tenantId/osType.
+  const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
+  if (!device) return c.json({ error: 'not found' }, 404);
+
+  const monitors = await resolveEffectiveMonitors(db, device);
+  return c.json(monitors);
 });
 
 // POST /v1/admin/devices/:id/approve
