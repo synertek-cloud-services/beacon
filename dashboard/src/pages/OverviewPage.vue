@@ -185,15 +185,17 @@ const CLASS_COLORS: Record<string, string> = {
   unknown:     '#616480',
 };
 
-// Offline is a problem state — use red-family shades (not the neutral
-// per-class palette above) so this chart actually reads as a warning,
-// with distinct shades per class so multiple simultaneous offline
-// classes are still visually distinguishable in the ring.
+// Offline severity isn't uniform across classes — it mirrors the same
+// judgment call the Device Offline policy itself makes (server-only
+// alerting, since workstations/laptops going offline is normal/expected,
+// not a problem). Red here would misrepresent a closed laptop as being
+// exactly as urgent as a downed server, so only "server" gets a warning
+// color; workstation/laptop stay muted/neutral.
 const OFFLINE_CLASS_COLORS: Record<string, string> = {
   server:      '#e8566a',
-  workstation: '#c94456',
-  laptop:      '#f0707f',
-  unknown:     '#8a4a52',
+  workstation: '#616480',
+  laptop:      '#616480',
+  unknown:     '#616480',
 };
 
 const onlineData = computed(() => [
@@ -221,7 +223,7 @@ const offlineClassData = computed(() =>
   Object.entries(summary.value?.offline_by_class ?? {}).map(([cls, count]) => ({
     label: cls,
     value: count,
-    color: OFFLINE_CLASS_COLORS[cls] ?? '#8a4a52',
+    color: OFFLINE_CLASS_COLORS[cls] ?? '#616480',
   }))
 );
 
