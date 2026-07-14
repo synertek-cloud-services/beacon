@@ -118,20 +118,12 @@
                     <span v-if="effectiveClass(device)" class="text-xs text-muted-2">({{ device.overrideClass ? 'manual' : 'auto' }})</span>
                   </span>
                 </div>
-                <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
-                <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
-                <div v-if="auditData?.hardware?.last_logged_in_user" class="ddev-row">
-                  <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData!.hardware!.last_logged_in_user }}</span>
-                </div>
                 <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
               </div>
 
               <div class="ddev-section">
                 <div class="ddev-section-title">Identifiers</div>
                 <div class="ddev-row"><span class="ddev-label">Device ID</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ device.id }}</span></div>
-                <div v-if="auditData?.hardware?.bios?.serial_number" class="ddev-row">
-                  <span class="ddev-label">Serial</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ auditData!.hardware!.bios!.serial_number }}</span>
-                </div>
                 <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
                 <div v-if="avStatusOf(device)" class="ddev-row">
                   <span class="ddev-label">Antivirus</span>
@@ -177,7 +169,7 @@
                   <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>
                 </div>
                 <div v-if="inventoryOf(device)?.av_product" class="ddev-row">
-                  <span class="ddev-label">Antivirus</span><span class="text-sm">{{ inventoryOf(device)!.av_product }}</span>
+                  <span class="ddev-label">AV Product</span><span class="text-sm">{{ inventoryOf(device)!.av_product }}</span>
                 </div>
                 <div v-if="auditData.security" class="ddev-row">
                   <span class="ddev-label">Firewall</span><span class="text-sm">{{ auditData.security.firewall_enabled ? 'Yes' : 'No' }}</span>
@@ -220,6 +212,24 @@
                 <div v-if="auditData.hardware?.ram?.installed_bytes" class="ddev-row">
                   <span class="ddev-label">Installed</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.installed_bytes) }}</span>
                 </div>
+                <div v-if="auditData.hardware?.disks?.length" class="ddev-subsection">
+                  <div class="ddev-sublabel">Disks</div>
+                  <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row" style="padding:2px 0 4px">
+                    <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
+                    <div class="inv-disk-bar-wrap">
+                      <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
+                    </div>
+                    <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                  </div>
+                </div>
+                <div v-if="auditData.hardware?.network?.length" class="ddev-subsection">
+                  <div class="ddev-sublabel">Network Adapters</div>
+                  <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:0 0 4px">
+                    <span class="ddev-label">{{ nic.name }}</span>
+                    <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
+                    <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
+                  </div>
+                </div>
                 <div v-if="auditData.hardware?.bios" class="ddev-row">
                   <span class="ddev-label">BIOS</span><span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
                 </div>
@@ -230,61 +240,6 @@
                   <span class="ddev-label">Display</span><span class="text-sm">{{ auditData.hardware.display_adapters.join(', ') }}</span>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <!-- ── Hardware (audit) ── -->
-          <section :id="'ddev-sec-hardware'" class="ddev-page-section">
-            <h2 class="ddev-section-heading">Hardware</h2>
-            <div class="inv-tab-body">
-              <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
-              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
-                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
-              </div>
-              <template v-else>
-                <div class="inv-toolbar">
-                  <span class="text-xs text-muted-2">Last audit: {{ absDate(auditData.createdAt) }}</span>
-                  <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
-                </div>
-                <div v-if="auditData.hardware" class="inv-section">
-                  <div v-if="auditData.hardware.cpu?.length" class="inv-subsection">
-                    <div class="inv-sub-title">CPU</div>
-                    <div v-for="c in auditData.hardware.cpu" :key="c.model" class="ddev-row" style="padding:0 20px 6px">
-                      <span class="ddev-label">Model</span><span class="text-sm">{{ c.model }}</span>
-                      <span class="ddev-label" style="margin-left:16px">Cores</span><span class="text-sm">{{ c.cores }}</span>
-                      <span class="ddev-label" style="margin-left:16px">Speed</span><span class="text-sm">{{ c.speed_mhz.toFixed(0) }} MHz</span>
-                    </div>
-                  </div>
-                  <div class="ddev-row" style="padding:0 20px 6px">
-                    <span class="ddev-label">RAM</span>
-                    <span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span>
-                  </div>
-                  <div v-if="auditData.hardware.disks?.length" class="inv-subsection">
-                    <div class="inv-sub-title">Disks</div>
-                    <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row">
-                      <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
-                      <div class="inv-disk-bar-wrap">
-                        <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
-                      </div>
-                      <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-                    </div>
-                  </div>
-                  <div v-if="auditData.hardware.network?.length" class="inv-subsection">
-                    <div class="inv-sub-title">Network Adapters</div>
-                    <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:0 20px 4px">
-                      <span class="ddev-label">{{ nic.name }}</span>
-                      <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
-                      <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
-                    </div>
-                  </div>
-                  <div v-if="auditData.hardware.bios" class="ddev-row" style="padding:0 20px 6px">
-                    <span class="ddev-label">BIOS</span>
-                    <span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
-                    <span v-if="auditData.hardware.bios.release_date" class="text-xs text-muted-2" style="margin-left:8px">{{ auditData.hardware.bios.release_date }}</span>
-                  </div>
-                </div>
-                <div v-else class="inv-empty">No hardware data in the last audit.</div>
-              </template>
             </div>
           </section>
 
@@ -654,7 +609,6 @@ const now     = ref(Math.floor(Date.now() / 1000));
 const sections = [
   { value: 'summary',   label: 'Summary' },
   { value: 'system',    label: 'System' },
-  { value: 'hardware',  label: 'Hardware' },
   { value: 'security',  label: 'Security' },
   { value: 'software',  label: 'Software' },
   { value: 'services',  label: 'Services' },
@@ -1420,6 +1374,11 @@ function shellLabel(shell: string): string {
 }
 .ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
 .ddev-label { font-size: 12px; color: var(--muted); min-width: 76px; flex-shrink: 0; }
+.ddev-subsection { margin: 10px 0; }
+.ddev-sublabel {
+  font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 5px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
 .ddev-date-input {
   background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
   padding: 3px 6px; color: var(--text); font-family: var(--font);
