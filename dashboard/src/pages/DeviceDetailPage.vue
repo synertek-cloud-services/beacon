@@ -162,8 +162,17 @@
                 <div class="ddev-section-title">System</div>
                 <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
                 <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Version</span><span class="mono text-sm">{{ osBuildLabel(device) }}</span></div>
+                <div v-if="auditData.hardware?.windows_display_version" class="ddev-row">
+                  <span class="ddev-label">Display Ver.</span><span class="mono text-sm">{{ auditData.hardware.windows_display_version }}</span>
+                </div>
+                <div v-if="auditData.hardware?.windows_installation_type" class="ddev-row">
+                  <span class="ddev-label">Install Type</span><span class="text-sm">{{ auditData.hardware.windows_installation_type }}</span>
+                </div>
                 <div v-if="auditData.hardware?.architecture" class="ddev-row">
                   <span class="ddev-label">Architecture</span><span class="text-sm">{{ archLabel(auditData.hardware.architecture) }}</span>
+                </div>
+                <div v-if="auditData.hardware?.domain" class="ddev-row">
+                  <span class="ddev-label">Domain</span><span class="text-sm">{{ auditData.hardware.domain }}</span>
                 </div>
                 <div v-if="auditData.hardware?.last_logged_in_user" class="ddev-row">
                   <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>

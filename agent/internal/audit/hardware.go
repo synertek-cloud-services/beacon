@@ -54,6 +54,12 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 	// Display adapters
 	hw.DisplayAdapters = collectDisplayAdapters()
 
+	// Windows-only: domain membership, feature-update display version,
+	// install type (Client/Server) — no equivalent concept on Linux/macOS.
+	if runtime.GOOS == "windows" {
+		hw.Domain, hw.WindowsDisplayVersion, hw.WindowsInstallationType = collectWindowsInfo()
+	}
+
 	// Last logged-in user
 	hw.LastLoggedInUser = collectLastLoggedInUser()
 
@@ -442,6 +448,41 @@ func collectInstalledRAMDarwin() uint64 {
 		}
 	}
 	return 0
+}
+
+// collectWindowsInfo reports domain membership, the feature-update display
+// version (e.g. "24H2"), and install type (e.g. "Client"/"Server") — all
+// Windows-only concepts with no honest Linux/macOS analog.
+func collectWindowsInfo() (domain, displayVersion, installationType string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`$cs = Get-WmiObject Win32_ComputerSystem | Select-Object Domain,PartOfDomain; `+
+			`$key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; `+
+			// DisplayVersion (e.g. "24H2") replaced the older ReleaseId value
+			// around Windows 10 20H2 — fall back for pre-20H2 hosts.
+			`$dv = (Get-ItemProperty -Path $key -Name DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion; `+
+			`if (-not $dv) { $dv = (Get-ItemProperty -Path $key -Name ReleaseId -ErrorAction SilentlyContinue).ReleaseId }; `+
+			`$it = (Get-ItemProperty -Path $key -Name InstallationType -ErrorAction SilentlyContinue).InstallationType; `+
+			// Win32_ComputerSystem.Domain returns the *workgroup* name when
+			// not domain-joined — only report it when PartOfDomain is true,
+			// so a workgroup name never gets shown as if it were a domain.
+			`[PSCustomObject]@{ Domain = $(if ($cs.PartOfDomain) { $cs.Domain } else { '' }); DisplayVersion = $dv; InstallationType = $it } | ConvertTo-Json -Compress`,
+	).Output()
+	if err != nil {
+		return "", "", ""
+	}
+	var v struct {
+		Domain           string `json:"Domain"`
+		DisplayVersion   string `json:"DisplayVersion"`
+		InstallationType string `json:"InstallationType"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return "", "", ""
+	}
+	return strings.TrimSpace(v.Domain), strings.TrimSpace(v.DisplayVersion), strings.TrimSpace(v.InstallationType)
 }
 
 // collectLastLoggedInUser reports the current/most-recent interactive

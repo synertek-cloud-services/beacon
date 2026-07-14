@@ -262,6 +262,9 @@ export interface HardwareInfo {
   architecture?: string
   system?: SystemInfo
   display_adapters?: string[]
+  domain?: string
+  windows_display_version?: string
+  windows_installation_type?: string
 }
 export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }

@@ -181,6 +181,11 @@ type HardwareInfo struct {
 	Architecture    string      `json:"architecture,omitempty"`
 	System          *SystemInfo `json:"system,omitempty"`
 	DisplayAdapters []string    `json:"display_adapters,omitempty"`
+	// Windows-only concepts — no honest Linux/macOS equivalent, so these stay
+	// empty (omitted) on those platforms rather than a faked value.
+	Domain                  string `json:"domain,omitempty"`
+	WindowsDisplayVersion   string `json:"windows_display_version,omitempty"`
+	WindowsInstallationType string `json:"windows_installation_type,omitempty"`
 }
 
 type CPUInfo struct {
