@@ -153,13 +153,6 @@
                 </div>
                 <template v-if="inventoryOf(device)">
                   <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
-                  <template v-if="inventoryOf(device)!.disks?.length">
-                    <div class="ddev-row" v-for="disk in inventoryOf(device)!.disks" :key="disk.device || disk.label">
-                      <span class="ddev-label">{{ disk.label }}</span>
-                      <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-                    </div>
-                  </template>
-                  <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(device)!.disk_free_bytes) }}</span></div>
                 </template>
               </div>
             </div>
@@ -181,7 +174,7 @@
                 <div v-if="auditData.hardware" class="inv-section">
                   <div v-if="auditData.hardware.cpu?.length" class="inv-subsection">
                     <div class="inv-sub-title">CPU</div>
-                    <div v-for="c in auditData.hardware.cpu" :key="c.model" class="ddev-row">
+                    <div v-for="c in auditData.hardware.cpu" :key="c.model" class="ddev-row" style="padding:0 20px 6px">
                       <span class="ddev-label">Model</span><span class="text-sm">{{ c.model }}</span>
                       <span class="ddev-label" style="margin-left:16px">Cores</span><span class="text-sm">{{ c.cores }}</span>
                       <span class="ddev-label" style="margin-left:16px">Speed</span><span class="text-sm">{{ c.speed_mhz.toFixed(0) }} MHz</span>
@@ -377,30 +370,26 @@
             <div class="inv-tab-body">
               <div v-if="effectiveMonitorsLoading" class="inv-empty">Loading policies…</div>
               <div v-else-if="policyGroups.length === 0" class="inv-empty">No policies currently apply to this device.</div>
-              <div v-else v-for="group in policyGroups" :key="group.policy.id" class="inv-section">
-                <div class="inv-section-title">
-                  {{ group.policy.name }}
-                  <span class="scope-badge" :class="'scope-' + group.policy.scope" style="margin-left:8px">{{ capitalize(group.policy.scope) }}</span>
-                </div>
-                <table class="monitor-table" style="margin:0 20px 12px;width:calc(100% - 40px)">
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Condition</th>
-                      <th>Priority</th>
-                      <th>Sustained</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="m in group.monitors" :key="m.id" class="monitor-row">
-                      <td><span :class="['check-chip', 'chip-' + m.checkType]">{{ checkLabel(m.checkType) }}</span></td>
-                      <td class="monitor-config-cell">{{ monitorSummary(m) }}</td>
-                      <td><span :class="['pri-badge', 'pri-' + m.alertPriority]">{{ capitalize(m.alertPriority) }}</span></td>
-                      <td class="tab-nums">{{ m.sustainedMinutes }}m</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <table v-else class="monitor-table" style="margin:12px 20px;width:calc(100% - 40px)">
+                <thead>
+                  <tr>
+                    <th>Policy</th>
+                    <th>Scope</th>
+                    <th>Monitors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="group in policyGroups" :key="group.policy.id" class="monitor-row"
+                    style="cursor:pointer"
+                    @click="router.push(`/global/policies/${group.policy.id}`)"
+                  >
+                    <td class="text-sm">{{ group.policy.name }}</td>
+                    <td><span class="scope-badge" :class="'scope-' + group.policy.scope">{{ capitalize(group.policy.scope) }}</span></td>
+                    <td class="tab-nums">{{ group.monitors.length }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -554,7 +543,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AuditChange, type AlertState, type EffectiveMonitor, type CheckType } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AuditChange, type AlertState, type EffectiveMonitor } from '../api';
 
 interface DiskInfo {
   device: string;
@@ -922,80 +911,6 @@ function alertMessage(a: AlertState): string {
   } catch {
     return a.check_type;
   }
-}
-
-// ── Duplicated from GlobalPoliciesPage.vue per the same convention ──
-function checkLabel(ct: CheckType): string {
-  switch (ct) {
-    case 'disk_space':   return 'Disk Space';
-    case 'offline':      return 'Online Status';
-    case 'cpu_usage':    return 'CPU';
-    case 'memory_usage': return 'Memory';
-    case 'av_status':    return 'Antivirus';
-    case 'file_size':    return 'File/Folder Size';
-    case 'ping':         return 'Ping';
-    case 'process':      return 'Process';
-    case 'service':      return 'Service';
-    case 'software':     return 'Software';
-    default:             return ct;
-  }
-}
-
-function monitorSummary(m: EffectiveMonitor): string {
-  try {
-    const cfg = JSON.parse(m.config) as Record<string, unknown>;
-    switch (m.checkType) {
-      case 'offline':      return (cfg.direction as string) === 'online'
-        ? `online for ${m.sustainedMinutes}m`
-        : `after ${Math.round((cfg.offline_after_seconds as number) / 60)}m offline`;
-      case 'disk_space': {
-        const drive = (cfg.drive as string) === 'any' ? 'any drive' : (cfg.drive as string);
-        const type  = (cfg.threshold_type as string) ?? 'gb_free';
-        const value = cfg.threshold_value as number;
-        const unit  = type === 'percent_used' ? '%' : ' GB';
-        const cmp   = type === 'gb_free' ? '<' : type === 'percent_used' ? '≥' : '>';
-        const label = type === 'gb_free' ? 'free' : 'used';
-        return `${drive} ${cmp} ${value}${unit} ${label}`;
-      }
-      case 'cpu_usage':    return `≥ ${cfg.percent_max}% CPU`;
-      case 'memory_usage': return `≥ ${cfg.percent_max}% memory`;
-      case 'av_status': {
-        const s = cfg.av_state as string;
-        if (s === 'not_detected')          return 'AV: not detected';
-        if (s === 'not_running')            return 'AV: not running';
-        if (s === 'running_not_up_to_date') return 'AV: out of date';
-        return `AV: ${s}`;
-      }
-      case 'file_size': {
-        const cmp = (cfg.mode as string) === 'over' ? '>' : '<';
-        return `${cfg.path} ${cmp} ${cfg.threshold_mb} MB`;
-      }
-      case 'ping': {
-        const parts: string[] = [];
-        if (cfg.check_unreachable) parts.push('unreachable');
-        if (cfg.packet_loss_pct !== null && cfg.packet_loss_pct !== undefined) parts.push(`>${cfg.packet_loss_pct}% loss`);
-        if (cfg.latency_ms !== null && cfg.latency_ms !== undefined) parts.push(`>${cfg.latency_ms}ms`);
-        return `${cfg.target}: ${parts.join(', ') || 'no conditions set'}`;
-      }
-      case 'process': {
-        const mode = cfg.mode as string;
-        if (mode === 'running' || mode === 'stopped') return `${cfg.process_name} is ${mode}`;
-        return `${cfg.process_name} ${mode} ≥ ${cfg.threshold_pct}%`;
-      }
-      case 'service': {
-        const mode = cfg.mode as string;
-        const delay = (cfg.boot_delay_minutes as number) > 0 ? ` (${cfg.boot_delay_minutes}m after boot)` : '';
-        if (mode === 'running' || mode === 'stopped') return `${cfg.service_name} is ${mode}${delay}`;
-        return `${cfg.service_name} ${mode} ≥ ${cfg.threshold_pct}%${delay}`;
-      }
-      case 'software': {
-        const mode = cfg.mode as string;
-        const verb = mode === 'installed' ? 'is installed' : mode === 'uninstalled' ? 'is uninstalled' : 'changes version';
-        return `${cfg.name_pattern} ${verb}`;
-      }
-      default: return m.config;
-    }
-  } catch { return m.config; }
 }
 
 function toggleMenu() {
@@ -1537,22 +1452,7 @@ function shellLabel(shell: string): string {
 .monitor-row td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
 .monitor-row:last-child td { border-bottom: none; }
 .monitor-row:hover td { background: rgba(255,255,255,.02); }
-.monitor-config-cell { color: var(--muted); font-size: 12px; }
 .tab-nums { font-variant-numeric: tabular-nums; color: var(--muted); }
-.check-chip {
-  display: inline-block; padding: 1px 7px; border-radius: 4px;
-  font-size: 10px; font-weight: 700; white-space: nowrap;
-}
-.chip-disk_space   { background: rgba(130,80,240,.14); color: #8050f0; }
-.chip-offline      { background: rgba(240,168,64,.16);  color: var(--amber); }
-.chip-cpu_usage    { background: rgba(240,80,60,.12);   color: #e04040; }
-.chip-memory_usage { background: rgba(78,126,247,.14);  color: var(--accent); }
-.chip-av_status    { background: rgba(45,207,160,.14);  color: var(--teal); }
-.chip-file_size    { background: rgba(132,134,168,.16);  color: var(--muted-2); }
-.chip-ping         { background: rgba(45,207,160,.14);   color: var(--teal); }
-.chip-process      { background: rgba(240,168,64,.16);   color: var(--amber); }
-.chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
-.chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
 
 /* ── Inventory tab ── */
 .inv-tab-body {}
