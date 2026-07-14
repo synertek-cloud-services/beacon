@@ -14,10 +14,10 @@ interface CPUInfo    { model: string; cores: number; speed_mhz: number }
 interface RAMInfo    { total_bytes: number }
 interface DiskInfo   { device: string; label: string; fs_type: string; total_bytes: number; free_bytes: number }
 interface NetworkInfo { name: string; hardware_addr: string; addrs: string[] }
-interface BIOSInfo   { vendor: string; version: string; release_date: string }
+interface BIOSInfo   { vendor: string; version: string; release_date: string; serial_number?: string }
 interface HardwareInfo {
   cpu: CPUInfo[]; ram: RAMInfo; disks: DiskInfo[];
-  network: NetworkInfo[]; bios?: BIOSInfo
+  network: NetworkInfo[]; bios?: BIOSInfo; last_logged_in_user?: string
 }
 interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }

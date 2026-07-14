@@ -120,13 +120,18 @@
                 </div>
                 <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
                 <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
+                <div v-if="auditData?.hardware?.last_logged_in_user" class="ddev-row">
+                  <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData!.hardware!.last_logged_in_user }}</span>
+                </div>
                 <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
-                <div class="ddev-row"><span class="ddev-label">Approved</span><span class="text-sm">{{ device.approvedAt ? absDate(device.approvedAt) : '—' }}</span></div>
               </div>
 
               <div class="ddev-section">
                 <div class="ddev-section-title">Identifiers</div>
                 <div class="ddev-row"><span class="ddev-label">Device ID</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ device.id }}</span></div>
+                <div v-if="auditData?.hardware?.bios?.serial_number" class="ddev-row">
+                  <span class="ddev-label">Serial</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ auditData!.hardware!.bios!.serial_number }}</span>
+                </div>
                 <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
                 <div v-if="avStatusOf(device)" class="ddev-row">
                   <span class="ddev-label">Antivirus</span>
@@ -139,6 +144,12 @@
                 <div class="ddev-row">
                   <span class="ddev-label">Last seen</span>
                   <span class="text-sm">{{ lastSeenLabel(device.lastSeen) }}<span v-if="device.lastSeen" class="text-xs text-muted-2"> · {{ absDate(device.lastSeen) }}</span></span>
+                </div>
+                <div v-if="lastRebootTs(device)" class="ddev-row">
+                  <span class="ddev-label">Last Reboot</span><span class="text-sm">{{ absDate(lastRebootTs(device)!) }}</span>
+                </div>
+                <div v-if="auditData" class="ddev-row">
+                  <span class="ddev-label">Last Audit</span><span class="text-sm">{{ absDate(auditData.createdAt) }}</span>
                 </div>
                 <template v-if="inventoryOf(device)">
                   <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
@@ -1021,6 +1032,13 @@ function avBadgeClass(status: string): string {
   if (status === 'running_not_up_to_date') return 'inv-badge-warn';
   if (status === 'unknown') return 'inv-badge-muted';
   return 'inv-badge-danger';
+}
+// There's no dedicated boot-time field — derived from the most recent
+// check-in's uptime sample, which is as fresh as lastSeen itself.
+function lastRebootTs(d: Device): number | null {
+  const uptime = inventoryOf(d)?.uptime_seconds;
+  if (!d.lastSeen || uptime == null) return null;
+  return d.lastSeen - uptime;
 }
 function osShortLabel(d: Device) {
   if (!d.osType) return '—';

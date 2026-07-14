@@ -250,13 +250,14 @@ export interface CPUInfo    { model: string; cores: number; speed_mhz: number }
 export interface RAMInfo    { total_bytes: number }
 export interface DiskInfo   { device: string; label: string; fs_type: string; total_bytes: number; free_bytes: number }
 export interface NetworkInfo { name: string; hardware_addr: string; addrs: string[] }
-export interface BIOSInfo   { vendor: string; version: string; release_date: string }
+export interface BIOSInfo   { vendor: string; version: string; release_date: string; serial_number?: string }
 export interface HardwareInfo {
   cpu: CPUInfo[]
   ram: RAMInfo
   disks: DiskInfo[]
   network: NetworkInfo[]
   bios?: BIOSInfo
+  last_logged_in_user?: string
 }
 export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }

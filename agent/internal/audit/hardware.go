@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 	psnet "github.com/shirou/gopsutil/v3/net"
 
@@ -42,6 +43,9 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 
 	// BIOS
 	hw.BIOS = collectBIOS()
+
+	// Last logged-in user
+	hw.LastLoggedInUser = collectLastLoggedInUser()
 
 	return hw, nil
 }
@@ -105,10 +109,14 @@ func collectBIOSLinux() *protocol.BIOSInfo {
 	vendor := read("bios_vendor")
 	version := read("bios_version")
 	date := read("bios_date")
+	// product_serial is root-only (0400) on most distros — empty when the
+	// agent isn't running as root, same silent-omission behavior as any
+	// other unreadable field here.
+	serial := read("product_serial")
 	if vendor == "" && version == "" {
 		return nil
 	}
-	return &protocol.BIOSInfo{Vendor: vendor, Version: version, ReleaseDate: date}
+	return &protocol.BIOSInfo{Vendor: vendor, Version: version, ReleaseDate: date, SerialNumber: serial}
 }
 
 func collectBIOSWindows() *protocol.BIOSInfo {
@@ -117,23 +125,25 @@ func collectBIOSWindows() *protocol.BIOSInfo {
 	out, err := exec.CommandContext(ctx,
 		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-Command",
-		`Get-WmiObject Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate | ConvertTo-Json -Compress`,
+		`Get-WmiObject Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate,SerialNumber | ConvertTo-Json -Compress`,
 	).Output()
 	if err != nil {
 		return nil
 	}
 	var v struct {
-		Manufacturer     string `json:"Manufacturer"`
+		Manufacturer      string `json:"Manufacturer"`
 		SMBIOSBIOSVersion string `json:"SMBIOSBIOSVersion"`
-		ReleaseDate      string `json:"ReleaseDate"`
+		ReleaseDate       string `json:"ReleaseDate"`
+		SerialNumber      string `json:"SerialNumber"`
 	}
 	if err := json.Unmarshal(out, &v); err != nil {
 		return nil
 	}
 	return &protocol.BIOSInfo{
-		Vendor:      strings.TrimSpace(v.Manufacturer),
-		Version:     strings.TrimSpace(v.SMBIOSBIOSVersion),
-		ReleaseDate: strings.TrimSpace(v.ReleaseDate),
+		Vendor:       strings.TrimSpace(v.Manufacturer),
+		Version:      strings.TrimSpace(v.SMBIOSBIOSVersion),
+		ReleaseDate:  strings.TrimSpace(v.ReleaseDate),
+		SerialNumber: strings.TrimSpace(v.SerialNumber),
 	}
 }
 
@@ -144,12 +154,53 @@ func collectBIOSDarwin() *protocol.BIOSInfo {
 	if err != nil {
 		return nil
 	}
+	var version, serial string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Boot ROM Version:") {
-			version := strings.TrimSpace(strings.TrimPrefix(line, "Boot ROM Version:"))
-			return &protocol.BIOSInfo{Vendor: "Apple", Version: version}
+			version = strings.TrimSpace(strings.TrimPrefix(line, "Boot ROM Version:"))
+		}
+		if strings.HasPrefix(line, "Serial Number (system):") {
+			serial = strings.TrimSpace(strings.TrimPrefix(line, "Serial Number (system):"))
 		}
 	}
-	return nil
+	if version == "" && serial == "" {
+		return nil
+	}
+	return &protocol.BIOSInfo{Vendor: "Apple", Version: version, SerialNumber: serial}
+}
+
+// collectLastLoggedInUser reports the current/most-recent interactive
+// session's username. gopsutil's host.Users() reads utmp and works on
+// Linux/Darwin but is explicitly unimplemented on Windows, so Windows goes
+// through WMI instead — same shell-out convention as the BIOS collectors.
+func collectLastLoggedInUser() string {
+	if runtime.GOOS == "windows" {
+		return collectLastLoggedInUserWindows()
+	}
+	users, err := host.Users()
+	if err != nil || len(users) == 0 {
+		return ""
+	}
+	latest := users[0]
+	for _, u := range users[1:] {
+		if u.Started > latest.Started {
+			latest = u
+		}
+	}
+	return latest.User
+}
+
+func collectLastLoggedInUserWindows() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`(Get-CimInstance -ClassName Win32_ComputerSystem).UserName`,
+	).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

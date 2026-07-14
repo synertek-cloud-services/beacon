@@ -170,11 +170,12 @@ type AuditPayload struct {
 }
 
 type HardwareInfo struct {
-	CPU     []CPUInfo     `json:"cpu"`
-	RAM     RAMInfo       `json:"ram"`
-	Disks   []DiskInfo    `json:"disks"`
-	Network []NetworkInfo `json:"network"`
-	BIOS    *BIOSInfo     `json:"bios,omitempty"`
+	CPU              []CPUInfo     `json:"cpu"`
+	RAM              RAMInfo       `json:"ram"`
+	Disks            []DiskInfo    `json:"disks"`
+	Network          []NetworkInfo `json:"network"`
+	BIOS             *BIOSInfo     `json:"bios,omitempty"`
+	LastLoggedInUser string        `json:"last_logged_in_user,omitempty"`
 }
 
 type CPUInfo struct {
@@ -202,9 +203,10 @@ type NetworkInfo struct {
 }
 
 type BIOSInfo struct {
-	Vendor      string `json:"vendor"`
-	Version     string `json:"version"`
-	ReleaseDate string `json:"release_date"`
+	Vendor       string `json:"vendor"`
+	Version      string `json:"version"`
+	ReleaseDate  string `json:"release_date"`
+	SerialNumber string `json:"serial_number,omitempty"`
 }
 
 type SoftwareItem struct {
