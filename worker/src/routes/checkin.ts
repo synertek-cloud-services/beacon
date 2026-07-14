@@ -6,6 +6,7 @@ import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
 import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts } from '../lib/alerts';
+import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
 
@@ -54,21 +55,35 @@ checkin.post('/', async (c) => {
   // Process results from previously issued commands
   if (body.pending_command_results?.length) {
     const ids = body.pending_command_results.map(r => r.command_id);
-    const owned = await db.select({ id: schema.commands.id })
+    const owned = await db.select({ id: schema.commands.id, componentId: schema.commands.componentId })
       .from(schema.commands)
       .where(and(
         inArray(schema.commands.id, ids),
         eq(schema.commands.deviceId, device.id),
       ));
-    const ownedIds = new Set(owned.map(r => r.id));
+    const ownedById = new Map(owned.map(r => [r.id, r]));
+
+    const componentIds = [...new Set(owned.map(r => r.componentId).filter((x): x is string => !!x))];
+    const postCondByComponent = new Map<string, PostCondition[]>();
+    if (componentIds.length) {
+      const comps = await db.select({ id: schema.components.id, postConditions: schema.components.postConditions })
+        .from(schema.components)
+        .where(inArray(schema.components.id, componentIds));
+      for (const comp of comps) postCondByComponent.set(comp.id, JSON.parse(comp.postConditions || '[]'));
+    }
 
     for (const r of body.pending_command_results) {
-      if (!ownedIds.has(r.command_id)) continue; // ignore results for commands not belonging to this device
+      const ownedCmd = ownedById.get(r.command_id);
+      if (!ownedCmd) continue; // ignore results for commands not belonging to this device
+      const conditions = ownedCmd.componentId ? (postCondByComponent.get(ownedCmd.componentId) ?? []) : [];
+      const warning = evaluatePostConditions(conditions, r.stdout ?? '', r.stderr ?? '');
+
       await db.update(schema.commands)
         .set({
           status: r.status,
           result: JSON.stringify({ stdout: r.stdout, stderr: r.stderr, exit_code: r.exit_code }),
           completedAt: now,
+          warning,
         })
         .where(eq(schema.commands.id, r.command_id));
     }

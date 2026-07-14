@@ -186,6 +186,12 @@ type HardwareInfo struct {
 	Domain                  string `json:"domain,omitempty"`
 	WindowsDisplayVersion   string `json:"windows_display_version,omitempty"`
 	WindowsInstallationType string `json:"windows_installation_type,omitempty"`
+	// Virtualization platform, when detected (e.g. "WSL2", "Hyper-V", "VMware",
+	// "VirtualBox", "KVM/QEMU", "Xen"). Empty on bare metal or when undetectable —
+	// deliberately not a boolean, since which platform matters (WSL specifically
+	// explains why System/BIOS below are otherwise empty: WSL2 doesn't expose
+	// DMI/SMBIOS tables the way a full VM does).
+	Virtualization string `json:"virtualization,omitempty"`
 }
 
 type CPUInfo struct {

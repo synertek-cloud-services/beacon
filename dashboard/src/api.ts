@@ -105,21 +105,53 @@ export interface EnrollmentToken {
 
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
 
+export type ComponentVariableType = 'string' | 'selection' | 'boolean' | 'date';
+
+export interface ComponentVariableOption {
+  label: string;
+  value: string;
+}
+
+export interface ComponentVariable {
+  id: string;
+  componentId: string;
+  name: string;
+  label: string;
+  type: ComponentVariableType;
+  options: ComponentVariableOption[] | null;
+  defaultValue: string | null;
+  description: string | null;
+  required: boolean;
+  sortOrder: number;
+  createdAt: number;
+}
+
+export interface PostCondition {
+  id: string;
+  stream: 'stdout' | 'stderr' | 'both';
+  match_type: 'contains' | 'regex';
+  pattern: string;
+  enabled: boolean;
+}
+
 export interface Component {
   id: string;
   name: string;
   description: string | null;
-  category: string | null;
+  category: string | null; // freeform organizational tag — shown in the UI as "Group"
   type: 'script' | 'application';
+  origin: 'custom' | 'store';
   shell: string;
   script: string;
   timeoutSeconds: number;
+  postConditions: PostCondition[];
+  variables: ComponentVariable[];
   createdAt: number;
   updatedAt: number;
 }
 
 export type ComponentRef =
-  | { type: 'library'; component_id: string; order: number }
+  | { type: 'library'; component_id: string; order: number; variable_values?: Record<string, string> }
   | { type: 'inline'; shell: string; script: string; timeout_seconds?: number; order: number };
 
 export interface JobDeviceStats {
@@ -153,6 +185,7 @@ export interface JobDeviceCommand {
   componentOrder: number;
   status: 'queued' | 'sent' | 'completed' | 'failed';
   result: string | null;
+  warning: boolean;
   createdAt: number;
   completedAt: number | null;
 }
@@ -265,6 +298,9 @@ export interface HardwareInfo {
   domain?: string
   windows_display_version?: string
   windows_installation_type?: string
+  // Detected virtualization platform (e.g. "WSL2", "Hyper-V", "VMware") —
+  // empty on bare metal or when undetectable.
+  virtualization?: string
 }
 export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
@@ -428,6 +464,7 @@ export const api = {
       shell?: string;
       script: string;
       timeout_seconds?: number;
+      post_conditions?: PostCondition[];
     })                            => request<Component>('POST', '/v1/admin/components', body),
     update: (id: string, body: Partial<{
       name: string;
@@ -437,8 +474,38 @@ export const api = {
       shell: string;
       script: string;
       timeout_seconds: number;
+      post_conditions: PostCondition[];
     }>)                           => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${id}`, body),
     delete: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${id}`),
+    clone:  (id: string, name?: string) => request<Component>('POST', `/v1/admin/components/${id}/clone`, { name }),
+    store: {
+      list: () => request<Component[]>('GET', '/v1/admin/components/store'),
+    },
+    variables: {
+      list:   (componentId: string) => request<ComponentVariable[]>('GET', `/v1/admin/components/${componentId}/variables`),
+      create: (componentId: string, body: {
+        name: string;
+        label: string;
+        type?: ComponentVariableType;
+        options?: ComponentVariableOption[];
+        default_value?: string | null;
+        description?: string | null;
+        required?: boolean;
+        sort_order?: number;
+      }) => request<ComponentVariable>('POST', `/v1/admin/components/${componentId}/variables`, body),
+      update: (componentId: string, variableId: string, body: Partial<{
+        name: string;
+        label: string;
+        type: ComponentVariableType;
+        options: ComponentVariableOption[];
+        default_value: string | null;
+        description: string | null;
+        required: boolean;
+        sort_order: number;
+      }>) => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${componentId}/variables/${variableId}`, body),
+      delete: (componentId: string, variableId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/variables/${variableId}`),
+    },
   },
 
   jobs: {

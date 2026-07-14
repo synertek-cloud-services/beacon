@@ -20,13 +20,23 @@
           <label>Components <span class="required">*</span></label>
           <div class="cj-comp-list">
             <div v-if="!orderedIds.length" class="cj-empty">No components added yet.</div>
-            <div v-for="(id, idx) in orderedIds" :key="id" class="cj-comp-row">
-              <span class="cj-comp-order">{{ idx + 1 }}</span>
-              <span class="cj-comp-name">{{ nameFor(id) }}</span>
-              <div class="cj-comp-actions">
-                <button class="btn-icon" :disabled="idx === 0" @click="moveUp(idx)" title="Move up">↑</button>
-                <button class="btn-icon" :disabled="idx === orderedIds.length - 1" @click="moveDown(idx)" title="Move down">↓</button>
-                <button class="btn-icon" @click="removeAt(idx)" title="Remove">×</button>
+            <div v-for="(id, idx) in orderedIds" :key="id" class="cj-comp-item">
+              <div class="cj-comp-row">
+                <span class="cj-comp-order">{{ idx + 1 }}</span>
+                <span class="cj-comp-name">{{ nameFor(id) }}</span>
+                <div class="cj-comp-actions">
+                  <button class="btn-icon" :disabled="idx === 0" @click="moveUp(idx)" title="Move up">↑</button>
+                  <button class="btn-icon" :disabled="idx === orderedIds.length - 1" @click="moveDown(idx)" title="Move down">↓</button>
+                  <button class="btn-icon" @click="removeAt(idx)" title="Remove">×</button>
+                </div>
+              </div>
+              <div v-if="varsFor(id).length" class="cj-var-panel">
+                <ComponentVariablePrompt
+                  :ref="(el: any) => setPromptRef(id, el)"
+                  :variables="varsFor(id)"
+                  :values="variableValues[id] ?? {}"
+                  @update:values="v => { variableValues[id] = v }"
+                />
               </div>
             </div>
           </div>
@@ -95,7 +105,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
-import { api, type Component, type ComponentRef, type Job, type Tenant, type Device } from '../api';
+import { api, type Component, type ComponentRef, type ComponentVariable, type Job, type Tenant, type Device } from '../api';
+import ComponentVariablePrompt from './ComponentVariablePrompt.vue';
 
 const props = defineProps<{ initialComponents?: Component[] }>();
 const emit = defineEmits<{ created: [Job]; close: [] }>();
@@ -113,13 +124,31 @@ const compQuery  = ref('');
 const compOpen   = ref(false);
 
 const orderedRefs = computed<ComponentRef[]>(() =>
-  orderedIds.value.map((id, i) => ({ type: 'library', component_id: id, order: i + 1 }))
+  orderedIds.value.map((id, i) => ({
+    type: 'library', component_id: id, order: i + 1,
+    variable_values: variableValues[id],
+  }))
 );
 
 function nameFor(id: string): string {
   return library.value.find(c => c.id === id)?.name
     ?? props.initialComponents?.find(c => c.id === id)?.name
     ?? id;
+}
+
+// ── Input variables ─────────────────────────────────────────────
+
+const variableValues = reactive<Record<string, Record<string, string>>>({});
+const promptRefs: Record<string, { validate: () => string | null } | null> = {};
+
+function setPromptRef(id: string, el: { validate: () => string | null } | null) {
+  promptRefs[id] = el;
+}
+
+function varsFor(id: string): ComponentVariable[] {
+  return library.value.find(c => c.id === id)?.variables
+    ?? props.initialComponents?.find(c => c.id === id)?.variables
+    ?? [];
 }
 
 const compMatches = computed(() => {
@@ -209,6 +238,11 @@ function validate(): string | null {
   if (orderedIds.value.length === 0) return 'Add at least one component';
   if (targetType.value === 'tenants' && !selectedCompanyId.value) return 'Select a company';
   if (targetType.value === 'devices' && Object.keys(selectedDevices).length === 0) return 'Select at least one device';
+
+  for (const id of orderedIds.value) {
+    const err = promptRefs[id]?.validate();
+    if (err) return err;
+  }
   return null;
 }
 
@@ -305,11 +339,15 @@ onMounted(async () => {
 
 /* ── Ordered component list ── */
 .cj-comp-list { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.cj-comp-item { border-bottom: 1px solid var(--border); }
+.cj-comp-item:last-child { border-bottom: none; }
 .cj-comp-row {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  border-bottom: 1px solid var(--border); font-size: 13px;
+  font-size: 13px;
 }
-.cj-comp-row:last-child { border-bottom: none; }
+.cj-var-panel {
+  padding: 4px 12px 12px 40px; background: var(--surface-2);
+}
 .cj-comp-order {
   width: 18px; height: 18px; border-radius: 4px; background: var(--surface-2); color: var(--muted-2);
   font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;

@@ -15,9 +15,10 @@ import (
 const defaultScriptTimeout = 5 * time.Minute
 
 type runScriptPayload struct {
-	Shell          string `json:"shell"`
-	Script         string `json:"script"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
+	Shell          string            `json:"shell"`
+	Script         string            `json:"script"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	Variables      map[string]string `json:"variables,omitempty"`
 }
 
 // Execute runs a command and returns its result. Unknown types are silently
@@ -74,6 +75,14 @@ func runScript(cmd protocol.Command) protocol.CommandResult {
 		shellCmd = exec.CommandContext(ctx, "bash", tmp.Name())
 	default: // "sh" and anything else
 		shellCmd = exec.CommandContext(ctx, "sh", tmp.Name())
+	}
+
+	if len(p.Variables) > 0 {
+		env := os.Environ()
+		for k, v := range p.Variables {
+			env = append(env, k+"="+v)
+		}
+		shellCmd.Env = env
 	}
 
 	var stdout, stderr bytes.Buffer

@@ -171,6 +171,9 @@
                 <div v-if="auditData.hardware?.architecture" class="ddev-row">
                   <span class="ddev-label">Architecture</span><span class="text-sm">{{ archLabel(auditData.hardware.architecture) }}</span>
                 </div>
+                <div v-if="auditData.hardware?.virtualization" class="ddev-row">
+                  <span class="ddev-label">Virtualization</span><span class="text-sm">{{ auditData.hardware.virtualization }}</span>
+                </div>
                 <div v-if="auditData.hardware?.domain" class="ddev-row">
                   <span class="ddev-label">Domain</span><span class="text-sm">{{ auditData.hardware.domain }}</span>
                 </div>
@@ -561,6 +564,14 @@
                   <div v-if="selectedComponent.description" class="text-xs text-muted-2">{{ selectedComponent.description }}</div>
                 </div>
                 <pre class="qj-preview-script">{{ selectedComponent.script }}</pre>
+                <div v-if="selectedComponent.variables.length" class="qj-preview-vars">
+                  <ComponentVariablePrompt
+                    ref="quickJobVarPrompt"
+                    :variables="selectedComponent.variables"
+                    :values="quickJobVariableValues"
+                    @update:values="v => { quickJobVariableValues = v }"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -619,6 +630,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AuditChange, type AlertState, type EffectiveMonitor } from '../api';
+import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 
 interface DiskInfo {
   device: string;
@@ -724,12 +736,16 @@ const quickJobTab   = ref<'library' | 'script'>('library');
 const quickJobForm  = ref({ shell: 'auto', script: '', timeout: '', saveToLibrary: false, libraryName: '' });
 const quickJobError = ref('');
 const quickJobBusy  = ref(false);
+const quickJobVariableValues = ref<Record<string, string>>({});
+const quickJobVarPrompt = ref<{ validate: () => string | null } | null>(null);
 
 // Component library (loaded once per page visit)
 const libraryComponents = ref<Component[]>([]);
 const libraryLoading    = ref(false);
 const selectedComponent = ref<Component | null>(null);
 const libSearch         = ref('');
+
+watch(selectedComponent, () => { quickJobVariableValues.value = {}; });
 
 // Just refreshes the device row itself (used by the 30s poll) — does not
 // touch tab/audit/changelog state, so it doesn't disturb whatever the user
@@ -1238,7 +1254,12 @@ async function submitQuickJob() {
 
     if (quickJobTab.value === 'library') {
       if (!selectedComponent.value) { quickJobError.value = 'Select a component'; return; }
-      componentRef = { type: 'library', component_id: selectedComponent.value.id, order: 1 };
+      const varErr = quickJobVarPrompt.value?.validate();
+      if (varErr) { quickJobError.value = varErr; return; }
+      componentRef = {
+        type: 'library', component_id: selectedComponent.value.id, order: 1,
+        variable_values: quickJobVariableValues.value,
+      };
       jobName = `Quick Job — ${selectedComponent.value.name}`;
     } else {
       const script = quickJobForm.value.script.trim();
@@ -1485,6 +1506,7 @@ function shellLabel(shell: string): string {
   font-family: var(--mono); font-size: 12px; line-height: 1.6;
   color: #c8d0e8; background: #080a11; white-space: pre-wrap; word-break: break-all; overflow-y: auto;
 }
+.qj-preview-vars { flex-shrink: 0; padding: 12px 16px; border-top: 1px solid var(--border); }
 
 .code-area {
   width: 100%;

@@ -51,6 +51,10 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 	// System (manufacturer/model/motherboard)
 	hw.System = collectSystemInfo()
 
+	// Virtualization platform — checked independently of System/BIOS above
+	// since WSL2 in particular reports none of those DMI/SMBIOS fields at all.
+	hw.Virtualization = detectVirtualization()
+
 	// Display adapters
 	hw.DisplayAdapters = collectDisplayAdapters()
 
@@ -221,6 +225,108 @@ func collectSystemInfoLinux() *protocol.SystemInfo {
 		MotherboardVendor: boardVendor,
 		MotherboardModel:  boardModel,
 	}
+}
+
+func detectVirtualization() string {
+	switch runtime.GOOS {
+	case "linux":
+		return detectVirtualizationLinux()
+	case "windows":
+		return detectVirtualizationWindows()
+	case "darwin":
+		return detectVirtualizationDarwin()
+	}
+	return ""
+}
+
+func detectVirtualizationLinux() string {
+	// WSL has its own characteristic kernel release string — checked first
+	// because WSL2 also reports Hyper-V-style DMI fields below, which would
+	// otherwise misreport it as a plain Hyper-V VM instead of WSL specifically.
+	if release, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
+		r := strings.ToLower(string(release))
+		if strings.Contains(r, "wsl2") {
+			return "WSL2"
+		}
+		if strings.Contains(r, "microsoft") || strings.Contains(r, "wsl") {
+			return "WSL"
+		}
+	}
+
+	read := func(name string) string {
+		b, err := os.ReadFile("/sys/class/dmi/id/" + name)
+		if err != nil {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(string(b)))
+	}
+	vendor := read("sys_vendor")
+	product := read("product_name")
+
+	switch {
+	case strings.Contains(vendor, "microsoft") && strings.Contains(product, "virtual machine"):
+		return "Hyper-V"
+	case strings.Contains(vendor, "vmware") || strings.Contains(product, "vmware"):
+		return "VMware"
+	case strings.Contains(vendor, "innotek") || strings.Contains(product, "virtualbox"):
+		return "VirtualBox"
+	case strings.Contains(product, "kvm") || strings.Contains(vendor, "qemu"):
+		return "KVM/QEMU"
+	}
+	if _, err := os.Stat("/sys/hypervisor/type"); err == nil {
+		return "Xen"
+	}
+	return ""
+}
+
+func detectVirtualizationWindows() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command",
+		`Get-WmiObject Win32_ComputerSystem | Select-Object Manufacturer,Model | ConvertTo-Json -Compress`,
+	).Output()
+	if err != nil {
+		return ""
+	}
+	var v struct {
+		Manufacturer string `json:"Manufacturer"`
+		Model        string `json:"Model"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return ""
+	}
+	manufacturer := strings.ToLower(v.Manufacturer)
+	model := strings.ToLower(v.Model)
+
+	switch {
+	case strings.Contains(manufacturer, "microsoft") && strings.Contains(model, "virtual machine"):
+		return "Hyper-V"
+	case strings.Contains(manufacturer, "vmware"):
+		return "VMware"
+	case strings.Contains(manufacturer, "innotek") || strings.Contains(model, "virtualbox"):
+		return "VirtualBox"
+	case strings.Contains(model, "kvm"):
+		return "KVM"
+	}
+	return ""
+}
+
+// detectVirtualizationDarwin checks the Apple Virtualization Framework's guest
+// flag — covers Parallels/VMware Fusion/UTM/Apple's own VMs on Apple Silicon
+// and recent Intel Macs. Absent on real hardware, so any error means bare metal.
+func detectVirtualizationDarwin() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "sysctl", "-n", "kern.hv_vmm_present").Output()
+	if err != nil {
+		return ""
+	}
+	if strings.TrimSpace(string(out)) == "1" {
+		return "Virtual Machine"
+	}
+	return ""
 }
 
 func collectSystemInfoWindows() *protocol.SystemInfo {

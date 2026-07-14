@@ -92,7 +92,7 @@
                       <div class="dev-card-statuses">
                         <span
                           v-for="cmd in dev.commands" :key="cmd.id"
-                          :class="['mini-badge', `mini-${cmd.status}`]"
+                          :class="['mini-badge', badgeClass(cmd)]"
                           :title="cmd.componentName ?? `Component ${cmd.componentOrder}`"
                         >{{ cmd.componentName ?? `Step ${cmd.componentOrder}` }}</span>
                       </div>
@@ -101,7 +101,7 @@
                     <!-- Command outputs -->
                     <div v-for="cmd in dev.commands" :key="cmd.id" class="cmd-output-block">
                       <div class="cmd-output-head">
-                        <span :class="['mini-badge', `mini-${cmd.status}`]">{{ cmd.status }}</span>
+                        <span :class="['mini-badge', badgeClass(cmd)]">{{ badgeLabel(cmd) }}</span>
                         <span class="text-xs text-muted-2" style="margin-left:6px">
                           {{ cmd.componentName ?? `Step ${cmd.componentOrder}` }}
                         </span>
@@ -249,6 +249,15 @@ async function cancelJob(job: Job) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+function badgeClass(cmd: JobDeviceCommand): string {
+  if (cmd.status === 'completed' && cmd.warning) return 'mini-warning';
+  return `mini-${cmd.status}`;
+}
+function badgeLabel(cmd: JobDeviceCommand): string {
+  if (cmd.status === 'completed' && cmd.warning) return 'warning';
+  return cmd.status;
+}
+
 function resultOf(cmd: JobDeviceCommand): CmdResult | null {
   if (!cmd.result) return null;
   try { return JSON.parse(cmd.result) as CmdResult; }
@@ -332,6 +341,7 @@ onUnmounted(() => clearInterval(timer));
 .mini-sent      { background: rgba(78,126,247,.12);  color: var(--accent); }
 .mini-completed { background: rgba(45,207,160,.12);  color: var(--teal); }
 .mini-failed    { background: rgba(232,86,106,.12);  color: var(--red); }
+.mini-warning   { background: rgba(240,168,64,.12);  color: var(--amber); }
 
 /* ── Command output ── */
 .cmd-output-block { padding: 10px 20px 12px; border-bottom: 1px solid var(--border); }

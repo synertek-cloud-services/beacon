@@ -190,13 +190,29 @@ export const components = sqliteTable('components', {
   id:             text('id').primaryKey(),
   name:           text('name').notNull(),
   description:    text('description'),
-  category:       text('category'),
+  category:       text('category'), // freeform organizational tag — surfaced in the UI as "Group", not to be confused with `type`
   type:           text('type', { enum: ['script', 'application'] }).notNull().default('script'),
+  origin:         text('origin', { enum: ['custom', 'store'] }).notNull().default('custom'),
   shell:          text('shell').notNull().default('auto'),
   script:         text('script').notNull().default(''),
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
+  postConditions: text('post_conditions').notNull().default('[]'), // JSON PostCondition[]
   createdAt:      integer('created_at').notNull(),
   updatedAt:      integer('updated_at').notNull(),
+});
+
+export const componentVariables = sqliteTable('component_variables', {
+  id:            text('id').primaryKey(),
+  componentId:   text('component_id').notNull().references(() => components.id, { onDelete: 'cascade' }),
+  name:          text('name').notNull(),
+  label:         text('label').notNull(),
+  type:          text('type', { enum: ['string', 'selection', 'boolean', 'date'] }).notNull().default('string'),
+  options:       text('options'),       // JSON [{label,value}] — only for type='selection'
+  defaultValue:  text('default_value'), // always a string, regardless of declared type
+  description:   text('description'),
+  required:      integer('required', { mode: 'boolean' }).notNull().default(true),
+  sortOrder:     integer('sort_order').notNull().default(0),
+  createdAt:     integer('created_at').notNull(),
 });
 
 export const jobs = sqliteTable('jobs', {
@@ -297,6 +313,7 @@ export const commands = sqliteTable('commands', {
   payload:        text('payload').notNull(), // JSON
   status:         text('status', { enum: ['queued', 'sent', 'completed', 'failed'] }).notNull().default('queued'),
   result:         text('result'), // JSON: { stdout, stderr, exit_code }
+  warning:        integer('warning', { mode: 'boolean' }).notNull().default(false), // post_conditions match — orthogonal to status
   createdAt:      integer('created_at').notNull(),
   completedAt:    integer('completed_at'),
   // Job linkage (null for direct commands like reboot)

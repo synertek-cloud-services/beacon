@@ -14,23 +14,41 @@ function uid(): string {
 // ── Types ──────────────────────────────────────────────────────
 
 type ComponentRef =
-  | { type: 'library'; component_id: string; order: number }
+  | { type: 'library'; component_id: string; order: number; variable_values?: Record<string, string> }
   | { type: 'inline'; shell: string; script: string; timeout_seconds?: number; order: number };
 
+type ResolvedPayload = { shell: string; script: string; timeout_seconds: number; variables: Record<string, string> };
+
 // ── Helper: resolve payload for a component ref ────────────────
+// Library refs also resolve the component's input variables — supplied value,
+// else the variable's default, else (if required) a named error surfaced as a 400.
 
 async function resolvePayload(
   db: D1Database,
   ref: ComponentRef,
-): Promise<{ shell: string; script: string; timeout_seconds: number } | null> {
+): Promise<ResolvedPayload | { error: string } | null> {
   if (ref.type === 'inline') {
-    return { shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300 };
+    return { shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300, variables: {} };
   }
   // library
   const comp = await db.prepare(
     `SELECT shell, script, timeout_seconds FROM components WHERE id = ?`
   ).bind(ref.component_id).first<{ shell: string; script: string; timeout_seconds: number }>();
-  return comp ?? null;
+  if (!comp) return null;
+
+  const vars = await db.prepare(
+    `SELECT name, default_value, required FROM component_variables WHERE component_id = ?`
+  ).bind(ref.component_id).all<{ name: string; default_value: string | null; required: number }>();
+
+  const variables: Record<string, string> = {};
+  for (const v of vars.results) {
+    const supplied = ref.variable_values?.[v.name];
+    if (supplied !== undefined) { variables[v.name] = supplied; continue; }
+    if (v.default_value !== null) { variables[v.name] = v.default_value; continue; }
+    if (v.required) return { error: `missing required variable "${v.name}" for component ${ref.component_id}` };
+  }
+
+  return { shell: comp.shell, script: comp.script, timeout_seconds: comp.timeout_seconds, variables };
 }
 
 // ── Helper: resolve target device rows ────────────────────────
@@ -230,14 +248,20 @@ adminJobs.post('/', async (c) => {
     return c.json({ error: 'no approved devices found for the given IDs' }, 400);
   }
 
-  // Resolve all component payloads up front (validate they exist)
-  const resolved = await Promise.all(
-    body.components.map(async (ref) => {
-      const payload = await resolvePayload(c.env.DB, ref);
-      if (!payload) return c.json({ error: `component not found: ${'component_id' in ref ? ref.component_id : 'inline'}` }, 404) as any;
-      return { ref, payload };
-    })
+  // Resolve all component payloads up front (validate they exist + required variables are satisfied)
+  const resolutions = await Promise.all(
+    body.components.map(async (ref) => ({ ref, payload: await resolvePayload(c.env.DB, ref) }))
   );
+
+  for (const { ref, payload } of resolutions) {
+    if (payload === null) {
+      return c.json({ error: `component not found: ${'component_id' in ref ? ref.component_id : 'inline'}` }, 404);
+    }
+    if ('error' in payload) {
+      return c.json({ error: payload.error }, 400);
+    }
+  }
+  const resolved = resolutions as { ref: ComponentRef; payload: ResolvedPayload }[];
 
   const now   = Math.floor(Date.now() / 1000);
   const jobId = uid();
@@ -270,6 +294,7 @@ adminJobs.post('/', async (c) => {
           shell,
           script: payload.script,
           timeout_seconds: payload.timeout_seconds,
+          variables: payload.variables,
         });
         const compId  = ref.type === 'library' ? ref.component_id : null;
         const compOrd = ref.order;
