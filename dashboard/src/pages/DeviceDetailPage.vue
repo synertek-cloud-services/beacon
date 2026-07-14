@@ -19,20 +19,15 @@
 
       <!-- Identity header -->
       <div class="ddev-header">
-        <div>
-          <div class="ddev-hostname mono">{{ device.hostname ?? 'Unknown device' }}</div>
-          <div class="ddev-sub">
-            <span :class="isOnline(device) ? 'pill-online' : 'pill-offline'">
-              {{ isOnline(device) ? '● Online' : '● Offline' }}
-            </span>
-            <span class="ddev-sep">·</span>
-            <span class="text-xs text-muted-2">{{ device.status }}</span>
-            <template v-if="device.osType">
-              <span class="ddev-sep">·</span>
-              <span class="text-xs text-muted-2">{{ osShortLabel(device) }}</span>
-            </template>
-          </div>
+        <div class="ddev-header-name">
+          <span class="ddev-status-dot" :class="isOnline(device) ? 'dot-online' : 'dot-offline'"
+            :title="isOnline(device) ? 'Online' : 'Offline'"></span>
+          <span class="ddev-hostname mono">{{ device.hostname ?? 'Unknown device' }}</span>
         </div>
+        <svg v-if="isWindows(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" title="Windows">
+          <rect x="0" y="0" width="7" height="7"/><rect x="9" y="0" width="7" height="7"/>
+          <rect x="0" y="9" width="7" height="7"/><rect x="9" y="9" width="7" height="7"/>
+        </svg>
       </div>
 
       <!-- Management toolbar -->
@@ -116,9 +111,6 @@
               <div class="ddev-section">
                 <div class="ddev-section-title">System</div>
                 <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ device.tenantName ?? '—' }}</span></div>
-                <div class="ddev-row"><span class="ddev-label">Hostname</span><span class="mono text-sm">{{ device.hostname ?? '—' }}</span></div>
-                <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
-                <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
                 <div class="ddev-row">
                   <span class="ddev-label">Class</span>
                   <span class="text-sm">
@@ -126,8 +118,20 @@
                     <span v-if="effectiveClass(device)" class="text-xs text-muted-2">({{ device.overrideClass ? 'manual' : 'auto' }})</span>
                   </span>
                 </div>
-                <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
+                <div class="ddev-row"><span class="ddev-label">OS</span><span class="text-sm">{{ osShortLabel(device) || '—' }}</span></div>
+                <div v-if="osBuildLabel(device)" class="ddev-row"><span class="ddev-label">Build</span><span class="mono text-xs text-muted-2">{{ osBuildLabel(device) }}</span></div>
+                <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
+                <div class="ddev-row"><span class="ddev-label">Approved</span><span class="text-sm">{{ device.approvedAt ? absDate(device.approvedAt) : '—' }}</span></div>
+              </div>
+
+              <div class="ddev-section">
+                <div class="ddev-section-title">Identifiers</div>
                 <div class="ddev-row"><span class="ddev-label">Device ID</span><span class="mono text-xs text-muted-2" style="user-select:all">{{ device.id }}</span></div>
+                <div class="ddev-row"><span class="ddev-label">Agent</span><span class="mono text-sm">{{ device.agentVersion ?? '—' }}</span></div>
+                <div v-if="avStatusOf(device)" class="ddev-row">
+                  <span class="ddev-label">Antivirus</span>
+                  <span :class="avBadgeClass(avStatusOf(device)!)">{{ AV_LABELS[avStatusOf(device)!] ?? avStatusOf(device) }}</span>
+                </div>
               </div>
 
               <div class="ddev-section">
@@ -136,20 +140,16 @@
                   <span class="ddev-label">Last seen</span>
                   <span class="text-sm">{{ lastSeenLabel(device.lastSeen) }}<span v-if="device.lastSeen" class="text-xs text-muted-2"> · {{ absDate(device.lastSeen) }}</span></span>
                 </div>
-                <div class="ddev-row"><span class="ddev-label">Enrolled</span><span class="text-sm">{{ absDate(device.createdAt) }}</span></div>
-                <div class="ddev-row"><span class="ddev-label">Approved</span><span class="text-sm">{{ device.approvedAt ? absDate(device.approvedAt) : '—' }}</span></div>
-              </div>
-
-              <div v-if="inventoryOf(device)" class="ddev-section">
-                <div class="ddev-section-title">Quick Status</div>
-                <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
-                <template v-if="inventoryOf(device)!.disks?.length">
-                  <div class="ddev-row" v-for="disk in inventoryOf(device)!.disks" :key="disk.device || disk.label">
-                    <span class="ddev-label">{{ disk.label }}</span>
-                    <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-                  </div>
+                <template v-if="inventoryOf(device)">
+                  <div class="ddev-row"><span class="ddev-label">Uptime</span><span class="text-sm">{{ formatUptime(inventoryOf(device)!.uptime_seconds) }}</span></div>
+                  <template v-if="inventoryOf(device)!.disks?.length">
+                    <div class="ddev-row" v-for="disk in inventoryOf(device)!.disks" :key="disk.device || disk.label">
+                      <span class="ddev-label">{{ disk.label }}</span>
+                      <span class="text-sm">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                    </div>
+                  </template>
+                  <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(device)!.disk_free_bytes) }}</span></div>
                 </template>
-                <div v-else class="ddev-row"><span class="ddev-label">Disk free</span><span class="text-sm">{{ formatBytes(inventoryOf(device)!.disk_free_bytes) }}</span></div>
               </div>
             </div>
           </section>
@@ -561,6 +561,7 @@ interface Inventory {
   disk_free_bytes: number;
   disks?: DiskInfo[];
   detected_class: string;
+  av_status?: string;
 }
 
 const route  = useRoute();
@@ -1001,6 +1002,26 @@ function isOnline(d: Device) {
   return d.status === 'approved' && d.lastSeen != null && d.lastSeen > now.value - 300;
 }
 function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
+function isWindows(d: Device) { return (d.osType ?? '').toLowerCase() === 'windows'; }
+
+// Same vocabulary/labels as OverviewPage.vue's antivirus-status widget —
+// duplicated per this codebase's established per-component convention.
+const AV_LABELS: Record<string, string> = {
+  running_up_to_date:     'Up to date',
+  running_not_up_to_date: 'Out of date',
+  not_running:            'Not running',
+  not_detected:            'Not detected',
+  unknown:                'Unknown',
+};
+function avStatusOf(d: Device): string | null {
+  return inventoryOf(d)?.av_status ?? null;
+}
+function avBadgeClass(status: string): string {
+  if (status === 'running_up_to_date') return 'inv-badge-ok';
+  if (status === 'running_not_up_to_date') return 'inv-badge-warn';
+  if (status === 'unknown') return 'inv-badge-muted';
+  return 'inv-badge-danger';
+}
 function osShortLabel(d: Device) {
   if (!d.osType) return '—';
   const raw = d.osVersion ? `${d.osType} ${d.osVersion}` : d.osType;
@@ -1234,14 +1255,18 @@ function shellLabel(shell: string): string {
 
 /* ── Identity header ── */
 .ddev-header {
-  padding: 12px 20px 10px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
-.ddev-hostname { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
-.ddev-sub { display: flex; align-items: center; gap: 6px; }
-.ddev-sep { color: var(--border-2); font-size: 12px; }
-.pill-online  { font-size: 11px; font-weight: 600; color: var(--teal); }
-.pill-offline { font-size: 11px; font-weight: 600; color: var(--muted); }
+.ddev-header-name { display: flex; align-items: center; gap: 10px; }
+.ddev-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.dot-online  { background: var(--teal); box-shadow: 0 0 0 3px rgba(45,207,160,.15); }
+.dot-offline { background: var(--muted); }
+.ddev-hostname { font-size: 22px; font-weight: 700; color: var(--text); }
+.ddev-os-icon { color: var(--muted-2); flex-shrink: 0; }
 
 /* ── Management toolbar ── */
 .ddev-toolbar {
@@ -1529,8 +1554,10 @@ function shellLabel(shell: string): string {
   font-size: 10px; font-weight: 600; color: var(--muted); padding: 0 20px 4px;
   text-transform: uppercase; letter-spacing: .05em;
 }
-.inv-badge-ok   { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(45,207,160,.12); color: var(--teal); }
-.inv-badge-warn { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(240,168,64,.12);  color: var(--amber); }
+.inv-badge-ok     { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(45,207,160,.12); color: var(--teal); }
+.inv-badge-warn   { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(240,168,64,.12);  color: var(--amber); }
+.inv-badge-danger { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(232,86,106,.12);  color: #e8566a; }
+.inv-badge-muted  { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(97,100,128,.15);  color: var(--muted); }
 .inv-av-row { display: flex; align-items: center; margin-bottom: 6px; }
 .inv-disk-row { display: flex; align-items: center; gap: 8px; padding: 2px 20px 4px; }
 .inv-disk-label { min-width: 90px; flex-shrink: 0; }
