@@ -150,7 +150,7 @@
             </div>
           </section>
 
-          <!-- ── System (at-a-glance OS + hardware overview) ── -->
+          <!-- ── System (OS + chassis identity — no metrics/network/storage here) ── -->
           <section :id="'ddev-sec-system'" class="ddev-page-section">
             <h2 class="ddev-section-heading">System</h2>
             <div v-if="auditLoading" class="inv-empty">Loading system info…</div>
@@ -217,28 +217,6 @@
                 </div>
                 <div v-if="processorSummary()" class="ddev-row"><span class="ddev-label">Processor</span><span class="text-sm">{{ processorSummary() }}</span></div>
                 <div v-if="totalCores()" class="ddev-row"><span class="ddev-label">Cores</span><span class="text-sm">{{ totalCores() }}</span></div>
-                <div v-if="auditData.hardware?.ram" class="ddev-row"><span class="ddev-label">Memory</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span></div>
-                <div v-if="auditData.hardware?.ram?.installed_bytes" class="ddev-row">
-                  <span class="ddev-label">Installed</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.installed_bytes) }}</span>
-                </div>
-                <div v-if="auditData.hardware?.disks?.length" class="ddev-subsection">
-                  <div class="ddev-sublabel">Disks</div>
-                  <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row" style="padding:2px 0 4px">
-                    <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
-                    <div class="inv-disk-bar-wrap">
-                      <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
-                    </div>
-                    <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
-                  </div>
-                </div>
-                <div v-if="auditData.hardware?.network?.length" class="ddev-subsection">
-                  <div class="ddev-sublabel">Network Adapters</div>
-                  <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:0 0 4px">
-                    <span class="ddev-label">{{ nic.name }}</span>
-                    <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
-                    <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
-                  </div>
-                </div>
                 <div v-if="auditData.hardware?.bios" class="ddev-row">
                   <span class="ddev-label">BIOS</span><span class="text-sm">{{ auditData.hardware.bios.vendor }} {{ auditData.hardware.bios.version }}</span>
                 </div>
@@ -252,33 +230,75 @@
             </div>
           </section>
 
-          <!-- ── Security (audit) ── -->
-          <section :id="'ddev-sec-security'" class="ddev-page-section">
-            <h2 class="ddev-section-heading">Security</h2>
+          <!-- ── Alerts (device-scoped) ── -->
+          <section :id="'ddev-sec-alerts'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Alerts</h2>
             <div class="inv-tab-body">
-              <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
-              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
-                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              <div class="inv-toolbar">
+                <span class="text-xs text-muted-2">Last 30 days, open + resolved</span>
+                <button
+                  class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px"
+                  :disabled="!Object.keys(alertsSelected).length || alertsResolving"
+                  @click="resolveSelectedAlerts"
+                >{{ alertsResolving ? 'Resolving…' : 'Resolve' }}</button>
               </div>
-              <template v-else-if="auditData.security">
-                <div class="inv-section">
-                  <div class="ddev-row" style="padding:12px 20px 8px">
-                    <span class="ddev-label">Firewall</span>
-                    <span :class="auditData.security.firewall_enabled ? 'inv-badge-ok' : 'inv-badge-warn'">
-                      {{ auditData.security.firewall_enabled ? 'Enabled' : 'Disabled' }}
-                    </span>
-                  </div>
-                  <div v-if="auditData.security.antivirus?.length" style="padding:0 20px 8px">
-                    <div class="inv-sub-title">Antivirus</div>
-                    <div v-for="av in auditData.security.antivirus" :key="av.name" class="inv-av-row">
-                      <span class="text-sm">{{ av.name }}</span>
-                      <span :class="av.enabled ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:8px">{{ av.enabled ? 'Active' : 'Inactive' }}</span>
-                      <span :class="av.up_to_date ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:4px">{{ av.up_to_date ? 'Up to date' : 'Outdated' }}</span>
-                    </div>
-                  </div>
-                </div>
-              </template>
-              <div v-else class="inv-empty">No security data in the last audit.</div>
+              <div v-if="deviceAlertsLoading" class="inv-empty">Loading alerts…</div>
+              <div v-else-if="deviceAlerts.length === 0" class="inv-empty">No alerts recorded for this device in the last 30 days.</div>
+              <table v-else class="alert-mini-table">
+                <thead>
+                  <tr>
+                    <th class="col-check"><input type="checkbox" :checked="alertsAllSelected" @change="toggleAlertSelectAll" /></th>
+                    <th>Created</th>
+                    <th>Priority</th>
+                    <th>Category</th>
+                    <th>Message</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="a in deviceAlerts" :key="a.id" @click="toggleAlertSelect(a.id)">
+                    <td class="col-check" @click.stop><input type="checkbox" :checked="!!alertsSelected[a.id]" @change="toggleAlertSelect(a.id)" /></td>
+                    <td class="mono text-xs text-muted-2">{{ absDate(a.alerted_at ?? a.updated_at) }}</td>
+                    <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span></td>
+                    <td class="text-sm">{{ categoryLabel(a.check_type) }}</td>
+                    <td class="text-sm">{{ alertMessage(a) }}</td>
+                    <td>
+                      <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
+                        {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── Policies (effective monitors) ── -->
+          <section :id="'ddev-sec-policies'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Policies</h2>
+            <div class="inv-tab-body">
+              <div v-if="effectiveMonitorsLoading" class="inv-empty">Loading policies…</div>
+              <div v-else-if="policyGroups.length === 0" class="inv-empty">No policies currently apply to this device.</div>
+              <table v-else class="monitor-table" style="margin:12px 20px;width:calc(100% - 40px)">
+                <thead>
+                  <tr>
+                    <th>Policy</th>
+                    <th>Scope</th>
+                    <th>Monitors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="group in policyGroups" :key="group.policy.id" class="monitor-row"
+                    style="cursor:pointer"
+                    @click="router.push(`/global/policies/${group.policy.id}`)"
+                  >
+                    <td class="text-sm">{{ group.policy.name }}</td>
+                    <td><span class="scope-badge" :class="'scope-' + group.policy.scope">{{ capitalize(group.policy.scope) }}</span></td>
+                    <td class="tab-nums">{{ group.monitors.length }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -360,75 +380,91 @@
             </div>
           </section>
 
-          <!-- ── Alerts (device-scoped) ── -->
-          <section :id="'ddev-sec-alerts'" class="ddev-page-section">
-            <h2 class="ddev-section-heading">Alerts</h2>
+          <!-- ── Memory ── -->
+          <section :id="'ddev-sec-memory'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Memory</h2>
             <div class="inv-tab-body">
-              <div class="inv-toolbar">
-                <span class="text-xs text-muted-2">Last 30 days, open + resolved</span>
-                <button
-                  class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px"
-                  :disabled="!Object.keys(alertsSelected).length || alertsResolving"
-                  @click="resolveSelectedAlerts"
-                >{{ alertsResolving ? 'Resolving…' : 'Resolve' }}</button>
+              <div v-if="auditLoading" class="inv-empty">Loading memory info…</div>
+              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
               </div>
-              <div v-if="deviceAlertsLoading" class="inv-empty">Loading alerts…</div>
-              <div v-else-if="deviceAlerts.length === 0" class="inv-empty">No alerts recorded for this device in the last 30 days.</div>
-              <table v-else class="alert-mini-table">
-                <thead>
-                  <tr>
-                    <th class="col-check"><input type="checkbox" :checked="alertsAllSelected" @change="toggleAlertSelectAll" /></th>
-                    <th>Created</th>
-                    <th>Priority</th>
-                    <th>Category</th>
-                    <th>Message</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="a in deviceAlerts" :key="a.id" @click="toggleAlertSelect(a.id)">
-                    <td class="col-check" @click.stop><input type="checkbox" :checked="!!alertsSelected[a.id]" @change="toggleAlertSelect(a.id)" /></td>
-                    <td class="mono text-xs text-muted-2">{{ absDate(a.alerted_at ?? a.updated_at) }}</td>
-                    <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span></td>
-                    <td class="text-sm">{{ categoryLabel(a.check_type) }}</td>
-                    <td class="text-sm">{{ alertMessage(a) }}</td>
-                    <td>
-                      <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
-                        {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div v-else-if="auditData.hardware?.ram" class="inv-section" style="padding:14px 20px">
+                <div class="ddev-row"><span class="ddev-label">Usable</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.total_bytes) }}</span></div>
+                <div v-if="auditData.hardware.ram.installed_bytes" class="ddev-row">
+                  <span class="ddev-label">Installed</span><span class="text-sm">{{ formatBytes(auditData.hardware.ram.installed_bytes) }}</span>
+                </div>
+              </div>
+              <div v-else class="inv-empty">No memory data in the last audit.</div>
             </div>
           </section>
 
-          <!-- ── Policies (effective monitors) ── -->
-          <section :id="'ddev-sec-policies'" class="ddev-page-section">
-            <h2 class="ddev-section-heading">Policies</h2>
+          <!-- ── Storage ── -->
+          <section :id="'ddev-sec-storage'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Storage</h2>
             <div class="inv-tab-body">
-              <div v-if="effectiveMonitorsLoading" class="inv-empty">Loading policies…</div>
-              <div v-else-if="policyGroups.length === 0" class="inv-empty">No policies currently apply to this device.</div>
-              <table v-else class="monitor-table" style="margin:12px 20px;width:calc(100% - 40px)">
-                <thead>
-                  <tr>
-                    <th>Policy</th>
-                    <th>Scope</th>
-                    <th>Monitors</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="group in policyGroups" :key="group.policy.id" class="monitor-row"
-                    style="cursor:pointer"
-                    @click="router.push(`/global/policies/${group.policy.id}`)"
-                  >
-                    <td class="text-sm">{{ group.policy.name }}</td>
-                    <td><span class="scope-badge" :class="'scope-' + group.policy.scope">{{ capitalize(group.policy.scope) }}</span></td>
-                    <td class="tab-nums">{{ group.monitors.length }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div v-if="auditLoading" class="inv-empty">Loading storage info…</div>
+              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              </div>
+              <div v-else-if="auditData.hardware?.disks?.length" class="inv-section">
+                <div v-for="disk in auditData.hardware.disks" :key="disk.device" class="inv-disk-row">
+                  <span class="inv-disk-label mono text-xs">{{ disk.label }}</span>
+                  <div class="inv-disk-bar-wrap">
+                    <div class="inv-disk-bar" :style="{ width: ((disk.total_bytes - disk.free_bytes) / disk.total_bytes * 100).toFixed(1) + '%' }"></div>
+                  </div>
+                  <span class="inv-disk-stat text-xs text-muted-2">{{ formatBytes(disk.free_bytes) }} free / {{ formatBytes(disk.total_bytes) }}</span>
+                </div>
+              </div>
+              <div v-else class="inv-empty">No storage data in the last audit.</div>
+            </div>
+          </section>
+
+          <!-- ── Network ── -->
+          <section :id="'ddev-sec-network'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Network</h2>
+            <div class="inv-tab-body">
+              <div v-if="auditLoading" class="inv-empty">Loading network info…</div>
+              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              </div>
+              <div v-else-if="auditData.hardware?.network?.length" class="inv-section">
+                <div v-for="nic in auditData.hardware.network" :key="nic.hardware_addr" class="ddev-row" style="padding:8px 20px">
+                  <span class="ddev-label">{{ nic.name }}</span>
+                  <span class="mono text-xs text-muted-2">{{ nic.hardware_addr }}</span>
+                  <span class="text-xs text-muted-2" style="margin-left:8px">{{ nic.addrs?.join(', ') }}</span>
+                </div>
+              </div>
+              <div v-else class="inv-empty">No network data in the last audit.</div>
+            </div>
+          </section>
+
+          <!-- ── Security (audit) ── -->
+          <section :id="'ddev-sec-security'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Security</h2>
+            <div class="inv-tab-body">
+              <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              </div>
+              <template v-else-if="auditData.security">
+                <div class="inv-section">
+                  <div class="ddev-row" style="padding:12px 20px 8px">
+                    <span class="ddev-label">Firewall</span>
+                    <span :class="auditData.security.firewall_enabled ? 'inv-badge-ok' : 'inv-badge-warn'">
+                      {{ auditData.security.firewall_enabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+                  <div v-if="auditData.security.antivirus?.length" style="padding:0 20px 8px">
+                    <div class="inv-sub-title">Antivirus</div>
+                    <div v-for="av in auditData.security.antivirus" :key="av.name" class="inv-av-row">
+                      <span class="text-sm">{{ av.name }}</span>
+                      <span :class="av.enabled ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:8px">{{ av.enabled ? 'Active' : 'Inactive' }}</span>
+                      <span :class="av.up_to_date ? 'inv-badge-ok' : 'inv-badge-warn'" style="margin-left:4px">{{ av.up_to_date ? 'Up to date' : 'Outdated' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-else class="inv-empty">No security data in the last audit.</div>
             </div>
           </section>
 
@@ -618,11 +654,14 @@ const now     = ref(Math.floor(Date.now() / 1000));
 const sections = [
   { value: 'summary',   label: 'Summary' },
   { value: 'system',    label: 'System' },
-  { value: 'security',  label: 'Security' },
-  { value: 'software',  label: 'Software' },
-  { value: 'services',  label: 'Services' },
   { value: 'alerts',    label: 'Alerts' },
   { value: 'policies',  label: 'Policies' },
+  { value: 'software',  label: 'Software' },
+  { value: 'services',  label: 'Services' },
+  { value: 'memory',    label: 'Memory' },
+  { value: 'storage',   label: 'Storage' },
+  { value: 'network',   label: 'Network' },
+  { value: 'security',  label: 'Security' },
   { value: 'changelog', label: 'Change Log' },
 ];
 // This is one continuous page, not tabs — activeSection only tracks which
@@ -1383,11 +1422,6 @@ function shellLabel(shell: string): string {
 }
 .ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
 .ddev-label { font-size: 12px; color: var(--muted); min-width: 76px; flex-shrink: 0; }
-.ddev-subsection { margin: 10px 0; }
-.ddev-sublabel {
-  font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 5px;
-  text-transform: uppercase; letter-spacing: .05em;
-}
 .ddev-date-input {
   background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
   padding: 3px 6px; color: var(--text); font-family: var(--font);
