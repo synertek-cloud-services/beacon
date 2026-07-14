@@ -85,7 +85,7 @@
                   <div v-for="dev in detail.devices" :key="dev.deviceId" class="dev-card">
                     <div class="dev-card-head">
                       <div class="dev-card-info">
-                        <span class="mono text-sm">{{ dev.hostname ?? dev.deviceId.slice(0, 8) }}</span>
+                        <router-link :to="'/devices/' + dev.deviceId" class="mono text-sm">{{ dev.hostname ?? dev.deviceId.slice(0, 8) }}</router-link>
                         <span v-if="dev.osType" class="text-xs text-muted-2">{{ dev.osType }}</span>
                         <span class="text-xs text-muted-2">{{ dev.tenantName }}</span>
                       </div>

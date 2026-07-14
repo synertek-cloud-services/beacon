@@ -42,7 +42,11 @@ adminDevices.get('/:id', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
   if (!device) return c.json({ error: 'not found' }, 404);
-  return c.json(device);
+
+  const tenant = await db.select({ name: schema.tenants.name })
+    .from(schema.tenants).where(eq(schema.tenants.id, device.tenantId)).get();
+
+  return c.json({ ...device, tenantName: tenant?.name ?? null });
 });
 
 // POST /v1/admin/devices/:id/approve

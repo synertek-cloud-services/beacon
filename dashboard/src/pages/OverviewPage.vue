@@ -63,7 +63,10 @@
               <td class="ov-alert-cat">{{ categoryLabel(a.check_type) }}</td>
               <td class="ov-alert-msg">{{ alertMessage(a) }}</td>
               <td class="ov-alert-company">{{ a.tenant_name }}</td>
-              <td class="ov-alert-host">{{ a.hostname ?? '—' }}</td>
+              <td class="ov-alert-host">
+                <router-link v-if="a.device_id" :to="'/devices/' + a.device_id" @click.stop>{{ a.hostname ?? '—' }}</router-link>
+                <template v-else>{{ a.hostname ?? '—' }}</template>
+              </td>
               <td>
                 <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
                   {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}

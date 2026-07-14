@@ -115,7 +115,10 @@
                 <span class="msg-link">{{ alertMessage(a) }}</span>
               </td>
               <td class="td-company">{{ a.tenant_name }}</td>
-              <td class="td-hostname">{{ a.hostname ?? '—' }}</td>
+              <td class="td-hostname">
+                <router-link v-if="a.device_id" :to="'/devices/' + a.device_id" @click.stop>{{ a.hostname ?? '—' }}</router-link>
+                <template v-else>{{ a.hostname ?? '—' }}</template>
+              </td>
               <td class="td-montype">{{ categoryLabel(a.check_type) }}</td>
               <td>
                 <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
