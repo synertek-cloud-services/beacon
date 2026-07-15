@@ -223,7 +223,8 @@ adminJobs.get('/:id', async (c) => {
 // ── POST / — create job + dispatch commands ───────────────────
 
 adminJobs.post('/', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const user = await auth(c, 'technician');
+  if (!user) return c.json({ error: 'unauthorized' }, 401);
 
   const body = await c.req.json<{
     name: string;
@@ -267,9 +268,10 @@ adminJobs.post('/', async (c) => {
   const jobId = uid();
 
   // Create the job record
+  const createdBy = user.source === 'break-glass' ? 'Admin' : (user.displayName ?? user.email);
   await c.env.DB.prepare(`
-    INSERT INTO jobs (id, name, description, type, status, component_ids, target_type, target_ids, scheduled_at, created_at)
-    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+    INSERT INTO jobs (id, name, description, type, status, component_ids, target_type, target_ids, scheduled_at, created_at, created_by)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
   `).bind(
     jobId,
     body.name.trim(),
@@ -280,6 +282,7 @@ adminJobs.post('/', async (c) => {
     JSON.stringify(targetIds),
     body.scheduled_at ?? null,
     now,
+    createdBy,
   ).run();
 
   // Dispatch commands immediately for quick jobs

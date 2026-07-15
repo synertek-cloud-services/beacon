@@ -3,39 +3,46 @@
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div class="stat-row">
-      <div class="stat-card" @click="setTab('all')" style="cursor:pointer">
+      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Total</span>
         <span class="stat-value">{{ jobs.length }}</span>
       </div>
-      <div class="stat-card" @click="setTab('quick')" style="cursor:pointer">
+      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Quick</span>
-        <span class="stat-value">{{ countFor('quick') }}</span>
+        <span class="stat-value">{{ jobs.filter(j => j.type === 'quick').length }}</span>
       </div>
-      <div class="stat-card" @click="setTab('scheduled')" style="cursor:pointer">
+      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Scheduled</span>
-        <span class="stat-value">{{ countFor('scheduled') }}</span>
+        <span class="stat-value">{{ jobs.filter(j => j.type === 'scheduled').length }}</span>
       </div>
-      <div class="stat-card" @click="setTab('active')" style="cursor:pointer">
+      <div class="stat-card" @click="setStatusFilter('active')" style="cursor:pointer">
         <span class="stat-label">Active</span>
-        <span class="stat-value">{{ countFor('active') }}</span>
+        <span class="stat-value">{{ jobs.filter(j => j.status === 'active').length }}</span>
       </div>
-      <div class="stat-card" @click="setTab('completed')" style="cursor:pointer">
+      <div class="stat-card" @click="setStatusFilter('completed')" style="cursor:pointer">
         <span class="stat-label">Completed</span>
-        <span class="stat-value">{{ countFor('completed') }}</span>
+        <span class="stat-value">{{ jobs.filter(j => j.status === 'completed').length }}</span>
       </div>
     </div>
 
     <div class="section-card">
       <div class="section-card-head">
-        <div class="tabs" style="border:none;margin:0">
-          <button
-            v-for="tab in tabs" :key="tab.value"
-            class="tab" :class="{ active: activeTab === tab.value }"
-            @click="setTab(tab.value)"
-          >
-            {{ tab.label }}
-            <span class="tab-count">{{ countFor(tab.value) }}</span>
-          </button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="filter-label">All Jobs</span>
+          <span class="filter-count">{{ visible.length }}</span>
+          <template v-if="filterUser || filterStatus">
+            <span class="filter-sep">·</span>
+            <span class="filter-by">Filtered by:</span>
+            <span v-if="filterUser" class="filter-chip">
+              Created by: {{ filterUser }}
+              <button class="chip-x" @click="filterUser = null">×</button>
+            </span>
+            <span v-if="filterStatus" class="filter-chip">
+              Status: {{ filterStatus }}
+              <button class="chip-x" @click="filterStatus = null">×</button>
+            </span>
+            <button class="btn-reset" @click="resetFilters">Reset Filters</button>
+          </template>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary btn-sm" @click="jobModalOpen = true">+ New Job</button>
@@ -53,7 +60,10 @@
 
       <div v-else-if="visible.length === 0" class="empty">
         <div class="empty-title">No jobs</div>
-        <p class="empty-sub">Jobs appear here when you run a Quick Job from a device or create a Scheduled Job.</p>
+        <p class="empty-sub">
+          <template v-if="filterUser || filterStatus">No jobs match the current filters. <button class="btn-link" @click="resetFilters">Reset filters</button> to see all jobs.</template>
+          <template v-else>Jobs appear here when you run a Quick Job from a device or create a Scheduled Job.</template>
+        </p>
       </div>
 
       <table v-else>
@@ -64,6 +74,7 @@
             <th>Targets</th>
             <th>Progress</th>
             <th>Status</th>
+            <th>Created by</th>
             <th>Created</th>
             <th></th>
           </tr>
@@ -92,6 +103,7 @@
                 </div>
               </td>
               <td><span :class="['status-badge', `status-${job.status}`]">{{ job.status }}</span></td>
+              <td class="text-sm text-muted-2">{{ job.createdBy ?? '—' }}</td>
               <td class="text-sm text-muted-2">{{ relDate(job.createdAt) }}</td>
               <td @click.stop>
                 <button class="btn btn-ghost btn-sm btn-danger-ghost" @click="cancelJob(job)" :disabled="job.status !== 'active'">Cancel</button>
@@ -100,7 +112,7 @@
 
             <!-- Inline expansion: per-device breakdown -->
             <tr v-if="expandedId === job.id" class="expand-row">
-              <td colspan="7" class="expand-cell">
+              <td colspan="8" class="expand-cell">
                 <div v-if="detailLoading" class="jd-loading">Loading device results…</div>
                 <div v-else-if="detail">
 
@@ -171,51 +183,55 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api, type Job, type JobDetail, type JobDeviceCommand } from '../api';
+import { authState } from '../auth';
 import CreateJobModal from '../components/CreateJobModal.vue';
 
 interface CmdResult { stdout: string; stderr: string; exit_code: number; }
 
-const jobs       = ref<Job[]>([]);
-const loading    = ref(true);
-const error      = ref('');
-const expandedId = ref<string | null>(null);
-const detail     = ref<JobDetail | null>(null);
+const jobs          = ref<Job[]>([]);
+const loading       = ref(true);
+const error         = ref('');
+const expandedId    = ref<string | null>(null);
+const detail        = ref<JobDetail | null>(null);
 const detailLoading = ref(false);
-const activeTab  = ref<'all' | 'quick' | 'scheduled' | 'active' | 'completed' | 'cancelled'>('all');
-const jobModalOpen = ref(false);
+const jobModalOpen  = ref(false);
 
+// ── Filters ──────────────────────────────────────────────────────
+const filterUser   = ref<string | null>(null);
+const filterStatus = ref<string | null>('active');
+
+function currentUserName(): string | null {
+  const u = authState.user;
+  if (!u) return null;
+  return u.displayName ?? u.email;
+}
+
+function initFilters() {
+  filterUser.value = currentUserName();
+}
+
+function resetFilters() {
+  filterUser.value   = null;
+  filterStatus.value = null;
+}
+
+function setStatusFilter(status: string | null) {
+  filterStatus.value = status;
+  filterUser.value   = null;
+}
+
+const visible = computed(() => {
+  return jobs.value.filter(j => {
+    if (filterUser.value && j.createdBy !== filterUser.value) return false;
+    if (filterStatus.value && j.status !== filterStatus.value) return false;
+    return true;
+  });
+});
+
+// ── Job actions ───────────────────────────────────────────────────
 function onJobCreated(job: Job) {
   jobModalOpen.value = false;
   jobs.value = [job, ...jobs.value];
-}
-
-const tabs = [
-  { label: 'All',       value: 'all'       as const },
-  { label: 'Quick',     value: 'quick'     as const },
-  { label: 'Scheduled', value: 'scheduled' as const },
-  { label: 'Active',    value: 'active'    as const },
-  { label: 'Completed', value: 'completed' as const },
-];
-
-const TYPE_TABS   = new Set(['quick', 'scheduled']);
-
-const visible = computed(() => {
-  if (activeTab.value === 'all') return jobs.value;
-  if (TYPE_TABS.has(activeTab.value))
-    return jobs.value.filter(j => j.type === activeTab.value);
-  return jobs.value.filter(j => j.status === activeTab.value);
-});
-
-function countFor(tab: typeof activeTab.value) {
-  if (tab === 'all') return jobs.value.length;
-  if (TYPE_TABS.has(tab)) return jobs.value.filter(j => j.type === tab).length;
-  return jobs.value.filter(j => j.status === tab).length;
-}
-
-function setTab(v: typeof activeTab.value) {
-  activeTab.value = v;
-  expandedId.value = null;
-  detail.value = null;
 }
 
 async function toggleExpanded(job: Job) {
@@ -239,11 +255,9 @@ async function load() {
   error.value = '';
   try {
     jobs.value = await api.jobs.list();
-    // Refresh detail if one is open
     if (expandedId.value) {
       const fresh = await api.jobs.get(expandedId.value);
       detail.value = fresh;
-      // Update the summary row too
       const idx = jobs.value.findIndex(j => j.id === expandedId.value);
       if (idx >= 0) {
         jobs.value[idx] = { ...jobs.value[idx],
@@ -301,7 +315,7 @@ function relDate(ts: number): string {
 }
 
 let timer: ReturnType<typeof setInterval>;
-onMounted(() => { load(); timer = setInterval(load, 30_000); });
+onMounted(() => { initFilters(); load(); timer = setInterval(load, 30_000); });
 onUnmounted(() => clearInterval(timer));
 </script>
 
@@ -313,12 +327,33 @@ onUnmounted(() => clearInterval(timer));
 .stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* ── Tabs ── */
-.tabs { display: flex; }
-.tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.tab-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+/* ── Filter bar ── */
+.filter-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.filter-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.filter-sep { color: var(--border-2); }
+.filter-by { font-size: 11px; color: var(--muted); }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border-2);
+  border-radius: 4px; padding: 2px 6px 2px 8px;
+}
+.chip-x {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 13px; line-height: 1; padding: 0;
+  display: flex; align-items: center;
+}
+.chip-x:hover { color: var(--text); }
+.btn-reset {
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; color: var(--accent); font-family: var(--font); padding: 0;
+}
+.btn-reset:hover { text-decoration: underline; }
+.btn-link {
+  background: none; border: none; cursor: pointer;
+  color: var(--accent); font-size: inherit; font-family: var(--font); padding: 0;
+}
+.btn-link:hover { text-decoration: underline; }
 
 /* ── Job row ── */
 .job-name { font-size: 13px; font-weight: 500; color: var(--text); }
