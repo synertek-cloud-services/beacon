@@ -1,5 +1,71 @@
 # Beacon — Project Log
 
+## Session: 2026-07-14 (Agent v0.2.7, Jobs page redesign)
+
+### What was completed
+
+**1. Agent v0.2.7 released** (commit 9f833a7)
+
+The two Go changes from last session that never shipped finally landed in a real release:
+- `executor/run.go` variable→env-var injection (input variables passed to agent scripts as environment variables)
+- `hardware.go` virtualization detection (`detectVirtualization()` — WSL2/Hyper-V/VMware/VirtualBox/KVM/Xen on Linux, Hyper-V/VMware/VirtualBox/KVM on Windows, Apple Virtualization Framework on macOS)
+
+Release followed the standing process exactly: GitHub release (`gh release create v0.2.7`) before registering anything, all 5 binaries downloaded and independently Ed25519-re-verified with a throwaway Go program before calling it shippable. Fixed dead placeholder download URLs (re-registered all 5 platform/arch combos with real GitHub release asset URLs, reusing the same `signature_hex` — signature covers binary bytes, not the URL).
+
+**2. Job completion bug fixed** (commit 3826411 — `worker/src/routes/checkin.ts`)
+
+Jobs were permanently stuck as `'active'`. Root cause: `checkin.ts` processed command results correctly (updating `commands.status`) but never checked whether all commands had reached a terminal state, so `jobs.status` never transitioned.
+
+Fix: after the command-result processing loop, collect `affectedJobIds` from the processed results, then for each affected job:
+```sql
+SELECT COUNT(*) AS n FROM commands WHERE job_id = ? AND status IN ('queued', 'sent')
+-- if n === 0: UPDATE jobs SET status = 'completed' WHERE id = ? AND status = 'active'
+```
+
+Also backfilled one existing stuck job directly via D1 SQL.
+
+**3. `created_by` never populated on job insert** (commit 7933030 — `worker/src/routes/admin/jobs.ts`)
+
+`jobs.created_by` column existed but was never set at job creation time. Fixed: capture `requireUser`'s return value at `POST /v1/admin/jobs`, derive the display name (`break-glass → 'Admin'`; real user → `user.displayName ?? user.email`), and include it in the INSERT. Backfilled all existing null rows.
+
+**4. Hard-delete purge endpoint** (same commit — `worker/src/routes/admin/jobs.ts`)
+
+- `DELETE /v1/admin/jobs/:id` (pre-existing) = **Retire**: marks queued commands `'failed'`, sets job `status = 'cancelled'`, keeps all history. Technician role.
+- New `DELETE /v1/admin/jobs/:id/purge` = **Delete**: hard-deletes the job and all its `commands` rows. Admin role. `api.ts` gained `jobs.purge(id)`.
+
+**5. Jobs page redesign** (commits 79d2ed2 → d574cae — `dashboard/src/pages/JobsPage.vue`)
+
+Five incremental commits:
+
+- **Stat cards** — 5 cards (Total/Quick/Scheduled/Active/Completed) with colored top borders (`border-top: 3px solid <color>`) and label+value on the same horizontal line. Modeled on a real Datto RMM Jobs page screenshot. Cards are clickable: Total/Quick/Scheduled set `filterStatus = null`; Active sets `'active'`; Completed sets `'completed'`. Stat card clicks deliberately do **not** touch `filterUser` — an earlier version did and was corrected after user feedback.
+- **Filter bar** — replaces the old type-tabs. Defaults on mount to current user + `'active'` status. Filter chips with × buttons clear individual filters. "Reset Filters" text-link appears only when not at defaults and restores defaults (not blank). The blank-reset behavior was explicitly corrected once.
+- **Retire/Delete** — header checkbox selects/deselects all visible rows; per-row checkboxes; "Retire" and "Delete" buttons in the section-card-head. Retire calls `api.jobs.cancel` per selected; Delete confirms then calls `api.jobs.purge`. Both clear selection on success.
+- **New columns** — "Created by" (`job.createdBy`) and "Created" (`relDate(job.createdAt)` relative timestamp).
+- **Pagination** — client-side (all 200 jobs loaded for accurate stat card totals). 20/50/100 per page; page buttons with `…` ellipsis (shows ≤7: `[1, …, cur-1, cur, cur+1, …, last]`); `rangeStart–rangeEnd of N` range indicator. Filter changes reset to page 1 via `watch([filterUser, filterStatus], …)`.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Client-side pagination | All 200 jobs already loaded for accurate stat card totals; server-side paging would add complexity for no UX benefit at current scale |
+| "Reset Filters" restores defaults, not blank | Matches Datto's behavior; blank is a separate interaction (remove each chip individually). Corrected from an initial blank-reset implementation |
+| Stat card clicks set `filterStatus` only | First implementation overwrote `filterUser` too; corrected so clicking "Active" doesn't also pin the user filter |
+| Retire vs. Delete as distinct operations with different role gates | Different blast radii — Retire is safe/reversible (history kept), Delete is irreversible; admin gate on purge follows the same pattern as other destructive operations in this codebase |
+| `ref(new Set<string>())` for selection, replaced on each mutation | Vue 3 doesn't track in-place `Set` mutations; always replace: `const s = new Set(selected.value); …; selected.value = s` |
+
+### Security note
+
+The production `ADMIN_SECRET` was inadvertently pasted in plaintext during this session. **It must be rotated before this is considered closed.** Rotation: generate a new hex secret, update `worker/.dev.vars` locally, and set it as a Cloudflare Worker secret: `cd worker && npx wrangler secret put ADMIN_SECRET`.
+
+### Next logical steps
+
+1. **Rotate the production ADMIN_SECRET** — see Security note above.
+2. **Confirm v0.2.7 self-update on `Nebuchadnezzar`** — device was last confirmed at v0.2.2; v0.2.7 is correctly signed and reachable, but that specific running binary may still be pre-v0.2.5-fix (dormant updater goroutine). Check `C:\ProgramData\Beacon\agent.log`; if stuck, do a one-time manual reinstall of v0.2.7.
+3. **External IP for the Network section** — scoped but unbuilt. Cheapest path: capture `CF-Connecting-IP` header at check-in time in `checkin.ts` and store it on the device row — no agent change needed.
+4. **Job detail page** — the inline expand-row works but is cramped for jobs targeting many devices. A dedicated `/jobs/:id` page (mirroring `DeviceDetailPage.vue`'s layout) is the natural next step.
+
+---
+
 ## Session: 2026-07-14 (Components Library v2, Sites scoping correction, virtualization detection)
 
 ### What was completed

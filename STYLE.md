@@ -484,9 +484,11 @@ Four-state badge palette, used for things like antivirus status where "unknown" 
 ```
 (all four share `font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px;`). Same status vocabulary as `OverviewPage.vue`'s antivirus widget (`running_up_to_date` / `running_not_up_to_date` / `not_running` / `not_detected` / `unknown`) — labels/colors duplicated per-component rather than shared, matching this codebase's established convention.
 
-## List-page stat cards (Components page)
+## List-page stat cards
 
-A row of at-a-glance counts above a list-page table, added when the real Datto Component Library screen showed the same thing:
+A row of at-a-glance counts above a list-page table. Two visual variants exist in the codebase:
+
+### Plain variant (Components page)
 
 ```html
 <div class="stat-row">
@@ -494,7 +496,6 @@ A row of at-a-glance counts above a list-page table, added when the real Datto C
     <span class="stat-label">Total</span>
     <span class="stat-value">{{ stats.total }}</span>
   </div>
-  <!-- one .stat-card per metric -->
 </div>
 ```
 ```css
@@ -507,7 +508,141 @@ A row of at-a-glance counts above a list-page table, added when the real Datto C
 .stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 ```
 
-**Counts reflect the whole (unfiltered) collection, not the current search/filter result** — matches the reference, which shows totals separately from a "Filtered by: ..." indicator below. Compute stats from the raw data array, not the `computed` that already has search/category filters applied.
+### Colored top-border + inline label/value variant (Jobs page)
+
+Modeled on a real Datto RMM Jobs page screenshot: label and number on the same horizontal line, colored top border to visually categorize each card:
+
+```html
+<div class="stat-card stat-blue" @click="setStatusFilter(null)" style="cursor:pointer">
+  <span class="stat-label">Total</span>
+  <span class="stat-value">{{ jobs.length }}</span>
+</div>
+```
+```css
+.stat-card {
+  flex: 1; display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--surface);
+  border: 1px solid var(--border); border-top-width: 3px; border-radius: 8px;
+  transition: border-color .12s, filter .12s;
+}
+.stat-card:hover { filter: brightness(1.06); }
+/* color modifier classes — pick one per card: */
+.stat-blue   { border-top-color: #3b6fd4; }
+.stat-accent { border-top-color: var(--accent); }
+.stat-purple { border-top-color: #9c6af7; }
+.stat-teal   { border-top-color: var(--teal); }
+.stat-muted  { border-top-color: var(--muted); }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+```
+
+**Clicking a stat card sets `filterStatus` only** — never `filterUser`. An earlier version also set `filterUser` (pinning the current user filter) and was explicitly corrected. Total/type cards clear the status filter (`filterStatus = null`); status cards set it to a specific value.
+
+**Counts reflect the whole (unfiltered) collection** — compute stats from the raw data array, not the `computed` that already has filters applied.
+
+## Filter chip bar
+
+Pattern for an active-filter indicator with per-chip × dismiss and a "Reset Filters" text-link. Established in `JobsPage.vue`, reusable for any list page with default filters:
+
+```html
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <span class="filter-by">Filtered by:</span>
+  <span v-if="filterStatus" class="filter-chip">
+    Status: {{ filterStatus }}
+    <button class="chip-x" @click="filterStatus = null">×</button>
+  </span>
+  <span v-if="filterUser" class="filter-chip">
+    Created by: {{ filterUser }}
+    <button class="chip-x" @click="filterUser = null">×</button>
+  </span>
+  <button v-if="!isDefaultFilters" class="btn-reset" @click="resetFilters">Reset Filters</button>
+</div>
+```
+```css
+.filter-label { font-size: 13px; font-weight: 600; color: var(--text); }   /* section title */
+.filter-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.filter-by    { font-size: 11px; color: var(--muted); }
+.filter-chip  { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 2px 6px 2px 8px; }
+.chip-x       { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 0; display: flex; align-items: center; }
+.chip-x:hover { color: var(--text); }
+.btn-reset    { background: none; border: none; cursor: pointer; font-size: 11px; color: var(--accent); font-family: var(--font); padding: 0; }
+.btn-reset:hover { text-decoration: underline; }
+.btn-link     { background: none; border: none; cursor: pointer; color: var(--accent); font-size: inherit; font-family: var(--font); padding: 0; }
+.btn-link:hover { text-decoration: underline; }
+```
+
+Key behaviors:
+- **"Reset Filters" appears only when `!isDefaultFilters`** (a computed prop) — hidden once filters are back at defaults. This is a `computed`, not a watcher, so it's always in sync.
+- **"Reset Filters" restores defaults, not blank** — this was explicitly corrected once (initial version set both filters to `null`). "Blank" is a separate UX: remove each chip individually.
+- `isDefaultFilters = filterUser.value === currentUserName() && filterStatus.value === 'active'` — encode your default state here.
+- The "Filtered by:" label and chip row are always visible (even when no chips are active, the label anchors the layout) or you can `v-if` the whole row on `filterUser || filterStatus`.
+
+## Pagination bar
+
+Client-side pagination pattern, established in `JobsPage.vue`. Use when all rows are already loaded (e.g. for stat card counts) — server-side paging adds query complexity for no UX gain at small scale.
+
+```html
+<div v-if="totalPages > 1 || pageSize !== 20" class="pagination">
+  <span class="page-info">{{ rangeStart }}–{{ rangeEnd }} of {{ visible.length }}</span>
+  <div class="page-controls">
+    <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">‹</button>
+    <template v-for="p in pageNumbers" :key="p">
+      <span v-if="p === '...'" class="page-ellipsis">…</span>
+      <button v-else class="page-btn" :class="{ 'page-btn-active': p === currentPage }" @click="currentPage = p as number">{{ p }}</button>
+    </template>
+    <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">›</button>
+  </div>
+  <select class="page-size-select" :value="pageSize" @change="onPageSizeChange">
+    <option :value="20">20 / page</option>
+    <option :value="50">50 / page</option>
+    <option :value="100">100 / page</option>
+  </select>
+</div>
+```
+```css
+.pagination     { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--border); }
+.page-info      { font-size: 11px; color: var(--muted); margin-right: auto; font-variant-numeric: tabular-nums; }
+.page-controls  { display: flex; align-items: center; gap: 3px; }
+.page-btn       { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-family: var(--font); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .1s, color .1s; }
+.page-btn:hover:not(:disabled) { background: var(--border-2); color: var(--text); }
+.page-btn:disabled              { opacity: .35; cursor: not-allowed; }
+.page-btn-active                { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.page-ellipsis  { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.page-size-select { height: 28px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface-2); color: var(--muted); font-size: 11px; font-family: var(--font); cursor: pointer; }
+```
+
+Script-side computed props:
+```typescript
+const currentPage = ref(1);
+const pageSize    = ref(20);
+
+// Reset to page 1 whenever filters change
+watch([filterA, filterB], () => { currentPage.value = 1; });
+
+const totalPages = computed(() => Math.max(1, Math.ceil(visible.value.length / pageSize.value)));
+const rangeStart = computed(() => visible.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1);
+const rangeEnd   = computed(() => Math.min(currentPage.value * pageSize.value, visible.value.length));
+const paginated  = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return visible.value.slice(start, start + pageSize.value);
+});
+const pageNumbers = computed(() => {
+  const total = totalPages.value, cur = currentPage.value;
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | string)[] = [1];
+  if (cur > 3) pages.push('...');
+  for (let p = Math.max(2, cur - 1); p <= Math.min(total - 1, cur + 1); p++) pages.push(p);
+  if (cur < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+});
+function onPageSizeChange(e: Event) {
+  pageSize.value = Number((e.target as HTMLSelectElement).value);
+  currentPage.value = 1;
+}
+```
+
+Use `v-for="row in paginated"` in the table (not `visible`). The bar hides itself when `totalPages === 1 && pageSize === 20` — no clutter on small datasets.
 
 ## Kind badge vs. Group badge (don't reuse one class for both)
 
