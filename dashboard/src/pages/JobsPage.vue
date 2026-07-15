@@ -84,7 +84,7 @@
           </tr>
         </thead>
         <tbody>
-          <template v-for="job in visible" :key="job.id">
+          <template v-for="job in paginated" :key="job.id">
             <tr
               :class="['job-row', expandedId === job.id ? 'job-row-active' : '']"
               style="cursor:pointer"
@@ -181,12 +181,29 @@
           </template>
         </tbody>
       </table>
+
+      <div v-if="totalPages > 1 || pageSize !== 20" class="pagination">
+        <div class="page-info">{{ rangeStart }}–{{ rangeEnd }} of {{ visible.length }}</div>
+        <div class="page-controls">
+          <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">‹</button>
+          <template v-for="p in pageNumbers" :key="p">
+            <span v-if="p === '...'" class="page-ellipsis">…</span>
+            <button v-else :class="['page-btn', { 'page-btn-active': p === currentPage }]" @click="currentPage = (p as number)">{{ p }}</button>
+          </template>
+          <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">›</button>
+        </div>
+        <select class="page-size-select" :value="pageSize" @change="onPageSizeChange">
+          <option value="20">20 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { api, type Job, type JobDetail, type JobDeviceCommand } from '../api';
 import { authState } from '../auth';
 import CreateJobModal from '../components/CreateJobModal.vue';
@@ -284,6 +301,38 @@ const visible = computed(() => {
     return true;
   });
 });
+
+// ── Pagination ────────────────────────────────────────────────────
+const currentPage = ref(1);
+const pageSize    = ref(20);
+
+watch([filterUser, filterStatus], () => { currentPage.value = 1; });
+
+const totalPages = computed(() => Math.max(1, Math.ceil(visible.value.length / pageSize.value)));
+const rangeStart = computed(() => visible.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1);
+const rangeEnd   = computed(() => Math.min(currentPage.value * pageSize.value, visible.value.length));
+
+const paginated = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return visible.value.slice(start, start + pageSize.value);
+});
+
+const pageNumbers = computed(() => {
+  const total = totalPages.value;
+  const cur   = currentPage.value;
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | string)[] = [1];
+  if (cur > 3) pages.push('...');
+  for (let p = Math.max(2, cur - 1); p <= Math.min(total - 1, cur + 1); p++) pages.push(p);
+  if (cur < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+});
+
+function onPageSizeChange(e: Event) {
+  pageSize.value    = Number((e.target as HTMLSelectElement).value);
+  currentPage.value = 1;
+}
 
 // ── Job actions ───────────────────────────────────────────────────
 function onJobCreated(job: Job) {
@@ -492,4 +541,29 @@ onUnmounted(() => clearInterval(timer));
 .output-pre-err { color: var(--red); }
 .output-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
 .exit-code { font-size: 11px; font-family: var(--mono); color: var(--red); margin-top: 4px; }
+
+/* ── Pagination ── */
+.pagination {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-top: 1px solid var(--border);
+}
+.page-info { font-size: 11px; color: var(--muted); margin-right: auto; font-variant-numeric: tabular-nums; }
+.page-controls { display: flex; align-items: center; gap: 3px; }
+.page-btn {
+  min-width: 28px; height: 28px; padding: 0 6px;
+  border: 1px solid var(--border-2); border-radius: 4px;
+  background: var(--surface-2); color: var(--muted);
+  font-size: 12px; font-family: var(--font); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s, color .1s;
+}
+.page-btn:hover:not(:disabled) { background: var(--border-2); color: var(--text); }
+.page-btn:disabled { opacity: .35; cursor: not-allowed; }
+.page-btn-active { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.page-ellipsis { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.page-size-select {
+  height: 28px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: 4px;
+  background: var(--surface-2); color: var(--muted); font-size: 11px; font-family: var(--font);
+  cursor: pointer;
+}
 </style>
