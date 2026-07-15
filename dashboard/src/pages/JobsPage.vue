@@ -227,7 +227,6 @@ function resetFilters() {
 
 function setStatusFilter(status: string | null) {
   filterStatus.value = status;
-  filterUser.value   = currentUserName();
 }
 
 // ── Selection ────────────────────────────────────────────────────
