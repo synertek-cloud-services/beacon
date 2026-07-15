@@ -3,23 +3,23 @@
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div class="stat-row">
-      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
+      <div class="stat-card stat-blue" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Total</span>
         <span class="stat-value">{{ jobs.length }}</span>
       </div>
-      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
+      <div class="stat-card stat-accent" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Quick</span>
         <span class="stat-value">{{ jobs.filter(j => j.type === 'quick').length }}</span>
       </div>
-      <div class="stat-card" @click="setStatusFilter(null)" style="cursor:pointer">
+      <div class="stat-card stat-purple" @click="setStatusFilter(null)" style="cursor:pointer">
         <span class="stat-label">Scheduled</span>
         <span class="stat-value">{{ jobs.filter(j => j.type === 'scheduled').length }}</span>
       </div>
-      <div class="stat-card" @click="setStatusFilter('active')" style="cursor:pointer">
+      <div class="stat-card stat-teal" @click="setStatusFilter('active')" style="cursor:pointer">
         <span class="stat-label">Active</span>
         <span class="stat-value">{{ jobs.filter(j => j.status === 'active').length }}</span>
       </div>
-      <div class="stat-card" @click="setStatusFilter('completed')" style="cursor:pointer">
+      <div class="stat-card stat-muted" @click="setStatusFilter('completed')" style="cursor:pointer">
         <span class="stat-label">Completed</span>
         <span class="stat-value">{{ jobs.filter(j => j.status === 'completed').length }}</span>
       </div>
@@ -380,10 +380,20 @@ onUnmounted(() => clearInterval(timer));
 <style scoped>
 /* ── Stat cards ── */
 .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
-.stat-card { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .12s; }
-.stat-card:hover { border-color: var(--border-2); }
+.stat-card {
+  flex: 1; display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--surface);
+  border: 1px solid var(--border); border-top-width: 3px; border-radius: 8px;
+  transition: border-color .12s, filter .12s;
+}
+.stat-card:hover { filter: brightness(1.06); }
+.stat-blue   { border-top-color: #3b6fd4; }
+.stat-accent { border-top-color: var(--accent); }
+.stat-purple { border-top-color: #9c6af7; }
+.stat-teal   { border-top-color: var(--teal); }
+.stat-muted  { border-top-color: var(--muted); }
 .stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* ── Filter bar ── */
 .filter-label { font-size: 13px; font-weight: 600; color: var(--text); }
