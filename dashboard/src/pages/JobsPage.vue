@@ -2,6 +2,29 @@
   <div>
     <div v-if="error" class="error-banner">{{ error }}</div>
 
+    <div class="stat-row">
+      <div class="stat-card" @click="setTab('all')" style="cursor:pointer">
+        <span class="stat-label">Total</span>
+        <span class="stat-value">{{ jobs.length }}</span>
+      </div>
+      <div class="stat-card" @click="setTab('quick')" style="cursor:pointer">
+        <span class="stat-label">Quick</span>
+        <span class="stat-value">{{ countFor('quick') }}</span>
+      </div>
+      <div class="stat-card" @click="setTab('scheduled')" style="cursor:pointer">
+        <span class="stat-label">Scheduled</span>
+        <span class="stat-value">{{ countFor('scheduled') }}</span>
+      </div>
+      <div class="stat-card" @click="setTab('active')" style="cursor:pointer">
+        <span class="stat-label">Active</span>
+        <span class="stat-value">{{ countFor('active') }}</span>
+      </div>
+      <div class="stat-card" @click="setTab('completed')" style="cursor:pointer">
+        <span class="stat-label">Completed</span>
+        <span class="stat-value">{{ countFor('completed') }}</span>
+      </div>
+    </div>
+
     <div class="section-card">
       <div class="section-card-head">
         <div class="tabs" style="border:none;margin:0">
@@ -283,6 +306,13 @@ onUnmounted(() => clearInterval(timer));
 </script>
 
 <style scoped>
+/* ── Stat cards ── */
+.stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat-card { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .12s; }
+.stat-card:hover { border-color: var(--border-2); }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
 /* ── Tabs ── */
 .tabs { display: flex; }
 .tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
