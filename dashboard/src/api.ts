@@ -538,6 +538,7 @@ export const api = {
       scheduled_at?: number;
     })                            => request<Job>('POST', '/v1/admin/jobs', body),
     cancel: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}`),
+    purge:  (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}/purge`),
   },
 
   tenants: {

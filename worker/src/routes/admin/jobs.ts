@@ -318,7 +318,7 @@ adminJobs.post('/', async (c) => {
   return c.json(mapJob(job!, { device_count: devices.length, queued: devices.length * body.components.length, sent: 0, completed: 0, failed: 0 }), 201);
 });
 
-// ── DELETE /:id — cancel job ──────────────────────────────────
+// ── DELETE /:id — retire job (cancel, keep history) ───────────
 
 adminJobs.delete('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
@@ -326,12 +326,23 @@ adminJobs.delete('/:id', async (c) => {
   const job = await c.env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<any>();
   if (!job) return c.json({ error: 'not found' }, 404);
 
-  // Cancel queued commands that haven't been sent yet
   await c.env.DB.prepare(
     `UPDATE commands SET status = 'failed' WHERE job_id = ? AND status = 'queued'`
   ).bind(id).run();
-
   await c.env.DB.prepare(`UPDATE jobs SET status = 'cancelled' WHERE id = ?`).bind(id).run();
+  return c.json({ ok: true });
+});
+
+// ── DELETE /:id/purge — hard delete job + commands ─────────────
+
+adminJobs.delete('/:id/purge', async (c) => {
+  if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
+  const id  = c.req.param('id');
+  const job = await c.env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<any>();
+  if (!job) return c.json({ error: 'not found' }, 404);
+
+  await c.env.DB.prepare(`DELETE FROM commands WHERE job_id = ?`).bind(id).run();
+  await c.env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(id).run();
   return c.json({ ok: true });
 });
 

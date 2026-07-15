@@ -26,27 +26,30 @@
     </div>
 
     <div class="section-card">
-      <div class="section-card-head">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span class="filter-label">All Jobs</span>
-          <span class="filter-count">{{ visible.length }}</span>
-          <template v-if="filterUser || filterStatus">
-            <span class="filter-sep">·</span>
-            <span class="filter-by">Filtered by:</span>
-            <span v-if="filterUser" class="filter-chip">
-              Created by: {{ filterUser }}
-              <button class="chip-x" @click="filterUser = null">×</button>
-            </span>
-            <span v-if="filterStatus" class="filter-chip">
-              Status: {{ filterStatus }}
-              <button class="chip-x" @click="filterStatus = null">×</button>
-            </span>
-            <button class="btn-reset" @click="resetFilters">Reset Filters</button>
-          </template>
+      <div class="section-card-head" style="flex-direction:column;align-items:flex-start;gap:8px;padding-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="filter-label">All Jobs</span>
+            <span class="filter-count">{{ visible.length }}</span>
+            <button class="btn btn-ghost btn-sm" :disabled="selected.size === 0" @click="retireSelected">Retire</button>
+            <button class="btn btn-ghost btn-sm btn-danger-ghost" :disabled="selected.size === 0" @click="deleteSelected">Delete</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" @click="jobModalOpen = true">+ New Job</button>
+            <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
+          </div>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" @click="jobModalOpen = true">+ New Job</button>
-          <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="filter-by">Filtered by:</span>
+          <span v-if="filterStatus" class="filter-chip">
+            Status: {{ filterStatus }}
+            <button class="chip-x" @click="filterStatus = null">×</button>
+          </span>
+          <span v-if="filterUser" class="filter-chip">
+            Created by: {{ filterUser }}
+            <button class="chip-x" @click="filterUser = null">×</button>
+          </span>
+          <button v-if="!isDefaultFilters" class="btn-reset" @click="resetFilters">Reset Filters</button>
         </div>
       </div>
 
@@ -69,6 +72,7 @@
       <table v-else>
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll" /></th>
             <th>Name</th>
             <th>Type</th>
             <th>Targets</th>
@@ -86,6 +90,7 @@
               style="cursor:pointer"
               @click="toggleExpanded(job)"
             >
+              <td @click.stop><input type="checkbox" :checked="selected.has(job.id)" @change="toggleSelect(job.id)" /></td>
               <td>
                 <div class="job-name">{{ job.name }}</div>
                 <div v-if="job.description" class="text-xs text-muted-2" style="margin-top:1px">{{ job.description }}</div>
@@ -112,7 +117,7 @@
 
             <!-- Inline expansion: per-device breakdown -->
             <tr v-if="expandedId === job.id" class="expand-row">
-              <td colspan="8" class="expand-cell">
+              <td colspan="9" class="expand-cell">
                 <div v-if="detailLoading" class="jd-loading">Loading device results…</div>
                 <div v-else-if="detail">
 
@@ -195,6 +200,7 @@ const expandedId    = ref<string | null>(null);
 const detail        = ref<JobDetail | null>(null);
 const detailLoading = ref(false);
 const jobModalOpen  = ref(false);
+const selected      = ref(new Set<string>());
 
 // ── Filters ──────────────────────────────────────────────────────
 const filterUser   = ref<string | null>(null);
@@ -210,14 +216,66 @@ function initFilters() {
   filterUser.value = currentUserName();
 }
 
+const isDefaultFilters = computed(() =>
+  filterUser.value === currentUserName() && filterStatus.value === 'active'
+);
+
 function resetFilters() {
-  filterUser.value   = null;
-  filterStatus.value = null;
+  filterUser.value   = currentUserName();
+  filterStatus.value = 'active';
 }
 
 function setStatusFilter(status: string | null) {
   filterStatus.value = status;
-  filterUser.value   = null;
+  filterUser.value   = currentUserName();
+}
+
+// ── Selection ────────────────────────────────────────────────────
+const allVisibleSelected = computed(() =>
+  visible.value.length > 0 && visible.value.every(j => selected.value.has(j.id))
+);
+
+function toggleSelect(id: string) {
+  const s = new Set(selected.value);
+  if (s.has(id)) s.delete(id); else s.add(id);
+  selected.value = s;
+}
+
+function toggleSelectAll() {
+  if (allVisibleSelected.value) {
+    selected.value = new Set();
+  } else {
+    selected.value = new Set(visible.value.map(j => j.id));
+  }
+}
+
+async function retireSelected() {
+  if (!selected.value.size) return;
+  const ids = [...selected.value];
+  try {
+    await Promise.all(ids.map(id => api.jobs.cancel(id)));
+    for (const id of ids) {
+      const j = jobs.value.find(x => x.id === id);
+      if (j) j.status = 'cancelled';
+    }
+    selected.value = new Set();
+  } catch (e: any) { error.value = e.message; }
+}
+
+async function deleteSelected() {
+  if (!selected.value.size) return;
+  const count = selected.value.size;
+  if (!confirm(`Permanently delete ${count} job${count === 1 ? '' : 's'} and all their command history? This cannot be undone.`)) return;
+  const ids = [...selected.value];
+  try {
+    await Promise.all(ids.map(id => api.jobs.purge(id)));
+    jobs.value = jobs.value.filter(j => !selected.value.has(j.id));
+    selected.value = new Set();
+    if (expandedId.value && ids.includes(expandedId.value)) {
+      expandedId.value = null;
+      detail.value = null;
+    }
+  } catch (e: any) { error.value = e.message; }
 }
 
 const visible = computed(() => {
