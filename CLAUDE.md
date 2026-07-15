@@ -76,13 +76,13 @@ go build ./...
 | `CLOUDFLARE_API_TOKEN` | direnv `.envrc` (gitignored) |
 | Ed25519 private key (agent signing) | Password manager only |
 
-`worker/.dev.vars` already has `ADMIN_SECRET="beacon-local-admin-secret"` and a `CONFIG_ENCRYPTION_KEY` for local dev.
+`worker/.dev.vars` already has `ADMIN_SECRET="beacon-local-admin-secret"`, a `CONFIG_ENCRYPTION_KEY`, and `WORKER_URL="http://localhost:8787"` for local dev.
 
 `ADMIN_SECRET` is compared via `worker/src/lib/auth.ts`'s `requireAdmin`/`timingSafeEqual` (hash-then-compare, not `===`) — now only reachable through `requireUser` (see Auth System below) as the break-glass fallback path. Never add a new inline `auth === \`Bearer ${secret}\`` check or a second hand-rolled admin check; every route goes through `requireUser`.
 
 ## Self-hosting config (not secrets, but org-specific — gitignored with `.example` templates)
 
-`worker/wrangler.toml` and `dashboard/.env.production` are gitignored (real values are Synertek's own domain/D1 database, not committed for a public repo). Tracked `.example` counterparts (`worker/wrangler.toml.example`, `dashboard/.env.production.example`) hold placeholder values — anyone self-hosting copies the `.example` file and fills in their own domain/database ID. `worker/wrangler.toml`'s `[vars]` block (`ALLOWED_ORIGIN`, `PAGES_PREVIEW_SUFFIX`) drives the CORS allowlist in `worker/src/index.ts` — don't hardcode a domain back into `index.ts`.
+`worker/wrangler.toml` and `dashboard/.env.production` are gitignored (real values are Synertek's own domain/D1 database, not committed for a public repo). Tracked `.example` counterparts (`worker/wrangler.toml.example`, `dashboard/.env.production.example`) hold placeholder values — anyone self-hosting copies the `.example` file and fills in their own domain/database ID. `worker/wrangler.toml`'s `[vars]` block (`ALLOWED_ORIGIN`, `PAGES_PREVIEW_SUFFIX`) drives the CORS allowlist in `worker/src/index.ts` — don't hardcode a domain back into `index.ts`. `[vars]` also holds `WORKER_URL` (this worker's own public origin) — used by `sessions.ts` to build absolute agent/client WebSocket URLs. Deliberately a configured value rather than derived from the incoming request's own URL: with a `[[routes]]` custom-domain block present (as production's is), `c.req.url` reflects the production route even under `wrangler dev`, which previously caused local-dev remote-shell sessions to silently dial out to the real production worker instead of the local one — found and fixed during the Remote Shell session below.
 
 ## Production URLs
 

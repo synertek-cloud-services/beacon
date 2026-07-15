@@ -1,68 +1,76 @@
 package session
 
 import (
-	"bytes"
 	"encoding/json"
-	"os/exec"
-	"runtime"
+	"log"
 
 	"github.com/gorilla/websocket"
 )
 
-type shellInput struct {
-	Input string `json:"input"`
+// ptySession abstracts the platform-specific PTY backend (pty_unix.go /
+// pty_windows.go) so this file stays platform-agnostic.
+type ptySession interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+	Resize(cols, rows int) error
+	Close() error
 }
 
-type shellOutput struct {
-	Stream string `json:"stream"` // "stdout" | "stderr" | "exit"
-	Data   string `json:"data,omitempty"`
-	Code   int    `json:"code,omitempty"`
-	Done   bool   `json:"done"`
+type controlMsg struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
 }
 
-// runShell executes each incoming message as a shell command and streams output
-// back. Runs until the WebSocket closes. Not a persistent shell process — each
-// message is an independent invocation. PTY/interactive support is a future phase.
+// runShell spawns a persistent PTY-backed shell process and streams it over
+// the WebSocket for the lifetime of the connection: binary frames carry raw
+// PTY bytes in both directions (keystrokes in, combined stdout/stderr out —
+// a PTY interleaves them naturally, unlike the old buffer-per-stream
+// approach), text frames carry a small JSON control envelope (currently just
+// resize). Runs until the WebSocket closes, at which point the PTY-backed
+// process is killed — never left running on the endpoint.
 func runShell(conn *websocket.Conn, sessionID string) {
+	pty, err := startPTY(defaultShell())
+	if err != nil {
+		log.Printf("session %s: pty start: %v", sessionID, err)
+		return
+	}
+	defer pty.Close()
+
+	go pumpPTYOutput(conn, pty, sessionID)
+
 	for {
-		_, msg, err := conn.ReadMessage()
+		mt, msg, err := conn.ReadMessage()
 		if err != nil {
 			return // client disconnected or session closed
 		}
-
-		var in shellInput
-		if err := json.Unmarshal(msg, &in); err != nil {
-			continue
+		switch mt {
+		case websocket.BinaryMessage:
+			if _, err := pty.Write(msg); err != nil {
+				return
+			}
+		case websocket.TextMessage:
+			var ctl controlMsg
+			if json.Unmarshal(msg, &ctl) == nil && ctl.Type == "resize" && ctl.Cols > 0 && ctl.Rows > 0 {
+				_ = pty.Resize(ctl.Cols, ctl.Rows)
+			}
 		}
-
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.Command("cmd", "/c", in.Input)
-		} else {
-			cmd = exec.Command("sh", "-c", in.Input)
-		}
-
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		runErr := cmd.Run()
-
-		if stdout.Len() > 0 {
-			send(conn, shellOutput{Stream: "stdout", Data: stdout.String()})
-		}
-		if stderr.Len() > 0 {
-			send(conn, shellOutput{Stream: "stderr", Data: stderr.String()})
-		}
-
-		code := 0
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
-			code = exitErr.ExitCode()
-		}
-		send(conn, shellOutput{Stream: "exit", Code: code, Done: true})
 	}
 }
 
-func send(conn *websocket.Conn, out shellOutput) {
-	data, _ := json.Marshal(out)
-	conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+func pumpPTYOutput(conn *websocket.Conn, pty ptySession, sessionID string) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := pty.Read(buf)
+		if n > 0 {
+			if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			log.Printf("session %s: pty closed: %v", sessionID, err)
+			conn.Close() //nolint:errcheck // unblocks the read loop in runShell above
+			return
+		}
+	}
 }

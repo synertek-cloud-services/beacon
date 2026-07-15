@@ -39,6 +39,13 @@
           </svg>
           Remote Session
         </button>
+        <button class="toolbar-btn" :disabled="device.status !== 'approved'" @click="remoteShellOpen = true"
+          :title="device.status !== 'approved' ? 'Device must be approved to open a session' : ''">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+          Remote Shell
+        </button>
         <div class="toolbar-sep"></div>
         <button class="toolbar-btn" :disabled="device.status !== 'approved'" @click="openQuickJob()"
           :title="device.status !== 'approved' ? 'Device must be approved to receive commands' : ''">
@@ -598,6 +605,15 @@
         </div>
       </div>
     </div>
+
+    <!-- Remote Shell modal -->
+    <RemoteShellModal
+      v-if="remoteShellOpen && device"
+      :device-id="device.id"
+      :tenant-id="device.tenantId"
+      :hostname="device.hostname"
+      @close="remoteShellOpen = false"
+    />
   </div>
 </template>
 
@@ -606,6 +622,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
+import RemoteShellModal from '../components/RemoteShellModal.vue';
 
 interface DiskInfo {
   device: string;
@@ -701,6 +718,9 @@ const PAGE_SIZES      = [20, 50, 100];
 // Toolbar state
 const menuOpen  = ref(false);
 const jobQueued = ref(false);
+
+// Remote Shell modal
+const remoteShellOpen = ref(false);
 
 // Quick Job modal
 const quickJobOpen  = ref(false);

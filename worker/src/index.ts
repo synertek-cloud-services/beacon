@@ -33,6 +33,13 @@ export type Bindings = {
   PAGES_PREVIEW_SUFFIX?: string;
   // AES-GCM key (hex) for encrypting SSO provider client secrets at rest
   CONFIG_ENCRYPTION_KEY: string;
+  // This worker's own public origin, e.g. "https://rmm-api.example.com" —
+  // used to build absolute agent/client WebSocket URLs in sessions.ts.
+  // Deliberately a configured value, not derived from the incoming request's
+  // own URL: a [[routes]] custom-domain block in wrangler.toml can make
+  // c.req.url reflect the production route even under `wrangler dev`,
+  // which previously sent local-dev sessions to the real production worker.
+  WORKER_URL: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -53,6 +60,8 @@ const corsMiddleware = (c: any, next: any) => cors({
 
 app.use('/v1/admin/*', corsMiddleware);
 app.use('/v1/auth/*', corsMiddleware);
+app.use('/v1/sessions', corsMiddleware);
+app.use('/v1/sessions/*', corsMiddleware);
 
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);

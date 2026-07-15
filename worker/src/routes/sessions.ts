@@ -36,7 +36,11 @@ sessions.post('/', async (c) => {
   if (!device) return c.json({ error: 'device not found or not approved' }, 404);
 
   const sessionId = crypto.randomUUID();
-  const origin = new URL(c.req.url).origin.replace(/^http/, 'ws');
+  // WORKER_URL is a configured value, not derived from c.req.url — a
+  // [[routes]] custom-domain block in wrangler.toml can make the request's
+  // own URL reflect the production route even under `wrangler dev`, which
+  // would otherwise send local-dev sessions to the real production worker.
+  const origin = new URL(c.env.WORKER_URL).origin.replace(/^http/, 'ws');
   const agentWsUrl  = `${origin}/v1/sessions/${sessionId}/ws?role=agent`;
 
   // Per-session random client auth token — not the shared ADMIN_SECRET, since

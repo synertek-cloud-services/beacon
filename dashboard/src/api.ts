@@ -675,4 +675,10 @@ export const api = {
         request<AuditChange[]>('GET', `/v1/admin/devices/${deviceId}/audit/changes?limit=${limit}`),
     },
   },
+  sessions: {
+    open: (deviceId: string, tenantId: string, sessionType: 'shell' | 'tcp_tunnel') =>
+      request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
+        device_id: deviceId, tenant_id: tenantId, session_type: sessionType,
+      }),
+  },
 };

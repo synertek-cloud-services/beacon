@@ -11,6 +11,11 @@ custom_domain = true
 [vars]
 ALLOWED_ORIGIN = "https://your-dashboard-domain.example.com"
 PAGES_PREVIEW_SUFFIX = ".your-pages-project.pages.dev"
+# This worker's own public origin — must match the [[routes]] pattern above
+# (with a scheme). Used to build absolute agent/client WebSocket URLs for
+# remote sessions; kept as an explicit var rather than derived from the
+# incoming request so it can't be misdirected by routing/proxy config.
+WORKER_URL = "https://your-api-domain.example.com"
 
 [[d1_databases]]
 binding = "DB"
