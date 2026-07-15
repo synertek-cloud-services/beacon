@@ -153,6 +153,9 @@
           <!-- ── System (OS + chassis identity — no metrics/network/storage here) ── -->
           <section :id="'ddev-sec-system'" class="ddev-page-section">
             <h2 class="ddev-section-heading">System</h2>
+            <div style="padding:12px 20px 0">
+              <button class="btn btn-primary btn-sm" @click="router.push(`/devices/${device.id}/change-log`)">Change Log</button>
+            </div>
             <div v-if="auditLoading" class="inv-empty">Loading system info…</div>
             <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
               <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
@@ -474,37 +477,6 @@
             </div>
           </section>
 
-          <!-- ── Change Log ── -->
-          <section :id="'ddev-sec-changelog'" class="ddev-page-section">
-            <h2 class="ddev-section-heading">Change Log</h2>
-            <div class="inv-tab-body">
-              <div v-if="changesLoading" class="inv-empty">Loading change log…</div>
-              <div v-else-if="changeGroups.length === 0" class="inv-empty">No changes recorded yet. Changes appear after two or more audits.</div>
-              <div v-else>
-                <div v-for="group in changeGroups" :key="group.auditId" class="chg-group">
-                  <div class="chg-group-head">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Audit — {{ absDate(group.detectedAt) }}
-                    <span class="chg-count">{{ group.changes.length }} change{{ group.changes.length !== 1 ? 's' : '' }}</span>
-                  </div>
-                  <div v-for="ch in group.changes" :key="ch.id" class="chg-row">
-                    <span :class="['chg-badge', `chg-badge-${ch.category}`]">{{ ch.category }}</span>
-                    <span :class="['chg-type', `chg-type-${ch.changeType}`]">{{ ch.changeType }}</span>
-                    <span class="chg-name text-sm">{{ ch.itemName }}</span>
-                    <template v-if="ch.field && (ch.oldValue || ch.newValue)">
-                      <span class="text-xs text-muted-2 chg-field">{{ ch.field }}:</span>
-                      <span class="chg-diff mono text-xs">
-                        <span v-if="ch.oldValue" class="chg-old">{{ ch.oldValue }}</span>
-                        <span v-if="ch.oldValue && ch.newValue" class="chg-arrow">→</span>
-                        <span v-if="ch.newValue" class="chg-new">{{ ch.newValue }}</span>
-                      </span>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
         </div>
       </div>
 
@@ -632,7 +604,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AuditChange, type AlertState, type EffectiveMonitor } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 
 interface DiskInfo {
@@ -677,7 +649,6 @@ const sections = [
   { value: 'storage',   label: 'Storage' },
   { value: 'network',   label: 'Network' },
   { value: 'security',  label: 'Security' },
-  { value: 'changelog', label: 'Change Log' },
 ];
 // This is one continuous page, not tabs — activeSection only tracks which
 // nav item to highlight, it never hides/shows content. Clicking a nav item
@@ -710,8 +681,6 @@ watch(() => route.query.section as string | undefined, (s) => {
 // Device detail tab state
 const auditData       = ref<DeviceAudit | null>(null);
 const auditLoading    = ref(false);
-const auditChanges    = ref<AuditChange[]>([]);
-const changesLoading  = ref(false);
 const softwareSearch  = ref('');
 const softwarePage    = ref(0);
 const servicesPage    = ref(0);
@@ -751,21 +720,14 @@ const libSearch         = ref('');
 watch(selectedComponent, () => { quickJobVariableValues.value = {}; });
 
 // Just refreshes the device row itself (used by the 30s poll) — does not
-// touch tab/audit/changelog state, so it doesn't disturb whatever the user
-// is currently looking at.
+// touch tab/audit state, so it doesn't disturb whatever the user is
+// currently looking at.
 async function loadDevice(id: string) {
   try {
     device.value = await api.devices.get(id);
   } catch {
     device.value = null;
   }
-}
-
-async function loadChangeLog() {
-  if (!device.value) return;
-  changesLoading.value = true;
-  try { auditChanges.value = await api.devices.audit.changes(device.value.id); }
-  finally { changesLoading.value = false; }
 }
 
 async function loadDeviceAlerts() {
@@ -785,8 +747,8 @@ async function loadEffectiveMonitors() {
 }
 
 // Runs whenever the route's :id actually changes (including the initial
-// load) — resets audit/changelog/alerts/policies/pagination state and
-// eagerly fetches everything, since this is one continuous scrollable page
+// load) — resets audit/alerts/policies/pagination state and eagerly
+// fetches everything, since this is one continuous scrollable page
 // now (no per-section lazy-loading — every section is visible at once, so
 // there's no "activation" moment to hang a lazy fetch off of).
 async function onIdChange(id: string | undefined) {
@@ -795,7 +757,6 @@ async function onIdChange(id: string | undefined) {
   error.value = '';
   now.value = Math.floor(Date.now() / 1000);
   auditData.value = null;
-  auditChanges.value = [];
   deviceAlerts.value = [];
   effectiveMonitors.value = [];
   softwareSearch.value = '';
@@ -812,7 +773,7 @@ async function onIdChange(id: string | undefined) {
     .catch(() => { /* leave null — "Run Audit Now" empty state covers this */ })
     .finally(() => { auditLoading.value = false; });
 
-  await Promise.all([auditPromise, loadChangeLog(), loadDeviceAlerts(), loadEffectiveMonitors()]);
+  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors()]);
 
   // Deep-link support: jump to whatever ?section= names (or Summary/top for
   // a plain device switch that doesn't carry one), now that everything's
@@ -849,7 +810,7 @@ function setupScrollSpy() {
     .filter((el): el is HTMLElement => el !== null);
   if (!root || targets.length === 0) return;
 
-  // Bottom-of-scroll special case: trailing sections (e.g. Change Log) are
+  // Bottom-of-scroll special case: trailing sections (e.g. Security) are
   // often shorter than the detection band below, so a taller earlier section
   // can still win the "topmost" tie-break even once you've scrolled all the
   // way down — same edge case Bootstrap's own scrollspy special-cases.
@@ -1153,17 +1114,6 @@ const pagedServices     = computed(() => (auditData.value?.services ?? []).slice
 watch(softwareSearch, () => { softwarePage.value = 0; });
 watch(swPageSize,     () => { softwarePage.value = 0; });
 watch(svcPageSize,    () => { servicesPage.value = 0; });
-
-interface ChangeGroup { auditId: string; detectedAt: number; changes: AuditChange[] }
-const changeGroups = computed((): ChangeGroup[] => {
-  const map = new Map<string, ChangeGroup>();
-  for (const ch of auditChanges.value) {
-    let g = map.get(ch.auditId);
-    if (!g) { g = { auditId: ch.auditId, detectedAt: ch.detectedAt, changes: [] }; map.set(ch.auditId, g); }
-    g.changes.push(ch);
-  }
-  return [...map.values()].sort((a, b) => b.detectedAt - a.detectedAt);
-});
 
 async function runAuditNow(deviceId: string) {
   try {
@@ -1656,37 +1606,4 @@ function shellLabel(shell: string): string {
 .svc-dot-stop { background: var(--border-2); }
 .svc-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .svc-start { flex-shrink: 0; }
-
-/* ── Change log tab ── */
-.chg-group { border-bottom: 1px solid var(--border); }
-.chg-group-head {
-  display: flex; align-items: center; gap: 7px;
-  padding: 8px 20px; font-size: 11px; font-weight: 600; color: var(--muted);
-  background: var(--surface);
-}
-.chg-count {
-  margin-left: auto; font-size: 10px; font-weight: 600; padding: 1px 6px;
-  border-radius: 10px; background: var(--border-2); color: var(--muted);
-}
-.chg-row { display: flex; align-items: center; gap: 8px; padding: 6px 20px; border-top: 1px solid rgba(255,255,255,.03); }
-.chg-badge {
-  font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
-}
-.chg-badge-software { background: rgba(78,126,247,.12); color: var(--accent); }
-.chg-badge-hardware { background: rgba(160,78,247,.12); color: #a04ef7; }
-.chg-badge-services { background: rgba(240,168,64,.12);  color: var(--amber); }
-.chg-badge-security { background: rgba(232,86,106,.12);  color: var(--red); }
-.chg-type {
-  font-size: 10px; font-weight: 700; flex-shrink: 0;
-}
-.chg-type-added   { color: var(--teal); }
-.chg-type-removed { color: var(--red); }
-.chg-type-changed { color: var(--muted); }
-.chg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chg-field { flex-shrink: 0; }
-.chg-diff { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.chg-old   { color: var(--red); text-decoration: line-through; }
-.chg-arrow { color: var(--muted); }
-.chg-new   { color: var(--teal); }
 </style>

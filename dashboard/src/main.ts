@@ -6,6 +6,7 @@ import SsoCallbackPage from './pages/SsoCallbackPage.vue';
 import OverviewPage from './pages/OverviewPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import DeviceDetailPage from './pages/DeviceDetailPage.vue';
+import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
 import TenantsPage from './pages/TenantsPage.vue';
 import JobsPage from './pages/JobsPage.vue';
 import ComponentsPage from './pages/ComponentsPage.vue';
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/sso-callback', component: SsoCallbackPage },
     { path: '/devices', component: DevicesPage },
     { path: '/devices/:id', component: DeviceDetailPage },
+    { path: '/devices/:id/change-log', component: DeviceChangeLogPage },
     { path: '/tenants', component: TenantsPage },
     { path: '/jobs', component: JobsPage },
     { path: '/components', component: ComponentsPage },
