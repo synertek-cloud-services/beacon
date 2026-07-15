@@ -1,5 +1,62 @@
 # Beacon — Project Log
 
+## Session: 2026-07-15 (External IP, Change Log redesign, Interactive Remote Shell + agent v0.2.8)
+
+### What was completed
+
+**1. External IP added to device Network section** (migration `0023_device_external_ip.sql`)
+
+Worker captures the check-in request's own `CF-Connecting-IP` header into a new `devices.external_ip` column on every check-in (`worker/src/routes/checkin.ts`) — no agent change needed, since an agent has no reliable way to learn its own public IP without an outbound call to a third-party service. Dashboard shows it unconditionally at the top of the Network section (sourced from `device`, not `auditData`, so it's available before any audit has ever run). Verified end-to-end against a real running agent.
+
+**2. Change Log moved from an unbounded inline section to a dedicated page**
+
+The Change Log was an always-rendered inline section at the bottom of the device detail page with no pagination or filtering — `device_audit_changes` accumulates one row per detected change on every audit, with no cap, so this was a real "will keep growing" problem, not hypothetical (real Datto reference showed 128 entries/3 pages for comparison).
+
+New `DeviceChangeLogPage.vue` (`/devices/:id/change-log`) — reached via a "Change Log" button now in the System section (matching a real Datto reference screenshot's placement), not a nav-scroll anchor. Category tabs (All/Software/Hardware/Services/Security — Beacon's real change categories, deliberately not Datto's invented "System" bucket, since nothing in Beacon's diff logic produces a "system" category), a date-range filter (7/30/90 days/All Time, default 30), a count badge, and numbered pagination (`JobsPage.vue`'s pattern, 50/page default) reused wholesale. Device detail page's nav list is back down to Summary → System → Alerts → Policies → Software → Services → Memory → Storage → Network → Security (Change Log removed) — no other scroll-spy code changed, since it already referenced `sections[sections.length - 1]` generically rather than a hardcoded name.
+
+**3. Interactive Remote Shell — first slice of a Datto-style "Agent Browser"** (agent v0.2.8)
+
+Datto's Agent Browser (user-provided reference: rmm.datto.com's help docs) is a large multi-tool suite — File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, command shell, screenshot, remote takeover, shutdown/restart, network device deploy/wake. Deliberately scoped to just the interactive shell this session, given the size and the real, varying security implications of the other tools (registry editing and remote takeover are a different risk class than a read/write shell).
+
+Found Beacon already had fully generic, reusable transport for this class of feature — a `SessionRelay` Durable Object (byte-agnostic bidirectional WS relay), per-session auth tokens, and an agent-side dial-out via the existing command-queue channel — but it had never actually been used end to end: the dashboard's only "Remote Session" button was a hardcoded-disabled stub for a *different*, unbuilt RustDesk integration, and the agent's `shell.go` ran each WS message as one independent buffered `sh -c`/`cmd /c` invocation with no PTY, no persistent process, no real interactivity (its own comment said "PTY/interactive support is a future phase").
+
+Built the two missing halves:
+- `agent/internal/session/pty_unix.go` (`github.com/creack/pty`) and `pty_windows.go` (`github.com/UserExistsError/conpty`, real Windows ConPTY — confirmed via research that `creack/pty`'s mainline does *not* support Windows, returns `ErrUnsupported`). A rewritten `shell.go` spawns one persistent PTY-backed shell process per session, streaming raw bytes as WS binary frames in both directions, with a small JSON text-frame control channel (currently just `{type:'resize',cols,rows}`).
+- Dashboard: new `RemoteShellModal.vue` (xterm.js + `@xterm/addon-fit`), a new "Remote Shell" toolbar button on the device detail page (separate from the still-disabled RustDesk stub).
+
+**Found and fixed two real, pre-existing bugs while testing this** — `POST /v1/sessions` had literally never been called by anything before this session:
+- `/v1/sessions` was missing from the CORS middleware entirely (`worker/src/index.ts` only ever covered `/v1/admin/*` and `/v1/auth/*`).
+- `sessions.ts` derived the agent/client WebSocket origin from the incoming request's own URL (`new URL(c.req.url).origin`), which a `[[routes]]` custom-domain block in `wrangler.toml` can make reflect the *production* route even under `wrangler dev` — a local test agent actually dialed out and connected to the real production worker during testing, spawning a real (harmless but unintended) PTY session there before this was caught and fixed. Replaced with a configured `WORKER_URL` env var (`worker/.dev.vars` gets `http://localhost:8787` for local dev, overriding the production `wrangler.toml` value).
+
+Verified fully end-to-end against a real running local agent: real PTY prompt streamed live, keystrokes echoed and executed correctly, resize control frames worked, and closing the session cleanly killed the remote shell process (confirmed via process inspection, both via a raw WebSocket test and the real dashboard UI flow — the latter needed a longer propagation wait than expected, ~2–5s, before agent-side cleanup completed; real network/relay latency, not a bug).
+
+**4. Agent v0.2.8 released and independently verified**
+
+Version bumped, all 5 platform binaries built and attached to a GitHub release before any registration (standard process). Also fixed the recurring dead-placeholder-`download_url` gotcha in `publish-agent.mjs` for good this time — a new `BEACON_DOWNLOAD_BASE_URL` env var lets the script point directly at a real GitHub release's asset base instead of silently defaulting to a URL nothing serves; every release since v0.2.0 had needed either a two-step re-register dance or manual by-hand signing to work around this same gap.
+
+Signing/registration done by the user (signing key never enters a session transcript, per standing practice) using a one-off completion script that downloaded the exact already-uploaded release assets fresh and signed those bytes directly — deliberately *not* a rebuild, since rebuilding from a different machine/directory without `-trimpath` would produce different bytes than what was already hosted, which would have broken the signature-to-asset match. All 5 signatures independently re-verified (SHA-256 digest → Ed25519 verify against the pinned public key, pulled programmatically from source + a `wrangler d1 execute --remote` query) before calling it shippable. `/v1/agent/version` and `/v1/agent/download` both confirmed working end-to-end against production.
+
+Also hit and resolved a real local debugging detour: `BEACON_SIGNING_KEY` etc. were exported in the user's shell but `node` wasn't seeing them — root cause was `direnv` (already used in this repo for `CLOUDFLARE_API_TOKEN`) reloading the environment between shell prompts, silently dropping manually-exported vars not part of the tracked `.envrc`. Fix was exporting and running in a single chained command (`export ... && node ...`) so nothing could reload in between.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| External IP captured worker-side from `CF-Connecting-IP`, not agent-side | Backend already knows the request's source IP for free; an agent-side lookup would need an outbound call to a third-party echo service for no benefit |
+| Change Log category tabs use Beacon's real categories (software/hardware/services/security), not Datto's System/Software/Hardware | Beacon's diff logic genuinely has no "System" category — inventing one to match the reference more closely would misrepresent the data, inconsistent with this project's established "not 1:1 with Datto" posture elsewhere |
+| Change Log data fetched once (up to 500 rows) and filtered/paginated client-side | Matches `JobsPage.vue`'s established precedent — the dataset is small enough that server-side paging would add complexity for no real benefit at this scale |
+| Remote Shell scoped to just the interactive shell this session | Datto's full Agent Browser is 7+ distinct tools with real, varying security implications; the shell was also the natural first slice since the transport layer already existed and needed the least new protocol design |
+| Binary-for-data / text-for-control WS framing | Minimal overhead for the common case (raw PTY bytes), while leaving room for future tools built on the same relay to define their own control messages |
+| `WORKER_URL` as a configured var, not derived from the request | The bug that caused a local test session to dial out to real production proved request-derived origin is fundamentally unsafe under some hosting configs (here: a `[[routes]]` custom-domain block) — a configured value can't be misdirected by routing/proxy behavior |
+| Sign-and-register against freshly re-downloaded release assets, not a local rebuild | Go builds without `-trimpath` embed the absolute build path in the binary; a rebuild from a different machine/directory than the original build would produce different bytes, breaking the signature-to-hosted-asset match |
+
+### Next logical steps
+
+1. **Confirm real devices pick up v0.2.8** — especially Nebuchadnezzar, given its history of not cleanly picking up prior releases; check `agent.log` after the next ~24h update-check window.
+2. **`ADMIN_SECRET` rotation** — still flagged from the prior session as needed (exposed in an earlier session transcript), still not done.
+3. **Job detail page** (`/jobs/:id`) — still just an inline expand-row on `JobsPage.vue`, cramped for jobs targeting many devices; a dedicated page mirroring `DeviceDetailPage.vue`'s layout is the natural next step (carried over from an even earlier session).
+4. **The rest of the Agent Browser** — File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover, shutdown/restart, network device deploy/wake — all deliberately deferred, all able to reuse the same `SessionRelay`/session-auth/command-queue-dial-out plumbing Remote Shell now proves out end-to-end.
+
 ## Session: 2026-07-14 (Agent v0.2.7, Jobs page redesign)
 
 ### What was completed

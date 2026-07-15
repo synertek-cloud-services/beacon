@@ -199,22 +199,36 @@ Used for Scope (Global/Site) and Enabled/Disabled selectors:
 
 Primary variant for the active state: add `.seg-primary` to the button — gives it `--accent` background instead of surface white.
 
+**Also used for >2 options**: `DeviceChangeLogPage.vue`'s category filter (All/Software/Hardware/Services/Security, 5 buttons) confirms this isn't just a binary toggle — works the same way for any small fixed set of mutually-exclusive filter values, `v-for`'d over an options array instead of two hardcoded buttons.
+
 ## Modals
 
-Centered modal pattern (used for Override, confirmation dialogs):
+Centered modal pattern (used for Override, confirmation dialogs, `RemoteShellModal.vue`):
 ```html
 <Teleport to="body">
 <div class="modal-backdrop" @click.self="close">
   <div class="modal">
-    <div class="modal-header">...</div>
+    <div class="modal-header">
+      <span class="modal-title">Title</span>
+      <button class="btn-icon" @click="close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
     <div class="modal-body">...</div>
     <div class="modal-footer">...</div>
   </div>
 </div>
 </Teleport>
 ```
+```css
+.modal-header { display: flex; align-items: center; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s; }
+.btn-icon:hover { background: var(--surface-2); color: var(--text); }
+```
 
-Modal: 440px wide, max 95vw, max 90vh, border-radius 10px, `var(--shadow)`.
+Modal: 440px wide (default), max 95vw, max 90vh, border-radius 10px, `var(--shadow)`. Widen with a local override class for content-heavy modals (e.g. `RemoteShellModal.vue`'s `.rs-modal { width: 860px; height: 560px; }` for an embedded terminal).
+
+**A second, different modal shell also exists in this codebase** — `DeviceDetailPage.vue`'s Quick Job modal uses `.modal-head`/`.modal-foot` (no "-er" suffix, no `<Teleport>`, no header close button — just a Cancel button in the footer) with its own differently-styled `.modal`/`.modal-xl` classes. The two conventions are **not interchangeable** and are easy to confuse by name alone (`modal-header` vs `modal-head`) — check which file you're extending before copying markup. Prefer the `Teleport`+`.modal-header`+`.btn-icon`-close variant above for anything new; it's the one with more real consumers (`GlobalPoliciesPage.vue`, `RemoteShellModal.vue`) and it survives being opened from a component nested inside `overflow:hidden` ancestors, which the non-Teleported variant does not.
 
 ## Right-side drawer (Add Monitor panel)
 
@@ -256,6 +270,8 @@ Full-page form pattern:
 Each `.pf-group` is max-width 760px. The label font-size is larger (15px) than the global field label (11px uppercase) to match Datto-style section headers.
 
 **Second real example: `ComponentFormPage.vue`** (`/components/new`, `/components/:id`) — reuses this exact shell (`.pf-page`/`.pf-crumb`/`.pf-topbar`/`.pf-body`/`.pf-group`/`.pf-label` class names, copied per-component like everything else in this pattern) rather than inventing new class names, even though it replaced what used to be a modal on `ComponentsPage.vue`. If you're building a third full-page create/edit form, start from this shell before reaching for a modal — the modal-first instinct is what this session explicitly moved away from.
+
+**Third real example, and the first non-form use: `DeviceChangeLogPage.vue`** (`/devices/:id/change-log`) — reuses the `.pf-page`/`.pf-crumb`/`.pf-topbar` shell for a read-only, filterable/paginated *browse* page (no `.pf-group`/`.pf-body` form fields at all — just a `.section-card` with a filter bar, table, and pagination bar dropped into the topbar's place). Confirms this shell isn't just for create/edit forms; use it any time a section needs to "pop out" into its own full page reached via a button (as opposed to a modal, which stays overlaid on the page that opened it) — see Device detail page's Change Log entry in CLAUDE.md for why this one specifically needed to be a page and not a modal (unbounded, growing dataset needing real pagination/filtering, not a quick glance).
 
 ### Variables / Post-conditions editor (inline add-form, not a drawer)
 
@@ -643,6 +659,52 @@ function onPageSizeChange(e: Event) {
 ```
 
 Use `v-for="row in paginated"` in the table (not `visible`). The bar hides itself when `totalPages === 1 && pageSize === 20` — no clutter on small datasets.
+
+**Second real consumer: `DeviceChangeLogPage.vue`** — same computed props and markup verbatim, just with a `pageSize` default of `50` instead of `20` (matches a real Datto reference screenshot's own default) and the bar's hide-condition adjusted to `pageSize !== 50` to match. Confirms the pattern generalizes cleanly to a different default page size without other changes.
+
+## Date-range filter (preset dropdown)
+
+Used in `DeviceChangeLogPage.vue` for filtering by `detectedAt` — a plain `<select>` of preset day-counts, not a full date-picker, since technicians want quick relative ranges ("Last 30 Days") not arbitrary dates:
+```html
+<select v-model.number="dateRangeDays" class="page-size-select">
+  <option :value="7">Last 7 Days</option>
+  <option :value="30">Last 30 Days</option>
+  <option :value="90">Last 90 Days</option>
+  <option :value="0">All Time</option>
+</select>
+```
+Reuses `.page-size-select` (already defined for the pagination bar's page-size dropdown) rather than a new class — visually it's the same small bordered dropdown, just a different set of options. `0` means "no cutoff" (All Time), not a literal zero-day range — same "sentinel value with real meaning" idiom as the optional-condition-checkbox's `null`. Paired with the existing filter-chip-bar's "Reset Filters" convention (`.btn-reset`, shown only when `dateRangeDays !== 30` — the default — or another filter is non-default).
+
+## Live-connection overlay (Remote Shell terminal)
+
+Used in `RemoteShellModal.vue` for showing connection state on top of an always-mounted xterm.js terminal (the terminal container itself is never conditionally rendered — only the overlay is — so `FitAddon.fit()` has a real DOM element to measure from the moment the modal opens, before any WebSocket data has arrived):
+```html
+<div class="rs-term-wrap">
+  <div ref="termEl" class="rs-term"></div>
+  <div v-if="status === 'connecting'" class="rs-overlay">
+    <div class="rs-spinner"></div>
+    <p>Connecting… this can take up to 60 seconds.</p>
+  </div>
+  <div v-else-if="status === 'closed' || status === 'error'" class="rs-overlay">
+    <p>{{ statusMessage }}</p>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-primary btn-sm" @click="reconnect">Reconnect</button>
+      <button class="btn btn-ghost btn-sm" @click="close">Close</button>
+    </div>
+  </div>
+</div>
+```
+```css
+.rs-term-wrap { position: relative; flex: 1; overflow: hidden; background: #0c0e16; }
+.rs-term { position: absolute; inset: 0; padding: 8px; }
+.rs-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; background: rgba(12,14,22,.88); color: var(--text); font-size: 13px; text-align: center; padding: 20px;
+}
+.rs-spinner { width: 22px; height: 22px; border: 2px solid var(--border-2); border-top-color: var(--accent); border-radius: 50%; animation: rs-spin .8s linear infinite; margin-bottom: 8px; }
+@keyframes rs-spin { to { transform: rotate(360deg); } }
+```
+Three states (`connecting`/`closed`/`error`) share one overlay treatment (semi-transparent dark scrim + centered content) rather than three different visual languages — the *connected* state is just the absence of an overlay. Reusable for any future live-connection UI built on this same session/relay system (File Manager, Task Manager, etc.).
 
 ## Kind badge vs. Group badge (don't reuse one class for both)
 
