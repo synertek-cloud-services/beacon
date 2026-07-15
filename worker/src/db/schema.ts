@@ -60,6 +60,9 @@ export const devices = sqliteTable('devices', {
   // there's no agent collector for this the way there is for other System
   // fields. A real auto-lookup would need per-vendor API integrations.
   warrantyExpiresAt: integer('warranty_expires_at'),
+  // Captured from the check-in request's own CF-Connecting-IP header — not
+  // agent-collected (no agent-side way to learn its own public IP).
+  externalIp: text('external_ip'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

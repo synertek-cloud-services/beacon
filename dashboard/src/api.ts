@@ -404,6 +404,7 @@ export interface Device {
   createdAt: number;
   approvedAt: number | null;
   warrantyExpiresAt: number | null;
+  externalIp: string | null;
 }
 
 // ── API client ───────────────────────────────────────────────

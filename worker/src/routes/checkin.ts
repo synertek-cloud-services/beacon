@@ -49,6 +49,7 @@ checkin.post('/', async (c) => {
       osVersion: body.metrics.os_version,
       detectedClass: body.metrics.detected_class,
       inventory: JSON.stringify(body.metrics),
+      externalIp: c.req.header('CF-Connecting-IP') ?? null,
     })
     .where(eq(schema.devices.id, device.id));
 

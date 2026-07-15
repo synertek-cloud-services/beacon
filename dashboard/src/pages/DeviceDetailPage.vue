@@ -426,6 +426,9 @@
           <section :id="'ddev-sec-network'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Network</h2>
             <div class="inv-tab-body">
+              <div class="inv-section" style="padding:14px 20px">
+                <div class="ddev-row"><span class="ddev-label">External IP</span><span class="mono text-sm">{{ device.externalIp ?? '—' }}</span></div>
+              </div>
               <div v-if="auditLoading" class="inv-empty">Loading network info…</div>
               <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
                 <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
