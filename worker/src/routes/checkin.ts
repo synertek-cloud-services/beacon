@@ -55,7 +55,7 @@ checkin.post('/', async (c) => {
   // Process results from previously issued commands
   if (body.pending_command_results?.length) {
     const ids = body.pending_command_results.map(r => r.command_id);
-    const owned = await db.select({ id: schema.commands.id, componentId: schema.commands.componentId })
+    const owned = await db.select({ id: schema.commands.id, componentId: schema.commands.componentId, jobId: schema.commands.jobId })
       .from(schema.commands)
       .where(and(
         inArray(schema.commands.id, ids),
@@ -72,6 +72,7 @@ checkin.post('/', async (c) => {
       for (const comp of comps) postCondByComponent.set(comp.id, JSON.parse(comp.postConditions || '[]'));
     }
 
+    const affectedJobIds = new Set<string>();
     for (const r of body.pending_command_results) {
       const ownedCmd = ownedById.get(r.command_id);
       if (!ownedCmd) continue; // ignore results for commands not belonging to this device
@@ -86,6 +87,20 @@ checkin.post('/', async (c) => {
           warning,
         })
         .where(eq(schema.commands.id, r.command_id));
+
+      if (ownedCmd.jobId) affectedJobIds.add(ownedCmd.jobId);
+    }
+
+    // Flip job to 'completed' once all its commands have reached a terminal state.
+    for (const jobId of affectedJobIds) {
+      const pending = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM commands WHERE job_id = ? AND status IN ('queued', 'sent')`
+      ).bind(jobId).first<{ n: number }>();
+      if (pending && pending.n === 0) {
+        await c.env.DB.prepare(
+          `UPDATE jobs SET status = 'completed' WHERE id = ? AND status = 'active'`
+        ).bind(jobId).run();
+      }
     }
   }
 
