@@ -47,14 +47,14 @@
           </div>
 
           <!-- Empty state -->
-          <div v-if="!orderedIds.length && !compPickerOpen" class="jf-empty">
+          <div v-if="!orderedIds.length" class="jf-empty">
             <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted)">
               <rect x="2" y="7" width="20" height="14" rx="2"/>
               <rect x="6" y="3" width="4" height="4" rx="1"/>
               <rect x="14" y="3" width="4" height="4" rx="1"/>
             </svg>
             <p>Components are your scripts or application installers. You can create your own or download them from the ComStore.</p>
-            <button class="btn btn-primary btn-sm" @click="openCompPicker">Add Component</button>
+            <button class="btn btn-primary btn-sm" @click="openCompFlyout">Add Component</button>
           </div>
 
           <!-- Component rows -->
@@ -84,29 +84,9 @@
             </div>
           </template>
 
-          <!-- Search picker row (shown when Add Component is active) -->
-          <div v-if="compPickerOpen" class="jf-picker-row">
-            <div class="pf-site-wrap" style="flex:1">
-              <input
-                ref="compSearchEl"
-                v-model="compQuery"
-                class="pf-input pf-site-input"
-                placeholder="Search components to add…"
-                @blur="hideCompDrop"
-                @keydown.escape="compPickerOpen = false"
-              />
-              <div v-if="compMatches.length" class="pf-site-drop">
-                <div v-for="c in compMatches" :key="c.id" class="pf-site-opt" @mousedown.prevent="addComponent(c)">
-                  {{ c.name }}<span class="jf-muted" style="margin-left:6px">{{ c.shell }}</span>
-                </div>
-              </div>
-            </div>
-            <button class="btn-text" @click="compPickerOpen = false">Cancel</button>
-          </div>
-
-          <!-- Add more button (only when items exist and picker is closed) -->
-          <div v-if="orderedIds.length && !compPickerOpen" class="jf-footer">
-            <button class="btn btn-ghost btn-sm" @click="openCompPicker">+ Add Component</button>
+          <!-- Add more button -->
+          <div v-if="orderedIds.length" class="jf-footer">
+            <button class="btn btn-ghost btn-sm" @click="openCompFlyout">+ Add Component</button>
           </div>
         </div>
       </div>
@@ -193,6 +173,53 @@
     </div>
   </div>
 
+  <!-- Component flyout -->
+  <Teleport to="body">
+    <div v-if="compFlyoutOpen" class="tf-overlay" @click.self="compFlyoutOpen = false">
+      <div class="tf-panel cf-panel">
+        <div class="tf-head">
+          <h2 class="tf-title">Add Component</h2>
+          <button class="tf-close" @click="compFlyoutOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="cf-tabs">
+          <button :class="['cf-tab', { active: compFlyoutTab === 'library' }]" @click="compFlyoutTab = 'library'">
+            Component Library <span class="cf-count">{{ library.length }}</span>
+          </button>
+          <button :class="['cf-tab', { active: compFlyoutTab === 'store' }]" @click="compFlyoutTab = 'store'">
+            ComStore <span class="cf-count">{{ storeLibrary.length }}</span>
+          </button>
+        </div>
+        <div class="tf-search">
+          <input v-model="compFlyoutQuery" class="pf-input" placeholder="Find Component" style="max-width:none" />
+        </div>
+        <div class="tf-list">
+          <div v-for="c in compFlyoutMatches" :key="c.id" class="cf-row">
+            <div class="cf-row-icon">
+              <svg v-if="c.type === 'script'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="cf-row-info">
+              <span class="cf-row-name">{{ c.name }}</span>
+              <span v-if="c.description" class="cf-row-desc">{{ c.description }}</span>
+            </div>
+            <button
+              v-if="!orderedIds.includes(c.id)"
+              class="btn btn-ghost btn-sm cf-add-btn"
+              @click="addComponent(c)"
+            >Add</button>
+            <span v-else class="cf-added-label">Added</span>
+          </div>
+          <div v-if="!compFlyoutMatches.length" class="tf-empty-msg">No components found.</div>
+        </div>
+        <div class="tf-footer">
+          <button class="btn btn-primary btn-sm" @click="compFlyoutOpen = false">Done</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
   <!-- Target flyout -->
   <Teleport to="body">
     <div v-if="targetFlyoutOpen" class="tf-overlay" @click.self="closeTargetFlyout">
@@ -275,7 +302,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type Component, type ComponentRef, type Tenant, type Device } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
@@ -290,16 +317,17 @@ const formError   = ref('');
 
 // ── Data ─────────────────────────────────────────────────────────
 
-const library = ref<Component[]>([]);
-const tenants = ref<Tenant[]>([]);
-const devices = ref<Device[]>([]);
+const library      = ref<Component[]>([]);
+const storeLibrary = ref<Component[]>([]);
+const tenants      = ref<Tenant[]>([]);
+const devices      = ref<Device[]>([]);
 
 // ── Components ────────────────────────────────────────────────────
 
-const orderedIds     = ref<string[]>([]);
-const compQuery      = ref('');
-const compPickerOpen = ref(false);
-const compSearchEl   = ref<HTMLInputElement | null>(null);
+const orderedIds      = ref<string[]>([]);
+const compFlyoutOpen  = ref(false);
+const compFlyoutTab   = ref<'library' | 'store'>('library');
+const compFlyoutQuery = ref('');
 
 const variableValues = reactive<Record<string, Record<string, string>>>({});
 const promptRefs: Record<string, { validate: () => string | null } | null> = {};
@@ -318,23 +346,19 @@ const orderedRefs = computed<ComponentRef[]>(() =>
   }))
 );
 
-const compMatches = computed(() => {
-  const already = new Set(orderedIds.value);
-  let list = library.value.filter(c => !already.has(c.id));
-  const q = compQuery.value.trim().toLowerCase();
-  if (q) list = list.filter(c => c.name.toLowerCase().includes(q));
-  return list.slice(0, 10);
+const compFlyoutMatches = computed(() => {
+  const src = compFlyoutTab.value === 'store' ? storeLibrary.value : library.value;
+  const q = compFlyoutQuery.value.trim().toLowerCase();
+  return q ? src.filter(c => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q)) : src;
 });
 
-function openCompPicker() {
-  compPickerOpen.value = true;
-  compQuery.value = '';
-  nextTick(() => compSearchEl.value?.focus());
+function openCompFlyout() {
+  compFlyoutQuery.value = '';
+  compFlyoutTab.value   = 'library';
+  compFlyoutOpen.value  = true;
 }
 function addComponent(c: Component) {
-  orderedIds.value.push(c.id);
-  compQuery.value      = '';
-  compPickerOpen.value = false;
+  if (!orderedIds.value.includes(c.id)) orderedIds.value.push(c.id);
 }
 function removeAt(idx: number) { orderedIds.value.splice(idx, 1); }
 function moveUp(idx: number) {
@@ -345,7 +369,6 @@ function moveDown(idx: number) {
   if (idx >= orderedIds.value.length - 1) return;
   [orderedIds.value[idx + 1], orderedIds.value[idx]] = [orderedIds.value[idx], orderedIds.value[idx + 1]];
 }
-function hideCompDrop() { setTimeout(() => { compPickerOpen.value = false; }, 150); }
 
 // ── Targets ───────────────────────────────────────────────────────
 
@@ -507,12 +530,14 @@ async function submit() {
 }
 
 onMounted(async () => {
-  const [comps, tenantList, deviceList] = await Promise.all([
+  const [comps, storeComps, tenantList, deviceList] = await Promise.all([
     api.components.list(),
+    api.components.store.list(),
     api.tenants.list(),
     api.devices.list('approved'),
   ]);
-  library.value = comps;
+  library.value      = comps;
+  storeLibrary.value = storeComps;
   tenants.value = tenantList;
   devices.value = deviceList;
 
@@ -672,4 +697,24 @@ onMounted(async () => {
 .tf-row-sub { font-size: 11px; color: var(--muted-2); }
 .tf-empty-msg { padding: 20px 16px; font-size: 13px; color: var(--muted); text-align: center; }
 .tf-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+
+/* ── Component flyout (wider than target flyout) ── */
+.cf-panel { width: 520px; }
+.cf-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.cf-tab {
+  flex: 1; padding: 10px 14px; font-size: 12px; font-weight: 600; font-family: var(--font);
+  color: var(--muted-2); background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: color .12s, border-color .12s;
+}
+.cf-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.cf-count { font-size: 10px; font-weight: 700; background: var(--border-2); color: var(--muted); padding: 1px 5px; border-radius: 3px; margin-left: 5px; }
+.cf-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); transition: background .08s; }
+.cf-row:last-child { border-bottom: none; }
+.cf-row:hover { background: var(--surface-2); }
+.cf-row-icon { width: 28px; height: 28px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--muted-2); flex-shrink: 0; }
+.cf-row-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cf-row-name { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-row-desc { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-add-btn { flex-shrink: 0; }
+.cf-added-label { font-size: 11px; color: var(--teal); font-weight: 600; flex-shrink: 0; padding: 0 4px; }
 </style>
