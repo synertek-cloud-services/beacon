@@ -244,6 +244,9 @@
           <!-- All Devices -->
           <template v-if="flyoutCategory === 'all'">
             <div class="tf-row" :class="{ 'tf-row-selected': isTargeted('all') }">
+              <span v-if="isTargeted('all')" class="tf-check">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>All Devices</span>
                 <span class="tf-row-sub">Target every enrolled device</span>
@@ -256,6 +259,9 @@
           <!-- Sites -->
           <template v-else-if="flyoutCategory === 'sites'">
             <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
+              <span v-if="isTargeted('company', t.id)" class="tf-check">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>{{ t.name }}</span>
               </div>
@@ -268,6 +274,9 @@
           <!-- Devices -->
           <template v-else>
             <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
+              <span v-if="isTargeted('device', d.id)" class="tf-check">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
                 <span class="tf-row-sub">{{ d.tenantName }}</span>
@@ -655,7 +664,8 @@ onMounted(async () => {
 }
 .tf-row:last-child { border-bottom: none; }
 .tf-row:hover { background: var(--surface-2); }
-.tf-row-selected { background: rgba(78,126,247,.06); }
+.tf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--accent); }
+.tf-check { width: 22px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; }
 .tf-row-info { display: flex; flex-direction: column; gap: 1px; }
 .tf-row-sub { font-size: 11px; color: var(--muted-2); }
 .tf-empty-msg { padding: 20px 16px; font-size: 13px; color: var(--muted); text-align: center; }
