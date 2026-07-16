@@ -504,6 +504,9 @@
             <button class="qj-tab" :class="{ active: quickJobTab === 'library' }" @click="quickJobTab = 'library'">
               From Library
             </button>
+            <button class="qj-tab" :class="{ active: quickJobTab === 'store' }" @click="quickJobTab = 'store'">
+              ComStore
+            </button>
             <button class="qj-tab" :class="{ active: quickJobTab === 'script'  }" @click="quickJobTab = 'script'">
               Write Script
             </button>
@@ -519,7 +522,6 @@
             or use Write Script.
           </div>
           <div v-else class="qj-lib-layout">
-            <!-- Component list -->
             <div class="qj-lib-list">
               <input v-model="libSearch" class="qj-lib-search" placeholder="Search components…" />
               <div
@@ -535,7 +537,49 @@
                 </div>
               </div>
             </div>
-            <!-- Preview -->
+            <div class="qj-lib-preview">
+              <div v-if="!selectedComponent" class="qj-lib-empty" style="padding:20px">
+                Select a component to preview
+              </div>
+              <div v-else class="qj-lib-preview-inner">
+                <div class="qj-preview-head">
+                  <div class="qj-preview-name">{{ selectedComponent.name }}</div>
+                  <div v-if="selectedComponent.description" class="text-xs text-muted-2">{{ selectedComponent.description }}</div>
+                </div>
+                <pre class="qj-preview-script">{{ selectedComponent.script }}</pre>
+                <div v-if="selectedComponent.variables.length" class="qj-preview-vars">
+                  <ComponentVariablePrompt
+                    ref="quickJobVarPrompt"
+                    :variables="selectedComponent.variables"
+                    :values="quickJobVariableValues"
+                    @update:values="v => { quickJobVariableValues = v }"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ComStore tab -->
+        <div v-else-if="quickJobTab === 'store'" class="modal-body qj-library-body">
+          <div v-if="storeLoading" class="qj-lib-empty">Loading ComStore…</div>
+          <div v-else-if="storeComponents.length === 0" class="qj-lib-empty">No store components available.</div>
+          <div v-else class="qj-lib-layout">
+            <div class="qj-lib-list">
+              <input v-model="storeSearch" class="qj-lib-search" placeholder="Search ComStore…" />
+              <div
+                v-for="comp in filteredStore" :key="comp.id"
+                class="qj-lib-item"
+                :class="{ selected: selectedComponent?.id === comp.id }"
+                @click="selectedComponent = comp"
+              >
+                <div class="qj-lib-name">{{ comp.name }}</div>
+                <div class="qj-lib-meta">
+                  <span v-if="comp.category" class="qj-lib-cat">{{ comp.category }}</span>
+                  <span class="qj-lib-shell">{{ shellLabel(comp.shell) }}</span>
+                </div>
+              </div>
+            </div>
             <div class="qj-lib-preview">
               <div v-if="!selectedComponent" class="qj-lib-empty" style="padding:20px">
                 Select a component to preview
@@ -724,7 +768,7 @@ const remoteShellOpen = ref(false);
 
 // Quick Job modal
 const quickJobOpen  = ref(false);
-const quickJobTab   = ref<'library' | 'script'>('library');
+const quickJobTab   = ref<'library' | 'store' | 'script'>('library');
 const quickJobForm  = ref({ shell: 'auto', script: '', timeout: '', saveToLibrary: false, libraryName: '' });
 const quickJobError = ref('');
 const quickJobBusy  = ref(false);
@@ -734,8 +778,11 @@ const quickJobVarPrompt = ref<{ validate: () => string | null } | null>(null);
 // Component library (loaded once per page visit)
 const libraryComponents = ref<Component[]>([]);
 const libraryLoading    = ref(false);
+const storeComponents   = ref<Component[]>([]);
+const storeLoading      = ref(false);
 const selectedComponent = ref<Component | null>(null);
 const libSearch         = ref('');
+const storeSearch       = ref('');
 
 watch(selectedComponent, () => { quickJobVariableValues.value = {}; });
 
@@ -1201,6 +1248,14 @@ const filteredLib = computed(() => {
   );
 });
 
+const filteredStore = computed(() => {
+  if (!storeSearch.value.trim()) return storeComponents.value;
+  const q = storeSearch.value.toLowerCase();
+  return storeComponents.value.filter(c =>
+    c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q)
+  );
+});
+
 async function openQuickJob() {
   quickJobOpen.value = true;
   quickJobTab.value = 'library';
@@ -1208,11 +1263,25 @@ async function openQuickJob() {
   quickJobError.value = '';
   selectedComponent.value = null;
   libSearch.value = '';
+  storeSearch.value = '';
+  const loads: Promise<void>[] = [];
   if (libraryComponents.value.length === 0) {
     libraryLoading.value = true;
-    try { libraryComponents.value = await api.components.list(device.value?.tenantId); }
-    finally { libraryLoading.value = false; }
+    loads.push(
+      api.components.list(device.value?.tenantId)
+        .then(c => { libraryComponents.value = c; })
+        .finally(() => { libraryLoading.value = false; })
+    );
   }
+  if (storeComponents.value.length === 0) {
+    storeLoading.value = true;
+    loads.push(
+      api.components.store.list()
+        .then(c => { storeComponents.value = c; })
+        .finally(() => { storeLoading.value = false; })
+    );
+  }
+  await Promise.all(loads);
 }
 
 async function submitQuickJob() {
@@ -1225,7 +1294,7 @@ async function submitQuickJob() {
     let componentRef: import('../api').ComponentRef;
     let jobName: string;
 
-    if (quickJobTab.value === 'library') {
+    if (quickJobTab.value === 'library' || quickJobTab.value === 'store') {
       if (!selectedComponent.value) { quickJobError.value = 'Select a component'; return; }
       const varErr = quickJobVarPrompt.value?.validate();
       if (varErr) { quickJobError.value = varErr; return; }

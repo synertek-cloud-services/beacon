@@ -223,77 +223,65 @@
     <div v-if="targetFlyoutOpen" class="tf-overlay" @click.self="closeTargetFlyout">
       <div class="tf-panel">
         <div class="tf-head">
-          <h2 class="tf-title">
-            {{ flyoutStep === 'company' ? 'Add Company' : flyoutStep === 'devices' ? 'Add Devices' : 'Add Target' }}
-          </h2>
+          <h2 class="tf-title">Targets</h2>
           <button class="tf-close" @click="closeTargetFlyout">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-
-        <!-- Step 1: type picker -->
-        <template v-if="flyoutStep === ''">
-          <div class="tf-options">
-            <button class="tf-opt" @click="addAllDevices">
-              <span class="tf-opt-name">All Devices</span>
-              <span class="tf-opt-desc">Target every enrolled device</span>
-            </button>
-            <button class="tf-opt" @click="flyoutStep = 'company'">
-              <span class="tf-opt-name">A Company</span>
-              <span class="tf-opt-desc">Target all devices in one or more companies</span>
-            </button>
-            <button class="tf-opt" @click="flyoutStep = 'devices'">
-              <span class="tf-opt-name">Specific Devices</span>
-              <span class="tf-opt-desc">Choose individual devices by name</span>
-            </button>
-          </div>
-        </template>
-
-        <!-- Step 2a: company picker -->
-        <template v-else-if="flyoutStep === 'company'">
-          <div class="tf-search">
-            <input v-model="flyoutCompanyQuery" class="pf-input" placeholder="Search companies…" style="max-width:none" />
-          </div>
-          <div class="tf-list">
-            <label v-for="t in flyoutCompanyMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': !!flyoutSelectedCompanies[t.id] }">
-              <input type="checkbox" :checked="!!flyoutSelectedCompanies[t.id]" @change="toggleFlyoutCompany(t.id, t.name)" style="accent-color:var(--accent)" />
-              <span>{{ t.name }}</span>
-            </label>
-            <div v-if="!flyoutCompanyMatches.length" class="tf-empty-msg">No companies found.</div>
-          </div>
-          <div class="tf-footer">
-            <button class="btn btn-ghost btn-sm" @click="flyoutStep = ''">Back</button>
-            <button class="btn btn-primary btn-sm" :disabled="!Object.keys(flyoutSelectedCompanies).length" @click="addCompanyTargets">
-              Add {{ Object.keys(flyoutSelectedCompanies).length > 0 ? Object.keys(flyoutSelectedCompanies).length : '' }}
-              {{ Object.keys(flyoutSelectedCompanies).length === 1 ? 'company' : 'companies' }}
-            </button>
-          </div>
-        </template>
-
-        <!-- Step 2b: device picker -->
-        <template v-else-if="flyoutStep === 'devices'">
-          <div class="tf-search">
-            <input v-model="flyoutDeviceQuery" class="pf-input" placeholder="Search devices…" style="max-width:none" />
-          </div>
-          <div class="tf-list">
-            <label v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': !!flyoutSelectedDevices[d.id] }">
-              <input type="checkbox" :checked="!!flyoutSelectedDevices[d.id]" @change="toggleFlyoutDevice(d.id, d.hostname ?? d.id.slice(0, 8))" style="accent-color:var(--accent)" />
-              <div class="tf-row-info">
-                <span>{{ d.hostname ?? d.id.slice(0, 8) }}</span>
+        <div class="tf-cat">
+          <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
+            <option value="all">All Devices</option>
+            <option value="sites">Sites</option>
+            <option value="devices">Devices</option>
+          </select>
+        </div>
+        <div v-if="flyoutCategory !== 'all'" class="tf-search">
+          <input v-model="flyoutSearch" class="pf-input"
+            :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : 'Search devices…'"
+            style="max-width:none" />
+        </div>
+        <div class="tf-list">
+          <!-- All Devices -->
+          <template v-if="flyoutCategory === 'all'">
+            <div class="tf-row" :class="{ 'tf-row-selected': isTargeted('all') }">
+              <div class="tf-row-info" style="flex:1">
+                <span>All Devices</span>
+                <span class="tf-row-sub">Target every enrolled device</span>
+              </div>
+              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'all'})">
+                {{ isTargeted('all') ? 'Remove' : 'Add' }}
+              </button>
+            </div>
+          </template>
+          <!-- Sites -->
+          <template v-else-if="flyoutCategory === 'sites'">
+            <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
+              <div class="tf-row-info" style="flex:1">
+                <span>{{ t.name }}</span>
+              </div>
+              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'company',id:t.id,name:t.name})">
+                {{ isTargeted('company', t.id) ? 'Remove' : 'Add' }}
+              </button>
+            </div>
+            <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No companies found.</div>
+          </template>
+          <!-- Devices -->
+          <template v-else>
+            <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
+              <div class="tf-row-info" style="flex:1">
+                <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
                 <span class="tf-row-sub">{{ d.tenantName }}</span>
               </div>
-            </label>
+              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">
+                {{ isTargeted('device', d.id) ? 'Remove' : 'Add' }}
+              </button>
+            </div>
             <div v-if="!flyoutDeviceMatches.length" class="tf-empty-msg">No matching devices.</div>
-          </div>
-          <div class="tf-footer">
-            <button class="btn btn-ghost btn-sm" @click="flyoutStep = ''">Back</button>
-            <button class="btn btn-primary btn-sm" :disabled="!Object.keys(flyoutSelectedDevices).length" @click="addDeviceTargets">
-              Add {{ Object.keys(flyoutSelectedDevices).length > 0 ? Object.keys(flyoutSelectedDevices).length : '' }}
-              device{{ Object.keys(flyoutSelectedDevices).length !== 1 ? 's' : '' }}
-            </button>
-          </div>
-        </template>
-
+          </template>
+        </div>
+        <div class="tf-footer">
+          <button class="btn btn-primary btn-sm" @click="closeTargetFlyout">Done</button>
+        </div>
       </div>
     </div>
   </Teleport>
@@ -375,23 +363,18 @@ type TargetItem =
   | { kind: 'company'; id: string; name: string }
   | { kind: 'device';  id: string; hostname: string }
 
-const targetItems     = ref<TargetItem[]>([]);
+const targetItems      = ref<TargetItem[]>([]);
 const targetFlyoutOpen = ref(false);
-type FlyoutStep = '' | 'company' | 'devices';
-const flyoutStep = ref<FlyoutStep>('');
+const flyoutCategory   = ref<'all' | 'sites' | 'devices'>('all');
+const flyoutSearch     = ref('');
 
-const flyoutCompanyQuery     = ref('');
-const flyoutSelectedCompanies = reactive<Record<string, string>>({}); // id → name
-const flyoutDeviceQuery      = ref('');
-const flyoutSelectedDevices  = reactive<Record<string, string>>({}); // id → hostname
-
-const flyoutCompanyMatches = computed(() => {
-  const q = flyoutCompanyQuery.value.toLowerCase();
+const flyoutSiteMatches = computed(() => {
+  const q = flyoutSearch.value.toLowerCase();
   return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
 
 const flyoutDeviceMatches = computed(() => {
-  const q = flyoutDeviceQuery.value.toLowerCase();
+  const q = flyoutSearch.value.toLowerCase();
   return devices.value.filter(d =>
     !q ||
     (d.hostname ?? '').toLowerCase().includes(q) ||
@@ -399,46 +382,35 @@ const flyoutDeviceMatches = computed(() => {
   );
 });
 
-function openTargetFlyout() {
-  flyoutCompanyQuery.value = '';
-  flyoutDeviceQuery.value  = '';
-  Object.keys(flyoutSelectedCompanies).forEach(k => delete flyoutSelectedCompanies[k]);
-  Object.keys(flyoutSelectedDevices).forEach(k => delete flyoutSelectedDevices[k]);
+function isTargeted(kind: string, id?: string): boolean {
+  if (kind === 'all') return targetItems.value.some(t => t.kind === 'all');
+  return targetItems.value.some(t => t.kind === kind && (t as any).id === id);
+}
 
-  const existing = targetItems.value;
-  if (existing.length && existing[0].kind === 'company') {
-    existing.forEach(t => { if (t.kind === 'company') flyoutSelectedCompanies[t.id] = t.name; });
-    flyoutStep.value = 'company';
-  } else if (existing.length && existing[0].kind === 'device') {
-    existing.forEach(t => { if (t.kind === 'device') flyoutSelectedDevices[t.id] = t.hostname; });
-    flyoutStep.value = 'devices';
-  } else {
-    flyoutStep.value = '';
+function toggleTarget(item: TargetItem) {
+  if (item.kind === 'all') {
+    targetItems.value = isTargeted('all') ? [] : [item];
+    return;
   }
+  const id = (item as any).id as string;
+  if (isTargeted(item.kind, id)) {
+    targetItems.value = targetItems.value.filter(t => (t as any).id !== id);
+  } else if (targetItems.value.length && targetItems.value[0].kind !== item.kind) {
+    targetItems.value = [item]; // switching kind clears previous selection
+  } else {
+    targetItems.value.push(item);
+  }
+}
+
+function openTargetFlyout() {
+  flyoutSearch.value = '';
+  const first = targetItems.value[0];
+  if (first?.kind === 'company') flyoutCategory.value = 'sites';
+  else if (first?.kind === 'device') flyoutCategory.value = 'devices';
+  else flyoutCategory.value = 'all';
   targetFlyoutOpen.value = true;
 }
 function closeTargetFlyout() { targetFlyoutOpen.value = false; }
-
-function addAllDevices() {
-  targetItems.value = [{ kind: 'all' }];
-  closeTargetFlyout();
-}
-function toggleFlyoutCompany(id: string, name: string) {
-  if (flyoutSelectedCompanies[id]) delete flyoutSelectedCompanies[id];
-  else flyoutSelectedCompanies[id] = name;
-}
-function addCompanyTargets() {
-  targetItems.value = Object.entries(flyoutSelectedCompanies).map(([id, name]) => ({ kind: 'company' as const, id, name }));
-  closeTargetFlyout();
-}
-function toggleFlyoutDevice(id: string, hostname: string) {
-  if (flyoutSelectedDevices[id]) delete flyoutSelectedDevices[id];
-  else flyoutSelectedDevices[id] = hostname;
-}
-function addDeviceTargets() {
-  targetItems.value = Object.entries(flyoutSelectedDevices).map(([id, hostname]) => ({ kind: 'device' as const, id, hostname }));
-  closeTargetFlyout();
-}
 function removeTargetItem(i: number) { targetItems.value.splice(i, 1); }
 
 function targetLabel(t: TargetItem): string {
@@ -596,13 +568,13 @@ onMounted(async () => {
 
 /* Component / target table */
 .jf-table { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
-.jf-thead { display: flex; align-items: center; padding: 7px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.jf-thead { display: flex; align-items: center; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
 .jf-th { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .jf-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
 .jf-row:last-of-type { border-bottom: none; }
-.jf-td { padding: 9px 14px; font-size: 13px; color: var(--text); display: flex; align-items: center; }
+.jf-td { padding: 12px 14px; font-size: 13px; color: var(--text); display: flex; align-items: center; }
 .jf-td-actions { gap: 4px; }
-.jf-footer { padding: 9px 14px; border-top: 1px solid var(--border); }
+.jf-footer { padding: 10px 14px; border-top: 1px solid var(--border); }
 
 /* Empty state */
 .jf-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 20px; text-align: center; }
@@ -669,18 +641,11 @@ onMounted(async () => {
 }
 .tf-close:hover { background: var(--surface-2); color: var(--text); }
 
-/* Type picker options */
-.tf-options { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
-.tf-opt {
-  display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; text-align: left;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
-  cursor: pointer; font-family: var(--font); transition: border-color .12s, background .12s;
-}
-.tf-opt:hover { border-color: var(--accent); background: rgba(78,126,247,.05); }
-.tf-opt-name { font-size: 13px; font-weight: 600; color: var(--text); }
-.tf-opt-desc { font-size: 11px; color: var(--muted); }
+/* Category dropdown */
+.tf-cat { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-act-btn { flex-shrink: 0; }
 
-/* Search + list (company/device steps) */
+/* Search + list */
 .tf-search { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tf-list { flex: 1; overflow-y: auto; }
 .tf-row {
