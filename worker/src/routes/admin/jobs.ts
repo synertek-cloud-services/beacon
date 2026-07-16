@@ -254,7 +254,7 @@ adminJobs.get('/:id', async (c) => {
   const cmds = await c.env.DB.prepare(`
     SELECT
       c.id, c.device_id, c.component_id, c.component_order,
-      c.status, c.result, c.created_at, c.completed_at,
+      c.status, c.result, c.warning, c.created_at, c.completed_at,
       d.hostname, d.os_type,
       t.name AS tenant_name,
       comp.name AS component_name
@@ -289,6 +289,7 @@ adminJobs.get('/:id', async (c) => {
       componentOrder: row.component_order,
       status:         row.status,
       result:         row.result,
+      warning:        row.warning === 1,
       createdAt:      row.created_at,
       completedAt:    row.completed_at,
     });
