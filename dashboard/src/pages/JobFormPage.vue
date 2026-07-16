@@ -195,7 +195,7 @@
           <input v-model="compFlyoutQuery" class="pf-input" placeholder="Find Component" style="max-width:none" />
         </div>
         <div class="tf-list">
-          <div v-for="c in compFlyoutMatches" :key="c.id" class="cf-row">
+          <div v-for="c in compFlyoutMatches" :key="c.id" :class="['cf-row', { 'cf-row-added': orderedIds.includes(c.id) }]">
             <div class="cf-row-icon">
               <svg v-if="c.type === 'script'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
               <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -204,12 +204,10 @@
               <span class="cf-row-name">{{ c.name }}</span>
               <span v-if="c.description" class="cf-row-desc">{{ c.description }}</span>
             </div>
-            <button
-              v-if="!orderedIds.includes(c.id)"
-              class="btn btn-ghost btn-sm cf-add-btn"
-              @click="addComponent(c)"
-            >Add</button>
-            <span v-else class="cf-added-label">Added</span>
+            <button v-if="!orderedIds.includes(c.id)" class="btn btn-ghost btn-sm cf-add-btn" @click="addComponent(c)">Add</button>
+            <span v-else class="cf-check">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
           </div>
           <div v-if="!compFlyoutMatches.length" class="tf-empty-msg">No components found.</div>
         </div>
@@ -715,6 +713,8 @@ onMounted(async () => {
 .cf-row-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cf-row-name { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cf-row-desc { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-row-added { background: rgba(78,126,247,.07); border-left: 2px solid var(--accent); }
+.cf-row-added .cf-row-icon { border-color: rgba(78,126,247,.4); color: var(--accent); }
 .cf-add-btn { flex-shrink: 0; }
-.cf-added-label { font-size: 11px; color: var(--teal); font-weight: 600; flex-shrink: 0; padding: 0 4px; }
+.cf-check { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; }
 </style>
