@@ -783,13 +783,129 @@ Key behaviors, all confirmed against the real Datto reference (not guessed):
 - The main form page shows a separate, simpler read-only list of currently-selected sites (name only, no per-row actions) plus a page-level "Remove all" button — removal from the *main* list happens by reopening the flyout and clicking "Remove" there, or via "Remove all."
 - Same right-side-panel shell as the Add Monitor drawer (`.mo-overlay`/`.mo-inner` — see below), just narrower (420px vs. 620px) and without the multi-section internal structure, since this only has one job (search + pick).
 
+## Flyout selected-state pattern (consistent across component and target flyouts)
+
+Both `JobFormPage.vue`'s component picker flyout (`.cf-`) and target picker flyout (`.tf-`) use the same selected-state interaction — established after a correction mid-session when the two flyouts had diverged:
+
+**Row template (`v-if/v-else` on the right-side action slot):**
+```html
+<button v-if="!isSelected(item.id)" class="btn btn-ghost btn-sm" @click="addItem(item)">Add</button>
+<span v-else class="cf-check" @click="removeItem(item.id)" title="Click to remove">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+</span>
+```
+
+**Row CSS:**
+```css
+.cf-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer; }
+.cf-row.cf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--accent); }
+.cf-check { width: 22px; display: flex; align-items: center; justify-content: center;
+            color: var(--teal); flex-shrink: 0; cursor: pointer; }
+```
+
+The same `.tf-row-selected` / `.tf-check` naming applies for the target flyout — identical CSS, different prefix. Key behaviors:
+- Left border (`border-left: 2px solid var(--accent)`) + background tint mark selected rows visually.
+- The **teal checkmark is on the right**, replacing the Add button via `v-if/v-else` — not a separate column and not on the left side. Clicking the checkmark calls the same toggle function as clicking Add (a single `toggle(item)` helper is fine).
+- The flyout stays open across multiple picks — never auto-closes on selection, matching Datto's pattern.
+- Removing via the flyout checkmark is equivalent to clicking the chip's × on the main form — both call the same remove path.
+
+**Target flyout also has a category dropdown** (no equivalent in the component flyout):
+```html
+<div class="tf-cat">
+  <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
+    <option value="all">All Devices</option>
+    <option value="sites">Sites</option>
+    <option value="devices">Devices</option>
+  </select>
+</div>
+```
+Switching kind (e.g. from sites to devices) clears previously selected items of the other kind — enforced inside `toggleTarget()`:
+```typescript
+function toggleTarget(item: TargetItem) {
+  if (item.kind === 'all') { targetItems.value = isTargeted('all') ? [] : [item]; return; }
+  const id = (item as any).id as string;
+  if (isTargeted(item.kind, id)) {
+    targetItems.value = targetItems.value.filter(t => (t as any).id !== id);
+  } else if (targetItems.value.length && targetItems.value[0].kind !== item.kind) {
+    targetItems.value = [item]; // kind switch: clear previous
+  } else {
+    targetItems.value.push(item);
+  }
+}
+```
+
+## Job Detail page layout (`JobDetailPage.vue`)
+
+New page at `/jobs/:id` — fourth full-page form/detail shell in the codebase. Patterns:
+
+**Details card:**
+```css
+.jd-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+           padding: 20px 24px; margin-bottom: 20px; }
+.jd-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; }
+.jd-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.jd-value { font-size: 13px; color: var(--text); }
+```
+
+**SVG flow diagram** (inline, viewBox `0 0 680 210`) — shows the job pipeline as three stages (Pending → Running → Successes/Warnings/Failures). Dynamic bindings use `flowStats` computed over all commands:
+```typescript
+const flowStats = computed(() => {
+  let queued = 0, sent = 0, successes = 0, warnings = 0, failures = 0;
+  for (const dev of (detail.value?.devices ?? [])) {
+    for (const cmd of dev.commands) {
+      if      (cmd.status === 'queued')                    queued++;
+      else if (cmd.status === 'sent')                      sent++;
+      else if (cmd.status === 'failed')                    failures++;
+      else if (cmd.status === 'completed' && cmd.warning)  warnings++;
+      else if (cmd.status === 'completed')                 successes++;
+    }
+  }
+  return { queued, sent, successes, warnings, failures };
+});
+```
+Box fill is green/amber/red based on non-zero count; active (queued+sent > 0) box uses `var(--accent)`. Connector path for the fork: `M 368 45 H 400 V 175 M 400 45 H 428 M 400 110 H 428 M 400 175 H 428`.
+
+**Command status badges** (`.jd-status-*`):
+```css
+.jd-status-success { color: var(--green); }
+.jd-status-failed  { color: var(--danger); }
+.jd-status-warning { color: var(--amber); }
+.jd-status-sent    { color: var(--accent); }
+.jd-status-queued  { color: var(--text-muted); }
+```
+Use a `badgeClass(cmd)` / `badgeLabel(cmd)` helper pair (same pattern as `JobsPage.vue`'s `.mini-badge`) — class and label change together, so a template ternary would have to be duplicated.
+
+**Output expansion** — one row open at a time (not a Set), using a discriminated object ref:
+```typescript
+const expandedOutput = ref<{devId: string, cmdId: string, type: 'stdout'|'stderr', content: string} | null>(null);
+```
+Toggle: if the same `{devId, cmdId, type}` is already open, set to `null`; otherwise replace. Rendered in a `<tr class="jd-output-row">` inserted after the device's last command row.
+
+**Result caching** — `cmd.result` is a JSON string; parse it once per `cmd` object using a `WeakMap`:
+```typescript
+const resultCache = new WeakMap<JobDeviceCommand, CmdResult | null>();
+function parseResult(cmd: JobDeviceCommand): CmdResult | null {
+  if (resultCache.has(cmd)) return resultCache.get(cmd)!;
+  let r: CmdResult | null = null;
+  try { r = cmd.result ? JSON.parse(cmd.result) : null; } catch { r = null; }
+  resultCache.set(cmd, r);
+  return r;
+}
+```
+
 ## Mini-badge palette (Jobs page per-device command status)
 
 `JobsPage.vue`'s `.mini-badge` family (queued/sent/completed/failed) gained a fifth state this session:
 ```css
 .mini-warning { background: rgba(240,168,64,.12); color: var(--amber); }
 ```
-Shown instead of the `completed` badge specifically when `status === 'completed' && warning === true` (post-condition match) — computed via a small `badgeClass(cmd)`/`badgeLabel(cmd)` helper pair rather than a template ternary, since both the badge's class *and* its label text need to change together. `warning` never changes the underlying `status` value itself or the stdout/stderr/exit-code display — it's a purely additive visual state.
+Shown instead of the `completed` badge specifically when `status === 'completed' && warning === true` (post-condition match) — computed via a small `badgeClass(cmd)`/`badgeLabel(cmd)` helper pair rather than a template ternary, since both the badge's class *and* its label text need to change together. `warning` never changes the underlying `status` value itself or the stdout/stderr/exit-code display — it's a purely additive visual state. This same helper pattern is now used in `JobDetailPage.vue` for `.jd-status-*` badges.
+
+## Table row padding standard
+
+Data table cells use `12px 14px` (`jf-td` in `JobFormPage.vue`). Header cells use `10px 14px` (`jf-thead`). Footer/summary rows use `10px 14px`. These were corrected from the original `9px` (cell) / `7px` (header) — the tighter values made tables look cramped against adjacent filter/chip bars. When adding a new data table, use `padding: 12px 14px` for `<td>` and `padding: 10px 14px` for `<th>` as the baseline; only go tighter if the table is inside a constrained panel (e.g. a flyout or a card, where the surrounding padding already provides breathing room).
 
 ## Sidebar resizer
 

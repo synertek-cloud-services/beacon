@@ -1,5 +1,61 @@
 # Beacon — Project Log
 
+## Session: 2026-07-16 — Job Detail page, flyout selected-state consistency, Quick Job ComStore tab, JobsPage cleanup
+
+### What was completed
+
+**1. Job Detail page (`/jobs/:id`) — `JobDetailPage.vue` (new file)**
+
+Full detail view replacing the inline row-expansion that used to live in `JobsPage.vue`. Layout:
+- Breadcrumb + title bar with Retire/Purge action buttons (same role-gating as the list-page toolbar: Retire requires technician, Purge requires admin).
+- **Details card** — 2-column `.jd-details-grid` (Job name, Status, Created by, Created, Scheduled at, Expires, Targets summary).
+- **SVG flow diagram** — inline SVG (viewBox `0 0 680 210`) modelled on Datto's "Job Summary" view: three stage boxes (Pending, Running, then three output branches Successes/Warnings/Failures) connected by a forking path. Dynamic: box fill color and count text bound to `flowStats` computed over all device commands. Pending+Running boxes glow with `var(--accent)` when queued/sent > 0; Successes green, Warnings amber, Failures red.
+- **Devices table** — per device: hostname, site, command count, status badges. Per-command row: component name, status badge, Exit Code, StdOut/StdErr expand buttons. Output shown inline in a `<tr class="jd-output-row">` below the command row — one open at a time, clicking the same button again collapses it.
+- `commands.warning` is now returned by the job detail endpoint (was missing from the SELECT) and surfaced as a `.jd-status-warning` badge. SQLite stores it as a 0/1 integer; the route handler does `warning: row.warning === 1` coercion.
+
+**2. `JobsPage.vue` — cleaned up to a pure list page**
+
+All inline expansion code removed: `expandedId` ref, `detail`/`detailLoading` state, `toggleExpanded()`/`cancelJob()` functions, the `CmdResult` interface, the expand-row `<tr>` template (65+ lines). Row click now `router.push('/jobs/' + job.id)`. Job name column now a `<RouterLink>` (secondary nav path). Cancel column removed from table header and rows.
+
+**3. Flyout selected-state pattern — made consistent across both flyouts**
+
+`JobFormPage.vue` had two flyout panels (component picker `.cf-`, target picker `.tf-`) that had drifted into different interaction patterns. Corrected mid-session after user feedback ("The checkbox was on the right the highlight on the left. Why would I want it different?"):
+- Both flyouts now use: accent left border + tint background on selected rows; **teal checkmark on the right replacing the Add button** (`v-if/v-else`), clickable to remove.
+- Component flyout: the checkmark's `@click` calls `removeAt(orderedIds.indexOf(c.id))` — works the same as clicking × on the reorder list below.
+- Target flyout: the checkmark's `@click` calls `toggleTarget(item)` — same function that Add calls.
+- CSS `.cf-check` / `.tf-check` both gained `cursor: pointer` (previously the checkmark was display-only, not clickable).
+
+**4. Target flyout rebuilt (Datto-style category dropdown)**
+
+The previous target flyout used a 3-step interaction: pick type (All/Sites/Devices), then a modal-within-the-flyout list. Replaced with a Datto-style single-panel flow: a `<select>` category dropdown filters the list between the three modes; search input filters within the current category; per-row Add/checkmark inline. `toggleTarget()` auto-clears items of a different kind on add (switching from sites to devices clears existing site targets). Targets display as chips (`isTargeted` bool-checks drive both per-row state and the chip list on the form).
+
+**5. Quick Job modal ComStore tab (DeviceDetailPage.vue)**
+
+Added a third tab — "ComStore" — alongside the existing Library and Write Script tabs, matching `ComponentsPage.vue`'s own split. Store components loaded lazily on first tab open, in parallel with library components but cached after first load. `submitQuickJob` condition updated to treat `store` tab the same as `library` (both resolve a `ComponentRef`).
+
+**6. Table row padding standard**
+
+`jf-td` (data cells) corrected from `9px` → `12px`; `jf-thead` (header cells) from `7px` → `10px`. Triggered by a user screenshot showing the Components table as cramped. This established a project-wide standard — see STYLE.md.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Inline SVG for the flow diagram | No chart library needed; geometry is fixed (only colors/counts are dynamic). Keeps the dependency count flat — the codebase already has xterm.js as its only novel dependency this area |
+| One `expandedOutput` object ref, not a Set | Only one output panel can usefully be open at a time on the detail page; a Set would let multiple panels open simultaneously with no clear UX benefit |
+| `WeakMap` for result caching | `cmd.result` is a raw JSON string; parsing it on every render would be wasteful. `WeakMap` garbage-collects naturally when the command object is gone, no manual cleanup |
+| `warning: row.warning === 1` coercion in route handler | D1/SQLite stores booleans as integers 0/1. This is the same pattern used elsewhere in the codebase (e.g. `components` origin flags) — don't rely on JS's truthiness for `row.warning`, always compare explicitly |
+| Both flyout checkmarks clickable to remove | User feedback was explicit: the component flyout had a clickable checkmark, target flyout did not; they needed to match. Once the pattern is established, all future flyouts should follow it |
+| Target kind-switch clears prior selection | Mixing site and device targets in one job has no defined semantics in Beacon's target-resolution logic — clearing on kind-switch avoids a confusing half-selected state rather than silently sending an unexpected target combination |
+
+### Next logical steps
+
+1. **Recurrence patterns beyond single-scheduled** — Datto's reference screenshots show Immediately / At selected date and time / Daily / Weekly / Monthly / Monthly day of week / Initial Audit. The last four need a `recurrence_pattern` column (migration), a cron change to reschedule after dispatch, and richer UI. Evaluated this session; deferred as non-trivial with no clear near-term payoff at Beacon's current fleet size.
+
+2. **Job Detail polish** — the StdOut/StdErr output viewer works but is minimal. Could add: a "Copy to clipboard" button on the pre block, a "Copy Job" button in the title bar (clone job with same targets/components → `/jobs/new?clone=:id`), better empty state when a job has no devices yet (pending scheduled dispatch).
+
+3. **Rest of Agent Browser** (File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover, shutdown/restart) — still all deliberately deferred from the Remote Shell session, unchanged. All can reuse the `SessionRelay` DO and `open_session` command channel without new infrastructure.
+
 ## Session: 2026-07-16 (ADMIN_SECRET rotation, WSL agent self-update recovery, real scheduled job dispatch + Create Job full page)
 
 ### What was completed
