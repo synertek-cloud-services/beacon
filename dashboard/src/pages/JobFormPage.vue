@@ -1,14 +1,12 @@
 <template>
   <div class="pf-page">
 
-    <!-- Breadcrumb -->
     <nav class="pf-crumb">
       <RouterLink to="/jobs" class="pf-crumb-link">Jobs</RouterLink>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
       <span class="pf-crumb-current">Create a Job</span>
     </nav>
 
-    <!-- Top bar -->
     <div class="pf-topbar">
       <button class="pf-back" @click="router.push('/jobs')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
@@ -41,43 +39,74 @@
       <!-- Components -->
       <div class="pf-group">
         <label class="pf-label">Components</label>
-        <div class="pf-monitors">
-          <div v-if="!orderedIds.length" class="pf-mon-empty">
-            <p>Components are your scripts or application installers. You can create your own or download them from the ComStore.</p>
+        <div class="jf-table">
+          <div class="jf-thead">
+            <span class="jf-th" style="flex:1">Name</span>
+            <span class="jf-th" style="width:110px">Variables</span>
+            <span class="jf-th" style="width:110px"></span>
           </div>
-          <template v-else>
-            <div v-for="(id, idx) in orderedIds" :key="id" class="pf-comp-row">
-              <div class="pf-comp-row-head">
-                <span class="pf-comp-order">{{ idx + 1 }}</span>
-                <span class="pf-mon-desc">{{ nameFor(id) }}</span>
-                <div class="pf-mon-actions">
-                  <button class="btn-icon" :disabled="idx === 0" @click="moveUp(idx)" title="Move up">↑</button>
-                  <button class="btn-icon" :disabled="idx === orderedIds.length - 1" @click="moveDown(idx)" title="Move down">↓</button>
-                  <button class="btn-text danger" @click="removeAt(idx)">Remove</button>
-                </div>
+
+          <!-- Empty state -->
+          <div v-if="!orderedIds.length && !compPickerOpen" class="jf-empty">
+            <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted)">
+              <rect x="2" y="7" width="20" height="14" rx="2"/>
+              <rect x="6" y="3" width="4" height="4" rx="1"/>
+              <rect x="14" y="3" width="4" height="4" rx="1"/>
+            </svg>
+            <p>Components are your scripts or application installers. You can create your own or download them from the ComStore.</p>
+            <button class="btn btn-primary btn-sm" @click="openCompPicker">Add Component</button>
+          </div>
+
+          <!-- Component rows -->
+          <template v-for="(id, idx) in orderedIds" :key="id">
+            <div class="jf-row">
+              <div class="jf-td" style="flex:1;display:flex;align-items:center;gap:8px">
+                <span class="jf-order">{{ idx + 1 }}</span>
+                <span>{{ nameFor(id) }}</span>
               </div>
-              <div v-if="varsFor(id).length" class="pf-comp-vars">
-                <ComponentVariablePrompt
-                  :ref="(el: any) => setPromptRef(id, el)"
-                  :variables="varsFor(id)"
-                  :values="variableValues[id] ?? {}"
-                  @update:values="v => { variableValues[id] = v }"
-                />
+              <div class="jf-td" style="width:110px">
+                <span v-if="varsFor(id).length" class="jf-var-badge">{{ varsFor(id).length }} var{{ varsFor(id).length !== 1 ? 's' : '' }}</span>
+                <span v-else class="jf-muted">—</span>
               </div>
+              <div class="jf-td jf-td-actions" style="width:110px">
+                <button class="btn-icon" :disabled="idx === 0" @click="moveUp(idx)" title="Move up">↑</button>
+                <button class="btn-icon" :disabled="idx === orderedIds.length - 1" @click="moveDown(idx)" title="Move down">↓</button>
+                <button class="btn-text danger" @click="removeAt(idx)">Remove</button>
+              </div>
+            </div>
+            <div v-if="varsFor(id).length" class="jf-vars-row">
+              <ComponentVariablePrompt
+                :ref="(el: any) => setPromptRef(id, el)"
+                :variables="varsFor(id)"
+                :values="variableValues[id] ?? {}"
+                @update:values="v => { variableValues[id] = v }"
+              />
             </div>
           </template>
-          <div class="pf-mon-add">
-            <div class="pf-site-wrap">
+
+          <!-- Search picker row (shown when Add Component is active) -->
+          <div v-if="compPickerOpen" class="jf-picker-row">
+            <div class="pf-site-wrap" style="flex:1">
               <input
-                v-model="compQuery" class="pf-input pf-site-input" placeholder="Search components to add…"
-                @focus="compOpen = true" @blur="hideCompDrop"
+                ref="compSearchEl"
+                v-model="compQuery"
+                class="pf-input pf-site-input"
+                placeholder="Search components to add…"
+                @blur="hideCompDrop"
+                @keydown.escape="compPickerOpen = false"
               />
-              <div v-if="compOpen && compMatches.length" class="pf-site-drop">
+              <div v-if="compMatches.length" class="pf-site-drop">
                 <div v-for="c in compMatches" :key="c.id" class="pf-site-opt" @mousedown.prevent="addComponent(c)">
-                  {{ c.name }} <span class="text-xs text-muted-2">{{ c.shell }}</span>
+                  {{ c.name }}<span class="jf-muted" style="margin-left:6px">{{ c.shell }}</span>
                 </div>
               </div>
             </div>
+            <button class="btn-text" @click="compPickerOpen = false">Cancel</button>
+          </div>
+
+          <!-- Add more button (only when items exist and picker is closed) -->
+          <div v-if="orderedIds.length && !compPickerOpen" class="jf-footer">
+            <button class="btn btn-ghost btn-sm" @click="openCompPicker">+ Add Component</button>
           </div>
         </div>
       </div>
@@ -85,36 +114,39 @@
       <!-- Targets -->
       <div class="pf-group">
         <label class="pf-label">Targets</label>
-        <div class="seg-bar">
-          <button :class="['seg-btn', { active: targetType === 'all' }]" @click="targetType = 'all'">All Devices</button>
-          <button :class="['seg-btn', { active: targetType === 'tenants' }]" @click="targetType = 'tenants'">A Company</button>
-          <button :class="['seg-btn', { active: targetType === 'devices' }]" @click="targetType = 'devices'">Specific Devices</button>
-        </div>
-
-        <!-- Company picker -->
-        <div v-if="targetType === 'tenants'" class="pf-site-wrap" style="margin-top:10px;max-width:340px">
-          <input
-            v-model="companyQuery" class="pf-input pf-site-input" placeholder="Enter company name…"
-            @focus="companyOpen = true" @blur="hideCompanyDrop"
-          />
-          <div v-if="companyOpen && companyMatches.length" class="pf-site-drop">
-            <div v-for="t in companyMatches" :key="t.id" class="pf-site-opt" @mousedown.prevent="selectCompany(t)">{{ t.name }}</div>
+        <div class="jf-table">
+          <div class="jf-thead">
+            <span class="jf-th" style="flex:1">Name</span>
+            <span class="jf-th" style="width:80px"></span>
           </div>
-        </div>
 
-        <!-- Specific devices -->
-        <div v-if="targetType === 'devices'" style="margin-top:10px">
-          <input v-model="deviceSearch" class="pf-input" placeholder="Search devices…" style="margin-bottom:8px;max-width:340px" />
-          <div class="pf-monitors" style="max-height:240px;overflow-y:auto">
-            <label v-for="d in filteredDevices" :key="d.id" class="pf-mon-row" style="cursor:pointer">
-              <input type="checkbox" :checked="!!selectedDevices[d.id]" @change="toggleDevice(d.id)" />
-              <span class="mono text-sm">{{ d.hostname ?? d.id.slice(0, 8) }}</span>
-              <span class="text-xs text-muted-2">{{ d.tenantName }}</span>
-            </label>
-            <div v-if="filteredDevices.length === 0" class="pf-mon-empty"><p>No matching devices.</p></div>
+          <!-- Empty state -->
+          <div v-if="!targetItems.length" class="jf-empty">
+            <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted)">
+              <rect x="5" y="2" width="9" height="14" rx="2"/>
+              <rect x="13" y="8" width="8" height="11" rx="2"/>
+              <line x1="9" y1="14" x2="9" y2="14" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <p>Targets are the devices this Job will run on. The Devices targeted by a Job are calculated just before it is scheduled to run.</p>
+            <button class="btn btn-primary btn-sm" @click="openTargetFlyout">Add Target</button>
           </div>
-        </div>
 
+          <!-- Target rows -->
+          <template v-else>
+            <div v-for="(t, i) in targetItems" :key="i" class="jf-row">
+              <div class="jf-td" style="flex:1;display:flex;align-items:center;gap:8px">
+                <span>{{ targetLabel(t) }}</span>
+                <span v-if="t.kind !== 'all'" class="jf-kind-tag">{{ t.kind === 'company' ? 'Company' : 'Device' }}</span>
+              </div>
+              <div class="jf-td jf-td-actions" style="width:80px">
+                <button class="btn-text danger" @click="removeTargetItem(i)">Remove</button>
+              </div>
+            </div>
+            <div v-if="targetItems[0]?.kind !== 'all'" class="jf-footer">
+              <button class="btn btn-ghost btn-sm" @click="openTargetFlyout">+ Add Target</button>
+            </div>
+          </template>
+        </div>
         <p v-if="zeroDeviceWarning" class="field-hint field-hint-warn">
           This target currently resolves to 0 approved devices.
         </p>
@@ -123,30 +155,29 @@
       <!-- Schedule -->
       <div class="pf-group">
         <label class="pf-label">Schedule</label>
-        <p class="field-hint">
-          By default, offline devices queue until they come online or the job expires — we run this job as soon as possible after the configured start time.
-        </p>
+        <p class="field-hint">By default, offline devices queue until they come online or the job expires — we run this job as soon as possible after the configured start time.</p>
         <div class="seg-bar">
           <button :class="['seg-btn', { active: recurrence === 'immediately' }]" @click="recurrence = 'immediately'">Immediately</button>
           <button :class="['seg-btn', { active: recurrence === 'scheduled' }]" @click="recurrence = 'scheduled'">At a scheduled time</button>
         </div>
 
         <template v-if="recurrence === 'scheduled'">
-          <div style="margin-top:10px;max-width:280px">
-            <input type="datetime-local" v-model="scheduledAtLocal" class="pf-input" />
-          </div>
-
-          <div style="margin-top:14px">
-            <label class="pf-label" style="font-size:13px">Expiration</label>
-            <select v-model="expirationChoice" class="pf-input" style="max-width:240px;margin-top:6px">
-              <option value="none">No expiration</option>
-              <option value="3600">1 hour after start</option>
-              <option value="14400">4 hours after start</option>
-              <option value="86400">24 hours after start</option>
-            </select>
-            <p class="field-hint">If this job hasn't started running by then, it's cancelled instead of running late.</p>
+          <div style="margin-top:12px;max-width:280px">
+            <label class="jf-sublabel">Start time</label>
+            <input type="datetime-local" v-model="scheduledAtLocal" class="pf-input" style="margin-top:6px" />
           </div>
         </template>
+
+        <div style="margin-top:14px;max-width:320px">
+          <label class="jf-sublabel">Expiration</label>
+          <select v-model="expirationChoice" class="pf-input" style="margin-top:6px">
+            <option value="none">Never</option>
+            <option value="3600">1 hour after {{ recurrence === 'scheduled' ? 'start time' : 'creation' }}</option>
+            <option value="14400">4 hours after {{ recurrence === 'scheduled' ? 'start time' : 'creation' }}</option>
+            <option value="86400">24 hours after {{ recurrence === 'scheduled' ? 'start time' : 'creation' }}</option>
+          </select>
+          <p class="field-hint" style="margin-top:4px">If the job hasn't run on a device by then, it won't run at all.</p>
+        </div>
       </div>
 
       <!-- Execution -->
@@ -161,10 +192,90 @@
 
     </div>
   </div>
+
+  <!-- Target flyout -->
+  <Teleport to="body">
+    <div v-if="targetFlyoutOpen" class="tf-overlay" @click.self="closeTargetFlyout">
+      <div class="tf-panel">
+        <div class="tf-head">
+          <h2 class="tf-title">
+            {{ flyoutStep === 'company' ? 'Add Company' : flyoutStep === 'devices' ? 'Add Devices' : 'Add Target' }}
+          </h2>
+          <button class="tf-close" @click="closeTargetFlyout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <!-- Step 1: type picker -->
+        <template v-if="flyoutStep === ''">
+          <div class="tf-options">
+            <button class="tf-opt" @click="addAllDevices">
+              <span class="tf-opt-name">All Devices</span>
+              <span class="tf-opt-desc">Target every enrolled device</span>
+            </button>
+            <button class="tf-opt" @click="flyoutStep = 'company'">
+              <span class="tf-opt-name">A Company</span>
+              <span class="tf-opt-desc">Target all devices in one or more companies</span>
+            </button>
+            <button class="tf-opt" @click="flyoutStep = 'devices'">
+              <span class="tf-opt-name">Specific Devices</span>
+              <span class="tf-opt-desc">Choose individual devices by name</span>
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 2a: company picker -->
+        <template v-else-if="flyoutStep === 'company'">
+          <div class="tf-search">
+            <input v-model="flyoutCompanyQuery" class="pf-input" placeholder="Search companies…" style="max-width:none" />
+          </div>
+          <div class="tf-list">
+            <label v-for="t in flyoutCompanyMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': !!flyoutSelectedCompanies[t.id] }">
+              <input type="checkbox" :checked="!!flyoutSelectedCompanies[t.id]" @change="toggleFlyoutCompany(t.id, t.name)" style="accent-color:var(--accent)" />
+              <span>{{ t.name }}</span>
+            </label>
+            <div v-if="!flyoutCompanyMatches.length" class="tf-empty-msg">No companies found.</div>
+          </div>
+          <div class="tf-footer">
+            <button class="btn btn-ghost btn-sm" @click="flyoutStep = ''">Back</button>
+            <button class="btn btn-primary btn-sm" :disabled="!Object.keys(flyoutSelectedCompanies).length" @click="addCompanyTargets">
+              Add {{ Object.keys(flyoutSelectedCompanies).length > 0 ? Object.keys(flyoutSelectedCompanies).length : '' }}
+              {{ Object.keys(flyoutSelectedCompanies).length === 1 ? 'company' : 'companies' }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 2b: device picker -->
+        <template v-else-if="flyoutStep === 'devices'">
+          <div class="tf-search">
+            <input v-model="flyoutDeviceQuery" class="pf-input" placeholder="Search devices…" style="max-width:none" />
+          </div>
+          <div class="tf-list">
+            <label v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': !!flyoutSelectedDevices[d.id] }">
+              <input type="checkbox" :checked="!!flyoutSelectedDevices[d.id]" @change="toggleFlyoutDevice(d.id, d.hostname ?? d.id.slice(0, 8))" style="accent-color:var(--accent)" />
+              <div class="tf-row-info">
+                <span>{{ d.hostname ?? d.id.slice(0, 8) }}</span>
+                <span class="tf-row-sub">{{ d.tenantName }}</span>
+              </div>
+            </label>
+            <div v-if="!flyoutDeviceMatches.length" class="tf-empty-msg">No matching devices.</div>
+          </div>
+          <div class="tf-footer">
+            <button class="btn btn-ghost btn-sm" @click="flyoutStep = ''">Back</button>
+            <button class="btn btn-primary btn-sm" :disabled="!Object.keys(flyoutSelectedDevices).length" @click="addDeviceTargets">
+              Add {{ Object.keys(flyoutSelectedDevices).length > 0 ? Object.keys(flyoutSelectedDevices).length : '' }}
+              device{{ Object.keys(flyoutSelectedDevices).length !== 1 ? 's' : '' }}
+            </button>
+          </div>
+        </template>
+
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type Component, type ComponentRef, type Tenant, type Device } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
@@ -177,25 +288,18 @@ const description = ref('');
 const busy        = ref(false);
 const formError   = ref('');
 
-// ── Components ──────────────────────────────────────────────────
+// ── Data ─────────────────────────────────────────────────────────
 
-const library    = ref<Component[]>([]);
-const orderedIds = ref<string[]>([]);
-const compQuery  = ref('');
-const compOpen   = ref(false);
+const library = ref<Component[]>([]);
+const tenants = ref<Tenant[]>([]);
+const devices = ref<Device[]>([]);
 
-const orderedRefs = computed<ComponentRef[]>(() =>
-  orderedIds.value.map((id, i) => ({
-    type: 'library', component_id: id, order: i + 1,
-    variable_values: variableValues[id],
-  }))
-);
+// ── Components ────────────────────────────────────────────────────
 
-function nameFor(id: string): string {
-  return library.value.find(c => c.id === id)?.name ?? id;
-}
-
-// ── Input variables ─────────────────────────────────────────────
+const orderedIds     = ref<string[]>([]);
+const compQuery      = ref('');
+const compPickerOpen = ref(false);
+const compSearchEl   = ref<HTMLInputElement | null>(null);
 
 const variableValues = reactive<Record<string, Record<string, string>>>({});
 const promptRefs: Record<string, { validate: () => string | null } | null> = {};
@@ -204,9 +308,15 @@ function setPromptRef(id: string, el: { validate: () => string | null } | null) 
   promptRefs[id] = el;
 }
 
-function varsFor(id: string) {
-  return library.value.find(c => c.id === id)?.variables ?? [];
-}
+function nameFor(id: string) { return library.value.find(c => c.id === id)?.name ?? id; }
+function varsFor(id: string) { return library.value.find(c => c.id === id)?.variables ?? []; }
+
+const orderedRefs = computed<ComponentRef[]>(() =>
+  orderedIds.value.map((id, i) => ({
+    type: 'library', component_id: id, order: i + 1,
+    variable_values: variableValues[id],
+  }))
+);
 
 const compMatches = computed(() => {
   const already = new Set(orderedIds.value);
@@ -216,99 +326,137 @@ const compMatches = computed(() => {
   return list.slice(0, 10);
 });
 
+function openCompPicker() {
+  compPickerOpen.value = true;
+  compQuery.value = '';
+  nextTick(() => compSearchEl.value?.focus());
+}
 function addComponent(c: Component) {
   orderedIds.value.push(c.id);
-  compQuery.value = '';
-  compOpen.value  = false;
+  compQuery.value      = '';
+  compPickerOpen.value = false;
 }
 function removeAt(idx: number) { orderedIds.value.splice(idx, 1); }
 function moveUp(idx: number) {
   if (idx === 0) return;
-  const arr = orderedIds.value;
-  [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+  [orderedIds.value[idx - 1], orderedIds.value[idx]] = [orderedIds.value[idx], orderedIds.value[idx - 1]];
 }
 function moveDown(idx: number) {
-  const arr = orderedIds.value;
-  if (idx >= arr.length - 1) return;
-  [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
+  if (idx >= orderedIds.value.length - 1) return;
+  [orderedIds.value[idx + 1], orderedIds.value[idx]] = [orderedIds.value[idx], orderedIds.value[idx + 1]];
 }
-function hideCompDrop() { setTimeout(() => { compOpen.value = false; }, 150); }
+function hideCompDrop() { setTimeout(() => { compPickerOpen.value = false; }, 150); }
 
-// ── Target ──────────────────────────────────────────────────────
+// ── Targets ───────────────────────────────────────────────────────
 
-type TargetType = 'all' | 'tenants' | 'devices';
-const targetType = ref<TargetType>('all');
+type TargetItem =
+  | { kind: 'all' }
+  | { kind: 'company'; id: string; name: string }
+  | { kind: 'device';  id: string; hostname: string }
 
-const tenants           = ref<Tenant[]>([]);
-const companyQuery      = ref('');
-const companyOpen       = ref(false);
-const selectedCompanyId = ref<string | null>(null);
+const targetItems     = ref<TargetItem[]>([]);
+const targetFlyoutOpen = ref(false);
+type FlyoutStep = '' | 'company' | 'devices';
+const flyoutStep = ref<FlyoutStep>('');
 
-const companyMatches = computed(() => {
-  if (!companyQuery.value.trim()) return tenants.value.slice(0, 10);
-  const q = companyQuery.value.toLowerCase();
-  return tenants.value.filter(t => t.name.toLowerCase().includes(q)).slice(0, 10);
+const flyoutCompanyQuery     = ref('');
+const flyoutSelectedCompanies = reactive<Record<string, string>>({}); // id → name
+const flyoutDeviceQuery      = ref('');
+const flyoutSelectedDevices  = reactive<Record<string, string>>({}); // id → hostname
+
+const flyoutCompanyMatches = computed(() => {
+  const q = flyoutCompanyQuery.value.toLowerCase();
+  return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
-function selectCompany(t: Tenant) {
-  selectedCompanyId.value = t.id;
-  companyQuery.value      = t.name;
-  companyOpen.value       = false;
-}
-function hideCompanyDrop() { setTimeout(() => { companyOpen.value = false; }, 150); }
 
-const devices         = ref<Device[]>([]);
-const deviceSearch    = ref('');
-const selectedDevices = reactive<Record<string, boolean>>({});
-
-const filteredDevices = computed(() => {
-  const q = deviceSearch.value.trim().toLowerCase();
-  if (!q) return devices.value;
+const flyoutDeviceMatches = computed(() => {
+  const q = flyoutDeviceQuery.value.toLowerCase();
   return devices.value.filter(d =>
+    !q ||
     (d.hostname ?? '').toLowerCase().includes(q) ||
     (d.tenantName ?? '').toLowerCase().includes(q)
   );
 });
-function toggleDevice(id: string) {
-  if (selectedDevices[id]) delete selectedDevices[id];
-  else selectedDevices[id] = true;
+
+function openTargetFlyout() {
+  flyoutCompanyQuery.value = '';
+  flyoutDeviceQuery.value  = '';
+  Object.keys(flyoutSelectedCompanies).forEach(k => delete flyoutSelectedCompanies[k]);
+  Object.keys(flyoutSelectedDevices).forEach(k => delete flyoutSelectedDevices[k]);
+
+  const existing = targetItems.value;
+  if (existing.length && existing[0].kind === 'company') {
+    existing.forEach(t => { if (t.kind === 'company') flyoutSelectedCompanies[t.id] = t.name; });
+    flyoutStep.value = 'company';
+  } else if (existing.length && existing[0].kind === 'device') {
+    existing.forEach(t => { if (t.kind === 'device') flyoutSelectedDevices[t.id] = t.hostname; });
+    flyoutStep.value = 'devices';
+  } else {
+    flyoutStep.value = '';
+  }
+  targetFlyoutOpen.value = true;
+}
+function closeTargetFlyout() { targetFlyoutOpen.value = false; }
+
+function addAllDevices() {
+  targetItems.value = [{ kind: 'all' }];
+  closeTargetFlyout();
+}
+function toggleFlyoutCompany(id: string, name: string) {
+  if (flyoutSelectedCompanies[id]) delete flyoutSelectedCompanies[id];
+  else flyoutSelectedCompanies[id] = name;
+}
+function addCompanyTargets() {
+  targetItems.value = Object.entries(flyoutSelectedCompanies).map(([id, name]) => ({ kind: 'company' as const, id, name }));
+  closeTargetFlyout();
+}
+function toggleFlyoutDevice(id: string, hostname: string) {
+  if (flyoutSelectedDevices[id]) delete flyoutSelectedDevices[id];
+  else flyoutSelectedDevices[id] = hostname;
+}
+function addDeviceTargets() {
+  targetItems.value = Object.entries(flyoutSelectedDevices).map(([id, hostname]) => ({ kind: 'device' as const, id, hostname }));
+  closeTargetFlyout();
+}
+function removeTargetItem(i: number) { targetItems.value.splice(i, 1); }
+
+function targetLabel(t: TargetItem): string {
+  if (t.kind === 'all') return 'All Devices';
+  if (t.kind === 'company') return t.name;
+  return t.hostname;
 }
 
-// null = target not yet meaningfully selected (no warning); 0 = resolves to
-// nothing (warn) — mirrors the equivalent check the old CreateJobModal had.
 const resolvedDeviceCount = computed<number | null>(() => {
-  if (targetType.value === 'all') return devices.value.length;
-  if (targetType.value === 'tenants')
-    return selectedCompanyId.value ? devices.value.filter(d => d.tenantId === selectedCompanyId.value).length : null;
-  if (targetType.value === 'devices') {
-    const n = Object.keys(selectedDevices).length;
-    return n > 0 ? n : null;
+  if (!targetItems.value.length) return null;
+  const first = targetItems.value[0];
+  if (first.kind === 'all') return devices.value.length;
+  if (first.kind === 'company') {
+    const ids = new Set(targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id));
+    return devices.value.filter(d => ids.has(d.tenantId)).length;
   }
-  return null;
+  return targetItems.value.length;
 });
 const zeroDeviceWarning = computed(() => resolvedDeviceCount.value === 0);
 
-// ── Schedule ────────────────────────────────────────────────────
+// ── Schedule ──────────────────────────────────────────────────────
 
 type Recurrence = 'immediately' | 'scheduled';
-const recurrence        = ref<Recurrence>('immediately');
-const scheduledAtLocal  = ref('');
-const expirationChoice  = ref<'none' | '3600' | '14400' | '86400'>('3600');
+const recurrence       = ref<Recurrence>('immediately');
+const scheduledAtLocal = ref('');
+const expirationChoice = ref<'none' | '3600' | '14400' | '86400'>('none');
 
-// ── Submit ──────────────────────────────────────────────────────
+// ── Submit ────────────────────────────────────────────────────────
 
 function validate(): string | null {
   if (!name.value.trim()) return 'Name is required';
-  if (orderedIds.value.length === 0) return 'Add at least one component';
-  if (targetType.value === 'tenants' && !selectedCompanyId.value) return 'Select a company';
-  if (targetType.value === 'devices' && Object.keys(selectedDevices).length === 0) return 'Select at least one device';
-
+  if (!orderedIds.value.length) return 'Add at least one component';
+  if (!targetItems.value.length) return 'Add at least one target';
   if (recurrence.value === 'scheduled') {
-    if (!scheduledAtLocal.value) return 'Choose a date and time to run this job';
+    if (!scheduledAtLocal.value) return 'Choose a start time';
     const ts = new Date(scheduledAtLocal.value).getTime();
     if (Number.isNaN(ts)) return 'Invalid scheduled date/time';
     if (ts <= Date.now()) return 'Scheduled time must be in the future';
   }
-
   for (const id of orderedIds.value) {
     const err = promptRefs[id]?.validate();
     if (err) return err;
@@ -320,30 +468,31 @@ async function submit() {
   const err = validate();
   if (err) { formError.value = err; return; }
 
-  busy.value      = true;
+  busy.value = true;
   formError.value = '';
   try {
+    const first = targetItems.value[0];
+    const target_type: 'all' | 'tenants' | 'devices' =
+      first.kind === 'company' ? 'tenants' :
+      first.kind === 'device'  ? 'devices' : 'all';
     const target_ids =
-      targetType.value === 'tenants' ? [selectedCompanyId.value!] :
-      targetType.value === 'devices' ? Object.keys(selectedDevices) :
+      target_type === 'tenants' ? targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id) :
+      target_type === 'devices' ? targetItems.value.filter(t => t.kind === 'device').map(t => (t as any).id) :
       [];
 
-    let scheduled_at: number | undefined;
-    let expires_at:   number | undefined;
     const jobType: 'quick' | 'scheduled' = recurrence.value === 'scheduled' ? 'scheduled' : 'quick';
-    if (recurrence.value === 'scheduled') {
-      scheduled_at = Math.floor(new Date(scheduledAtLocal.value).getTime() / 1000);
-      if (expirationChoice.value !== 'none') {
-        expires_at = scheduled_at + Number(expirationChoice.value);
-      }
-    }
+    const baseTime = recurrence.value === 'scheduled'
+      ? Math.floor(new Date(scheduledAtLocal.value).getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
+    const scheduled_at = recurrence.value === 'scheduled' ? baseTime : undefined;
+    const expires_at   = expirationChoice.value !== 'none' ? baseTime + Number(expirationChoice.value) : undefined;
 
     await api.jobs.create({
       name:          name.value.trim(),
       description:   description.value.trim() || undefined,
       type:          jobType,
       components:    orderedRefs.value,
-      target_type:   targetType.value,
+      target_type,
       target_ids,
       scheduled_at,
       expires_at,
@@ -367,7 +516,6 @@ onMounted(async () => {
   tenants.value = tenantList;
   devices.value = deviceList;
 
-  // Pre-populate from ComponentsPage.vue's "Run as Job" action.
   const preselect = route.query.components;
   if (typeof preselect === 'string' && preselect) {
     orderedIds.value = preselect.split(',').filter(id => library.value.some(c => c.id === id));
@@ -378,13 +526,13 @@ onMounted(async () => {
 <style scoped>
 .pf-page { display: flex; flex-direction: column; min-height: 100%; }
 
-/* ── Breadcrumb ── */
+/* Breadcrumb */
 .pf-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
 .pf-crumb-link { color: var(--accent); text-decoration: none; }
 .pf-crumb-link:hover { text-decoration: underline; }
 .pf-crumb-current { color: var(--muted-2); }
 
-/* ── Top bar ── */
+/* Top bar */
 .pf-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
 .pf-back {
   display: flex; align-items: center; justify-content: center;
@@ -397,11 +545,12 @@ onMounted(async () => {
 .pf-title { font-size: 20px; font-weight: 700; color: var(--text); flex: 1; margin: 0; }
 .pf-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
 
-/* ── Body ── */
-.pf-body { display: flex; flex-direction: column; gap: 0; }
+/* Body / form groups */
+.pf-body { display: flex; flex-direction: column; }
 .pf-group { display: flex; flex-direction: column; gap: 10px; padding: 20px 0; border-bottom: 1px solid var(--border); max-width: 760px; }
 .pf-group:last-child { border-bottom: none; }
 .pf-label { font-size: 15px; font-weight: 600; color: var(--text); }
+.jf-sublabel { font-size: 13px; font-weight: 600; color: var(--text); display: block; }
 .pf-input {
   width: 100%; max-width: 480px; padding: 9px 12px;
   background: var(--surface-2); border: 1px solid var(--border-2);
@@ -409,21 +558,50 @@ onMounted(async () => {
   outline: none; transition: border-color .12s; box-sizing: border-box;
 }
 .pf-input:focus { border-color: var(--accent); }
-.pf-err { font-size: 11px; color: var(--red); }
 .field-hint { font-size: 11px; color: var(--muted); margin: 0; }
 .field-hint-warn {
   color: var(--amber); background: rgba(240,168,64,.08);
   border: 1px solid rgba(240,168,64,.2); border-radius: 5px; padding: 6px 10px;
 }
 
-/* ── Segmented bar ── */
+/* Segmented bar */
 .seg-bar { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; align-self: flex-start; }
 .seg-btn { padding: 7px 18px; font-size: 13px; font-weight: 500; font-family: var(--font); background: var(--surface-2); color: var(--muted-2); border: none; cursor: pointer; transition: background .12s, color .12s; }
 .seg-btn + .seg-btn { border-left: 1px solid var(--border-2); }
 .seg-btn.active { background: var(--surface); color: var(--text); }
 .seg-btn:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ── Search comboboxes (component add, company picker) ── */
+/* Component / target table */
+.jf-table { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.jf-thead { display: flex; align-items: center; padding: 7px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.jf-th { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.jf-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.jf-row:last-of-type { border-bottom: none; }
+.jf-td { padding: 9px 14px; font-size: 13px; color: var(--text); display: flex; align-items: center; }
+.jf-td-actions { gap: 4px; }
+.jf-footer { padding: 9px 14px; border-top: 1px solid var(--border); }
+
+/* Empty state */
+.jf-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 20px; text-align: center; }
+.jf-empty p { font-size: 12px; color: var(--muted); max-width: 360px; line-height: 1.6; margin: 0; }
+
+/* Component-specific */
+.jf-order {
+  width: 18px; height: 18px; border-radius: 4px; background: var(--surface-2); color: var(--muted-2);
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.jf-var-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: rgba(78,126,247,.12); color: var(--accent); }
+.jf-muted { font-size: 12px; color: var(--muted-2); }
+.jf-vars-row { padding: 4px 14px 12px 40px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.jf-vars-row:last-child { border-bottom: none; }
+
+/* Component search picker row */
+.jf-picker-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+
+/* Target kind tag */
+.jf-kind-tag { font-size: 10px; font-weight: 700; color: var(--muted-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; }
+
+/* Combobox */
 .pf-site-wrap { position: relative; }
 .pf-site-input { max-width: none; }
 .pf-site-drop {
@@ -433,33 +611,14 @@ onMounted(async () => {
 }
 .pf-site-opt {
   padding: 8px 12px; font-size: 13px; color: var(--text); cursor: pointer;
-  display: flex; justify-content: space-between; gap: 8px; transition: background .08s;
+  display: flex; align-items: center; gap: 8px; transition: background .08s;
 }
 .pf-site-opt:hover { background: var(--surface-2); }
 
-/* ── Components / device "table" containers (reuse monitor-list chrome) ── */
-.pf-monitors { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
-.pf-mon-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; text-align: center; }
-.pf-mon-empty p { font-size: 12px; color: var(--muted); max-width: 340px; line-height: 1.6; margin: 0; }
-.pf-mon-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
-.pf-mon-row:last-of-type { border-bottom: none; }
-.pf-mon-desc { flex: 1; font-size: 12px; color: var(--text); }
-.pf-mon-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
-.pf-mon-add { padding: 10px 14px; border-top: 1px solid var(--border); }
-
-.pf-comp-row { border-bottom: 1px solid var(--border); }
-.pf-comp-row:last-of-type { border-bottom: none; }
-.pf-comp-row-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 12px; }
-.pf-comp-vars { padding: 4px 14px 12px 40px; background: var(--surface-2); }
-.pf-comp-order {
-  width: 18px; height: 18px; border-radius: 4px; background: var(--surface-2); color: var(--muted-2);
-  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-
+/* Utility buttons */
 .btn-text { background: none; border: none; padding: 2px 7px; font-size: 11px; font-family: var(--font); color: var(--muted); cursor: pointer; border-radius: 3px; transition: background .1s, color .1s; }
 .btn-text:hover { background: var(--border); color: var(--text); }
 .btn-text.danger:hover { color: var(--red); }
-
 .btn-icon {
   width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border-2);
   background: var(--surface-2); color: var(--muted-2); cursor: pointer; font-size: 12px;
@@ -467,4 +626,50 @@ onMounted(async () => {
 }
 .btn-icon:hover:not(:disabled) { background: var(--border); color: var(--text); }
 .btn-icon:disabled { opacity: .3; cursor: not-allowed; }
+
+/* ── Target flyout ── */
+.tf-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500;
+  display: flex; align-items: stretch; justify-content: flex-end;
+}
+.tf-panel {
+  display: flex; flex-direction: column;
+  width: 420px; max-width: calc(100vw - 80px); height: 100%;
+  background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden;
+}
+.tf-head { display: flex; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-title { font-size: 15px; font-weight: 600; color: var(--text); flex: 1; margin: 0; }
+.tf-close {
+  background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px;
+  display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s;
+}
+.tf-close:hover { background: var(--surface-2); color: var(--text); }
+
+/* Type picker options */
+.tf-options { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+.tf-opt {
+  display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+  cursor: pointer; font-family: var(--font); transition: border-color .12s, background .12s;
+}
+.tf-opt:hover { border-color: var(--accent); background: rgba(78,126,247,.05); }
+.tf-opt-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.tf-opt-desc { font-size: 11px; color: var(--muted); }
+
+/* Search + list (company/device steps) */
+.tf-search { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-list { flex: 1; overflow-y: auto; }
+.tf-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); cursor: pointer; transition: background .08s;
+  font-size: 13px; color: var(--text);
+}
+.tf-row:last-child { border-bottom: none; }
+.tf-row:hover { background: var(--surface-2); }
+.tf-row-selected { background: rgba(78,126,247,.06); }
+.tf-row-info { display: flex; flex-direction: column; gap: 1px; }
+.tf-row-sub { font-size: 11px; color: var(--muted-2); }
+.tf-empty-msg { padding: 20px 16px; font-size: 13px; color: var(--muted); text-align: center; }
+.tf-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
 </style>
