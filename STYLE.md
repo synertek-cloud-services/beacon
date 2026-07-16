@@ -201,6 +201,19 @@ Primary variant for the active state: add `.seg-primary` to the button — gives
 
 **Also used for >2 options**: `DeviceChangeLogPage.vue`'s category filter (All/Software/Hardware/Services/Security, 5 buttons) confirms this isn't just a binary toggle — works the same way for any small fixed set of mutually-exclusive filter values, `v-for`'d over an options array instead of two hardcoded buttons.
 
+**Disabled option, with a reason shown below** — `JobFormPage.vue`'s Execution section ("Run as system account" / "Run as a logged in user") uses this when one option is a real, known capability gap rather than a value the user just can't currently pick:
+```html
+<div class="seg-bar">
+  <button class="seg-btn active">Run as system account</button>
+  <button class="seg-btn" disabled title="Not supported yet — the agent has no Windows user-impersonation support.">Run as a logged in user</button>
+</div>
+<p class="field-hint">Running as the logged-in user isn't supported yet — every job runs under the system account.</p>
+```
+```css
+.seg-btn:disabled { opacity: .4; cursor: not-allowed; }
+```
+Deliberately **shown-but-disabled**, not omitted from the control entirely — the greyed-out option itself communicates "this exists in the reference and is a real gap," which a missing button wouldn't. Pair it with a `field-hint` below the bar restating why, since a `title` tooltip alone is easy to miss. Contrast with Notification-style features (email on job completion) that have **zero** UI presence at all — use the disabled-option treatment specifically when the control's shape itself (e.g. two mutually-exclusive execution contexts) is worth preserving as documentation of the gap; omit entirely when there's no natural "slot" for the missing feature to sit in.
+
 ## Modals
 
 Centered modal pattern (used for Override, confirmation dialogs, `RemoteShellModal.vue`):
@@ -271,7 +284,9 @@ Each `.pf-group` is max-width 760px. The label font-size is larger (15px) than t
 
 **Second real example: `ComponentFormPage.vue`** (`/components/new`, `/components/:id`) — reuses this exact shell (`.pf-page`/`.pf-crumb`/`.pf-topbar`/`.pf-body`/`.pf-group`/`.pf-label` class names, copied per-component like everything else in this pattern) rather than inventing new class names, even though it replaced what used to be a modal on `ComponentsPage.vue`. If you're building a third full-page create/edit form, start from this shell before reaching for a modal — the modal-first instinct is what this session explicitly moved away from.
 
-**Third real example, and the first non-form use: `DeviceChangeLogPage.vue`** (`/devices/:id/change-log`) — reuses the `.pf-page`/`.pf-crumb`/`.pf-topbar` shell for a read-only, filterable/paginated *browse* page (no `.pf-group`/`.pf-body` form fields at all — just a `.section-card` with a filter bar, table, and pagination bar dropped into the topbar's place). Confirms this shell isn't just for create/edit forms; use it any time a section needs to "pop out" into its own full page reached via a button (as opposed to a modal, which stays overlaid on the page that opened it) — see Device detail page's Change Log entry in CLAUDE.md for why this one specifically needed to be a page and not a modal (unbounded, growing dataset needing real pagination/filtering, not a quick glance).
+**Third real example: `JobFormPage.vue`** (`/jobs/new`) — same story as `ComponentFormPage.vue`: replaced a modal (`CreateJobModal.vue`, deleted) that had grown a real Schedule/Execution feature set with no natural place to put it in an 860px `.modal-xl`. Confirms the shell scales past "a handful of simple fields" — this page has a component picker with a live search-combobox, a multi-mode target picker (All/Company/Specific Devices, the latter with its own scrollable checkbox list), and two seg-bar-driven conditional sections (Schedule, Execution), all inside ordinary `.pf-group` blocks with no layout changes needed to the shell itself.
+
+**Fourth real example, and the first non-form use: `DeviceChangeLogPage.vue`** (`/devices/:id/change-log`) — reuses the `.pf-page`/`.pf-crumb`/`.pf-topbar` shell for a read-only, filterable/paginated *browse* page (no `.pf-group`/`.pf-body` form fields at all — just a `.section-card` with a filter bar, table, and pagination bar dropped into the topbar's place). Confirms this shell isn't just for create/edit forms; use it any time a section needs to "pop out" into its own full page reached via a button (as opposed to a modal, which stays overlaid on the page that opened it) — see Device detail page's Change Log entry in CLAUDE.md for why this one specifically needed to be a page and not a modal (unbounded, growing dataset needing real pagination/filtering, not a quick glance).
 
 ### Variables / Post-conditions editor (inline add-form, not a drawer)
 
@@ -340,6 +355,23 @@ Used for the Add Monitor drawer's optional numeric conditions (disk's min-size f
 ```
 
 Uses `:checked`/`@change` rather than `v-model` on the checkbox itself, since `v-model` would need a separate boolean ref to bind to — deriving checked-state from `!== null` keeps the number field as the single source of truth.
+
+## Segmented-bar-driven conditional fields (distinct from the checkbox variant above)
+
+Used in `JobFormPage.vue`'s Schedule section — when the "reveal more fields" trigger is itself a mutually-exclusive choice (not a single yes/no), drive the `v-if` off a `seg-bar` selection instead of a checkbox:
+
+```html
+<div class="seg-bar">
+  <button :class="['seg-btn', { active: recurrence === 'immediately' }]" @click="recurrence = 'immediately'">Immediately</button>
+  <button :class="['seg-btn', { active: recurrence === 'scheduled' }]" @click="recurrence = 'scheduled'">At a scheduled time</button>
+</div>
+<template v-if="recurrence === 'scheduled'">
+  <input type="datetime-local" v-model="scheduledAtLocal" class="pf-input" style="max-width:280px" />
+  <select v-model="expirationChoice" class="pf-input" style="max-width:240px">...</select>
+</template>
+```
+
+Reach for the checkbox-toggles-`null` pattern above when there's exactly one optional value being turned on/off (disk min-size, ping thresholds); reach for this seg-bar variant when the trigger itself has real, named alternatives worth surfacing as their own labeled choice (Immediately vs. a scheduled time) rather than a bare "enable this?" toggle — same reasoning as choosing `seg-bar` over a checkbox anywhere else in this doc.
 
 ## Per-check-type field visibility in the Add Monitor drawer
 
