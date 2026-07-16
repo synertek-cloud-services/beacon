@@ -205,7 +205,7 @@
               <span v-if="c.description" class="cf-row-desc">{{ c.description }}</span>
             </div>
             <button v-if="!orderedIds.includes(c.id)" class="btn btn-ghost btn-sm cf-add-btn" @click="addComponent(c)">Add</button>
-            <span v-else class="cf-check">
+            <span v-else class="cf-check" @click="removeAt(orderedIds.indexOf(c.id))" title="Click to remove">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             </span>
           </div>
@@ -244,46 +244,40 @@
           <!-- All Devices -->
           <template v-if="flyoutCategory === 'all'">
             <div class="tf-row" :class="{ 'tf-row-selected': isTargeted('all') }">
-              <span v-if="isTargeted('all')" class="tf-check">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>All Devices</span>
                 <span class="tf-row-sub">Target every enrolled device</span>
               </div>
-              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'all'})">
-                {{ isTargeted('all') ? 'Remove' : 'Add' }}
-              </button>
+              <button v-if="!isTargeted('all')" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'all'})">Add</button>
+              <span v-else class="tf-check" @click="toggleTarget({kind:'all'})" title="Click to remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
             </div>
           </template>
           <!-- Sites -->
           <template v-else-if="flyoutCategory === 'sites'">
             <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
-              <span v-if="isTargeted('company', t.id)" class="tf-check">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>{{ t.name }}</span>
               </div>
-              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'company',id:t.id,name:t.name})">
-                {{ isTargeted('company', t.id) ? 'Remove' : 'Add' }}
-              </button>
+              <button v-if="!isTargeted('company', t.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'company',id:t.id,name:t.name})">Add</button>
+              <span v-else class="tf-check" @click="toggleTarget({kind:'company',id:t.id,name:t.name})" title="Click to remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
             </div>
             <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No companies found.</div>
           </template>
           <!-- Devices -->
           <template v-else>
             <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
-              <span v-if="isTargeted('device', d.id)" class="tf-check">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
               <div class="tf-row-info" style="flex:1">
                 <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
                 <span class="tf-row-sub">{{ d.tenantName }}</span>
               </div>
-              <button class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">
-                {{ isTargeted('device', d.id) ? 'Remove' : 'Add' }}
-              </button>
+              <button v-if="!isTargeted('device', d.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">Add</button>
+              <span v-else class="tf-check" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})" title="Click to remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
             </div>
             <div v-if="!flyoutDeviceMatches.length" class="tf-empty-msg">No matching devices.</div>
           </template>
@@ -665,7 +659,7 @@ onMounted(async () => {
 .tf-row:last-child { border-bottom: none; }
 .tf-row:hover { background: var(--surface-2); }
 .tf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--accent); }
-.tf-check { width: 22px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; }
+.tf-check { width: 22px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; cursor: pointer; }
 .tf-row-info { display: flex; flex-direction: column; gap: 1px; }
 .tf-row-sub { font-size: 11px; color: var(--muted-2); }
 .tf-empty-msg { padding: 20px 16px; font-size: 13px; color: var(--muted); text-align: center; }
@@ -691,5 +685,5 @@ onMounted(async () => {
 .cf-row-added { background: rgba(78,126,247,.07); border-left: 2px solid var(--accent); }
 .cf-row-added .cf-row-icon { border-color: rgba(78,126,247,.4); color: var(--accent); }
 .cf-add-btn { flex-shrink: 0; }
-.cf-check { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; }
+.cf-check { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; cursor: pointer; }
 </style>
