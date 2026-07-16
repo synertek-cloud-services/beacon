@@ -88,6 +88,92 @@ function resolveShell(shell: string, osType: string | null): string {
   return osType?.toLowerCase() === 'windows' ? 'powershell' : 'bash';
 }
 
+// ── Helper: insert commands for an already-resolved device/component set ──
+
+async function insertJobCommands(
+  db: D1Database,
+  jobId: string,
+  devices: Array<{ id: string; tenant_id: string; os_type: string | null }>,
+  resolved: { ref: ComponentRef; payload: ResolvedPayload }[],
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const inserts: Promise<any>[] = [];
+
+  for (const device of devices) {
+    for (const { ref, payload } of resolved) {
+      const shell  = resolveShell(payload.shell, device.os_type);
+      const cmdId  = uid();
+      const scriptPayload = JSON.stringify({
+        shell,
+        script: payload.script,
+        timeout_seconds: payload.timeout_seconds,
+        variables: payload.variables,
+      });
+      const compId  = ref.type === 'library' ? ref.component_id : null;
+      const compOrd = ref.order;
+
+      inserts.push(
+        db.prepare(`
+          INSERT INTO commands (id, device_id, tenant_id, type, payload, status, created_at, job_id, component_id, component_order)
+          VALUES (?, ?, ?, 'run_script', ?, 'queued', ?, ?, ?, ?)
+        `).bind(cmdId, device.id, device.tenant_id, scriptPayload, now, jobId, compId, compOrd).run()
+      );
+    }
+  }
+
+  await Promise.all(inserts);
+}
+
+// ── Scheduled job dispatch (called from the cron every 2 min) ─────────────
+// Target devices are resolved now, not at job-creation time — matches
+// Datto's own documented semantics ("devices targeted by a Job are
+// calculated just before it is scheduled to run"), since the matching
+// device set can legitimately change between creation and a future
+// scheduled_at. A job with zero matching devices right now is left
+// 'active' and retried on the next cron tick until it either resolves
+// devices or expires (see cancelExpiredScheduledJobs below).
+
+export async function dispatchDueScheduledJobs(db: D1Database, now: number): Promise<void> {
+  const due = await db.prepare(`
+    SELECT j.* FROM jobs j
+    WHERE j.type = 'scheduled' AND j.status = 'active'
+      AND j.scheduled_at IS NOT NULL AND j.scheduled_at <= ?
+      AND (j.expires_at IS NULL OR j.expires_at > ?)
+      AND NOT EXISTS (SELECT 1 FROM commands WHERE job_id = j.id)
+  `).bind(now, now).all<any>();
+
+  for (const job of due.results) {
+    const components: ComponentRef[] = JSON.parse(job.component_ids);
+    const targetIds:  string[]       = JSON.parse(job.target_ids);
+
+    const devices = await resolveDevices(db, job.target_type, targetIds);
+    if (devices.length === 0) continue;
+
+    const resolutions = await Promise.all(
+      components.map(async (ref: ComponentRef) => ({ ref, payload: await resolvePayload(db, ref) }))
+    );
+    const resolved = resolutions.filter(
+      (r): r is { ref: ComponentRef; payload: ResolvedPayload } => r.payload !== null && !('error' in r.payload)
+    );
+    // A referenced component may have been deleted/edited since creation.
+    // Skip this tick rather than partially dispatch; it'll retry until expiry.
+    if (resolved.length === 0) continue;
+
+    await insertJobCommands(db, job.id, devices, resolved);
+  }
+}
+
+// Jobs that never got a chance to resolve any target devices before their
+// expiration — cancel them rather than leaving them 'active' forever.
+export async function cancelExpiredScheduledJobs(db: D1Database, now: number): Promise<void> {
+  await db.prepare(`
+    UPDATE jobs SET status = 'cancelled'
+    WHERE type = 'scheduled' AND status = 'active'
+      AND expires_at IS NOT NULL AND expires_at <= ?
+      AND NOT EXISTS (SELECT 1 FROM commands WHERE job_id = jobs.id)
+  `).bind(now).run();
+}
+
 // ── Helper: map job row ───────────────────────────────────────
 
 function mapJob(r: any, stats?: { device_count: number; queued: number; sent: number; completed: number; failed: number }) {
@@ -102,6 +188,7 @@ function mapJob(r: any, stats?: { device_count: number; queued: number; sent: nu
     targetIds:     r.target_ids,
     runAsSystem:   Boolean(r.run_as_system),
     scheduledAt:   r.scheduled_at,
+    expiresAt:     r.expires_at,
     createdAt:     r.created_at,
     createdBy:     r.created_by,
     deviceCount:   stats?.device_count ?? 0,
@@ -234,6 +321,8 @@ adminJobs.post('/', async (c) => {
     target_type?: string;
     target_ids?: string[];
     scheduled_at?: number;
+    expires_at?: number;
+    run_as_system?: boolean;
   }>();
 
   if (!body.name?.trim())                     return c.json({ error: 'name required' }, 400);
@@ -243,10 +332,16 @@ adminJobs.post('/', async (c) => {
   const targetType = body.target_type ?? 'devices';
   const targetIds  = body.target_ids  ?? [];
 
-  // Resolve target devices
-  const devices = await resolveDevices(c.env.DB, targetType, targetIds);
-  if (devices.length === 0 && targetType === 'devices') {
-    return c.json({ error: 'no approved devices found for the given IDs' }, 400);
+  // Quick jobs resolve + validate their target devices now, since they
+  // dispatch immediately. Scheduled jobs resolve devices later, just
+  // before dispatch (see dispatchDueScheduledJobs) — the device set can
+  // legitimately change between now and a future scheduled_at.
+  let devices: Array<{ id: string; tenant_id: string; os_type: string | null }> = [];
+  if (jobType === 'quick') {
+    devices = await resolveDevices(c.env.DB, targetType, targetIds);
+    if (devices.length === 0 && targetType === 'devices') {
+      return c.json({ error: 'no approved devices found for the given IDs' }, 400);
+    }
   }
 
   // Resolve all component payloads up front (validate they exist + required variables are satisfied)
@@ -270,8 +365,8 @@ adminJobs.post('/', async (c) => {
   // Create the job record
   const createdBy = user.source === 'break-glass' ? 'Admin' : (user.displayName ?? user.email);
   await c.env.DB.prepare(`
-    INSERT INTO jobs (id, name, description, type, status, component_ids, target_type, target_ids, scheduled_at, created_at, created_by)
-    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (id, name, description, type, status, component_ids, target_type, target_ids, scheduled_at, expires_at, run_as_system, created_at, created_by)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     jobId,
     body.name.trim(),
@@ -281,37 +376,17 @@ adminJobs.post('/', async (c) => {
     targetType,
     JSON.stringify(targetIds),
     body.scheduled_at ?? null,
+    body.expires_at ?? null,
+    body.run_as_system ?? true,
     now,
     createdBy,
   ).run();
 
-  // Dispatch commands immediately for quick jobs
+  // Dispatch commands immediately for quick jobs; scheduled jobs wait for
+  // the cron (dispatchDueScheduledJobs) to resolve devices and dispatch
+  // once scheduled_at arrives.
   if (jobType === 'quick') {
-    const inserts: Promise<any>[] = [];
-
-    for (const device of devices) {
-      for (const { ref, payload } of resolved) {
-        const shell  = resolveShell(payload.shell, device.os_type);
-        const cmdId  = uid();
-        const scriptPayload = JSON.stringify({
-          shell,
-          script: payload.script,
-          timeout_seconds: payload.timeout_seconds,
-          variables: payload.variables,
-        });
-        const compId  = ref.type === 'library' ? ref.component_id : null;
-        const compOrd = ref.order;
-
-        inserts.push(
-          c.env.DB.prepare(`
-            INSERT INTO commands (id, device_id, tenant_id, type, payload, status, created_at, job_id, component_id, component_order)
-            VALUES (?, ?, ?, 'run_script', ?, 'queued', ?, ?, ?, ?)
-          `).bind(cmdId, device.id, device.tenant_id, scriptPayload, now, jobId, compId, compOrd).run()
-        );
-      }
-    }
-
-    await Promise.all(inserts);
+    await insertJobCommands(c.env.DB, jobId, devices, resolved);
   }
 
   const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>();

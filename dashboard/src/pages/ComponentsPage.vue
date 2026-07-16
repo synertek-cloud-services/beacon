@@ -142,13 +142,6 @@
       </template>
     </div>
 
-    <CreateJobModal
-      v-if="jobModalOpen"
-      :initial-components="jobModalComponents"
-      @created="onJobCreated"
-      @close="jobModalOpen = false"
-    />
-
     <!-- Delete confirmation -->
     <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
       <div class="modal modal-sm">
@@ -174,8 +167,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type Component, type Job } from '../api';
-import CreateJobModal from '../components/CreateJobModal.vue';
+import { api, type Component } from '../api';
 
 const router = useRouter();
 
@@ -195,9 +187,7 @@ const storeLoaded     = ref(false);
 const cloningId       = ref<string | null>(null);
 
 // ── Bulk select → Create a Job ───────────────────────────────────
-const selected      = reactive<Record<string, boolean>>({});
-const jobModalOpen  = ref(false);
-const jobModalComponents = ref<Component[]>([]);
+const selected = reactive<Record<string, boolean>>({});
 
 const selectedCount = computed(() => Object.keys(selected).length);
 const allSelected   = computed(() =>
@@ -214,14 +204,8 @@ function toggleSelect(id: string) {
 }
 
 function openCreateJob() {
-  jobModalComponents.value = visible.value.filter(c => selected[c.id]);
-  jobModalOpen.value = true;
-}
-
-function onJobCreated(_job: Job) {
-  jobModalOpen.value = false;
-  Object.keys(selected).forEach(id => delete selected[id]);
-  router.push('/jobs');
+  const ids = visible.value.filter(c => selected[c.id]).map(c => c.id);
+  router.push({ path: '/jobs/new', query: { components: ids.join(',') } });
 }
 
 const deleteTarget = ref<Component | null>(null);

@@ -14,7 +14,7 @@ import adminAlerts from './routes/admin/alerts';
 import adminWebhooks from './routes/admin/webhooks';
 import adminAgentVersions from './routes/admin/agent-versions';
 import adminComponents from './routes/admin/components';
-import adminJobs from './routes/admin/jobs';
+import adminJobs, { dispatchDueScheduledJobs, cancelExpiredScheduledJobs } from './routes/admin/jobs';
 import authRoute from './routes/auth';
 import authMicrosoft from './routes/auth-microsoft';
 import adminUsers from './routes/admin/users';
@@ -92,5 +92,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
     const now = Math.floor(Date.now() / 1000);
     await evaluateOfflineAlerts(env.DB, now);
+    await dispatchDueScheduledJobs(env.DB, now);
+    await cancelExpiredScheduledJobs(env.DB, now);
   },
 };

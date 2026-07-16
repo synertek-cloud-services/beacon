@@ -35,7 +35,7 @@
             <button class="btn btn-ghost btn-sm btn-danger-ghost" :disabled="selected.size === 0" @click="deleteSelected">Delete</button>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-primary btn-sm" @click="jobModalOpen = true">+ New Job</button>
+            <button class="btn btn-primary btn-sm" @click="router.push('/jobs/new')">+ New Job</button>
             <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
           </div>
         </div>
@@ -52,12 +52,6 @@
           <button v-if="!isDefaultFilters" class="btn-reset" @click="resetFilters">Reset Filters</button>
         </div>
       </div>
-
-      <CreateJobModal
-        v-if="jobModalOpen"
-        @created="onJobCreated"
-        @close="jobModalOpen = false"
-      />
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
 
@@ -204,11 +198,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, type Job, type JobDetail, type JobDeviceCommand } from '../api';
 import { authState } from '../auth';
-import CreateJobModal from '../components/CreateJobModal.vue';
 
 interface CmdResult { stdout: string; stderr: string; exit_code: number; }
+
+const router = useRouter();
 
 const jobs          = ref<Job[]>([]);
 const loading       = ref(true);
@@ -216,7 +212,6 @@ const error         = ref('');
 const expandedId    = ref<string | null>(null);
 const detail        = ref<JobDetail | null>(null);
 const detailLoading = ref(false);
-const jobModalOpen  = ref(false);
 const selected      = ref(new Set<string>());
 
 // ── Filters ──────────────────────────────────────────────────────
@@ -335,11 +330,6 @@ function onPageSizeChange(e: Event) {
 }
 
 // ── Job actions ───────────────────────────────────────────────────
-function onJobCreated(job: Job) {
-  jobModalOpen.value = false;
-  jobs.value = [job, ...jobs.value];
-}
-
 async function toggleExpanded(job: Job) {
   if (expandedId.value === job.id) {
     expandedId.value = null;

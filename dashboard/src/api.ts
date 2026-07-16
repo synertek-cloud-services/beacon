@@ -179,6 +179,7 @@ export interface Job {
   targetIds: string;     // JSON
   runAsSystem: boolean;
   scheduledAt: number | null;
+  expiresAt: number | null;
   createdAt: number;
   createdBy: string | null;
   deviceCount: number;
@@ -537,6 +538,8 @@ export const api = {
       target_type?: string;
       target_ids?: string[];
       scheduled_at?: number;
+      expires_at?: number;
+      run_as_system?: boolean;
     })                            => request<Job>('POST', '/v1/admin/jobs', body),
     cancel: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}`),
     purge:  (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}/purge`),

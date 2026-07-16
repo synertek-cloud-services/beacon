@@ -9,6 +9,7 @@ import DeviceDetailPage from './pages/DeviceDetailPage.vue';
 import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
 import TenantsPage from './pages/TenantsPage.vue';
 import JobsPage from './pages/JobsPage.vue';
+import JobFormPage from './pages/JobFormPage.vue';
 import ComponentsPage from './pages/ComponentsPage.vue';
 import ComponentFormPage from './pages/ComponentFormPage.vue';
 import GlobalAlertsPage from './pages/GlobalAlertsPage.vue';
@@ -39,6 +40,7 @@ const router = createRouter({
     { path: '/devices/:id/change-log', component: DeviceChangeLogPage },
     { path: '/tenants', component: TenantsPage },
     { path: '/jobs', component: JobsPage },
+    { path: '/jobs/new', component: JobFormPage },
     { path: '/components', component: ComponentsPage },
     { path: '/components/new', component: ComponentFormPage },
     { path: '/components/:id', component: ComponentFormPage },
