@@ -489,166 +489,155 @@
 
     </div>
 
-    <!-- Quick Job modal -->
-    <div v-if="quickJobOpen" class="modal-backdrop" @click.self="quickJobOpen = false">
-      <div class="modal modal-xl">
-        <div class="modal-head">
+    <!-- Quick Job flyout -->
+    <Teleport to="body">
+    <div v-if="quickJobOpen" class="qj-overlay" @click.self="quickJobOpen = false">
+      <div class="qj-panel">
+        <div class="qj-head">
           <div>
-            <div class="modal-title">Quick Job</div>
-            <div class="text-xs text-muted-2" style="margin-top:2px">
-              <span class="mono">{{ device?.hostname }}</span> · runs on next check-in
-            </div>
+            <div class="qj-title">Quick Job — Select Component</div>
+            <div class="qj-sub">{{ device?.hostname }} · runs on next check-in</div>
           </div>
-          <!-- Tab switcher -->
-          <div class="qj-tabs">
-            <button class="qj-tab" :class="{ active: quickJobTab === 'library' }" @click="quickJobTab = 'library'">
-              From Library
-            </button>
-            <button class="qj-tab" :class="{ active: quickJobTab === 'store' }" @click="quickJobTab = 'store'">
-              ComStore
-            </button>
-            <button class="qj-tab" :class="{ active: quickJobTab === 'script'  }" @click="quickJobTab = 'script'">
-              Write Script
-            </button>
-          </div>
+          <button class="btn-icon" @click="quickJobOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="qj-tabs">
+          <button :class="['qj-tab', { active: quickJobTab === 'library' }]" @click="quickJobTab = 'library'">
+            Component Library<span v-if="!libraryLoading" class="qj-count">{{ libraryComponents.length }}</span>
+          </button>
+          <button :class="['qj-tab', { active: quickJobTab === 'store' }]" @click="quickJobTab = 'store'">
+            ComStore<span v-if="!storeLoading" class="qj-count">{{ storeComponents.length }}</span>
+          </button>
+          <button :class="['qj-tab', { active: quickJobTab === 'script' }]" @click="quickJobTab = 'script'">
+            Write Script
+          </button>
         </div>
 
         <!-- Library tab -->
-        <div v-if="quickJobTab === 'library'" class="modal-body qj-library-body">
-          <div v-if="libraryLoading" class="qj-lib-empty">Loading component library…</div>
-          <div v-else-if="libraryComponents.length === 0" class="qj-lib-empty">
-            No components in library yet —
-            <router-link to="/components" @click="quickJobOpen = false" style="color:var(--accent)">create some</router-link>
-            or use Write Script.
+        <template v-if="quickJobTab === 'library'">
+          <div class="qj-search-wrap">
+            <input v-model="libSearch" class="qj-search-input" placeholder="Find Component" />
           </div>
-          <div v-else class="qj-lib-layout">
-            <div class="qj-lib-list">
-              <input v-model="libSearch" class="qj-lib-search" placeholder="Search components…" />
-              <div
-                v-for="comp in filteredLib" :key="comp.id"
-                class="qj-lib-item"
-                :class="{ selected: selectedComponent?.id === comp.id }"
-                @click="selectedComponent = comp"
-              >
-                <div class="qj-lib-name">{{ comp.name }}</div>
-                <div class="qj-lib-meta">
-                  <span v-if="comp.category" class="qj-lib-cat">{{ comp.category }}</span>
-                  <span class="qj-lib-shell">{{ shellLabel(comp.shell) }}</span>
-                </div>
-              </div>
+          <div class="qj-list">
+            <div v-if="libraryLoading" class="qj-empty">Loading component library…</div>
+            <div v-else-if="filteredLib.length === 0" class="qj-empty">
+              No components found. <RouterLink to="/components" @click="quickJobOpen = false" style="color:var(--accent)">Add some</RouterLink>
             </div>
-            <div class="qj-lib-preview">
-              <div v-if="!selectedComponent" class="qj-lib-empty" style="padding:20px">
-                Select a component to preview
+            <div v-else v-for="comp in filteredLib" :key="comp.id" class="qj-row">
+              <svg class="qj-row-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted-2)"><rect x="2" y="7" width="20" height="14" rx="2"/><rect x="6" y="3" width="4" height="4" rx="1"/><rect x="14" y="3" width="4" height="4" rx="1"/></svg>
+              <div class="qj-row-info">
+                <span class="qj-row-name">{{ comp.name }}</span>
+                <span v-if="comp.description" class="qj-row-desc">{{ comp.description }}</span>
+                <span v-else class="qj-row-desc">{{ shellLabel(comp.shell) }}</span>
               </div>
-              <div v-else class="qj-lib-preview-inner">
-                <div class="qj-preview-head">
-                  <div class="qj-preview-name">{{ selectedComponent.name }}</div>
-                  <div v-if="selectedComponent.description" class="text-xs text-muted-2">{{ selectedComponent.description }}</div>
-                </div>
-                <pre class="qj-preview-script">{{ selectedComponent.script }}</pre>
-                <div v-if="selectedComponent.variables.length" class="qj-preview-vars">
-                  <ComponentVariablePrompt
-                    ref="quickJobVarPrompt"
-                    :variables="selectedComponent.variables"
-                    :values="quickJobVariableValues"
-                    @update:values="v => { quickJobVariableValues = v }"
-                  />
-                </div>
-              </div>
+              <button class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
             </div>
           </div>
-        </div>
+        </template>
 
         <!-- ComStore tab -->
-        <div v-else-if="quickJobTab === 'store'" class="modal-body qj-library-body">
-          <div v-if="storeLoading" class="qj-lib-empty">Loading ComStore…</div>
-          <div v-else-if="storeComponents.length === 0" class="qj-lib-empty">No store components available.</div>
-          <div v-else class="qj-lib-layout">
-            <div class="qj-lib-list">
-              <input v-model="storeSearch" class="qj-lib-search" placeholder="Search ComStore…" />
-              <div
-                v-for="comp in filteredStore" :key="comp.id"
-                class="qj-lib-item"
-                :class="{ selected: selectedComponent?.id === comp.id }"
-                @click="selectedComponent = comp"
-              >
-                <div class="qj-lib-name">{{ comp.name }}</div>
-                <div class="qj-lib-meta">
-                  <span v-if="comp.category" class="qj-lib-cat">{{ comp.category }}</span>
-                  <span class="qj-lib-shell">{{ shellLabel(comp.shell) }}</span>
-                </div>
+        <template v-else-if="quickJobTab === 'store'">
+          <div class="qj-search-wrap">
+            <input v-model="storeSearch" class="qj-search-input" placeholder="Find Component" />
+          </div>
+          <div class="qj-list">
+            <div v-if="storeLoading" class="qj-empty">Loading ComStore…</div>
+            <div v-else-if="filteredStore.length === 0" class="qj-empty">No store components found.</div>
+            <div v-else v-for="comp in filteredStore" :key="comp.id" class="qj-row">
+              <svg class="qj-row-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted-2)"><rect x="2" y="7" width="20" height="14" rx="2"/><rect x="6" y="3" width="4" height="4" rx="1"/><rect x="14" y="3" width="4" height="4" rx="1"/></svg>
+              <div class="qj-row-info">
+                <span class="qj-row-name">{{ comp.name }}</span>
+                <span v-if="comp.description" class="qj-row-desc">{{ comp.description }}</span>
+                <span v-else class="qj-row-desc">{{ shellLabel(comp.shell) }}</span>
               </div>
-            </div>
-            <div class="qj-lib-preview">
-              <div v-if="!selectedComponent" class="qj-lib-empty" style="padding:20px">
-                Select a component to preview
-              </div>
-              <div v-else class="qj-lib-preview-inner">
-                <div class="qj-preview-head">
-                  <div class="qj-preview-name">{{ selectedComponent.name }}</div>
-                  <div v-if="selectedComponent.description" class="text-xs text-muted-2">{{ selectedComponent.description }}</div>
-                </div>
-                <pre class="qj-preview-script">{{ selectedComponent.script }}</pre>
-                <div v-if="selectedComponent.variables.length" class="qj-preview-vars">
-                  <ComponentVariablePrompt
-                    ref="quickJobVarPrompt"
-                    :variables="selectedComponent.variables"
-                    :values="quickJobVariableValues"
-                    @update:values="v => { quickJobVariableValues = v }"
-                  />
-                </div>
-              </div>
+              <button class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
             </div>
           </div>
-        </div>
+        </template>
 
         <!-- Write Script tab -->
-        <div v-else class="modal-body">
-          <div class="field">
-            <label>Shell</label>
-            <select v-model="quickJobForm.shell">
-              <option value="auto">Auto — PowerShell on Windows, Bash on Linux / macOS</option>
-              <option value="powershell">PowerShell (Windows)</option>
-              <option value="bash">Bash (Linux / macOS)</option>
-              <option value="sh">sh (POSIX)</option>
-            </select>
-          </div>
-          <div class="field" style="margin-top:12px">
-            <label>Script <span class="required">*</span></label>
-            <textarea
-              v-model="quickJobForm.script"
-              placeholder="# Your script here…"
-              rows="9"
-              class="code-area"
-            ></textarea>
-          </div>
-          <div style="display:flex;align-items:center;gap:16px;margin-top:12px">
-            <div class="field" style="flex:0 0 auto">
-              <label>Timeout (seconds)</label>
-              <input v-model="quickJobForm.timeout" type="number" min="1" placeholder="300" style="max-width:120px" />
+        <template v-else>
+          <div class="qj-script-body">
+            <div class="field">
+              <label>Shell</label>
+              <select v-model="quickJobForm.shell">
+                <option value="auto">Auto — PowerShell on Windows, Bash on Linux / macOS</option>
+                <option value="powershell">PowerShell (Windows)</option>
+                <option value="bash">Bash (Linux / macOS)</option>
+                <option value="sh">sh (POSIX)</option>
+              </select>
             </div>
-            <div class="field" style="flex:1;align-self:flex-end;padding-bottom:2px">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                <input type="checkbox" v-model="quickJobForm.saveToLibrary" />
-                Save to Component Library
-              </label>
-              <div v-if="quickJobForm.saveToLibrary" style="margin-top:8px">
-                <input v-model="quickJobForm.libraryName" type="text" placeholder="Component name…" />
+            <div class="field" style="margin-top:12px">
+              <label>Script <span class="required">*</span></label>
+              <textarea v-model="quickJobForm.script" placeholder="# Your script here…" rows="10" class="code-area"></textarea>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;margin-top:12px">
+              <div class="field" style="flex:0 0 auto">
+                <label>Timeout (seconds)</label>
+                <input v-model="quickJobForm.timeout" type="number" min="1" placeholder="300" style="max-width:120px" />
+              </div>
+              <div class="field" style="flex:1;align-self:flex-end;padding-bottom:2px">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                  <input type="checkbox" v-model="quickJobForm.saveToLibrary" />
+                  Save to Component Library
+                </label>
+                <div v-if="quickJobForm.saveToLibrary" style="margin-top:8px">
+                  <input v-model="quickJobForm.libraryName" type="text" placeholder="Component name…" />
+                </div>
               </div>
             </div>
+            <div v-if="quickJobError" class="error-banner" style="margin-top:12px">{{ quickJobError }}</div>
+            <div class="qj-script-foot">
+              <button class="btn btn-ghost btn-sm" @click="quickJobOpen = false">Cancel</button>
+              <button class="btn btn-primary btn-sm" :disabled="quickJobBusy" @click="submitQuickJob">
+                {{ quickJobBusy ? 'Running…' : 'Run' }}
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+    </Teleport>
+
+    <!-- Quick Job confirm modal -->
+    <Teleport to="body">
+    <div v-if="qjConfirmOpen" class="modal-backdrop" @click.self="cancelConfirm">
+      <div class="modal">
+        <div class="modal-header">
+          <span class="modal-title">Quick Job</span>
+          <button class="btn-icon" @click="cancelConfirm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" style="padding:20px">
+          <div class="qj-confirm-comp">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted-2)"><rect x="2" y="7" width="20" height="14" rx="2"/><rect x="6" y="3" width="4" height="4" rx="1"/><rect x="14" y="3" width="4" height="4" rx="1"/></svg>
+            <div>
+              <div class="qj-confirm-name">{{ selectedComponent?.name }}</div>
+              <div v-if="selectedComponent?.description" class="qj-confirm-desc">{{ selectedComponent.description }}</div>
+            </div>
+          </div>
+          <div v-if="selectedComponent?.variables.length" style="margin-top:16px">
+            <ComponentVariablePrompt
+              ref="quickJobVarPrompt"
+              :variables="selectedComponent.variables"
+              :values="quickJobVariableValues"
+              @update:values="v => { quickJobVariableValues = v }"
+            />
           </div>
         </div>
-
         <div v-if="quickJobError" class="error-banner" style="margin:0 20px 12px">{{ quickJobError }}</div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" @click="quickJobOpen = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="quickJobBusy" @click="submitQuickJob">
-            {{ quickJobBusy ? 'Queuing…' : 'Queue Job' }}
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button class="btn btn-ghost btn-sm" @click="cancelConfirm">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="quickJobBusy" @click="submitQuickJob">
+            {{ quickJobBusy ? 'Running…' : 'Run' }}
           </button>
         </div>
       </div>
     </div>
+    </Teleport>
 
     <!-- Remote Shell modal -->
     <RemoteShellModal
@@ -766,14 +755,28 @@ const jobQueued = ref(false);
 // Remote Shell modal
 const remoteShellOpen = ref(false);
 
-// Quick Job modal
+// Quick Job flyout + confirm modal
 const quickJobOpen  = ref(false);
+const qjConfirmOpen = ref(false);
 const quickJobTab   = ref<'library' | 'store' | 'script'>('library');
 const quickJobForm  = ref({ shell: 'auto', script: '', timeout: '', saveToLibrary: false, libraryName: '' });
 const quickJobError = ref('');
 const quickJobBusy  = ref(false);
 const quickJobVariableValues = ref<Record<string, string>>({});
 const quickJobVarPrompt = ref<{ validate: () => string | null } | null>(null);
+
+function selectForConfirm(comp: Component) {
+  selectedComponent.value = comp;
+  quickJobVariableValues.value = {};
+  quickJobError.value = '';
+  quickJobOpen.value = false;
+  qjConfirmOpen.value = true;
+}
+
+function cancelConfirm() {
+  qjConfirmOpen.value = false;
+  quickJobOpen.value  = true;
+}
 
 // Component library (loaded once per page visit)
 const libraryComponents = ref<Component[]>([]);
@@ -1339,7 +1342,8 @@ async function submitQuickJob() {
       target_ids:  [dev.id],
     });
 
-    quickJobOpen.value = false;
+    quickJobOpen.value  = false;
+    qjConfirmOpen.value = false;
     showJobQueued();
   } catch (e: any) {
     quickJobError.value = e.message;
@@ -1508,6 +1512,35 @@ function shellLabel(shell: string): string {
   max-height: 90vh; display: flex; flex-direction: column;
 }
 .modal-xl  { width: 860px; }
+/* Quick Job flyout */
+.qj-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500; display: flex; align-items: stretch; justify-content: flex-end; }
+.qj-panel { display: flex; flex-direction: column; width: 460px; max-width: calc(100vw - 80px); height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden; }
+.qj-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.qj-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.qj-sub { font-size: 11px; color: var(--muted-2); margin-top: 2px; }
+.qj-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.qj-tab { flex: 1; padding: 10px 8px; font-size: 11px; font-weight: 600; border: none; background: none; color: var(--muted); cursor: pointer; font-family: var(--font); transition: background .1s, color .1s; border-bottom: 2px solid transparent; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.qj-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.qj-tab:hover:not(.active) { background: var(--surface-2); color: var(--text); }
+.qj-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 5px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.qj-search-wrap { padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.qj-search-input { width: 100%; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 5px; padding: 7px 10px; font-size: 12px; color: var(--text); font-family: var(--font); outline: none; box-sizing: border-box; }
+.qj-search-input:focus { border-color: var(--accent); }
+.qj-list { flex: 1; overflow-y: auto; }
+.qj-empty { padding: 24px 18px; font-size: 12px; color: var(--muted); text-align: center; }
+.qj-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.qj-row:last-child { border-bottom: none; }
+.qj-row-icon { flex-shrink: 0; }
+.qj-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.qj-row-name { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qj-row-desc { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qj-select-btn { flex-shrink: 0; }
+.qj-script-body { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; }
+.qj-script-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+/* Quick Job confirm modal */
+.qj-confirm-comp { display: flex; align-items: flex-start; gap: 14px; }
+.qj-confirm-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.qj-confirm-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
 .modal-head {
   padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
   display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
