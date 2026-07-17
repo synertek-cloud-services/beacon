@@ -166,6 +166,7 @@ export interface JobDeviceStats {
   sent: number;
   completed: number;
   failed: number;
+  expired: number;
 }
 
 export interface Job {
@@ -191,7 +192,7 @@ export interface JobDeviceCommand {
   componentId: string | null;
   componentName: string | null;
   componentOrder: number;
-  status: 'queued' | 'sent' | 'completed' | 'failed';
+  status: 'queued' | 'sent' | 'completed' | 'failed' | 'expired';
   result: string | null;
   warning: boolean;
   createdAt: number;

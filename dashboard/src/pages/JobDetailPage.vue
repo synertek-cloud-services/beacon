@@ -58,43 +58,50 @@
     <div class="jd-card">
       <div class="jd-card-title">Job Summary · Started {{ startedAgo }}</div>
       <div class="jd-flow-wrap">
-        <svg class="jd-flow-svg" viewBox="0 0 680 210" preserveAspectRatio="xMidYMid meet">
-          <!-- Connector lines -->
+        <svg class="jd-flow-svg" viewBox="0 0 760 300" preserveAspectRatio="xMidYMid meet">
           <!-- Pending → Running -->
-          <line x1="148" y1="45" x2="218" y2="45" stroke="var(--border-2)" stroke-width="1.5"/>
-          <!-- Running → fork column -->
-          <path d="M 368 45 H 400 V 175 M 400 45 H 428 M 400 110 H 428 M 400 175 H 428"
+          <line x1="178" y1="60" x2="258" y2="60" stroke="var(--border-2)" stroke-width="1.5"/>
+          <!-- Pending → Expired (vertical drop) -->
+          <line x1="90" y1="100" x2="90" y2="120" stroke="var(--border-2)" stroke-width="1.5"/>
+          <!-- Running → fork column → Successes / Warnings / Failures -->
+          <path d="M 428 60 H 468 V 250 M 468 60 H 508 M 468 155 H 508 M 468 250 H 508"
             fill="none" stroke="var(--border-2)" stroke-width="1.5"/>
 
           <!-- Pending box -->
-          <rect x="8" y="18" width="140" height="54" rx="5"
-            :fill="flowFill('pending')" :stroke="flowStroke('pending')" stroke-width="1.2"/>
-          <text x="78" y="44" text-anchor="middle" font-size="18" font-weight="700" :fill="flowCount('pending')">{{ flowStats.queued }}</text>
-          <text x="78" y="61" text-anchor="middle" font-size="11" fill="var(--muted)">Pending</text>
+          <rect x="10" y="20" width="168" height="80" rx="6"
+            :fill="flowFill('pending')" :stroke="flowStroke('pending')" stroke-width="1.5"/>
+          <text x="94" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('pending')">{{ flowStats.queued }}</text>
+          <text x="94" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Pending</text>
+
+          <!-- Expired box -->
+          <rect x="10" y="120" width="168" height="80" rx="6"
+            :fill="flowFill('expired')" :stroke="flowStroke('expired')" stroke-width="1.5"/>
+          <text x="94" y="154" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('expired')">{{ flowStats.expired }}</text>
+          <text x="94" y="176" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Expired</text>
 
           <!-- Running box -->
-          <rect x="218" y="18" width="150" height="54" rx="5"
-            :fill="flowFill('running')" :stroke="flowStroke('running')" stroke-width="1.2"/>
-          <text x="293" y="44" text-anchor="middle" font-size="18" font-weight="700" :fill="flowCount('running')">{{ flowStats.sent }}</text>
-          <text x="293" y="61" text-anchor="middle" font-size="11" fill="var(--muted)">Running</text>
+          <rect x="258" y="20" width="170" height="80" rx="6"
+            :fill="flowFill('running')" :stroke="flowStroke('running')" stroke-width="1.5"/>
+          <text x="343" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('running')">{{ flowStats.sent }}</text>
+          <text x="343" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Running</text>
 
           <!-- Successes box -->
-          <rect x="428" y="18" width="150" height="54" rx="5"
-            :fill="flowFill('success')" :stroke="flowStroke('success')" stroke-width="1.2"/>
-          <text x="503" y="44" text-anchor="middle" font-size="18" font-weight="700" :fill="flowCount('success')">{{ flowStats.successes }}</text>
-          <text x="503" y="61" text-anchor="middle" font-size="11" fill="var(--muted)">Successes</text>
+          <rect x="508" y="20" width="172" height="80" rx="6"
+            :fill="flowFill('success')" :stroke="flowStroke('success')" stroke-width="1.5"/>
+          <text x="594" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('success')">{{ flowStats.successes }}</text>
+          <text x="594" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Successes</text>
 
           <!-- Warnings box -->
-          <rect x="428" y="83" width="150" height="54" rx="5"
-            :fill="flowFill('warning')" :stroke="flowStroke('warning')" stroke-width="1.2"/>
-          <text x="503" y="109" text-anchor="middle" font-size="18" font-weight="700" :fill="flowCount('warning')">{{ flowStats.warnings }}</text>
-          <text x="503" y="126" text-anchor="middle" font-size="11" fill="var(--muted)">Warnings</text>
+          <rect x="508" y="115" width="172" height="80" rx="6"
+            :fill="flowFill('warning')" :stroke="flowStroke('warning')" stroke-width="1.5"/>
+          <text x="594" y="149" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('warning')">{{ flowStats.warnings }}</text>
+          <text x="594" y="171" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Warnings</text>
 
           <!-- Failures box -->
-          <rect x="428" y="148" width="150" height="54" rx="5"
-            :fill="flowFill('failure')" :stroke="flowStroke('failure')" stroke-width="1.2"/>
-          <text x="503" y="174" text-anchor="middle" font-size="18" font-weight="700" :fill="flowCount('failure')">{{ flowStats.failures }}</text>
-          <text x="503" y="191" text-anchor="middle" font-size="11" fill="var(--muted)">Failures</text>
+          <rect x="508" y="210" width="172" height="80" rx="6"
+            :fill="flowFill('failure')" :stroke="flowStroke('failure')" stroke-width="1.5"/>
+          <text x="594" y="244" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('failure')">{{ flowStats.failures }}</text>
+          <text x="594" y="266" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Failures</text>
         </svg>
       </div>
     </div>
@@ -204,24 +211,29 @@ function toggleOutput(devId: string, cmdId: string, type: 'stdout'|'stderr', con
 // ── Flow stats ────────────────────────────────────────────────────
 
 const flowStats = computed(() => {
-  let queued = 0, sent = 0, successes = 0, warnings = 0, failures = 0;
+  let queued = 0, sent = 0, successes = 0, warnings = 0, failures = 0, expired = 0;
   for (const dev of (detail.value?.devices ?? [])) {
     for (const cmd of dev.commands) {
-      if      (cmd.status === 'queued')               queued++;
-      else if (cmd.status === 'sent')                 sent++;
-      else if (cmd.status === 'failed')               failures++;
+      if      (cmd.status === 'queued')                   queued++;
+      else if (cmd.status === 'sent')                     sent++;
+      else if (cmd.status === 'expired')                  expired++;
+      else if (cmd.status === 'failed')                   failures++;
       else if (cmd.status === 'completed' && cmd.warning) warnings++;
-      else if (cmd.status === 'completed')            successes++;
+      else if (cmd.status === 'completed')                successes++;
     }
   }
-  return { queued, sent, successes, warnings, failures };
+  return { queued, sent, successes, warnings, failures, expired };
 });
 
-type FlowBox = 'pending' | 'running' | 'success' | 'warning' | 'failure';
+type FlowBox = 'pending' | 'running' | 'success' | 'warning' | 'failure' | 'expired';
 function flowVal(box: FlowBox): number {
   const s = flowStats.value;
-  return box === 'pending' ? s.queued : box === 'running' ? s.sent
-    : box === 'success' ? s.successes : box === 'warning' ? s.warnings : s.failures;
+  if (box === 'pending') return s.queued;
+  if (box === 'running') return s.sent;
+  if (box === 'success') return s.successes;
+  if (box === 'warning') return s.warnings;
+  if (box === 'expired') return s.expired;
+  return s.failures;
 }
 function flowFill(box: FlowBox): string {
   const n = flowVal(box);
@@ -229,6 +241,7 @@ function flowFill(box: FlowBox): string {
   if (box === 'success') return 'rgba(52,199,89,.12)';
   if (box === 'warning') return 'rgba(240,168,64,.10)';
   if (box === 'failure') return 'rgba(255,69,58,.10)';
+  if (box === 'expired') return 'rgba(160,120,220,.08)';
   return 'rgba(78,126,247,.08)';
 }
 function flowStroke(box: FlowBox): string {
@@ -237,6 +250,7 @@ function flowStroke(box: FlowBox): string {
   if (box === 'success') return 'rgba(52,199,89,.35)';
   if (box === 'warning') return 'rgba(240,168,64,.35)';
   if (box === 'failure') return 'rgba(255,69,58,.30)';
+  if (box === 'expired') return 'rgba(160,120,220,.35)';
   return 'rgba(78,126,247,.35)';
 }
 function flowCount(box: FlowBox): string {
@@ -245,6 +259,7 @@ function flowCount(box: FlowBox): string {
   if (box === 'success') return 'var(--green)';
   if (box === 'warning') return 'var(--amber)';
   if (box === 'failure') return 'var(--red)';
+  if (box === 'expired') return '#a078dc';
   return 'var(--accent)';
 }
 
@@ -298,8 +313,9 @@ function componentResultsLabel(dev: JobDevice): string {
     const name = cmd.componentName ?? `Step ${cmd.componentOrder}`;
     if (cmd.status === 'completed' && !cmd.warning) parts.push(`1 Success: ${name}`);
     else if (cmd.status === 'completed' && cmd.warning) parts.push(`1 Warning: ${name}`);
-    else if (cmd.status === 'failed') parts.push(`1 Failed: ${name}`);
-    else if (cmd.status === 'sent') parts.push(`Running: ${name}`);
+    else if (cmd.status === 'failed')  parts.push(`1 Failed: ${name}`);
+    else if (cmd.status === 'expired') parts.push(`Expired: ${name}`);
+    else if (cmd.status === 'sent')    parts.push(`Running: ${name}`);
     else parts.push(`Pending: ${name}`);
   }
   return parts.join(' · ') || '—';
@@ -313,16 +329,18 @@ function ranOnLabel(dev: JobDevice): string {
 
 function deviceStatusClass(dev: JobDevice): string {
   const cmds = dev.commands;
-  if (cmds.some(c => c.status === 'failed'))              return 'jd-status-failed';
-  if (cmds.some(c => c.status === 'completed' && c.warning)) return 'jd-status-warning';
-  if (cmds.every(c => c.status === 'completed'))           return 'jd-status-success';
-  if (cmds.some(c => c.status === 'sent'))                 return 'jd-status-sent';
+  if (cmds.some(c => c.status === 'failed'))                  return 'jd-status-failed';
+  if (cmds.some(c => c.status === 'expired'))                 return 'jd-status-expired';
+  if (cmds.some(c => c.status === 'completed' && c.warning))  return 'jd-status-warning';
+  if (cmds.every(c => c.status === 'completed'))              return 'jd-status-success';
+  if (cmds.some(c => c.status === 'sent'))                    return 'jd-status-sent';
   return 'jd-status-queued';
 }
 
 function deviceStatusLabel(dev: JobDevice): string {
   const cls = deviceStatusClass(dev);
   if (cls === 'jd-status-failed')  return 'Failed';
+  if (cls === 'jd-status-expired') return 'Expired';
   if (cls === 'jd-status-warning') return 'Warning';
   if (cls === 'jd-status-success') return 'Success';
   if (cls === 'jd-status-sent')    return 'Running';
@@ -455,11 +473,12 @@ onUnmounted(() => {
 
 /* Status badges */
 .jd-status { display: inline-flex; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; }
-.jd-status-success  { background: rgba(52,199,89,.15);  color: var(--green); }
-.jd-status-failed   { background: rgba(255,69,58,.12);  color: var(--red); }
-.jd-status-warning  { background: rgba(240,168,64,.15); color: var(--amber); }
-.jd-status-sent     { background: rgba(78,126,247,.12); color: var(--accent); }
-.jd-status-queued   { background: var(--surface-2);     color: var(--muted); }
+.jd-status-success  { background: rgba(52,199,89,.15);   color: var(--green); }
+.jd-status-failed   { background: rgba(255,69,58,.12);   color: var(--red); }
+.jd-status-warning  { background: rgba(240,168,64,.15);  color: var(--amber); }
+.jd-status-sent     { background: rgba(78,126,247,.12);  color: var(--accent); }
+.jd-status-queued   { background: var(--surface-2);      color: var(--muted); }
+.jd-status-expired  { background: rgba(160,120,220,.12); color: #a078dc; }
 
 /* Output buttons */
 .jd-out-cell { display: flex; gap: 6px; align-items: center; }

@@ -99,9 +99,10 @@
                   <div class="prog-bar">
                     <div class="prog-seg prog-completed" :style="{ width: pct(job.deviceStats.completed, job.deviceCount) + '%' }"></div>
                     <div class="prog-seg prog-failed"    :style="{ width: pct(job.deviceStats.failed, job.deviceCount) + '%' }"></div>
+                    <div class="prog-seg prog-expired"   :style="{ width: pct(job.deviceStats.expired, job.deviceCount) + '%' }"></div>
                     <div class="prog-seg prog-sent"      :style="{ width: pct(job.deviceStats.sent, job.deviceCount) + '%' }"></div>
                   </div>
-                  <span class="prog-label">{{ job.deviceStats.completed + job.deviceStats.failed }}/{{ job.deviceCount }}</span>
+                  <span class="prog-label">{{ job.deviceStats.completed + job.deviceStats.failed + job.deviceStats.expired }}/{{ job.deviceCount }}</span>
                 </div>
               </td>
               <td><span :class="['status-badge', `status-${job.status}`]">{{ job.status }}</span></td>
@@ -362,6 +363,7 @@ onUnmounted(() => clearInterval(timer));
 .prog-seg { height: 100%; transition: width .3s; }
 .prog-completed { background: var(--teal); }
 .prog-failed    { background: var(--red); }
+.prog-expired   { background: #a078dc; }
 .prog-sent      { background: var(--accent); }
 .prog-label { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 

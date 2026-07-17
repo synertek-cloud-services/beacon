@@ -167,9 +167,9 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
 // Handles two cases: scheduled jobs that never dispatched (zero commands), and any
 // job (quick or scheduled) whose queued commands were never picked up before expires_at.
 export async function cancelExpiredScheduledJobs(db: D1Database, now: number): Promise<void> {
-  // First: fail all queued commands belonging to expired active jobs
+  // First: expire all queued commands belonging to expired active jobs
   await db.prepare(`
-    UPDATE commands SET status = 'failed'
+    UPDATE commands SET status = 'expired'
     WHERE status = 'queued'
       AND job_id IN (
         SELECT id FROM jobs WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?
@@ -189,7 +189,7 @@ export async function cancelExpiredScheduledJobs(db: D1Database, now: number): P
 
 // ── Helper: map job row ───────────────────────────────────────
 
-function mapJob(r: any, stats?: { device_count: number; queued: number; sent: number; completed: number; failed: number }) {
+function mapJob(r: any, stats?: { device_count: number; queued: number; sent: number; completed: number; failed: number; expired: number }) {
   return {
     id:            r.id,
     name:          r.name,
@@ -210,6 +210,7 @@ function mapJob(r: any, stats?: { device_count: number; queued: number; sent: nu
       sent:      stats?.sent      ?? 0,
       completed: stats?.completed ?? 0,
       failed:    stats?.failed    ?? 0,
+      expired:   stats?.expired   ?? 0,
     },
   };
 }
@@ -237,7 +238,8 @@ adminJobs.get('/', async (c) => {
       SUM(CASE WHEN c.status = 'queued'    THEN 1 ELSE 0 END)            AS queued,
       SUM(CASE WHEN c.status = 'sent'      THEN 1 ELSE 0 END)            AS sent,
       SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END)            AS completed,
-      SUM(CASE WHEN c.status = 'failed'    THEN 1 ELSE 0 END)            AS failed
+      SUM(CASE WHEN c.status = 'failed'    THEN 1 ELSE 0 END)            AS failed,
+      SUM(CASE WHEN c.status = 'expired'   THEN 1 ELSE 0 END)            AS expired
     FROM jobs j
     LEFT JOIN commands c ON c.job_id = j.id
     ${where}
@@ -252,6 +254,7 @@ adminJobs.get('/', async (c) => {
     sent:         r.sent         ?? 0,
     completed:    r.completed    ?? 0,
     failed:       r.failed       ?? 0,
+    expired:      r.expired      ?? 0,
   })));
 });
 
@@ -308,10 +311,10 @@ adminJobs.get('/:id', async (c) => {
     });
   }
 
-  const stats = { device_count: deviceMap.size, queued: 0, sent: 0, completed: 0, failed: 0 };
+  const stats = { device_count: deviceMap.size, queued: 0, sent: 0, completed: 0, failed: 0, expired: 0 };
   for (const dev of deviceMap.values()) {
     for (const cmd of dev.commands) {
-      stats[cmd.status as keyof typeof stats] = (stats[cmd.status as keyof typeof stats] as number) + 1;
+      if (cmd.status in stats) stats[cmd.status as keyof typeof stats] = (stats[cmd.status as keyof typeof stats] as number) + 1;
     }
   }
 
