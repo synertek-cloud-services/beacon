@@ -23,11 +23,23 @@
           <span class="ddev-status-dot" :class="isOnline(device) ? 'dot-online' : 'dot-offline'"
             :title="isOnline(device) ? 'Online' : 'Offline'"></span>
           <span class="ddev-hostname mono">{{ device.hostname ?? 'Unknown device' }}</span>
+          <!-- OS icon inline after hostname -->
+          <svg v-if="isWindows(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" title="Windows">
+            <rect x="0" y="0" width="7" height="7"/><rect x="9" y="0" width="7" height="7"/>
+            <rect x="0" y="9" width="7" height="7"/><rect x="9" y="9" width="7" height="7"/>
+          </svg>
+          <svg v-else-if="isLinux(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Linux">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+          <svg v-else-if="isMacOS(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="macOS">
+            <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/>
+          </svg>
+          <!-- Maintenance mode indicator -->
+          <span v-if="isInMaintenance(device)" class="ddev-maint-badge" :title="`In maintenance until ${maintenanceLabel(device)}`">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            Maintenance
+          </span>
         </div>
-        <svg v-if="isWindows(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" title="Windows">
-          <rect x="0" y="0" width="7" height="7"/><rect x="9" y="0" width="7" height="7"/>
-          <rect x="0" y="9" width="7" height="7"/><rect x="9" y="9" width="7" height="7"/>
-        </svg>
       </div>
 
       <!-- Management toolbar -->
@@ -1064,6 +1076,10 @@ function isOnline(d: Device) {
 }
 function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
 function isWindows(d: Device) { return (d.osType ?? '').toLowerCase() === 'windows'; }
+function isLinux(d: Device)   { return (d.osType ?? '').toLowerCase() === 'linux'; }
+function isMacOS(d: Device)   { return (d.osType ?? '').toLowerCase() === 'darwin'; }
+function isInMaintenance(d: Device) { return d.maintenanceEndsAt != null && d.maintenanceEndsAt > Math.floor(Date.now() / 1000); }
+function maintenanceLabel(d: Device) { return d.maintenanceEndsAt ? new Date(d.maintenanceEndsAt * 1000).toLocaleString() : ''; }
 
 // Same vocabulary/labels as OverviewPage.vue's antivirus-status widget —
 // duplicated per this codebase's established per-component convention.
@@ -1399,6 +1415,7 @@ function shellLabel(shell: string): string {
 .dot-offline { background: var(--muted); }
 .ddev-hostname { font-size: 22px; font-weight: 700; color: var(--text); }
 .ddev-os-icon { color: var(--muted-2); flex-shrink: 0; }
+.ddev-maint-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #7c3aed; background: color-mix(in srgb, #7c3aed 12%, transparent); border: 1px solid color-mix(in srgb, #7c3aed 30%, transparent); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
 
 /* ── Management toolbar ── */
 .ddev-toolbar {
