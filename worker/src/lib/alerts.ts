@@ -372,6 +372,8 @@ export async function evaluateOfflineAlerts(
   const policyMonitorRows = await fetchEnabledPolicyMonitors(db);
 
   for (const device of allDevices) {
+    if (device.maintenanceEndsAt != null && device.maintenanceEndsAt > now) continue;
+
     const monitors = matchMonitorsForDevice(policyMonitorRows, device);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 

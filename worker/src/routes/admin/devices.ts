@@ -125,6 +125,30 @@ adminDevices.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /v1/admin/devices/:id/maintenance — set a maintenance window
+adminDevices.post('/:id/maintenance', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const body = await c.req.json<{ ends_at: number; reason?: string }>();
+  if (!body.ends_at || body.ends_at <= Math.floor(Date.now() / 1000)) {
+    return c.json({ error: 'ends_at must be a future unix timestamp' }, 400);
+  }
+  await db.update(schema.devices)
+    .set({ maintenanceEndsAt: body.ends_at, maintenanceReason: body.reason ?? null })
+    .where(eq(schema.devices.id, c.req.param('id')));
+  return c.json({ ok: true });
+});
+
+// DELETE /v1/admin/devices/:id/maintenance — end a maintenance window immediately
+adminDevices.delete('/:id/maintenance', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  await db.update(schema.devices)
+    .set({ maintenanceEndsAt: null, maintenanceReason: null })
+    .where(eq(schema.devices.id, c.req.param('id')));
+  return c.json({ ok: true });
+});
+
 // GET /v1/admin/devices/:id/commands — list recent commands (newest first)
 adminDevices.get('/:id/commands', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);

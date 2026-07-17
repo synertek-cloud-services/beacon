@@ -105,27 +105,33 @@ checkin.post('/', async (c) => {
     }
   }
 
+  const inMaintenance = device.maintenanceEndsAt != null && device.maintenanceEndsAt > now;
+
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
-  const { fileSizeChecks, pingChecks, processChecks, serviceChecks } = await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now);
+  const { fileSizeChecks, pingChecks, processChecks, serviceChecks } = inMaintenance
+    ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [] }
+    : await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now);
 
-  // Evaluate file_size measurements the agent took for a prior check-in's assignments
-  if (body.pending_file_size_results?.length) {
-    await evaluateFileSizeAlerts(c.env.DB, device, body.pending_file_size_results, now);
-  }
+  if (!inMaintenance) {
+    // Evaluate file_size measurements the agent took for a prior check-in's assignments
+    if (body.pending_file_size_results?.length) {
+      await evaluateFileSizeAlerts(c.env.DB, device, body.pending_file_size_results, now);
+    }
 
-  // Evaluate ping measurements the agent took for a prior check-in's assignments
-  if (body.pending_ping_results?.length) {
-    await evaluatePingAlerts(c.env.DB, device, body.pending_ping_results, now);
-  }
+    // Evaluate ping measurements the agent took for a prior check-in's assignments
+    if (body.pending_ping_results?.length) {
+      await evaluatePingAlerts(c.env.DB, device, body.pending_ping_results, now);
+    }
 
-  // Evaluate process measurements the agent took for a prior check-in's assignments
-  if (body.pending_process_results?.length) {
-    await evaluateProcessAlerts(c.env.DB, device, body.pending_process_results, now);
-  }
+    // Evaluate process measurements the agent took for a prior check-in's assignments
+    if (body.pending_process_results?.length) {
+      await evaluateProcessAlerts(c.env.DB, device, body.pending_process_results, now);
+    }
 
-  // Evaluate service measurements the agent took for a prior check-in's assignments
-  if (body.pending_service_results?.length) {
-    await evaluateServiceAlerts(c.env.DB, device, body.pending_service_results, now);
+    // Evaluate service measurements the agent took for a prior check-in's assignments
+    if (body.pending_service_results?.length) {
+      await evaluateServiceAlerts(c.env.DB, device, body.pending_service_results, now);
+    }
   }
 
   // Pending devices: accept data for visibility, return no commands

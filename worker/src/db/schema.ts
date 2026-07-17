@@ -63,6 +63,11 @@ export const devices = sqliteTable('devices', {
   // Captured from the check-in request's own CF-Connecting-IP header — not
   // agent-collected (no agent-side way to learn its own public IP).
   externalIp: text('external_ip'),
+  // Maintenance window — alerts are suppressed until this timestamp. Null means
+  // not in maintenance. Set via the dashboard; cleared when the window expires
+  // or is manually ended.
+  maintenanceEndsAt: integer('maintenance_ends_at'),
+  maintenanceReason: text('maintenance_reason'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

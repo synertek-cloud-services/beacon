@@ -406,6 +406,8 @@ export interface Device {
   approvedAt: number | null;
   warrantyExpiresAt: number | null;
   externalIp: string | null;
+  maintenanceEndsAt: number | null;
+  maintenanceReason: string | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -668,8 +670,14 @@ export const api = {
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit'; shell?: string; script?: string; timeout_seconds?: number }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent'; shell?: string; script?: string; timeout_seconds?: number }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
+    },
+    maintenance: {
+      set: (deviceId: string, body: { ends_at: number; reason?: string }) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/devices/${deviceId}/maintenance`, body),
+      end: (deviceId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${deviceId}/maintenance`),
     },
     audit: {
       latest:  (deviceId: string) =>

@@ -28,8 +28,41 @@
           <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
         </div>
       </div>
+
       <div class="section-card-head" style="padding:8px 16px;border-top:1px solid var(--border);border-bottom:none" v-if="activeCompany">
         <span class="text-xs text-muted-2">Filtered by company: <strong>{{ tenants.find(t => t.id === activeCompany)?.name ?? activeCompany }}</strong></span>
+      </div>
+
+      <!-- Bulk action bar -->
+      <div v-if="selectedCount > 0" class="bulk-bar">
+        <span class="bulk-count">{{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }} selected</span>
+        <div class="bulk-actions">
+          <button class="btn btn-ghost btn-sm" @click="bulkReboot">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+            </svg>
+            Schedule Reboot
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="bulkAudit">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+            </svg>
+            Request Audit
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="openMaintenanceModal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            Set Maintenance
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="bulkEndMaintenance">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="9"/>
+            </svg>
+            End Maintenance
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="clearSelection">Uncheck All</button>
+        </div>
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
@@ -42,6 +75,9 @@
       <table v-else>
         <thead>
           <tr>
+            <th class="col-check">
+              <input type="checkbox" :checked="allVisibleSelected" :indeterminate="someSelected" @change="toggleSelectAll" />
+            </th>
             <th>Hostname</th>
             <th>Company</th>
             <th>OS</th>
@@ -56,12 +92,19 @@
           <tr
             v-for="d in visibleDevices" :key="d.id"
             class="device-row"
+            :class="{ 'row-selected': selected[d.id], 'row-maintenance': isInMaintenance(d) }"
             style="cursor:pointer"
             @click="router.push('/devices/' + d.id)"
           >
+            <td class="col-check" @click.stop>
+              <input type="checkbox" :checked="!!selected[d.id]" @change="toggleSelect(d.id)" />
+            </td>
             <td>
               <span :class="['status-dot', isOnline(d) ? 'dot-online' : d.status === 'pending' ? 'dot-pending' : 'dot-offline']"></span>
               <span class="mono text-sm">{{ d.hostname ?? '—' }}</span>
+              <span v-if="isInMaintenance(d)" class="maint-badge" :title="`Maintenance until ${maintenanceLabel(d)}`">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              </span>
             </td>
             <td class="text-muted-2 text-sm">{{ d.tenantName ?? '—' }}</td>
             <td class="text-muted-2 text-sm">{{ osShortLabel(d) }}</td>
@@ -80,12 +123,58 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Maintenance mode modal -->
+    <div v-if="maintModal" class="modal-backdrop" @click.self="maintModal = false">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-header">
+          <span class="modal-title">Create a maintenance mode window</span>
+          <button class="btn-icon" @click="maintModal = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="maint-device-list text-sm text-muted-2">
+            Schedule a maintenance mode window on the following {{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }}:
+            <span v-for="(id, i) in selectedIds" :key="id">
+              <RouterLink :to="'/devices/' + id" class="maint-device-link">{{ deviceName(id) }}</RouterLink>{{ i < selectedIds.length - 1 ? ', ' : '' }}
+            </span>
+          </p>
+
+          <label class="field-label" style="margin-top:16px">Enter a reason</label>
+          <textarea v-model="maintReason" class="field-input maint-reason" rows="3" placeholder="Optional reason..."></textarea>
+
+          <label class="field-label" style="margin-top:16px">Choose a duration</label>
+          <div class="maint-duration-opts">
+            <label class="maint-radio">
+              <input type="radio" v-model="maintDurationType" value="hours" />
+              <span>For the next</span>
+              <input type="number" v-model.number="maintHours" min="1" max="168" class="maint-hours-input" :disabled="maintDurationType !== 'hours'" />
+              <span>hours</span>
+            </label>
+            <label class="maint-radio">
+              <input type="radio" v-model="maintDurationType" value="until" />
+              <span>Until selected date and time</span>
+            </label>
+            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-top:6px;margin-left:20px;width:220px" />
+          </div>
+
+          <p class="maint-hint">This prevents alerts being created for the device(s) for the duration that maintenance mode is active.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="maintModal = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="maintBusy" @click="submitMaintenance">
+            {{ maintBusy ? 'Setting…' : 'OK' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue';
+import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { api, type Device, type Tenant } from '../api';
 
 const route      = useRoute();
@@ -101,6 +190,120 @@ const classTab   = ref<'all' | 'server' | 'workstation' | 'network'>('all');
 const activeCompany = computed(() => route.query.company as string | undefined);
 const searchQuery   = computed(() => ((route.query.search as string) ?? '').toLowerCase().trim());
 
+// ── Multi-select ──────────────────────────────────────────────
+const selected = reactive<Record<string, boolean>>({});
+
+const selectedCount    = computed(() => Object.keys(selected).length);
+const selectedIds      = computed(() => Object.keys(selected));
+const allVisibleSelected = computed(() =>
+  visibleDevices.value.length > 0 && visibleDevices.value.every(d => selected[d.id])
+);
+const someSelected = computed(() =>
+  visibleDevices.value.some(d => selected[d.id]) && !allVisibleSelected.value
+);
+
+function toggleSelect(id: string) {
+  if (selected[id]) delete selected[id];
+  else selected[id] = true;
+}
+
+function toggleSelectAll() {
+  if (allVisibleSelected.value) {
+    visibleDevices.value.forEach(d => delete selected[d.id]);
+  } else {
+    visibleDevices.value.forEach(d => { selected[d.id] = true; });
+  }
+}
+
+function clearSelection() {
+  Object.keys(selected).forEach(k => delete selected[k]);
+}
+
+function deviceName(id: string) {
+  return devices.value.find(d => d.id === id)?.hostname ?? id;
+}
+
+// ── Maintenance modal ─────────────────────────────────────────
+const maintModal        = ref(false);
+const maintReason       = ref('');
+const maintDurationType = ref<'hours' | 'until'>('hours');
+const maintHours        = ref(1);
+const maintUntil        = ref('');
+const maintBusy         = ref(false);
+
+function openMaintenanceModal() {
+  maintReason.value = '';
+  maintDurationType.value = 'hours';
+  maintHours.value = 1;
+  maintUntil.value = '';
+  maintModal.value = true;
+}
+
+async function submitMaintenance() {
+  let endsAt: number;
+  if (maintDurationType.value === 'hours') {
+    endsAt = Math.floor(Date.now() / 1000) + maintHours.value * 3600;
+  } else {
+    if (!maintUntil.value) return;
+    endsAt = Math.floor(new Date(maintUntil.value).getTime() / 1000);
+  }
+  maintBusy.value = true;
+  try {
+    await Promise.all(
+      selectedIds.value.map(id =>
+        api.devices.maintenance.set(id, { ends_at: endsAt, reason: maintReason.value || undefined })
+      )
+    );
+    // Update local state so the moon badges appear immediately
+    selectedIds.value.forEach(id => {
+      const d = devices.value.find(x => x.id === id);
+      if (d) { d.maintenanceEndsAt = endsAt; d.maintenanceReason = maintReason.value || null; }
+    });
+    maintModal.value = false;
+    clearSelection();
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    maintBusy.value = false;
+  }
+}
+
+async function bulkEndMaintenance() {
+  try {
+    await Promise.all(selectedIds.value.map(id => api.devices.maintenance.end(id)));
+    selectedIds.value.forEach(id => {
+      const d = devices.value.find(x => x.id === id);
+      if (d) { d.maintenanceEndsAt = null; d.maintenanceReason = null; }
+    });
+    clearSelection();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+async function bulkReboot() {
+  try {
+    await Promise.all(
+      selectedIds.value.map(id => api.devices.commands.create(id, { type: 'reboot' }))
+    );
+    clearSelection();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+async function bulkAudit() {
+  try {
+    await Promise.all(
+      selectedIds.value.map(id => api.devices.commands.create(id, { type: 'run_audit' }))
+    );
+    clearSelection();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+// ── Filters / tabs ────────────────────────────────────────────
 const statusTabs = [
   { label: 'All',      value: 'all'      as const },
   { label: 'Pending',  value: 'pending'  as const },
@@ -135,6 +338,9 @@ const visibleDevices = computed(() => {
   return list;
 });
 
+// Clear selection when visible set changes
+watch(visibleDevices, () => { clearSelection(); });
+
 function setStatusTab(val: string) {
   const q: Record<string, string> = {};
   if (activeCompany.value) q.company = activeCompany.value;
@@ -155,10 +361,42 @@ function classCountFor(cls: typeof classTab.value) {
 
 watch(activeCompany, () => { classTab.value = 'all'; });
 
+// ── Helpers ───────────────────────────────────────────────────
 function isOnline(d: Device) {
   return d.status === 'approved' && d.lastSeen != null && d.lastSeen > now.value - 300;
 }
 
+function isInMaintenance(d: Device) {
+  return d.maintenanceEndsAt != null && d.maintenanceEndsAt > now.value;
+}
+
+function maintenanceLabel(d: Device) {
+  if (!d.maintenanceEndsAt) return '';
+  return new Date(d.maintenanceEndsAt * 1000).toLocaleString();
+}
+
+function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
+
+function osShortLabel(d: Device) {
+  if (!d.osType) return '—';
+  const raw = d.osVersion ? `${d.osType} ${d.osVersion}` : d.osType;
+  const m = raw.match(/Windows\s+\d+\s+\w+/i);
+  if (m) return m[0];
+  const linuxM = raw.match(/^linux\s+(.+?)(?:\s+\d+\.\d+\.\d+-.*)?$/i);
+  if (linuxM) return linuxM[1];
+  return raw;
+}
+
+function lastSeenLabel(ts: number | null) {
+  if (!ts) return 'Never';
+  const diff = now.value - ts;
+  if (diff < 90)    return 'Just now';
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+// ── Data loading ──────────────────────────────────────────────
 async function load() {
   now.value = Math.floor(Date.now() / 1000);
   loading.value = devices.value.length === 0;
@@ -199,36 +437,8 @@ async function revoke(id: string) {
   finally { busy.value = null; }
 }
 
-// Sidebar's pendingCount badge lives in App.vue (mounted once per page load,
-// polled every 30s) — dispatch this so it refreshes immediately after an
-// action taken here, instead of waiting for the next poll tick.
 function notifyPendingChanged() {
   window.dispatchEvent(new Event('beacon:pending-changed'));
-}
-
-// ── Helpers ───────────────────────────────────────────────────
-function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
-
-function osShortLabel(d: Device) {
-  if (!d.osType) return '—';
-  const raw = d.osVersion ? `${d.osType} ${d.osVersion}` : d.osType;
-  // "windows Microsoft Windows 11 Home 10.0.26200.8655 Build 26200.8655"
-  // → "Windows 11 Home"
-  const m = raw.match(/Windows\s+\d+\s+\w+/i);
-  if (m) return m[0];
-  // Linux: "linux Ubuntu 22.04.3 LTS" → "Ubuntu 22.04.3 LTS"
-  const linuxM = raw.match(/^linux\s+(.+?)(?:\s+\d+\.\d+\.\d+-.*)?$/i);
-  if (linuxM) return linuxM[1];
-  return raw;
-}
-
-function lastSeenLabel(ts: number | null) {
-  if (!ts) return 'Never';
-  const diff = now.value - ts;
-  if (diff < 90)    return 'Just now';
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 let timer: ReturnType<typeof setInterval>;
@@ -254,4 +464,47 @@ onUnmounted(() => { clearInterval(timer); });
 .class-tab.active .class-tab-label { color: var(--accent); }
 .class-tab-count { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
 .class-bar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+
+/* ── Bulk action bar ── */
+.bulk-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--accent-subtle, color-mix(in srgb, var(--accent) 8%, transparent)); border-bottom: 1px solid var(--border); }
+.bulk-count { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── Checkbox column ── */
+.col-check { width: 36px; padding-left: 12px !important; }
+.col-check input[type=checkbox] { cursor: pointer; width: 14px; height: 14px; }
+tr.row-selected td { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+tr.row-maintenance td { background: color-mix(in srgb, #7c3aed 5%, var(--surface)); }
+tr.row-selected.row-maintenance td { background: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, #7c3aed 5%, var(--surface))); }
+
+/* ── Maintenance badge ── */
+.maint-badge { display: inline-flex; align-items: center; color: #7c3aed; margin-left: 5px; opacity: .85; }
+
+/* ── Maintenance modal ── */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.4); display: flex; flex-direction: column; max-height: 90vh; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-body { padding: 20px; overflow-y: auto; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--border); }
+.btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.btn-icon:hover { background: var(--surface-2); color: var(--text); }
+
+.maint-device-list { line-height: 1.6; }
+.maint-device-link { color: var(--accent); text-decoration: none; }
+.maint-device-link:hover { text-decoration: underline; }
+
+.maint-reason { width: 100%; min-height: 80px; resize: vertical; }
+
+.maint-duration-opts { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.maint-radio { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.maint-radio input[type=radio] { cursor: pointer; }
+.maint-hours-input { width: 60px; text-align: center; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text); font-size: 13px; }
+.maint-hours-input:disabled { opacity: .4; }
+
+.maint-hint { font-size: 12px; color: var(--muted); margin-top: 16px; line-height: 1.5; padding: 10px; background: var(--surface-2); border-radius: 4px; border: 1px solid var(--border); }
+
+.field-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; display: block; }
+.field-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); font-size: 13px; font-family: var(--font); }
+.field-input:focus { outline: none; border-color: var(--accent); }
 </style>
