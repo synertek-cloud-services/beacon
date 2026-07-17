@@ -43,7 +43,7 @@
           <div class="jf-thead">
             <span class="jf-th" style="flex:1">Name</span>
             <span class="jf-th" style="width:110px">Variables</span>
-            <span class="jf-th" style="width:110px"></span>
+            <span class="jf-th" style="width:140px"></span>
           </div>
 
           <!-- Empty state -->
@@ -97,7 +97,7 @@
         <div class="jf-table">
           <div class="jf-thead">
             <span class="jf-th" style="flex:1">Name</span>
-            <span class="jf-th" style="width:80px"></span>
+            <span class="jf-th" style="width:100px"></span>
           </div>
 
           <!-- Empty state -->
@@ -118,7 +118,7 @@
                 <span>{{ targetLabel(t) }}</span>
                 <span v-if="t.kind !== 'all'" class="jf-kind-tag">{{ t.kind === 'company' ? 'Company' : 'Device' }}</span>
               </div>
-              <div class="jf-td jf-td-actions" style="width:80px">
+              <div class="jf-td jf-td-actions" style="width:100px">
                 <button class="btn-text danger" @click="removeTargetItem(i)">Remove</button>
               </div>
             </div>

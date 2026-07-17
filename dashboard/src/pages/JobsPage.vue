@@ -3,15 +3,15 @@
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div class="stat-row">
-      <div class="stat-card stat-blue" @click="setStatusFilter(null)" style="cursor:pointer">
+      <div class="stat-card stat-blue" @click="setTypeFilter(null)" style="cursor:pointer">
         <span class="stat-label">Total</span>
         <span class="stat-value">{{ jobs.length }}</span>
       </div>
-      <div class="stat-card stat-accent" @click="setStatusFilter(null)" style="cursor:pointer">
-        <span class="stat-label">Quick</span>
+      <div class="stat-card stat-accent" @click="setTypeFilter('quick')" style="cursor:pointer">
+        <span class="stat-label">Immediate</span>
         <span class="stat-value">{{ jobs.filter(j => j.type === 'quick').length }}</span>
       </div>
-      <div class="stat-card stat-purple" @click="setStatusFilter(null)" style="cursor:pointer">
+      <div class="stat-card stat-purple" @click="setTypeFilter('scheduled')" style="cursor:pointer">
         <span class="stat-label">Scheduled</span>
         <span class="stat-value">{{ jobs.filter(j => j.type === 'scheduled').length }}</span>
       </div>
@@ -41,6 +41,10 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="filter-by">Filtered by:</span>
+          <span v-if="filterType" class="filter-chip">
+            Type: {{ filterType === 'quick' ? 'immediate' : filterType }}
+            <button class="chip-x" @click="filterType = null">×</button>
+          </span>
           <span v-if="filterStatus" class="filter-chip">
             Status: {{ filterStatus }}
             <button class="chip-x" @click="filterStatus = null">×</button>
@@ -58,7 +62,7 @@
       <div v-else-if="visible.length === 0" class="empty">
         <div class="empty-title">No jobs</div>
         <p class="empty-sub">
-          <template v-if="filterUser || filterStatus">No jobs match the current filters. <button class="btn-link" @click="resetFilters">Reset filters</button> to see all jobs.</template>
+          <template v-if="filterUser || filterStatus || filterType">No jobs match the current filters. <button class="btn-link" @click="resetFilters">Reset filters</button> to see all jobs.</template>
           <template v-else>Jobs appear here when you run a Quick Job from a device or create a Scheduled Job.</template>
         </p>
       </div>
@@ -88,7 +92,7 @@
                 <RouterLink :to="'/jobs/' + job.id" @click.stop class="job-name-link">{{ job.name }}</RouterLink>
                 <div v-if="job.description" class="text-xs text-muted-2" style="margin-top:1px">{{ job.description }}</div>
               </td>
-              <td><span :class="['type-badge', `type-${job.type}`]">{{ job.type }}</span></td>
+              <td><span :class="['type-badge', `type-${job.type}`]">{{ job.type === 'quick' ? 'immediate' : job.type }}</span></td>
               <td class="text-sm text-muted-2">{{ job.deviceCount }} device{{ job.deviceCount === 1 ? '' : 's' }}</td>
               <td>
                 <div v-if="job.deviceCount > 0" class="prog-bar-wrap">
@@ -145,6 +149,7 @@ const selected = ref(new Set<string>());
 // ── Filters ──────────────────────────────────────────────────────
 const filterUser   = ref<string | null>(null);
 const filterStatus = ref<string | null>('active');
+const filterType   = ref<string | null>(null);
 
 function currentUserName(): string | null {
   const u = authState.user;
@@ -157,16 +162,21 @@ function initFilters() {
 }
 
 const isDefaultFilters = computed(() =>
-  filterUser.value === currentUserName() && filterStatus.value === 'active'
+  filterUser.value === currentUserName() && filterStatus.value === 'active' && filterType.value === null
 );
 
 function resetFilters() {
   filterUser.value   = currentUserName();
   filterStatus.value = 'active';
+  filterType.value   = null;
 }
 
 function setStatusFilter(status: string | null) {
   filterStatus.value = status;
+}
+
+function setTypeFilter(type: string | null) {
+  filterType.value = type;
 }
 
 // ── Selection ────────────────────────────────────────────────────
@@ -215,8 +225,9 @@ async function deleteSelected() {
 
 const visible = computed(() => {
   return jobs.value.filter(j => {
-    if (filterUser.value && j.createdBy !== filterUser.value) return false;
-    if (filterStatus.value && j.status !== filterStatus.value) return false;
+    if (filterType.value   && j.type    !== filterType.value)   return false;
+    if (filterUser.value   && j.createdBy !== filterUser.value) return false;
+    if (filterStatus.value && j.status  !== filterStatus.value) return false;
     return true;
   });
 });
@@ -225,7 +236,7 @@ const visible = computed(() => {
 const currentPage = ref(1);
 const pageSize    = ref(20);
 
-watch([filterUser, filterStatus], () => { currentPage.value = 1; });
+watch([filterUser, filterStatus, filterType], () => { currentPage.value = 1; });
 
 const totalPages = computed(() => Math.max(1, Math.ceil(visible.value.length / pageSize.value)));
 const rangeStart = computed(() => visible.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1);

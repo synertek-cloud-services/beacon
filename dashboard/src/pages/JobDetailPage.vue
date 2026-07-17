@@ -119,7 +119,7 @@
         </thead>
         <tbody>
           <template v-for="dev in detail.devices" :key="dev.deviceId">
-            <tr class="jd-dev-row" @click="router.push('/devices/' + dev.deviceId)" style="cursor:pointer">
+            <tr class="jd-dev-row">
               <td>
                 <RouterLink :to="'/devices/' + dev.deviceId" @click.stop class="jd-link">
                   {{ dev.hostname ?? dev.deviceId.slice(0, 8) }}
@@ -167,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type JobDetail, type JobDevice, type JobDeviceCommand } from '../api';
 import { hasRole } from '../auth';
@@ -378,15 +378,36 @@ async function purge() {
   }
 }
 
-onMounted(async () => {
+const TERMINAL = new Set(['completed', 'cancelled', 'failed']);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function fetchDetail() {
   const id = route.params.id as string;
+  const result = await api.jobs.get(id);
+  detail.value = result;
+  if (TERMINAL.has(result.status) && pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+onMounted(async () => {
   try {
-    detail.value = await api.jobs.get(id);
+    await fetchDetail();
   } catch {
     detail.value = null;
   } finally {
     loading.value = false;
   }
+  if (detail.value && !TERMINAL.has(detail.value.status)) {
+    pollTimer = setInterval(async () => {
+      try { await fetchDetail(); } catch { /* keep polling */ }
+    }, 10_000);
+  }
+});
+
+onUnmounted(() => {
+  if (pollTimer !== null) clearInterval(pollTimer);
 });
 </script>
 
