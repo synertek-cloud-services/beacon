@@ -1,6 +1,7 @@
 name = "beacon"
 main = "src/index.ts"
 compatibility_date = "2026-07-09"
+account_id = "your-cloudflare-account-id"  # find via: npx wrangler whoami
 
 # Custom domain route for production. Remove this block to use the default
 # *.workers.dev subdomain instead.
