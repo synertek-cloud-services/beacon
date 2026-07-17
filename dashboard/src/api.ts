@@ -393,6 +393,20 @@ export interface SsoGroupRoleMapping {
   createdAt: number;
 }
 
+export interface CustomField {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+}
+
+export interface DeviceCustomFieldValue {
+  id: string;
+  name: string;
+  sortOrder: number;
+  value: string | null;
+}
+
 export interface Device {
   id: string;
   tenantId: string;
@@ -442,6 +456,14 @@ export const api = {
     resetPassword: (id: string, password: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/users/${id}/reset-password`, { password }),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/users/${id}`),
+  },
+
+  customFields: {
+    list:   () => request<CustomField[]>('GET', '/v1/admin/custom-fields'),
+    create: (name: string) => request<{ id: string }>('POST', '/v1/admin/custom-fields', { name }),
+    update: (id: string, body: Partial<{ name: string; sort_order: number }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/custom-fields/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/custom-fields/${id}`),
   },
 
   sso: {
@@ -694,6 +716,12 @@ export const api = {
         request<DeviceAudit | null>('GET', `/v1/admin/devices/${deviceId}/audit/latest`),
       changes: (deviceId: string, limit = 100) =>
         request<AuditChange[]>('GET', `/v1/admin/devices/${deviceId}/audit/changes?limit=${limit}`),
+    },
+    customFields: {
+      list: (deviceId: string) =>
+        request<DeviceCustomFieldValue[]>('GET', `/v1/admin/devices/${deviceId}/custom-fields`),
+      set: (deviceId: string, fieldId: string, value: string | null) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/devices/${deviceId}/custom-fields/${fieldId}`, { value }),
     },
   },
   sessions: {

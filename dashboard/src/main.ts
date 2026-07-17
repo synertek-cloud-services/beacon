@@ -20,6 +20,7 @@ import PolicyFormPage from './pages/PolicyFormPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import UserFormPage from './pages/UserFormPage.vue';
 import SsoSettingsPage from './pages/SsoSettingsPage.vue';
+import CustomFieldsSettingsPage from './pages/CustomFieldsSettingsPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import type { Role } from './api';
@@ -56,6 +57,7 @@ const router = createRouter({
     { path: '/settings/users/new', component: UserFormPage, meta: { minRole: 'admin' } },
     { path: '/settings/users/:id', component: UserFormPage, meta: { minRole: 'admin' } },
     { path: '/settings/sso', component: SsoSettingsPage, meta: { minRole: 'admin' } },
+    { path: '/settings/custom-fields', component: CustomFieldsSettingsPage, meta: { minRole: 'admin' } },
   ],
 });
 

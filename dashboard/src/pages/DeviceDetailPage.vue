@@ -477,6 +477,30 @@
             </div>
           </section>
 
+          <!-- ── Custom Fields (manual entry — see migration 0029) ── -->
+          <section :id="'ddev-sec-customfields'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Custom Fields</h2>
+            <div class="inv-tab-body">
+              <div v-if="customFieldsLoading" class="inv-empty">Loading custom fields…</div>
+              <div v-else-if="!customFields.length" class="inv-empty">
+                No custom fields defined yet. Add some under <RouterLink to="/settings/custom-fields" style="color:var(--accent)">Settings → Custom Fields</RouterLink>.
+              </div>
+              <div v-else class="inv-section" style="padding:14px 20px">
+                <div v-for="f in customFields" :key="f.id" class="ddev-row">
+                  <span class="ddev-label">{{ f.name }}</span>
+                  <input
+                    class="text-sm ddev-date-input"
+                    style="flex:1;max-width:360px"
+                    :value="f.value ?? ''"
+                    :disabled="customFieldSaving[f.id]"
+                    @change="onCustomFieldChange(f, $event)"
+                  />
+                  <span v-if="customFieldSaving[f.id]" class="text-xs text-muted-2">Saving…</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- ── Security (audit) ── -->
           <section :id="'ddev-sec-security'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Security</h2>
@@ -718,7 +742,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 import RemoteShellModal from '../components/RemoteShellModal.vue';
 
@@ -763,6 +787,7 @@ const sections = [
   { value: 'memory',    label: 'Memory' },
   { value: 'storage',   label: 'Storage' },
   { value: 'network',   label: 'Network' },
+  { value: 'customfields', label: 'Custom Fields' },
   { value: 'security',  label: 'Security' },
 ];
 // This is one continuous page, not tabs — activeSection only tracks which
@@ -809,6 +834,12 @@ const alertsResolving     = ref(false);
 // Policies section (effective monitors for this device)
 const effectiveMonitors        = ref<EffectiveMonitor[]>([]);
 const effectiveMonitorsLoading = ref(false);
+
+// Custom fields — manual entry only (see migrations/0029). Definitions are
+// managed globally under Settings → Custom Fields; values are per-device.
+const customFields = ref<DeviceCustomFieldValue[]>([]);
+const customFieldsLoading = ref(true);
+const customFieldSaving = reactive<Record<string, boolean>>({});
 const swPageSize      = ref(20);
 const svcPageSize     = ref(20);
 const PAGE_SIZES      = [20, 50, 100];
@@ -943,6 +974,7 @@ async function onIdChange(id: string | undefined) {
   auditData.value = null;
   deviceAlerts.value = [];
   effectiveMonitors.value = [];
+  customFields.value = [];
   softwareSearch.value = '';
   softwarePage.value = 0;
   servicesPage.value = 0;
@@ -957,7 +989,7 @@ async function onIdChange(id: string | undefined) {
     .catch(() => { /* leave null — "Run Audit Now" empty state covers this */ })
     .finally(() => { auditLoading.value = false; });
 
-  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors()]);
+  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadCustomFields(device.value.id)]);
 
   // Deep-link support: jump to whatever ?section= names (or Summary/top for
   // a plain device switch that doesn't carry one), now that everything's
@@ -1268,6 +1300,27 @@ async function onWarrantyChange(e: Event) {
     warrantySaving.value = false;
   }
 }
+async function loadCustomFields(deviceId: string) {
+  customFieldsLoading.value = true;
+  try {
+    customFields.value = await api.devices.customFields.list(deviceId);
+  } finally {
+    customFieldsLoading.value = false;
+  }
+}
+
+async function onCustomFieldChange(f: DeviceCustomFieldValue, e: Event) {
+  if (!device.value) return;
+  const val = (e.target as HTMLInputElement).value.trim() || null;
+  customFieldSaving[f.id] = true;
+  try {
+    await api.devices.customFields.set(device.value.id, f.id, val);
+    f.value = val;
+  } finally {
+    customFieldSaving[f.id] = false;
+  }
+}
+
 function absDate(ts: number) {
   return new Date(ts * 1000).toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',

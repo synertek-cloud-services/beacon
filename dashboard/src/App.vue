@@ -145,6 +145,7 @@
           <div v-show="openSections.settings" class="sec-body">
             <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
             <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
+            <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
           </div>
         </template>
 
@@ -220,6 +221,7 @@
       <template v-if="openFlyout === 'settings'">
         <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
         <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
+        <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
       </template>
     </div>
 
@@ -472,6 +474,7 @@ const pageTitle = computed(() => {
   if (route.path === '/global/policies') return 'Global Policies';
   if (route.path.startsWith('/settings/users')) return 'Users';
   if (route.path === '/settings/sso') return 'Single Sign-On';
+  if (route.path === '/settings/custom-fields') return 'Custom Fields';
   return 'Beacon';
 });
 

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const tenants = sqliteTable('tenants', {
   id: text('id').primaryKey(),
@@ -350,3 +350,21 @@ export const commands = sqliteTable('commands', {
   componentId:    text('component_id'),
   componentOrder: integer('component_order').notNull().default(1),
 });
+
+// Dynamic custom fields ("UDF" equivalent) — admin-defined named fields, values
+// stored per device. Not Datto's 300 fixed numbered slots; a real join table
+// (not a JSON blob on devices) so a future filter/targeting pass doesn't need
+// a schema change. Manual entry only for this pass — no agent-write path.
+export const customFields = sqliteTable('custom_fields', {
+  id:        text('id').primaryKey(),
+  name:      text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const deviceCustomFieldValues = sqliteTable('device_custom_field_values', {
+  deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  fieldId:   text('field_id').notNull().references(() => customFields.id, { onDelete: 'cascade' }),
+  value:     text('value'),
+  updatedAt: integer('updated_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.deviceId, t.fieldId] })]);

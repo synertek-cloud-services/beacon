@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
@@ -256,6 +256,49 @@ adminDevices.get('/:id/audit/latest', async (c) => {
     services:     row.services  ? JSON.parse(row.services)  : null,
     security:     row.security  ? JSON.parse(row.security)  : null,
   });
+});
+
+// GET /v1/admin/devices/:id/custom-fields — every field definition, joined
+// with this device's stored value (null when never set).
+adminDevices.get('/:id/custom-fields', async (c) => {
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const deviceId = c.req.param('id');
+
+  const fields = await db.select().from(schema.customFields).orderBy(schema.customFields.sortOrder).all();
+  const values = await db.select().from(schema.deviceCustomFieldValues).where(eq(schema.deviceCustomFieldValues.deviceId, deviceId)).all();
+  const valueMap = new Map(values.map(v => [v.fieldId, v.value]));
+
+  return c.json(fields.map(f => ({ id: f.id, name: f.name, sortOrder: f.sortOrder, value: valueMap.get(f.id) ?? null })));
+});
+
+// PATCH /v1/admin/devices/:id/custom-fields/:fieldId — set (upsert) a value
+adminDevices.patch('/:id/custom-fields/:fieldId', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const deviceId = c.req.param('id');
+  const fieldId = c.req.param('fieldId');
+  const now = Math.floor(Date.now() / 1000);
+
+  const field = await db.select({ id: schema.customFields.id }).from(schema.customFields).where(eq(schema.customFields.id, fieldId)).get();
+  if (!field) return c.json({ error: 'field not found' }, 404);
+
+  const body = await c.req.json<{ value?: string | null }>();
+  const value = body.value?.trim() || null;
+
+  const existing = await db.select().from(schema.deviceCustomFieldValues)
+    .where(and(eq(schema.deviceCustomFieldValues.deviceId, deviceId), eq(schema.deviceCustomFieldValues.fieldId, fieldId)))
+    .get();
+
+  if (existing) {
+    await db.update(schema.deviceCustomFieldValues)
+      .set({ value, updatedAt: now })
+      .where(and(eq(schema.deviceCustomFieldValues.deviceId, deviceId), eq(schema.deviceCustomFieldValues.fieldId, fieldId)));
+  } else {
+    await db.insert(schema.deviceCustomFieldValues).values({ deviceId, fieldId, value, updatedAt: now });
+  }
+
+  return c.json({ ok: true });
 });
 
 // GET /v1/admin/devices/:id/audit/changes?limit=100

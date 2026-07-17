@@ -19,6 +19,7 @@ import authRoute from './routes/auth';
 import authMicrosoft from './routes/auth-microsoft';
 import adminUsers from './routes/admin/users';
 import adminSso from './routes/admin/sso';
+import adminCustomFields from './routes/admin/custom-fields';
 import { evaluateOfflineAlerts } from './lib/alerts';
 
 export { SessionRelay } from './durable-objects/session-relay';
@@ -80,6 +81,7 @@ app.route('/v1/admin/components', adminComponents);
 app.route('/v1/admin/jobs', adminJobs);
 app.route('/v1/admin/users', adminUsers);
 app.route('/v1/admin/sso', adminSso);
+app.route('/v1/admin/custom-fields', adminCustomFields);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
 
