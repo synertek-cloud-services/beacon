@@ -288,6 +288,10 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				session.Handle(cmd)
 				return
 			}
+			if cmd.Type == "restart_agent" {
+				log.Printf("restart_agent received — exiting for SCM recovery restart")
+				os.Exit(0)
+			}
 			if cmd.Type == "run_audit" {
 				select {
 				case auditTrigger <- struct{}{}:

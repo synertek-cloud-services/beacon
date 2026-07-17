@@ -157,7 +157,7 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
@@ -184,6 +184,9 @@ adminDevices.post('/:id/commands', async (c) => {
     // Agent dispatches on this literal command type (agent/cmd/agent/main.go)
     // instead of running it through the generic script executor — no payload needed.
     cmdType = 'run_audit';
+    payload = {};
+  } else if (body.type === 'restart_agent') {
+    cmdType = 'restart_agent';
     payload = {};
   } else {
     return c.json({ error: 'unknown command type' }, 400);

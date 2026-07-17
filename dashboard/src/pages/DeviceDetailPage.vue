@@ -81,6 +81,12 @@
               </svg>
               Schedule Reboot
             </button>
+            <button class="kebab-item" :disabled="device.status !== 'approved'" @click="restartAgent(device.id)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Restart Agent
+            </button>
             <button class="kebab-item kebab-item-dim" disabled>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
@@ -1232,6 +1238,16 @@ async function scheduleReboot(d: Device) {
   menuOpen.value = false;
   try {
     await api.devices.commands.create(d.id, { type: 'reboot' });
+    showJobQueued();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+async function restartAgent(deviceId: string) {
+  menuOpen.value = false;
+  try {
+    await api.devices.commands.create(deviceId, { type: 'restart_agent' });
     showJobQueued();
   } catch (e: any) {
     error.value = e.message;
