@@ -30,6 +30,7 @@ function mapRow(r: any) {
     script:         r.script,
     timeoutSeconds: r.timeout_seconds,
     postConditions: JSON.parse(r.post_conditions || '[]') as PostCondition[],
+    targetOs:       r.target_os ?? null,
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
   };
@@ -158,6 +159,7 @@ adminComponents.post('/', async (c) => {
     script: string;
     timeout_seconds?: number;
     post_conditions?: PostCondition[];
+    target_os?: string | null;
   }>();
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
@@ -167,8 +169,8 @@ adminComponents.post('/', async (c) => {
   const id  = uid();
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id,
     body.name.trim(),
@@ -180,6 +182,7 @@ adminComponents.post('/', async (c) => {
     body.script,
     body.timeout_seconds ?? 300,
     JSON.stringify(body.post_conditions ?? []),
+    body.target_os ?? null,
     now, now,
   ).run();
 
@@ -205,6 +208,7 @@ adminComponents.patch('/:id', async (c) => {
     script: string;
     timeout_seconds: number;
     post_conditions: PostCondition[];
+    target_os: string | null;
   }>>();
 
   const row = await c.env.DB.prepare(`SELECT id, origin FROM components WHERE id = ?`).bind(id).first<any>();
@@ -223,6 +227,7 @@ adminComponents.patch('/:id', async (c) => {
   if (body.script      !== undefined) { sets.push('script = ?');          vals.push(body.script); }
   if (body.timeout_seconds !== undefined) { sets.push('timeout_seconds = ?'); vals.push(body.timeout_seconds); }
   if (body.post_conditions !== undefined) { sets.push('post_conditions = ?'); vals.push(JSON.stringify(body.post_conditions)); }
+  if (body.target_os       !== undefined) { sets.push('target_os = ?');       vals.push(body.target_os); }
 
   vals.push(id);
   await c.env.DB.prepare(`UPDATE components SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
@@ -262,12 +267,12 @@ adminComponents.post('/:id/clone', async (c) => {
   const name  = body.name?.trim() || `${source.name} (Copy)`;
 
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     newId, name, source.description, source.category, source.type,
     source.scope,
-    source.shell, source.script, source.timeout_seconds, source.post_conditions,
+    source.shell, source.script, source.timeout_seconds, source.post_conditions, source.target_os ?? null,
     now, now,
   ).run();
 

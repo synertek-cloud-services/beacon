@@ -61,6 +61,18 @@
         </select>
       </div>
 
+      <!-- Platform (OS targeting) -->
+      <div class="pf-group">
+        <label class="pf-label">Platform</label>
+        <select v-model="form.targetOs" class="pf-input" style="max-width:200px" :disabled="isStore">
+          <option value="">All Platforms</option>
+          <option value="windows">Windows</option>
+          <option value="linux">Linux</option>
+          <option value="darwin">macOS</option>
+        </select>
+        <p class="field-hint">Jobs skip devices whose OS doesn't match. Leave blank to run on any platform.</p>
+      </div>
+
       <!-- Sites scope -->
       <div class="pf-group">
         <label class="pf-label">Sites</label>
@@ -278,7 +290,7 @@ const fieldErr  = reactive({ name: '', sites: '', script: '' });
 const form = reactive({
   name: '', description: '', category: '', type: 'script' as 'script' | 'application',
   scope: 'global' as 'global' | 'company',
-  shell: 'auto', script: '', timeoutSeconds: 300,
+  shell: 'auto', script: '', timeoutSeconds: 300, targetOs: '' as string,
 });
 
 const postConditions = ref<PostCondition[]>([]);
@@ -461,6 +473,7 @@ onMounted(async () => {
       form.shell           = comp.shell;
       form.script          = comp.script;
       form.timeoutSeconds = comp.timeoutSeconds;
+      form.targetOs        = comp.targetOs ?? '';
       postConditions.value = comp.postConditions.map(pc => ({ ...pc }));
       variables.value       = comp.variables.map(v => ({ ...v }));
       selectedSites.value   = comp.sites.map(s => ({ ...s }));
@@ -497,6 +510,7 @@ async function save() {
         script:          form.script,
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
+        target_os:       form.targetOs || null,
       });
       for (const v of variables.value) {
         await api.components.variables.create(created.id, {
@@ -519,6 +533,7 @@ async function save() {
         script:          form.script,
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
+        target_os:       form.targetOs || null,
       });
     }
     router.push('/components');

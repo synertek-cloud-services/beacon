@@ -215,6 +215,7 @@ export const components = sqliteTable('components', {
   script:         text('script').notNull().default(''),
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   postConditions: text('post_conditions').notNull().default('[]'), // JSON PostCondition[]
+  targetOs:       text('target_os'), // null = all platforms; 'windows'|'linux'|'darwin' = OS-specific
   createdAt:      integer('created_at').notNull(),
   updatedAt:      integer('updated_at').notNull(),
 });

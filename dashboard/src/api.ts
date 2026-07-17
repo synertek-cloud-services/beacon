@@ -152,6 +152,7 @@ export interface Component {
   script: string;
   timeoutSeconds: number;
   postConditions: PostCondition[];
+  targetOs: string | null; // null = all platforms; 'windows'|'linux'|'darwin' = OS-specific
   variables: ComponentVariable[];
   createdAt: number;
   updatedAt: number;
@@ -480,6 +481,7 @@ export const api = {
       script: string;
       timeout_seconds?: number;
       post_conditions?: PostCondition[];
+      target_os?: string | null;
     })                            => request<Component>('POST', '/v1/admin/components', body),
     update: (id: string, body: Partial<{
       name: string;
@@ -491,6 +493,7 @@ export const api = {
       script: string;
       timeout_seconds: number;
       post_conditions: PostCondition[];
+      target_os: string | null;
     }>)                           => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${id}`, body),
     delete: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${id}`),
     clone:  (id: string, name?: string) => request<Component>('POST', `/v1/admin/components/${id}/clone`, { name }),

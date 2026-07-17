@@ -17,7 +17,7 @@ type ComponentRef =
   | { type: 'library'; component_id: string; order: number; variable_values?: Record<string, string> }
   | { type: 'inline'; shell: string; script: string; timeout_seconds?: number; order: number };
 
-type ResolvedPayload = { shell: string; script: string; timeout_seconds: number; variables: Record<string, string> };
+type ResolvedPayload = { shell: string; script: string; timeout_seconds: number; variables: Record<string, string>; target_os: string | null };
 
 // ── Helper: resolve payload for a component ref ────────────────
 // Library refs also resolve the component's input variables — supplied value,
@@ -28,12 +28,12 @@ async function resolvePayload(
   ref: ComponentRef,
 ): Promise<ResolvedPayload | { error: string } | null> {
   if (ref.type === 'inline') {
-    return { shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300, variables: {} };
+    return { shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300, variables: {}, target_os: null };
   }
   // library
   const comp = await db.prepare(
-    `SELECT shell, script, timeout_seconds FROM components WHERE id = ?`
-  ).bind(ref.component_id).first<{ shell: string; script: string; timeout_seconds: number }>();
+    `SELECT shell, script, timeout_seconds, target_os FROM components WHERE id = ?`
+  ).bind(ref.component_id).first<{ shell: string; script: string; timeout_seconds: number; target_os: string | null }>();
   if (!comp) return null;
 
   const vars = await db.prepare(
@@ -48,7 +48,7 @@ async function resolvePayload(
     if (v.required) return { error: `missing required variable "${v.name}" for component ${ref.component_id}` };
   }
 
-  return { shell: comp.shell, script: comp.script, timeout_seconds: comp.timeout_seconds, variables };
+  return { shell: comp.shell, script: comp.script, timeout_seconds: comp.timeout_seconds, variables, target_os: comp.target_os };
 }
 
 // ── Helper: resolve target device rows ────────────────────────
@@ -100,7 +100,13 @@ async function insertJobCommands(
   const inserts: Promise<any>[] = [];
 
   for (const device of devices) {
-    for (const { ref, payload } of resolved) {
+    // Skip components whose target_os doesn't match this device's OS
+    const compatible = resolved.filter(({ payload }) =>
+      !payload.target_os || payload.target_os === device.os_type
+    );
+    if (compatible.length === 0) continue;
+
+    for (const { ref, payload } of compatible) {
       const shell  = resolveShell(payload.shell, device.os_type);
       const cmdId  = uid();
       const scriptPayload = JSON.stringify({
