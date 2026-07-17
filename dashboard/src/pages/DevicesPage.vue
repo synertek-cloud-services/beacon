@@ -345,7 +345,7 @@ async function submitReboot() {
         name: 'Reboot', type: isScheduled ? 'scheduled' : 'quick',
         ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
         target_type: 'devices', target_ids: unixIds,
-        components: [{ type: 'inline', shell: 'bash', script: '(sleep 5; reboot) &', timeout_seconds: 30, order: 0 }],
+        components: [{ type: 'inline', shell: 'bash', script: '(sleep 10; reboot) &', timeout_seconds: 30, order: 0 }],
       }));
     }
     await Promise.all(jobRequests);

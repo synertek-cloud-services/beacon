@@ -41,6 +41,10 @@ var (
 	pendingProcessResults  []protocol.ProcessResult
 	pendingServiceResults  []protocol.ServiceResult
 	auditTrigger           = make(chan struct{}, 1)
+	// triggerCheckin lets command goroutines wake the main loop early so
+	// results are reported on the next check-in rather than waiting the
+	// full 60-second interval. Buffered so senders never block.
+	triggerCheckin         = make(chan struct{}, 1)
 )
 
 func main() {
@@ -101,7 +105,14 @@ func main() {
 			} else {
 				updater.NotifyCheckIn()
 			}
-			time.Sleep(checkInInterval)
+			select {
+			case <-time.After(checkInInterval):
+			case <-triggerCheckin:
+				// A command result arrived — check in early to report it
+				// before the full 60-second interval elapses (important for
+				// commands like reboot that shut the machine down shortly after).
+				time.Sleep(2 * time.Second)
+			}
 		}
 	})
 }
@@ -312,6 +323,10 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			pendingMu.Lock()
 			pendingResults = append(pendingResults, result)
 			pendingMu.Unlock()
+			select {
+			case triggerCheckin <- struct{}{}:
+			default:
+			}
 		}(cmd)
 	}
 
