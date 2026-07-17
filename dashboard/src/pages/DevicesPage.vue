@@ -37,7 +37,7 @@
       <div v-if="selectedCount > 0" class="bulk-bar">
         <span class="bulk-count">{{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }} selected</span>
         <div class="bulk-actions">
-          <button class="btn btn-ghost btn-sm" @click="bulkReboot">
+          <button class="btn btn-ghost btn-sm" @click="openRebootModal">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
             </svg>
@@ -169,6 +169,35 @@
         </div>
       </div>
     </div>
+    <!-- Reboot devices modal -->
+    <div v-if="rebootModal" class="modal-backdrop" @click.self="rebootModal = false">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-header">
+          <span class="modal-title">Reboot Devices</span>
+          <button class="btn-icon" @click="rebootModal = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <select v-model="rebootTiming" class="field-input">
+            <option value="immediate">Immediately</option>
+            <option value="scheduled">At selected date and time</option>
+          </select>
+
+          <template v-if="rebootTiming === 'scheduled'">
+            <p class="reboot-hint">This reboot will run once at the date/time indicated.</p>
+            <label class="field-label" style="margin-top:14px">Start date and execution time</label>
+            <input type="datetime-local" v-model="rebootScheduledAt" class="field-input" style="margin-top:6px;width:auto" />
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="rebootModal = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="rebootBusy || (rebootTiming === 'scheduled' && !rebootScheduledAt)" @click="submitReboot">
+            {{ rebootBusy ? 'Sending…' : 'Reboot' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -281,14 +310,53 @@ async function bulkEndMaintenance() {
   }
 }
 
-async function bulkReboot() {
+// ── Reboot modal ──────────────────────────────────────────────
+const rebootModal     = ref(false);
+const rebootTiming    = ref<'immediate' | 'scheduled'>('immediate');
+const rebootScheduledAt = ref('');
+const rebootBusy      = ref(false);
+
+function openRebootModal() {
+  rebootTiming.value = 'immediate';
+  rebootScheduledAt.value = '';
+  rebootModal.value = true;
+}
+
+async function submitReboot() {
+  rebootBusy.value = true;
   try {
-    await Promise.all(
-      selectedIds.value.map(id => api.devices.commands.create(id, { type: 'reboot' }))
-    );
+    if (rebootTiming.value === 'immediate') {
+      await Promise.all(
+        selectedIds.value.map(id => api.devices.commands.create(id, { type: 'reboot' }))
+      );
+    } else {
+      const scheduledAt = Math.floor(new Date(rebootScheduledAt.value).getTime() / 1000);
+      // Group by OS so the right shell/script is used per device
+      const winIds  = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType === 'windows');
+      const unixIds = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType !== 'windows');
+      const jobs = [];
+      if (winIds.length) {
+        jobs.push(api.jobs.create({
+          name: 'Scheduled Reboot', type: 'scheduled', scheduled_at: scheduledAt,
+          target_type: 'devices', target_ids: winIds,
+          components: [{ type: 'inline', shell: 'powershell', script: 'shutdown /r /t 0', timeout_seconds: 30, order: 0 }],
+        }));
+      }
+      if (unixIds.length) {
+        jobs.push(api.jobs.create({
+          name: 'Scheduled Reboot', type: 'scheduled', scheduled_at: scheduledAt,
+          target_type: 'devices', target_ids: unixIds,
+          components: [{ type: 'inline', shell: 'bash', script: 'reboot', timeout_seconds: 30, order: 0 }],
+        }));
+      }
+      await Promise.all(jobs);
+    }
+    rebootModal.value = false;
     clearSelection();
   } catch (e: any) {
     error.value = e.message;
+  } finally {
+    rebootBusy.value = false;
   }
 }
 
@@ -507,4 +575,5 @@ tr.row-selected.row-maintenance td { background: color-mix(in srgb, var(--accent
 .field-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; display: block; }
 .field-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); font-size: 13px; font-family: var(--font); }
 .field-input:focus { outline: none; border-color: var(--accent); }
+.reboot-hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
 </style>
