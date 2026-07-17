@@ -3,7 +3,7 @@
     <RouterView />
   </div>
   <div v-else class="shell">
-    <nav class="sidebar" :class="{ 'no-transition': isResizing }" :style="sidebarStyle">
+    <nav class="sidebar" :class="{ 'no-transition': isResizing, collapsed: sidebarCollapsed }" :style="sidebarStyle">
       <div class="sidebar-brand">
         <div class="sidebar-brand-mark">
           <img src="/favicon.svg" width="18" height="18" alt="" style="display:block" />
@@ -14,7 +14,7 @@
       <div class="sidebar-nav">
 
         <!-- DASHBOARDS -->
-        <div class="sec-head" @click="toggleSection('dashboards')">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'dashboards' }" @click="handleSectionClick('dashboards', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
             <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
@@ -29,7 +29,7 @@
         </div>
 
         <!-- COMPANIES -->
-        <div class="sec-head" @click="toggleSection('sites')">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'sites' }" @click="handleSectionClick('sites', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
             <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
@@ -72,7 +72,7 @@
         </div>
 
         <!-- DEVICES -->
-        <div class="sec-head" @click="toggleSection('devices')">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'devices' }" @click="handleSectionClick('devices', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/>
           </svg>
@@ -99,7 +99,7 @@
         </div>
 
         <!-- GLOBAL -->
-        <div class="sec-head" @click="toggleSection('global')">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'global' }" @click="handleSectionClick('global', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <circle cx="12" cy="12" r="10"/>
             <line x1="2" y1="12" x2="22" y2="12"/>
@@ -116,7 +116,7 @@
         </div>
 
         <!-- AUTOMATION -->
-        <div class="sec-head" @click="toggleSection('automation')">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'automation' }" @click="handleSectionClick('automation', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
@@ -132,7 +132,7 @@
 
         <!-- SETTINGS (admin only) -->
         <template v-if="hasRole('admin')">
-          <div class="sec-head" @click="toggleSection('settings')">
+          <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'settings' }" @click="handleSectionClick('settings', $event)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
               <circle cx="12" cy="12" r="3"/>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -161,10 +161,72 @@
       <div class="sidebar-resizer" @mousedown.prevent="startResize"></div>
     </nav>
 
+    <!-- Collapsed icon-rail flyout -->
+    <div v-if="sidebarCollapsed && openFlyout" class="flyout-backdrop" @click="openFlyout = null" />
+    <div v-if="sidebarCollapsed && openFlyout" class="nav-flyout" :style="{ top: flyoutTop + 'px' }">
+      <div class="flyout-head">{{ flyoutTitle }}</div>
+
+      <template v-if="openFlyout === 'dashboards'">
+        <RouterLink to="/" class="sbi" :class="{ active: route.path === '/' }">Default Dashboard</RouterLink>
+      </template>
+
+      <template v-if="openFlyout === 'sites'">
+        <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
+        <template v-if="activeClientId">
+          <div class="client-row">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span class="client-name">{{ activeClientName }}</span>
+            <button class="client-clear" @click="clearActiveClient" title="Clear">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="sbi sbi-leaf"
+               :class="{ active: route.path.startsWith('/devices') && route.query.company === activeClientId }"
+               @click="router.push({ path: '/devices', query: { company: activeClientId } })">Devices</div>
+          <div class="sbi sbi-leaf"
+               :class="{ active: route.path.startsWith('/global/alerts') && route.query.company === activeClientId }"
+               @click="router.push({ path: '/global/alerts', query: { company: activeClientId } })">Alerts</div>
+          <div class="sbi sbi-leaf"
+               :class="{ active: route.path.startsWith('/global/policies') && route.query.company === activeClientId }"
+               @click="router.push({ path: '/global/policies', query: { company: activeClientId } })">Policies</div>
+        </template>
+      </template>
+
+      <template v-if="openFlyout === 'devices'">
+        <RouterLink
+          :to="{ path: '/devices', query: { status: 'pending' } }"
+          class="sbi"
+          :class="{ active: route.path.startsWith('/devices') && route.query.status === 'pending' }"
+        >Device Approvals<span v-if="pendingCount > 0" class="sbi-badge">{{ pendingCount }}</span></RouterLink>
+        <RouterLink
+          to="/devices"
+          class="sbi"
+          :class="{ active: route.path.startsWith('/devices') && !route.query.company && route.query.status !== 'pending' }"
+        >All</RouterLink>
+      </template>
+
+      <template v-if="openFlyout === 'global'">
+        <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
+        <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
+      </template>
+
+      <template v-if="openFlyout === 'automation'">
+        <RouterLink to="/jobs" class="sbi" :class="{ active: route.path.startsWith('/jobs') }">Jobs</RouterLink>
+        <RouterLink to="/components" class="sbi" :class="{ active: route.path.startsWith('/components') }">Components</RouterLink>
+      </template>
+
+      <template v-if="openFlyout === 'settings'">
+        <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
+        <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
+      </template>
+    </div>
+
     <button
       class="sidebar-toggle-btn"
       :class="{ 'no-transition': isResizing }"
-      :style="{ left: (sidebarCollapsed ? 11 : sidebarWidth) + 'px' }"
+      :style="{ left: (sidebarCollapsed ? 44 : sidebarWidth) + 'px' }"
       @click="toggleSidebar"
       :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
     >
@@ -250,17 +312,39 @@ const activeClientId = ref<string | null>(null);
 const sidebarWidth     = ref(parseInt(localStorage.getItem('beacon-sidebar-w') ?? '220'));
 const sidebarCollapsed = ref(localStorage.getItem('beacon-sidebar-collapsed') === 'true');
 const isResizing       = ref(false);
+const openFlyout       = ref<string | null>(null);
+const flyoutTop        = ref(0);
 
 const sidebarStyle = computed(() =>
   sidebarCollapsed.value
-    ? { width: '0px', minWidth: '0px' }
+    ? { width: '44px', minWidth: '44px' }
     : { width: sidebarWidth.value + 'px', minWidth: sidebarWidth.value + 'px' }
 );
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
+  openFlyout.value = null;
   localStorage.setItem('beacon-sidebar-collapsed', String(sidebarCollapsed.value));
 }
+
+function handleSectionClick(key: string, event: MouseEvent) {
+  if (!sidebarCollapsed.value) {
+    toggleSection(key as keyof typeof openSections.value);
+    return;
+  }
+  if (openFlyout.value === key) {
+    openFlyout.value = null;
+    return;
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  flyoutTop.value = rect.top;
+  openFlyout.value = key;
+}
+
+const flyoutTitle = computed(() => ({
+  dashboards: 'Dashboards', sites: 'Companies', devices: 'Devices',
+  global: 'Global', automation: 'Automation', settings: 'Settings',
+} as Record<string, string>)[openFlyout.value ?? ''] ?? '');
 
 let _resizeStartX = 0;
 let _resizeStartW = 0;
@@ -358,7 +442,7 @@ watch(() => route.query.search, (s) => {
   searchQuery.value = (s as string) ?? '';
 }, { immediate: true });
 
-watch(() => route.path, () => { showDropdown.value = false; });
+watch(() => route.path, () => { showDropdown.value = false; openFlyout.value = null; });
 
 function clearActiveClient() {
   activeClientId.value = null;
@@ -522,6 +606,47 @@ async function logout() {
   padding: 2px 6px;
   border-radius: 8px;
 }
+
+/* ── Collapsed icon rail ── */
+.sidebar.collapsed .sidebar-brand { justify-content: center; padding: 0; }
+.sidebar.collapsed .sidebar-brand-name { display: none; }
+.sidebar.collapsed .sec-label,
+.sidebar.collapsed .sec-chevron,
+.sidebar.collapsed .sec-badge,
+.sidebar.collapsed .sec-body { display: none; }
+.sidebar.collapsed .sec-head { justify-content: center; padding: 10px 0; }
+.sidebar.collapsed .sec-icon { opacity: 1; }
+.sidebar.collapsed .sec-head:hover .sec-icon { color: var(--text); }
+.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--accent); }
+.sidebar.collapsed .sidebar-footer { display: none; }
+.sidebar.collapsed .sidebar-resizer { display: none; }
+
+/* ── Flyout backdrop ── */
+.flyout-backdrop {
+  position: fixed; inset: 0; z-index: 598;
+}
+
+/* ── Flyout panel ── */
+.nav-flyout {
+  position: fixed;
+  left: 44px;
+  min-width: 180px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 0 6px 6px 0;
+  box-shadow: 4px 0 20px rgba(0,0,0,.3);
+  z-index: 599;
+  padding-bottom: 6px;
+}
+.flyout-head {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); padding: 10px 14px 6px;
+}
+.nav-flyout .sbi { padding-left: 14px; }
+.nav-flyout .sbi-leaf { padding-left: 28px; }
+.nav-flyout .client-row { padding-left: 14px; }
 
 /* ── Sidebar collapse toggle (floating arrow at the sidebar's edge) ── */
 .sidebar-toggle-btn {

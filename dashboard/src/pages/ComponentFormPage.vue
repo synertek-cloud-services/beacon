@@ -284,6 +284,7 @@ const loading   = ref(false);
 const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
+const isStore   = ref(false);
 const tenants   = ref<Tenant[]>([]);
 const fieldErr  = reactive({ name: '', sites: '', script: '' });
 
@@ -477,6 +478,7 @@ onMounted(async () => {
       postConditions.value = comp.postConditions.map(pc => ({ ...pc }));
       variables.value       = comp.variables.map(v => ({ ...v }));
       selectedSites.value   = comp.sites.map(s => ({ ...s }));
+      isStore.value         = comp.origin === 'store';
     } catch (e: any) {
       loadError.value = e.message;
     } finally {
