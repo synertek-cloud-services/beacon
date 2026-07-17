@@ -5,7 +5,9 @@ package service
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -67,8 +69,57 @@ func Install(serverURL, enrollToken string) error {
 		return fmt.Errorf("start service: %w", err)
 	}
 
+	hardenService(s)
+	hardenInstallDir()
+
 	fmt.Printf("Beacon agent installed and started as Windows service %q\n", ServiceName)
 	return nil
+}
+
+// hardenService sets recovery actions (restart on any exit) and locks down the
+// service SDDL so that only SYSTEM can stop or delete the service. Admins
+// retain read + start rights so they can see it in Services and start it if
+// needed, but cannot stop or uninstall it through normal channels.
+func hardenService(s *mgr.Service) {
+	// Recovery: restart after 5s, 10s, 30s; trigger even on clean exit (os.Exit(0))
+	// so the self-updater's exit is caught and the new binary is restarted by SCM.
+	actions := []mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
+	}
+	if err := s.SetRecoveryActions(actions, 86400); err != nil {
+		log.Printf("tamper: set recovery actions: %v", err)
+	}
+	// Trigger recovery even when the service exits with code 0 (normal exit).
+	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		log.Printf("tamper: set recovery on non-crash: %v", err)
+	}
+
+	// SDDL: SYSTEM gets full control; Administrators get query+start only
+	// (no WP=Stop, no SD=Delete, no DT=Pause). This survives a reboot.
+	// D: = DACL
+	//   SY = SYSTEM:  CC LC SW RP WP DT LO CR RC (everything)
+	//   BA = Admins:  CC LC RP RC            (query, start, read — no stop/delete)
+	const svcSDDL = `D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCRPRC;;;BA)`
+	if out, err := exec.Command("sc.exe", "sdset", ServiceName, svcSDDL).CombinedOutput(); err != nil {
+		log.Printf("tamper: sc sdset: %v — %s", err, out)
+	}
+}
+
+// hardenInstallDir locks the install directory so only SYSTEM has write access.
+// Administrators retain read + execute so they can see and run the binary, but
+// cannot delete, replace, or modify it without elevated SYSTEM-level access.
+func hardenInstallDir() {
+	args := []string{
+		installDir,
+		"/inheritance:r",
+		"/grant:r", `NT AUTHORITY\SYSTEM:(OI)(CI)F`,
+		"/grant:r", `BUILTIN\Administrators:(OI)(CI)RX`,
+	}
+	if out, err := exec.Command("icacls.exe", args...).CombinedOutput(); err != nil {
+		log.Printf("tamper: icacls: %v — %s", err, out)
+	}
 }
 
 func Uninstall() error {

@@ -5,6 +5,8 @@ package updater
 import (
 	"os"
 	"os/exec"
+
+	"golang.org/x/sys/windows/svc"
 )
 
 // atomicSwap on Windows: rename the running exe (allowed — Windows locks by
@@ -28,7 +30,14 @@ func atomicSwap(exe, newPath, backupPath string) error {
 		return err
 	}
 
-	// Start the new process with the same arguments, then exit.
+	// When running as a Windows service, SCM recovery actions (set during
+	// install) will restart the service with the new binary — don't spawn a
+	// second process or we get two instances running simultaneously.
+	if isWinService() {
+		os.Exit(0)
+	}
+
+	// Dev / interactive: start new process directly then exit.
 	cmd := exec.Command(exe, os.Args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -45,6 +54,9 @@ func rollback(exe, backupPath string) error {
 	if err := os.Rename(backupPath, exe); err != nil {
 		return err
 	}
+	if isWinService() {
+		os.Exit(0)
+	}
 	cmd := exec.Command(exe, os.Args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -53,4 +65,9 @@ func rollback(exe, backupPath string) error {
 	}
 	os.Exit(0)
 	return nil
+}
+
+func isWinService() bool {
+	ok, _ := svc.IsWindowsService()
+	return ok
 }
