@@ -150,6 +150,8 @@ export const alertState = sqliteTable('alert_state', {
   isAlerting:         integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
   alertedAt:          integer('alerted_at'),
   resolvedAt:         integer('resolved_at'),
+  acknowledgedAt:     integer('acknowledged_at'),
+  acknowledgedBy:     text('acknowledged_by'),
   updatedAt:          integer('updated_at').notNull(),
 });
 

@@ -30,6 +30,11 @@
         <div class="al-card-actions">
           <button
             class="btn-action"
+            :disabled="!selected.size || acknowledging"
+            @click="acknowledgeSelected"
+          >{{ acknowledging ? 'Acknowledging…' : 'Acknowledge' }}</button>
+          <button
+            class="btn-action btn-action-resolve"
             :disabled="!selected.size || resolving"
             @click="resolveSelected"
           >{{ resolving ? 'Resolving…' : 'Resolve' }}</button>
@@ -108,7 +113,14 @@
               </td>
               <td class="td-created mono">{{ formatDate(a.alerted_at) }}</td>
               <td>
-                <span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span>
+                <span
+                  class="pri-badge"
+                  :class="`pri-${effectivePriority(a)}`"
+                  :title="effectivePriority(a) !== a.priority ? `Escalated from ${capitalize(a.priority)} — unacknowledged for ${Math.floor((Date.now()/1000 - (a.alerted_at ?? 0)) / 3600)}h` : undefined"
+                >
+                  {{ capitalize(effectivePriority(a)) }}
+                  <span v-if="effectivePriority(a) !== a.priority" class="pri-escalated">↑</span>
+                </span>
               </td>
               <td class="td-category">{{ categoryLabel(a.check_type) }}</td>
               <td class="td-message">
@@ -121,9 +133,7 @@
               </td>
               <td class="td-montype">{{ categoryLabel(a.check_type) }}</td>
               <td>
-                <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
-                  {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
-                </span>
+                <span class="status-pill" :class="alertStatusClass(a)">{{ alertStatusLabel(a) }}</span>
               </td>
             </tr>
           </tbody>
@@ -151,10 +161,11 @@ import { api, type AlertState, type Tenant } from '../api';
 const route  = useRoute();
 const router = useRouter();
 
-const allAlerts   = ref<AlertState[]>([]);
-const tenants     = ref<Tenant[]>([]);
-const loading     = ref(true);
-const resolving   = ref(false);
+const allAlerts    = ref<AlertState[]>([]);
+const tenants      = ref<Tenant[]>([]);
+const loading      = ref(true);
+const resolving    = ref(false);
+const acknowledging = ref(false);
 const statusFilter = ref<'active' | 'all'>('active');
 const searchQuery  = ref('');
 const selected     = ref(new Set<string>());
@@ -200,6 +211,32 @@ function onSearch() {
   searchTimer = setTimeout(() => { page.value = 1; load(); }, 350);
 }
 
+// ── Priority escalation ────────────────────────────────────────
+type AlertPriority = 'low' | 'moderate' | 'high' | 'critical';
+const ESCALATION_LADDER: AlertPriority[] = ['low', 'moderate', 'high', 'critical'];
+const ESCALATION_HOURS: Record<AlertPriority, number> = { low: 4, moderate: 4, high: 2, critical: Infinity };
+
+function effectivePriority(a: AlertState): AlertPriority {
+  if (!a.is_alerting || a.acknowledged_at) return a.priority as AlertPriority;
+  const hoursOpen = (Date.now() / 1000 - (a.alerted_at ?? 0)) / 3600;
+  const idx = ESCALATION_LADDER.indexOf(a.priority as AlertPriority);
+  return hoursOpen >= ESCALATION_HOURS[a.priority as AlertPriority] && idx < 3
+    ? ESCALATION_LADDER[idx + 1]
+    : a.priority as AlertPriority;
+}
+
+function alertStatusClass(a: AlertState): string {
+  if (!a.is_alerting) return 'status-resolved';
+  if (a.acknowledged_at) return 'status-acked';
+  return 'status-open';
+}
+
+function alertStatusLabel(a: AlertState): string {
+  if (!a.is_alerting) return 'Resolved';
+  if (a.acknowledged_at) return 'Acknowledged';
+  return 'Open';
+}
+
 // ── Priority sort order ────────────────────────────────────────
 const priorityOrder: Record<string, number> = { critical: 0, high: 1, moderate: 2, low: 3 };
 
@@ -208,7 +245,7 @@ const sorted = computed(() => {
   rows.sort((a, b) => {
     let diff = 0;
     if (sortCol.value === 'priority') {
-      diff = (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9);
+      diff = (priorityOrder[effectivePriority(a)] ?? 9) - (priorityOrder[effectivePriority(b)] ?? 9);
     } else {
       diff = (a.alerted_at ?? 0) - (b.alerted_at ?? 0);
     }
@@ -269,6 +306,26 @@ async function resolveSelected() {
     // individual errors are silent; reload will show current state
   } finally {
     resolving.value = false;
+  }
+}
+
+async function acknowledgeSelected() {
+  if (!selected.value.size) return;
+  acknowledging.value = true;
+  try {
+    await Promise.all([...selected.value].map(id => api.alerts.acknowledge(id)));
+    // Update local state immediately so the status pills flip without a reload
+    const ids = new Set(selected.value);
+    const now = Math.floor(Date.now() / 1000);
+    allAlerts.value = allAlerts.value.map(a =>
+      ids.has(a.id) ? { ...a, acknowledged_at: now } : a
+    );
+    selected.value.clear();
+    selected.value = new Set();
+  } catch {
+    await load();
+  } finally {
+    acknowledging.value = false;
   }
 }
 
@@ -488,8 +545,16 @@ function alertMessage(a: AlertState): string {
   display: inline-block; padding: 2px 8px; border-radius: 4px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.status-open     { color: var(--text); }
+.status-open     { background: rgba(232,86,106,.12); color: var(--red); }
+.status-acked    { background: rgba(240,180,40,.12);  color: var(--amber); }
 .status-resolved { color: var(--muted-2); }
+
+/* Escalation marker on priority badge */
+.pri-escalated { font-size: 10px; margin-left: 3px; opacity: .85; }
+
+/* Resolve button gets a mild red tint to differentiate from Acknowledge */
+.btn-action-resolve:not(:disabled) { color: var(--red); border-color: rgba(232,86,106,.3); }
+.btn-action-resolve:hover:not(:disabled) { background: rgba(232,86,106,.08); }
 
 /* ── Pagination ─────────────────────────────────────────────── */
 .al-pagination {

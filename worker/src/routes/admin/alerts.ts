@@ -40,6 +40,8 @@ alerts.get('/', async (c) => {
       s.condition_first_seen,
       s.alerted_at,
       s.resolved_at,
+      s.acknowledged_at,
+      s.acknowledged_by,
       s.updated_at,
       d.id   AS device_id,
       d.hostname,
@@ -106,6 +108,31 @@ alerts.post('/:id/resolve', async (c) => {
       resolvedAt:         now,
       updatedAt:          now,
     })
+    .where(eq(schema.alertState.id, id));
+
+  return c.json({ ok: true });
+});
+
+// POST /v1/admin/alerts/:id/acknowledge — mark an alert as seen without resolving it
+alerts.post('/:id/acknowledge', async (c) => {
+  const user = await requireUser(c.req.header('Authorization'), c.env, 'technician');
+  if (!user) return c.json({ error: 'unauthorized' }, 401);
+
+  const db  = drizzle(c.env.DB, { schema });
+  const now = Math.floor(Date.now() / 1000);
+  const id  = c.req.param('id');
+
+  const state = await db.select()
+    .from(schema.alertState)
+    .where(eq(schema.alertState.id, id))
+    .get();
+
+  if (!state) return c.json({ error: 'not found' }, 404);
+
+  const acknowledgedBy = user.displayName ?? user.email ?? 'Admin';
+
+  await db.update(schema.alertState)
+    .set({ acknowledgedAt: now, acknowledgedBy, updatedAt: now })
     .where(eq(schema.alertState.id, id));
 
   return c.json({ ok: true });
