@@ -337,7 +337,7 @@ async function submitReboot() {
         name: 'Reboot', type: isScheduled ? 'scheduled' : 'quick',
         ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
         target_type: 'devices', target_ids: winIds,
-        components: [{ type: 'inline', shell: 'powershell', script: 'shutdown /r /t 0', timeout_seconds: 30, order: 0 }],
+        components: [{ type: 'inline', shell: 'powershell', script: 'shutdown /r /t 10', timeout_seconds: 30, order: 0 }],
       }));
     }
     if (unixIds.length) {
@@ -345,7 +345,7 @@ async function submitReboot() {
         name: 'Reboot', type: isScheduled ? 'scheduled' : 'quick',
         ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
         target_type: 'devices', target_ids: unixIds,
-        components: [{ type: 'inline', shell: 'bash', script: 'reboot', timeout_seconds: 30, order: 0 }],
+        components: [{ type: 'inline', shell: 'bash', script: '(sleep 5; reboot) &', timeout_seconds: 30, order: 0 }],
       }));
     }
     await Promise.all(jobRequests);

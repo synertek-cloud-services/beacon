@@ -238,25 +238,25 @@ function flowVal(box: FlowBox): number {
 function flowFill(box: FlowBox): string {
   const n = flowVal(box);
   if (!n) return 'var(--surface-2)';
-  if (box === 'success') return 'rgba(52,199,89,.12)';
+  if (box === 'success') return 'rgba(45,207,160,.12)';
   if (box === 'warning') return 'rgba(240,168,64,.10)';
-  if (box === 'failure') return 'rgba(255,69,58,.10)';
+  if (box === 'failure') return 'rgba(232,86,106,.10)';
   if (box === 'expired') return 'rgba(160,120,220,.08)';
   return 'rgba(78,126,247,.08)';
 }
 function flowStroke(box: FlowBox): string {
   const n = flowVal(box);
   if (!n) return 'var(--border)';
-  if (box === 'success') return 'rgba(52,199,89,.35)';
+  if (box === 'success') return 'rgba(45,207,160,.40)';
   if (box === 'warning') return 'rgba(240,168,64,.35)';
-  if (box === 'failure') return 'rgba(255,69,58,.30)';
+  if (box === 'failure') return 'rgba(232,86,106,.35)';
   if (box === 'expired') return 'rgba(160,120,220,.35)';
   return 'rgba(78,126,247,.35)';
 }
 function flowCount(box: FlowBox): string {
   const n = flowVal(box);
   if (!n) return 'var(--muted-2)';
-  if (box === 'success') return 'var(--green)';
+  if (box === 'success') return 'var(--teal)';
   if (box === 'warning') return 'var(--amber)';
   if (box === 'failure') return 'var(--red)';
   if (box === 'expired') return '#a078dc';
@@ -473,7 +473,7 @@ onUnmounted(() => {
 
 /* Status badges */
 .jd-status { display: inline-flex; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; }
-.jd-status-success  { background: rgba(52,199,89,.15);   color: var(--green); }
+.jd-status-success  { background: rgba(45,207,160,.15);   color: var(--teal); }
 .jd-status-failed   { background: rgba(255,69,58,.12);   color: var(--red); }
 .jd-status-warning  { background: rgba(240,168,64,.15);  color: var(--amber); }
 .jd-status-sent     { background: rgba(78,126,247,.12);  color: var(--accent); }
