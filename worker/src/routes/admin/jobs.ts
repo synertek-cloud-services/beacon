@@ -419,7 +419,7 @@ adminJobs.delete('/:id', async (c) => {
   if (!job) return c.json({ error: 'not found' }, 404);
 
   await c.env.DB.prepare(
-    `UPDATE commands SET status = 'failed' WHERE job_id = ? AND status = 'queued'`
+    `UPDATE commands SET status = 'failed' WHERE job_id = ? AND status IN ('queued', 'sent')`
   ).bind(id).run();
   await c.env.DB.prepare(`UPDATE jobs SET status = 'cancelled' WHERE id = ?`).bind(id).run();
   return c.json({ ok: true });
