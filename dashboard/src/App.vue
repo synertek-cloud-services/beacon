@@ -6,9 +6,7 @@
     <nav class="sidebar" :class="{ 'no-transition': isResizing }" :style="sidebarStyle">
       <div class="sidebar-brand">
         <div class="sidebar-brand-mark">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M20.49 3.51a12 12 0 0 1 0 16.97M3.51 20.49a12 12 0 0 1 0-16.97"/>
-          </svg>
+          <img src="/favicon.svg" width="18" height="18" alt="" style="display:block" />
         </div>
         <span class="sidebar-brand-name">Beacon</span>
       </div>

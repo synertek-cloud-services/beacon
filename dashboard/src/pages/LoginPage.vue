@@ -5,10 +5,7 @@
       <!-- Logo -->
       <div class="lp-logo">
         <div class="lp-mark">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="2"/>
-            <path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M20.49 3.51a12 12 0 0 1 0 16.97M3.51 20.49a12 12 0 0 1 0-16.97"/>
-          </svg>
+          <img src="/favicon.svg" width="32" height="32" alt="" style="display:block" />
         </div>
         <div>
           <div class="lp-product">Beacon RMM</div>
@@ -165,7 +162,7 @@ function signInWithMicrosoft() {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #3a6be0 0%, #4e7ef7 60%, #6a96ff 100%);
+  background: #1a0a2e;
   display: flex;
   align-items: center;
   justify-content: center;

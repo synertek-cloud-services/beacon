@@ -75,14 +75,13 @@ body.sidebar-resizing { cursor: col-resize !important; user-select: none !import
 .sidebar-brand-mark {
   width: 26px;
   height: 26px;
-  background: var(--accent);
+  background: #1a0a2e;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
-.sidebar-brand-mark svg { color: #fff; }
 .sidebar-brand-name {
   font-size: 14px;
   font-weight: 700;
