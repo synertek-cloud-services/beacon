@@ -99,12 +99,17 @@
               </svg>
               Restart Agent
             </button>
-            <button class="kebab-item kebab-item-dim" disabled>
+            <button v-if="isInMaintenance(device)" class="kebab-item" @click="endMaintenance(device.id)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="9"/>
+              </svg>
+              End Maintenance
+            </button>
+            <button v-else class="kebab-item" :disabled="device.status !== 'approved'" @click="openMaintModal">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
               </svg>
               Maintenance Window
-              <span class="soon-tag">Soon</span>
             </button>
             <div class="kebab-sep"></div>
             <button class="kebab-item kebab-item-danger" @click="remove(device.id)">
@@ -657,6 +662,48 @@
     </div>
     </Teleport>
 
+    <!-- Maintenance Window modal -->
+    <div v-if="maintModal" class="modal-backdrop" @click.self="maintModal = false">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <span class="modal-title">Create a maintenance mode window</span>
+          <button class="btn-icon" @click="maintModal = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" style="padding:20px">
+          <label class="field-label">Enter a reason</label>
+          <textarea v-model="maintReason" class="field-input" rows="3" placeholder="Optional reason…" style="width:100%;min-height:72px;resize:vertical;margin-top:6px"></textarea>
+
+          <label class="field-label" style="margin-top:16px;display:block">Choose a duration</label>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="radio" v-model="maintDurationType" value="hours" />
+              For the next
+              <input type="number" v-model.number="maintHours" min="1" max="168" :disabled="maintDurationType !== 'hours'"
+                style="width:60px;text-align:center;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text);font-size:13px" />
+              hours
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="radio" v-model="maintDurationType" value="until" />
+              Until selected date and time
+            </label>
+            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-left:20px;width:220px" />
+          </div>
+
+          <p style="font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5;padding:10px;background:var(--surface-2);border-radius:4px;border:1px solid var(--border)">
+            This prevents alerts being created for the device for the duration that maintenance mode is active.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="maintModal = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="maintBusy" @click="submitMaintenance">
+            {{ maintBusy ? 'Setting…' : 'OK' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Remote Shell modal -->
     <RemoteShellModal
       v-if="remoteShellOpen && device"
@@ -772,6 +819,55 @@ const jobQueued = ref(false);
 
 // Remote Shell modal
 const remoteShellOpen = ref(false);
+
+// Maintenance modal
+const maintModal        = ref(false);
+const maintReason       = ref('');
+const maintDurationType = ref<'hours' | 'until'>('hours');
+const maintHours        = ref(1);
+const maintUntil        = ref('');
+const maintBusy         = ref(false);
+
+function openMaintModal() {
+  maintReason.value = '';
+  maintDurationType.value = 'hours';
+  maintHours.value = 1;
+  maintUntil.value = '';
+  maintModal.value = true;
+  menuOpen.value = false;
+}
+
+async function submitMaintenance() {
+  if (!device.value) return;
+  let endsAt: number;
+  if (maintDurationType.value === 'hours') {
+    endsAt = Math.floor(Date.now() / 1000) + maintHours.value * 3600;
+  } else {
+    if (!maintUntil.value) return;
+    endsAt = Math.floor(new Date(maintUntil.value).getTime() / 1000);
+  }
+  maintBusy.value = true;
+  try {
+    await api.devices.maintenance.set(device.value.id, { ends_at: endsAt, reason: maintReason.value || undefined });
+    device.value.maintenanceEndsAt = endsAt;
+    device.value.maintenanceReason = maintReason.value || null;
+    maintModal.value = false;
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    maintBusy.value = false;
+  }
+}
+
+async function endMaintenance(id: string) {
+  menuOpen.value = false;
+  try {
+    await api.devices.maintenance.end(id);
+    if (device.value) { device.value.maintenanceEndsAt = null; device.value.maintenanceReason = null; }
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
 
 // Quick Job flyout + confirm modal
 const quickJobOpen  = ref(false);
