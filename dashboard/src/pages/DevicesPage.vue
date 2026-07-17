@@ -325,32 +325,30 @@ function openRebootModal() {
 async function submitReboot() {
   rebootBusy.value = true;
   try {
-    if (rebootTiming.value === 'immediate') {
-      await Promise.all(
-        selectedIds.value.map(id => api.devices.commands.create(id, { type: 'reboot' }))
-      );
-    } else {
-      const scheduledAt = Math.floor(new Date(rebootScheduledAt.value).getTime() / 1000);
-      // Group by OS so the right shell/script is used per device
-      const winIds  = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType === 'windows');
-      const unixIds = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType !== 'windows');
-      const jobs = [];
-      if (winIds.length) {
-        jobs.push(api.jobs.create({
-          name: 'Scheduled Reboot', type: 'scheduled', scheduled_at: scheduledAt,
-          target_type: 'devices', target_ids: winIds,
-          components: [{ type: 'inline', shell: 'powershell', script: 'shutdown /r /t 0', timeout_seconds: 30, order: 0 }],
-        }));
-      }
-      if (unixIds.length) {
-        jobs.push(api.jobs.create({
-          name: 'Scheduled Reboot', type: 'scheduled', scheduled_at: scheduledAt,
-          target_type: 'devices', target_ids: unixIds,
-          components: [{ type: 'inline', shell: 'bash', script: 'reboot', timeout_seconds: 30, order: 0 }],
-        }));
-      }
-      await Promise.all(jobs);
+    const isScheduled = rebootTiming.value === 'scheduled';
+    const scheduledAt = isScheduled ? Math.floor(new Date(rebootScheduledAt.value).getTime() / 1000) : undefined;
+
+    // Group by OS so the right shell/script is used per device
+    const winIds  = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType === 'windows');
+    const unixIds = selectedIds.value.filter(id => devices.value.find(d => d.id === id)?.osType !== 'windows');
+    const jobRequests = [];
+    if (winIds.length) {
+      jobRequests.push(api.jobs.create({
+        name: 'Reboot', type: isScheduled ? 'scheduled' : 'quick',
+        ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+        target_type: 'devices', target_ids: winIds,
+        components: [{ type: 'inline', shell: 'powershell', script: 'shutdown /r /t 0', timeout_seconds: 30, order: 0 }],
+      }));
     }
+    if (unixIds.length) {
+      jobRequests.push(api.jobs.create({
+        name: 'Reboot', type: isScheduled ? 'scheduled' : 'quick',
+        ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+        target_type: 'devices', target_ids: unixIds,
+        components: [{ type: 'inline', shell: 'bash', script: 'reboot', timeout_seconds: 30, order: 0 }],
+      }));
+    }
+    await Promise.all(jobRequests);
     rebootModal.value = false;
     clearSelection();
   } catch (e: any) {
