@@ -214,7 +214,7 @@ const loading    = ref(true);
 const error      = ref('');
 const busy       = ref<string | null>(null);
 const activeTab  = computed(() => (route.query.status as string | undefined) ?? 'all');
-const classTab   = ref<'all' | 'server' | 'workstation' | 'network'>('all');
+const classTab   = ref<'all' | 'server' | 'workstation' | 'laptop'>('all');
 
 const activeCompany = computed(() => route.query.company as string | undefined);
 const searchQuery   = computed(() => ((route.query.search as string) ?? '').toLowerCase().trim());
@@ -381,7 +381,7 @@ const classTabs = [
   { label: 'All',          value: 'all'         as const, color: 'blue'   },
   { label: 'Servers',      value: 'server'       as const, color: 'purple' },
   { label: 'Workstations', value: 'workstation'  as const, color: 'teal'   },
-  { label: 'Network',      value: 'network'      as const, color: 'accent' },
+  { label: 'Laptops',      value: 'laptop'       as const, color: 'accent' },
 ];
 
 const now = ref(Math.floor(Date.now() / 1000));
