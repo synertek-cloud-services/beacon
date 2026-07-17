@@ -2,41 +2,30 @@
   <div>
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <div class="section-card">
-      <!-- Class filter bar -->
-      <div class="class-bar">
-        <button
-          v-for="ct in classTabs"
-          :key="ct.value"
-          class="class-tab"
-          :class="{ active: classTab === ct.value }"
-          @click="classTab = ct.value"
-        >
-          <span class="class-tab-label">{{ ct.label }}</span>
-          <span class="class-tab-count">{{ classCountFor(ct.value) }}</span>
-        </button>
-        <div class="class-bar-actions">
-          <div class="tabs" style="border:none;margin:0;gap:4px">
-            <button
-              v-for="tab in statusTabs"
-              :key="tab.value"
-              class="tab tab-sm"
-              :class="{ active: activeTab === tab.value }"
-              @click="setStatusTab(tab.value)"
-            >{{ tab.label }}<span class="tab-count">{{ countFor(tab.value) }}</span></button>
-          </div>
-          <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
-        </div>
+    <!-- Class stat cards (like Jobs page) -->
+    <div class="stat-row">
+      <div
+        v-for="ct in classTabs" :key="ct.value"
+        class="stat-card"
+        :class="['stat-' + ct.color, { 'stat-active': classTab === ct.value }]"
+        style="cursor:pointer"
+        @click="classTab = ct.value"
+      >
+        <span class="stat-label">{{ ct.label }}</span>
+        <span class="stat-value">{{ classCountFor(ct.value) }}</span>
       </div>
+    </div>
 
-      <div class="section-card-head" style="padding:8px 16px;border-top:1px solid var(--border);border-bottom:none" v-if="activeCompany">
+    <div class="section-card">
+      <div class="section-card-head" style="padding:8px 16px;border-top:none;border-bottom:none" v-if="activeCompany">
         <span class="text-xs text-muted-2">Filtered by company: <strong>{{ tenants.find(t => t.id === activeCompany)?.name ?? activeCompany }}</strong></span>
       </div>
 
-      <!-- Bulk action bar -->
-      <div v-if="selectedCount > 0" class="bulk-bar">
-        <span class="bulk-count">{{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }} selected</span>
-        <div class="bulk-actions">
+      <!-- Toolbar: always rendered so checking a box doesn't shift the table -->
+      <div class="device-toolbar">
+        <template v-if="selectedCount > 0">
+          <span class="bulk-count">{{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }} selected</span>
+          <div class="bulk-sep"></div>
           <button class="btn btn-ghost btn-sm" @click="openRebootModal">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
@@ -62,6 +51,17 @@
             End Maintenance
           </button>
           <button class="btn btn-ghost btn-sm" @click="clearSelection">Uncheck All</button>
+        </template>
+        <template v-else>
+          <button
+            v-for="tab in statusTabs" :key="tab.value"
+            class="tab"
+            :class="{ active: activeTab === tab.value }"
+            @click="setStatusTab(tab.value)"
+          >{{ tab.label }}<span class="tab-count">{{ countFor(tab.value) }}</span></button>
+        </template>
+        <div style="margin-left:auto">
+          <button class="btn btn-ghost btn-sm" @click="load">Refresh</button>
         </div>
       </div>
 
@@ -378,10 +378,10 @@ const statusTabs = [
 ];
 
 const classTabs = [
-  { label: 'All',          value: 'all'         as const },
-  { label: 'Servers',      value: 'server'       as const },
-  { label: 'Workstations', value: 'workstation'  as const },
-  { label: 'Network',      value: 'network'      as const },
+  { label: 'All',          value: 'all'         as const, color: 'blue'   },
+  { label: 'Servers',      value: 'server'       as const, color: 'purple' },
+  { label: 'Workstations', value: 'workstation'  as const, color: 'teal'   },
+  { label: 'Network',      value: 'network'      as const, color: 'accent' },
 ];
 
 const now = ref(Math.floor(Date.now() / 1000));
@@ -513,28 +513,28 @@ onUnmounted(() => { clearInterval(timer); });
 </script>
 
 <style scoped>
-/* ── Tabs ── */
-.tabs { display: flex; }
-.tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
+/* ── Stat cards (same pattern as JobsPage) ── */
+.stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid transparent; border-radius: 8px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; transition: filter .12s, border-color .12s; }
+.stat-card:hover { filter: brightness(1.06); }
+.stat-card.stat-active { border-color: var(--border-2); }
+.stat-blue   { border-top-color: #3b6fd4; }
+.stat-purple { border-top-color: #9c6af7; }
+.stat-teal   { border-top-color: var(--teal); }
+.stat-accent { border-top-color: var(--accent); }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ── Device toolbar (always rendered — prevents layout shift on select) ── */
+.device-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); min-height: 44px; }
+.bulk-count { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; padding: 0 4px; }
+.bulk-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+
+/* ── Status tabs (shown inside toolbar when nothing selected) ── */
+.tab { padding: 0 10px; height: 32px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 11px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
 .tab:hover { color: var(--text-muted-2); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.tab.tab-sm { height: 32px; padding: 0 10px; font-size: 11px; }
 .tab-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 5px; font-variant-numeric: tabular-nums; }
-
-/* ── Class filter bar ── */
-.class-bar { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
-.class-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 24px; border: none; border-right: 1px solid var(--border); border-bottom: 3px solid transparent; background: none; cursor: pointer; transition: background .12s, border-color .12s; min-width: 100px; }
-.class-tab:hover { background: var(--surface-2); }
-.class-tab.active { border-bottom-color: var(--accent); background: var(--surface-2); }
-.class-tab-label { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.class-tab.active .class-tab-label { color: var(--accent); }
-.class-tab-count { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
-.class-bar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
-
-/* ── Bulk action bar ── */
-.bulk-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--accent-subtle, color-mix(in srgb, var(--accent) 8%, transparent)); border-bottom: 1px solid var(--border); }
-.bulk-count { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
-.bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ── Checkbox column ── */
 .col-check { width: 36px; padding-left: 12px !important; }
