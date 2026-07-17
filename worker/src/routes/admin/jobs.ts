@@ -163,14 +163,27 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
   }
 }
 
-// Jobs that never got a chance to resolve any target devices before their
-// expiration — cancel them rather than leaving them 'active' forever.
+// Cancel any queued commands for expired active jobs, then mark those jobs cancelled.
+// Handles two cases: scheduled jobs that never dispatched (zero commands), and any
+// job (quick or scheduled) whose queued commands were never picked up before expires_at.
 export async function cancelExpiredScheduledJobs(db: D1Database, now: number): Promise<void> {
+  // First: fail all queued commands belonging to expired active jobs
+  await db.prepare(`
+    UPDATE commands SET status = 'failed'
+    WHERE status = 'queued'
+      AND job_id IN (
+        SELECT id FROM jobs WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?
+      )
+  `).bind(now).run();
+
+  // Then: cancel any active job past its expiry that has no pending commands left
   await db.prepare(`
     UPDATE jobs SET status = 'cancelled'
-    WHERE type = 'scheduled' AND status = 'active'
+    WHERE status = 'active'
       AND expires_at IS NOT NULL AND expires_at <= ?
-      AND NOT EXISTS (SELECT 1 FROM commands WHERE job_id = jobs.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM commands WHERE job_id = jobs.id AND status IN ('queued', 'sent')
+      )
   `).bind(now).run();
 }
 
