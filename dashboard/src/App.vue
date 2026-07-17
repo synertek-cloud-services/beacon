@@ -180,7 +180,7 @@
     <div class="main-wrap">
       <div class="topbar">
         <span class="topbar-title">{{ pageTitle }}</span>
-        <div class="topbar-search">
+        <div class="topbar-search" v-click-outside="closeDropdown">
           <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
@@ -188,10 +188,25 @@
             v-model="searchQuery"
             type="search"
             class="topbar-search-input"
-            placeholder="Search devices…"
+            placeholder="Search devices & companies…"
             @keydown.enter="doSearch"
-            @input="scheduleSearch"
+            @keydown.escape="closeDropdown"
+            @focus="showDropdown = true"
+            @input="showDropdown = true"
           />
+          <div v-if="showDropdown && searchQuery.trim() && (companyMatches.length > 0)" class="search-dropdown">
+            <div v-if="companyMatches.length" class="search-section-head">Companies</div>
+            <button
+              v-for="c in companyMatches" :key="c.id"
+              class="search-result"
+              @mousedown.prevent="selectCompany(c)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--muted)">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+              {{ c.name }}
+            </button>
+          </div>
         </div>
         <div class="topbar-actions">
           <span class="text-xs text-muted mono">{{ workerUrl }}</span>
@@ -209,6 +224,19 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Tenant } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
+
+// v-click-outside directive — closes the search dropdown when clicking outside
+const vClickOutside = {
+  mounted(el: HTMLElement, binding: { value: () => void }) {
+    (el as any).__clickOutside__ = (e: MouseEvent) => {
+      if (!el.contains(e.target as Node)) binding.value();
+    };
+    document.addEventListener('mousedown', (el as any).__clickOutside__);
+  },
+  unmounted(el: HTMLElement) {
+    document.removeEventListener('mousedown', (el as any).__clickOutside__);
+  },
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -268,8 +296,26 @@ const activeClientName = computed(() =>
 
 const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false, settings: false });
 
-const searchQuery = ref('');
+const searchQuery  = ref('');
+const showDropdown = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+const companyMatches = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  if (!q) return [];
+  return companies.value.filter(c => c.name.toLowerCase().includes(q)).slice(0, 6);
+});
+
+function selectCompany(c: Tenant) {
+  activeClientId.value = c.id;
+  searchQuery.value = '';
+  showDropdown.value = false;
+  router.push({ path: '/devices', query: { company: c.id } });
+}
+
+function closeDropdown() {
+  showDropdown.value = false;
+}
 
 // pendingCount specifically needs to stay live, not just load once — it's
 // sidebar chrome that persists across every page, so it's the one place in
@@ -314,6 +360,8 @@ watch(() => route.query.search, (s) => {
   searchQuery.value = (s as string) ?? '';
 }, { immediate: true });
 
+watch(() => route.path, () => { showDropdown.value = false; });
+
 function clearActiveClient() {
   activeClientId.value = null;
   if (route.query.company) router.push({ path: '/devices' });
@@ -325,15 +373,11 @@ function toggleSection(key: keyof typeof openSections.value) {
 
 function doSearch() {
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+  showDropdown.value = false;
   const q: Record<string, string> = {};
   if (activeCompany.value) q.company = activeCompany.value;
   if (searchQuery.value.trim()) q.search = searchQuery.value.trim();
   router.push({ path: '/devices', query: q });
-}
-
-function scheduleSearch() {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(doSearch, 350);
 }
 
 const pageTitle = computed(() => {
@@ -518,4 +562,22 @@ async function logout() {
 .topbar-search-input:focus { border-color: var(--accent); background: var(--surface); }
 .topbar-search-input::placeholder { color: var(--muted); }
 .topbar-search-input::-webkit-search-cancel-button { cursor: pointer; }
+
+/* ── Search dropdown ── */
+.search-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  z-index: 200; overflow: hidden;
+}
+.search-section-head {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); padding: 8px 12px 4px;
+}
+.search-result {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px;
+  border: none; background: none; cursor: pointer; color: var(--text); font-size: 13px;
+  font-family: var(--font); text-align: left;
+}
+.search-result:hover { background: var(--surface-2); }
 </style>
