@@ -156,7 +156,7 @@
               <input type="radio" v-model="maintDurationType" value="until" />
               <span>Until selected date and time</span>
             </label>
-            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-top:6px;margin-left:20px;width:220px" />
+            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-top:6px;margin-left:20px;width:220px;color-scheme:dark" />
           </div>
 
           <p class="maint-hint">This prevents alerts being created for the device(s) for the duration that maintenance mode is active.</p>
@@ -187,7 +187,7 @@
           <template v-if="rebootTiming === 'scheduled'">
             <p class="reboot-hint">This reboot will run once at the date/time indicated.</p>
             <label class="field-label" style="margin-top:14px">Start date and execution time</label>
-            <input type="datetime-local" v-model="rebootScheduledAt" class="field-input" style="margin-top:6px;width:auto" />
+            <input type="datetime-local" v-model="rebootScheduledAt" class="field-input" style="margin-top:6px;width:auto;color-scheme:dark" />
           </template>
         </div>
         <div class="modal-footer">

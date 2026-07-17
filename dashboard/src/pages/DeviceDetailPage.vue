@@ -688,7 +688,7 @@
               <input type="radio" v-model="maintDurationType" value="until" />
               Until selected date and time
             </label>
-            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-left:20px;width:220px" />
+            <input v-if="maintDurationType === 'until'" type="datetime-local" v-model="maintUntil" class="field-input" style="margin-left:20px;width:220px;color-scheme:dark" />
           </div>
 
           <p style="font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5;padding:10px;background:var(--surface-2);border-radius:4px;border:1px solid var(--border)">
@@ -1619,8 +1619,9 @@ function shellLabel(shell: string): string {
 .ddev-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
 .ddev-label { font-size: 12px; color: var(--muted); min-width: 76px; flex-shrink: 0; }
 .ddev-date-input {
-  background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 4px;
   padding: 3px 6px; color: var(--text); font-family: var(--font);
+  color-scheme: dark;
 }
 .ddev-date-input:focus { outline: none; border-color: var(--accent); }
 

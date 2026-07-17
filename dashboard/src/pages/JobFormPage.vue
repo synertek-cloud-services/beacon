@@ -144,7 +144,7 @@
         <template v-if="recurrence === 'scheduled'">
           <div style="margin-top:12px;max-width:280px">
             <label class="jf-sublabel">Start time</label>
-            <input type="datetime-local" v-model="scheduledAtLocal" class="pf-input" style="margin-top:6px" />
+            <input type="datetime-local" v-model="scheduledAtLocal" class="pf-input" style="margin-top:6px;color-scheme:dark" />
           </div>
         </template>
 
