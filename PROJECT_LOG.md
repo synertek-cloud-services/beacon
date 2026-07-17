@@ -1,5 +1,83 @@
 # Beacon — Project Log
 
+## Session: 2026-07-17 — Alert Detail page, target_os, Linux restart fix, sidebar icon rail
+
+### What was completed
+
+**1. Single Alert Detail page (`/global/alerts/:id`) — `AlertDetailPage.vue` (new file)**
+
+Datto-style Single Alert View. Three section cards:
+- **Overview** — 2-column `.ad-grid` grid. Left: Message, Created, Status pill (Open/Acknowledged/Resolved), Alert ID, Acknowledged By. Right: Device (RouterLink with online dot), Company, Policy (RouterLink), Monitor Type.
+- **Timeline** — vertical event spine (icon + connector line) derived entirely from existing timestamp columns (`alerted_at`, `acknowledged_at`, `resolved_at`); no new data model. Events show relative time on the left, icon + label + detail on the right.
+- **Device Alerts** — same-device alert history via existing `device_id` filter param on `GET /v1/admin/alerts`. Current alert highlighted with `.ad-row-current`. Row click navigates to that alert's detail page.
+
+Topbar: priority badge (using `effectivePriority` — escalates to `critical` if monitor says `moderate` but has been alerting > 4h) + hostname title. Action buttons: Acknowledge (optimistic — hides immediately on click, sets `acknowledged_at` locally before API response), Resolve (API then `router.back()`).
+
+Worker: `GET /v1/admin/alerts/:id` added to `worker/src/routes/admin/alerts.ts`. **Must be registered before `/:id/resolve` in Hono's route table** — Hono matches routes in registration order, so `/resolve` would be swallowed as an `:id` value otherwise. Exact same JOIN as the list query, adds `WHERE s.id = ?`.
+
+Navigation: row `@click` in **GlobalAlertsPage**, **DeviceDetailPage** (alerts mini-table), and **OverviewPage** all changed from `toggleSelect(id)` → `router.push('/global/alerts/' + a.id)`. Checkboxes kept working via `<td @click.stop>`.
+
+**2. Migration 0027 production gap**
+
+`alert_state.acknowledged_at`/`acknowledged_by` (migration 0027) had never been applied to production D1. Symptom: `GET /v1/admin/alerts?status=all` returned 500. Fixed by `npx wrangler d1 migrations apply beacon --remote` from `worker/`.
+
+**3. `target_os` on components (migration 0028)**
+
+`components.target_os TEXT DEFAULT NULL`. `null` = all platforms; `'windows'`/`'linux'`/`'darwin'` = OS-specific.
+
+Dispatch filtering in `insertJobCommands` (`worker/src/routes/admin/jobs.ts`): for each device, filter resolved component payloads by `!payload.target_os || payload.target_os === device.os_type`; skip device entirely if `compatible.length === 0`. This means a job targeting "All Devices" with a Windows-only component naturally skips Linux devices without any error or failed command.
+
+ComStore built-ins tagged: `store_clear_win_temp` → `windows`; `store-restart-agent-linux`/`store-reinstall-agent-linux` → `linux`.
+
+`ComponentFormPage.vue`: Platform `<select>` added (All Platforms / Windows / Linux / macOS). `isStore` ref (set from `comp.origin === 'store'` on load) disables the field for store-origin components.
+
+`components.ts` CRUD: `target_os` propagated through POST create, PATCH update, and clone (copies source's `target_os`).
+
+**4. Linux agent-restart scripts fixed (migration 0028)**
+
+Original scripts called `systemctl restart beacon-agent` directly. Because the agent is the *parent process* of the script subprocess, systemd kills the agent before the subprocess can report its result back. Job stays permanently "Running" (sent state). 
+
+Fix: `nohup sh -c 'sleep 5 && systemctl restart beacon-agent' >/dev/null 2>&1 &` — backgrounds the restart in a detached subshell with a 5-second delay, then exits immediately so the agent can finish the check-in and report success. **This pattern applies to any ComStore script that kills the agent process itself.**
+
+**5. Sidebar icon-only rail with flyout submenus (`App.vue`)**
+
+Collapsed state changed from `width: 0px` (fully hidden) to `width: 44px` (icon rail). The `.collapsed` class on `<nav class="sidebar">` drives all CSS changes:
+- Labels, chevrons, badges, sec-body: `display: none`
+- Section headers: `justify-content: center; padding: 10px 0`
+- Footer and resizer: `display: none`
+
+State: `openFlyout: ref<string | null>(null)`, `flyoutTop: ref(0)`.
+
+`handleSectionClick(key, event)`: when expanded → existing `toggleSection` (accordion); when collapsed → sets `openFlyout` and records `getBoundingClientRect().top` for positioning.
+
+Flyout: `position: fixed; left: 44px` `.nav-flyout` panel with a `.flyout-head` label + duplicated `.sbi` RouterLinks for that section. Closed by `.flyout-backdrop` (`position: fixed; inset: 0; z-index: 598`) on click, or route-change watch.
+
+Toggle button: `left: 44px` when collapsed (was `left: 11px`).
+
+`flyoutTitle` computed maps `openFlyout.value` → display label string.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Alert detail at `/global/alerts/:id`, not a modal | Matches Datto's own nav (Single Alert View is a routed page, not an overlay). Keeps the breadcrumb/back button intact. |
+| Timeline derived from existing timestamps, no new model | `alerted_at`, `acknowledged_at`, `resolved_at` already on `alert_state`. A full event-sourcing audit log is future work; this gives a real timeline from data already in hand. |
+| `target_os` filtering at dispatch time, not creation time | Consistent with how scheduled jobs work (target devices also resolved at dispatch time). Avoids stale matching if a device's OS changes between job creation and dispatch. |
+| nohup + sleep 5 for Linux agent-restart | The agent is the parent process; direct `systemctl restart` kills it before the result can be reported. The 5s delay gives the agent time to complete the check-in. Any value ≥ the check-in response roundtrip would work; 5s is a comfortable margin. |
+| Flyout content duplicated in template | Consistent with the codebase's per-component duplication convention. The alternatives (named slots, teleport, computed render functions) all add indirection for 6 small static content blocks. |
+| `position: fixed` for flyout (not absolute within sidebar) | Sidebar has `overflow: hidden`. Absolute positioning would clip the flyout at the sidebar boundary. Fixed escapes the clip, `left: 44px` pins it to the right edge of the icon rail without knowing the sidebar's position in the DOM. |
+| `.flyout-backdrop` over a global click listener | Simpler and more reliable than computing "did the click land outside both the sidebar and the flyout". The backdrop captures the click at the correct z-index layer without any coordinate math. |
+
+### Next logical steps
+
+1. **Patch management / Windows Update status** — Datto's own "Patch Status" nav item is one of the most-used features in real MSP environments. Beacon has no patch scanning, scheduling, or reporting today. This is a large feature (agent-side WUA COM queries on Windows, a new audit blob, a dedicated page) — worth scoping as a separate initiative.
+
+2. **Alert notifications (email/webhook)** — alerts fire and auto-resolve correctly, but no out-of-band notification is sent. Beacon has zero email infrastructure. Options: Cloudflare Email Workers, a configurable webhook URL (simpler, no email infra needed — fires a POST to e.g. a Slack webhook or a Teams connector). Webhook is the lighter path.
+
+3. **Rest of Agent Browser** (File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover, network device deploy/wake) — still deferred from the Remote Shell session. All can reuse the `SessionRelay` DO and `open_session` command channel without new infrastructure.
+
+---
+
 ## Session: 2026-07-16 — Job Detail page, flyout selected-state consistency, Quick Job ComStore tab, JobsPage cleanup
 
 ### What was completed

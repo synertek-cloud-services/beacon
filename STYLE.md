@@ -918,4 +918,100 @@ Data table cells use `12px 14px` (`jf-td` in `JobFormPage.vue`). Header cells us
 body.sidebar-resizing { cursor: col-resize !important; user-select: none !important; }
 ```
 
+## Sidebar collapsed icon rail + flyout
+
+When `.sidebar.collapsed` (44px wide), section labels/chevrons/badges/sec-body are hidden and section icons are centered. Clicking an icon opens a `position: fixed; left: 44px` flyout panel to the right.
+
+**State (App.vue)**:
+```typescript
+const openFlyout = ref<string | null>(null);  // section key
+const flyoutTop  = ref(0);                     // viewport top of clicked header
+
+function handleSectionClick(key: string, event: MouseEvent) {
+  if (!sidebarCollapsed.value) { toggleSection(key as keyof typeof openSections.value); return; }
+  if (openFlyout.value === key) { openFlyout.value = null; return; }
+  flyoutTop.value = (event.currentTarget as HTMLElement).getBoundingClientRect().top;
+  openFlyout.value = key;
+}
+const flyoutTitle = computed(() => ({ dashboards: 'Dashboards', sites: 'Companies', ... }[openFlyout.value ?? ''] ?? ''));
+```
+
+Close on route change: `watch(() => route.path, () => { openFlyout.value = null; })`.  
+Close on expand: `toggleSidebar()` also sets `openFlyout.value = null`.
+
+**Template structure**:
+```html
+<!-- Backdrop closes flyout on outside click; sits at z-index 598 -->
+<div v-if="sidebarCollapsed && openFlyout" class="flyout-backdrop" @click="openFlyout = null" />
+<!-- Flyout panel at z-index 599, fixed to right of icon rail -->
+<div v-if="sidebarCollapsed && openFlyout" class="nav-flyout" :style="{ top: flyoutTop + 'px' }">
+  <div class="flyout-head">{{ flyoutTitle }}</div>
+  <template v-if="openFlyout === 'sectionKey'">
+    <!-- same .sbi RouterLinks as the normal sec-body, duplicated here -->
+  </template>
+</div>
+```
+
+**CSS** (scoped in App.vue):
+```css
+.sidebar.collapsed .sec-label, .sidebar.collapsed .sec-chevron,
+.sidebar.collapsed .sec-badge, .sidebar.collapsed .sec-body { display: none; }
+.sidebar.collapsed .sec-head { justify-content: center; padding: 10px 0; }
+.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--accent); }
+.sidebar.collapsed .sidebar-footer, .sidebar.collapsed .sidebar-resizer { display: none; }
+
+.flyout-backdrop { position: fixed; inset: 0; z-index: 598; }
+.nav-flyout {
+  position: fixed; left: 44px; min-width: 180px;
+  max-height: calc(100vh - 16px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: 0 6px 6px 0; box-shadow: 4px 0 20px rgba(0,0,0,.3); z-index: 599;
+}
+.nav-flyout .sbi { padding-left: 14px; }    /* override the normal 32px */
+.nav-flyout .sbi-leaf { padding-left: 28px; }
+```
+
+Active icon: bind `:class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'key' }"` on each `.sec-head`.
+
+Toggle button position: `left: (sidebarCollapsed ? 44 : sidebarWidth) + 'px'` (the `transform: translateX(-50%)` straddles the edge).
+
+**`position: fixed` is required for the flyout** — the sidebar has `overflow: hidden`; absolute positioning within it would clip at the sidebar boundary. `left: 44px` pins to the right edge of the icon rail without coordinate math.
+
+## Alert status 3-state pill
+
+Alerts have three states that need distinct colors everywhere they appear (mini-table in DeviceDetailPage, detail page topbar, etc.):
+
+```typescript
+function alertStatusClass(a: AlertState) {
+  if (!a.is_alerting) return 'status-resolved';
+  if (a.acknowledged_at)  return 'status-acked';
+  return 'status-open';
+}
+function alertStatusLabel(a: AlertState) {
+  if (!a.is_alerting) return 'Resolved';
+  if (a.acknowledged_at)  return 'Acknowledged';
+  return 'Open';
+}
+```
+
+```css
+.status-open     { background: rgba(232,86,106,.12); color: var(--red); }
+.status-acked    { background: rgba(240,180,40,.12);  color: var(--amber); }
+.status-resolved { background: rgba(34,197,94,.12);   color: var(--green); }
+```
+
+## Alert Detail page layout (`AlertDetailPage.vue`)
+
+Follows `JobDetailPage.vue`'s shell (breadcrumb + title topbar + section cards). Class prefix: `.ad-`.
+
+**Overview card**: `.ad-grid` — `display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px`. Each field is a `.ad-row` with `.ad-label` / `.ad-val`.
+
+**Timeline card**: vertical event spine. Each event: `display: flex; gap: 12px`. Left column: relative time string + absolute date in `.ad-time-abs`. Right column: icon + title + detail text. Events connected by a vertical line (CSS `border-left: 2px solid var(--border-2)` on a wrapper div, offset so it runs through the icon centers).
+
+**Device Alerts card**: plain `<table>` of the same device's alert history, loaded via `api.alerts.list('all', '', '', alert.value.device_id)`. Current alert highlighted: `.ad-row-current { background: rgba(78,126,247,.06); }`. Row click navigates to that alert's detail (self-referential navigation, flyout closes naturally via route-change watch).
+
+**Acknowledge action**: optimistic update — set `alert.value.acknowledged_at = new Date().toISOString()` and `acknowledged_by = authState.user?.displayName ?? ''` before API call. Button hides via `v-if="!alert.acknowledged_at && alert.is_alerting"`. No rollback on API failure (acceptable — the page will show stale state until next refresh, which is acceptable for an ack action).
+
+**Hono route order gotcha**: `GET /:id` must be registered *before* `/:id/resolve` and `/:id/acknowledge` in `alerts.ts`. Hono matches in registration order — `/resolve` would match `:id = 'resolve'` and 404 if registered first.
+
 Lock cursor on `document.body` during drag (via class) so fast mouse movement over other elements doesn't snap the cursor.
