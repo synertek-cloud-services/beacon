@@ -56,7 +56,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="a in topAlerts" :key="a.id" :class="{ 'tr-selected': selected.has(a.id) }" @click="toggleSelect(a.id)">
+            <tr v-for="a in topAlerts" :key="a.id" :class="{ 'tr-selected': selected.has(a.id) }" @click="router.push('/global/alerts/' + a.id)">
               <td class="td-check" @click.stop><input type="checkbox" :checked="selected.has(a.id)" @change="toggleSelect(a.id)" /></td>
               <td class="mono ov-alert-created">{{ formatDate(a.alerted_at) }}</td>
               <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ a.priority }}</span></td>
@@ -137,8 +137,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, type Summary, type AlertState } from '../api';
 import DonutChart from '../components/DonutChart.vue';
+
+const router = useRouter();
 
 const summary   = ref<Summary | null>(null);
 const allAlerts = ref<AlertState[]>([]); // last 30 days, open + resolved — server-scoped by status=all
