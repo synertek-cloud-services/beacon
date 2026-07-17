@@ -292,15 +292,15 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="a in deviceAlerts" :key="a.id" @click="toggleAlertSelect(a.id)">
+                  <tr v-for="a in deviceAlerts" :key="a.id" style="cursor:pointer" @click="router.push('/global/alerts/' + a.id)">
                     <td class="col-check" @click.stop><input type="checkbox" :checked="!!alertsSelected[a.id]" @change="toggleAlertSelect(a.id)" /></td>
                     <td class="mono text-xs text-muted-2">{{ absDate(a.alerted_at ?? a.updated_at) }}</td>
                     <td><span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span></td>
                     <td class="text-sm">{{ categoryLabel(a.check_type) }}</td>
-                    <td class="text-sm">{{ alertMessage(a) }}</td>
+                    <td class="text-sm msg-link">{{ alertMessage(a) }}</td>
                     <td>
-                      <span class="status-pill" :class="a.is_alerting === 1 ? 'status-open' : 'status-resolved'">
-                        {{ a.is_alerting === 1 ? 'Open' : 'Resolved' }}
+                      <span class="status-pill" :class="!a.is_alerting ? 'status-resolved' : a.acknowledged_at ? 'status-acked' : 'status-open'">
+                        {{ !a.is_alerting ? 'Resolved' : a.acknowledged_at ? 'Acknowledged' : 'Open' }}
                       </span>
                     </td>
                   </tr>
@@ -1770,8 +1770,10 @@ function shellLabel(shell: string): string {
 .alert-mini-table tr:hover td { background: var(--surface-2); }
 .alert-mini-table .col-check { width: 32px; }
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.status-open     { color: var(--text); }
+.status-open     { background: rgba(232,86,106,.12); color: var(--red); }
+.status-acked    { background: rgba(240,180,40,.12);  color: var(--amber); }
 .status-resolved { color: var(--muted-2); }
+.msg-link        { color: var(--accent); }
 .pri-badge {
   display: inline-block; padding: 1px 7px; border-radius: 10px;
   font-size: 10px; font-weight: 700; white-space: nowrap;

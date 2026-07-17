@@ -106,7 +106,7 @@
               v-for="a in pageRows"
               :key="a.id"
               :class="{ 'tr-selected': selected.has(a.id) }"
-              @click="toggleSelect(a.id)"
+              @click="router.push('/global/alerts/' + a.id)"
             >
               <td class="td-check" @click.stop>
                 <input type="checkbox" :checked="selected.has(a.id)" @change="toggleSelect(a.id)" />

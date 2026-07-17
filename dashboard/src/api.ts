@@ -657,6 +657,8 @@ export const api = {
   alerts: {
     list: (status: 'active' | 'all' = 'active', search = '', companyId = '', deviceId = '') =>
       request<AlertState[]>('GET', `/v1/admin/alerts?status=${status}${search ? `&search=${encodeURIComponent(search)}` : ''}${companyId ? `&company_id=${encodeURIComponent(companyId)}` : ''}${deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ''}`),
+    get: (id: string) =>
+      request<AlertState>('GET', `/v1/admin/alerts/${id}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
     acknowledge: (id: string) =>

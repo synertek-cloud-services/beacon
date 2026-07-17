@@ -84,6 +84,51 @@ alerts.get('/', async (c) => {
   return c.json(rows);
 });
 
+// GET /v1/admin/alerts/:id — fetch a single alert by id
+alerts.get('/:id', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+
+  const id = c.req.param('id');
+  const sql = `
+    SELECT
+      s.id,
+      s.is_alerting,
+      s.condition_first_seen,
+      s.alerted_at,
+      s.resolved_at,
+      s.acknowledged_at,
+      s.acknowledged_by,
+      s.updated_at,
+      d.id   AS device_id,
+      d.hostname,
+      d.os_type,
+      d.detected_class,
+      d.override_class,
+      t.id   AS tenant_id,
+      t.name AS tenant_name,
+      pm.id             AS monitor_id,
+      pm.check_type,
+      pm.config,
+      pm.alert_priority AS priority,
+      pm.sustained_minutes,
+      p.id   AS policy_id,
+      p.name AS policy_name,
+      p.scope AS policy_scope
+    FROM alert_state s
+    JOIN devices d          ON s.device_id          = d.id
+    JOIN tenants t          ON d.tenant_id           = t.id
+    JOIN policy_monitors pm ON s.policy_monitor_id   = pm.id
+    JOIN policies p         ON pm.policy_id          = p.id
+    WHERE s.id = ?
+  `;
+
+  const result = await c.env.DB.prepare(sql).bind(id).first();
+  if (!result) return c.json({ error: 'not found' }, 404);
+  return c.json(result);
+});
+
 // POST /v1/admin/alerts/:id/resolve — manually clear an active alert
 alerts.post('/:id/resolve', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {

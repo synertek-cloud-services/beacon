@@ -14,6 +14,7 @@ import JobDetailPage from './pages/JobDetailPage.vue';
 import ComponentsPage from './pages/ComponentsPage.vue';
 import ComponentFormPage from './pages/ComponentFormPage.vue';
 import GlobalAlertsPage from './pages/GlobalAlertsPage.vue';
+import AlertDetailPage from './pages/AlertDetailPage.vue';
 import GlobalPoliciesPage from './pages/GlobalPoliciesPage.vue';
 import PolicyFormPage from './pages/PolicyFormPage.vue';
 import UsersPage from './pages/UsersPage.vue';
@@ -47,6 +48,7 @@ const router = createRouter({
     { path: '/components/new', component: ComponentFormPage },
     { path: '/components/:id', component: ComponentFormPage },
     { path: '/global/alerts', component: GlobalAlertsPage },
+    { path: '/global/alerts/:id', component: AlertDetailPage },
     { path: '/global/policies', component: GlobalPoliciesPage },
     { path: '/global/policies/new', component: PolicyFormPage },
     { path: '/global/policies/:id', component: PolicyFormPage },
