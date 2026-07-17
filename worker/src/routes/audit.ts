@@ -271,7 +271,8 @@ audit.post('/', async (c) => {
       await db.insert(schema.deviceAuditChanges).values(ch);
     }
 
-    if (swChanges.length > 0) {
+    const inMaintenance = device.maintenanceEndsAt != null && device.maintenanceEndsAt > now;
+    if (swChanges.length > 0 && !inMaintenance) {
       await evaluateSoftwareAlerts(c.env.DB, device, swChanges, now);
     }
   }
