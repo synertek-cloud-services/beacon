@@ -25,7 +25,12 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    let message = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.error === 'string') message = parsed.error;
+    } catch { /* not JSON, fall back to raw text */ }
+    throw new Error(`${res.status}: ${message}`);
   }
   return res.json();
 }
@@ -396,6 +401,7 @@ export interface SsoGroupRoleMapping {
 export interface CustomField {
   id: string;
   name: string;
+  key: string;
   sortOrder: number;
   createdAt: number;
 }
@@ -460,8 +466,8 @@ export const api = {
 
   customFields: {
     list:   () => request<CustomField[]>('GET', '/v1/admin/custom-fields'),
-    create: (name: string) => request<{ id: string }>('POST', '/v1/admin/custom-fields', { name }),
-    update: (id: string, body: Partial<{ name: string; sort_order: number }>) =>
+    create: (name: string, key?: string) => request<{ id: string }>('POST', '/v1/admin/custom-fields', { name, key }),
+    update: (id: string, body: Partial<{ name: string; sort_order: number; key: string }>) =>
       request<{ ok: boolean }>('PATCH', `/v1/admin/custom-fields/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/custom-fields/${id}`),
   },

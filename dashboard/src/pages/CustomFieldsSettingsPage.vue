@@ -15,12 +15,15 @@
         <label class="pf-label">Fields</label>
         <p class="field-hint" style="margin-top:-4px">
           Admin-defined fields for information the agent doesn't collect (asset tags, site contacts, etc.).
-          Values are entered manually per device on the device's Custom Fields section.
+          Values are entered manually per device on the device's Custom Fields section. A field with a Key
+          can be referenced in a script as <code>${CF_&lt;KEY&gt;}</code> (bash), <code>$env:CF_&lt;KEY&gt;</code>
+          (PowerShell), or <code>%CF_&lt;KEY&gt;%</code> (Batch) — resolved to that device's own value at job dispatch time.
         </p>
 
         <div class="pf-monitors">
           <div class="pf-tbl-head">
             <span style="min-width:220px">Name</span>
+            <span style="min-width:160px">Key</span>
           </div>
           <div v-if="!fields.length" class="pf-mon-empty">
             <p>No custom fields yet. Add one below.</p>
@@ -36,6 +39,13 @@
               :value="f.name"
               @change="renameField(f, $event)"
             />
+            <input
+              class="pf-input mono"
+              style="max-width:160px"
+              :value="f.key"
+              placeholder="—"
+              @change="rekeyField(f, $event)"
+            />
             <div class="pf-mon-actions">
               <button class="btn-text danger" @click="removeField(f.id)">Remove</button>
             </div>
@@ -43,7 +53,8 @@
         </div>
 
         <div class="pf-row" style="margin-top:10px;gap:8px">
-          <input v-model="newFieldName" class="pf-input" style="max-width:280px" placeholder="Field name (e.g. Asset Tag)" @keyup.enter="addField" />
+          <input :value="newFieldName" class="pf-input" style="max-width:280px" placeholder="Field name (e.g. Asset Tag)" @input="onNameInput" @keyup.enter="addField" />
+          <input v-model="newFieldKey" class="pf-input mono" style="max-width:180px" placeholder="ASSET_TAG (auto)" @input="keyTouched = true" @keyup.enter="addField" />
           <button class="btn btn-ghost btn-sm" :disabled="!newFieldName.trim()" @click="addField">Add Field</button>
         </div>
         <div v-if="error" class="error-banner">{{ error }}</div>
@@ -59,6 +70,8 @@ import { api, type CustomField } from '../api';
 const loading = ref(true);
 const fields = ref<CustomField[]>([]);
 const newFieldName = ref('');
+const newFieldKey = ref('');
+const keyTouched = ref(false);
 const error = ref('');
 
 onMounted(async () => {
@@ -66,14 +79,29 @@ onMounted(async () => {
   loading.value = false;
 });
 
+// Uppercase, non-alnum runs -> underscore, trim leading/trailing underscores.
+// Matches the server's own normalizeKey()/CUSTOM_FIELD_KEY_RE exactly, so the
+// suggestion is never rejected by the same validation it's meant to satisfy.
+function suggestKey(name: string): string {
+  return name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function onNameInput(event: Event) {
+  newFieldName.value = (event.target as HTMLInputElement).value;
+  if (!keyTouched.value) newFieldKey.value = suggestKey(newFieldName.value);
+}
+
 async function addField() {
   error.value = '';
   const name = newFieldName.value.trim();
   if (!name) return;
+  const key = newFieldKey.value.trim().toUpperCase();
   try {
-    const { id } = await api.customFields.create(name);
-    fields.value.push({ id, name, sortOrder: fields.value.length, createdAt: Math.floor(Date.now() / 1000) });
+    const { id } = await api.customFields.create(name, key || undefined);
+    fields.value.push({ id, name, key, sortOrder: fields.value.length, createdAt: Math.floor(Date.now() / 1000) });
     newFieldName.value = '';
+    newFieldKey.value = '';
+    keyTouched.value = false;
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to add field.';
   }
@@ -84,6 +112,20 @@ async function renameField(f: CustomField, event: Event) {
   if (!name || name === f.name) { (event.target as HTMLInputElement).value = f.name; return; }
   await api.customFields.update(f.id, { name });
   f.name = name;
+}
+
+async function rekeyField(f: CustomField, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const key = input.value.trim().toUpperCase();
+  if (key === f.key) { input.value = f.key; return; }
+  error.value = '';
+  try {
+    await api.customFields.update(f.id, { key });
+    f.key = key;
+  } catch (e) {
+    input.value = f.key; // revert the displayed value — the rename was blocked (or invalid/duplicate)
+    error.value = e instanceof Error ? e.message : 'Failed to update key.';
+  }
 }
 
 async function removeField(id: string) {

@@ -150,6 +150,9 @@
           spellcheck="false"
         ></textarea>
         <span v-if="fieldErr.script" class="pf-err">{{ fieldErr.script }}</span>
+        <p v-if="availableCfKeys.length" class="field-hint">
+          Available custom fields (resolved per-device at dispatch time): <span class="mono">{{ availableCfKeys.map(k => `CF_${k}`).join(', ') }}</span>
+        </p>
       </div>
 
       <!-- Timeout -->
@@ -270,7 +273,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Component, type ComponentSite, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Tenant } from '../api';
+import { api, type Component, type ComponentSite, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Tenant, type CustomField } from '../api';
 
 const router = useRouter();
 const route  = useRoute();
@@ -286,6 +289,8 @@ const loadError = ref('');
 const saveError = ref('');
 const isStore   = ref(false);
 const tenants   = ref<Tenant[]>([]);
+const customFieldsList = ref<CustomField[]>([]);
+const availableCfKeys  = computed(() => customFieldsList.value.filter(f => f.key).map(f => f.key));
 const fieldErr  = reactive({ name: '', sites: '', script: '' });
 
 const form = reactive({
@@ -461,6 +466,7 @@ function addPostCondition() {
 
 onMounted(async () => {
   try { tenants.value = await api.tenants.list(); } catch { /* ok */ }
+  try { customFieldsList.value = await api.customFields.list(); } catch { /* ok */ }
 
   if (!isNew.value && componentId.value) {
     loading.value = true;

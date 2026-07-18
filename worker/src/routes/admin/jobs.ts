@@ -81,6 +81,37 @@ async function resolveDevices(
   return result.results;
 }
 
+// ── Helper: bulk-fetch each target device's custom field values, keyed by
+// the CF_<KEY> env var name a script references (see custom-fields.ts) ────
+// Datto-UDF-style: resolved fresh per-device at dispatch time, not declared
+// per-component like component_variables. Early-exits with an empty map
+// (zero extra queries) when no field has a key assigned yet.
+
+async function fetchCustomFieldVars(
+  db: D1Database,
+  deviceIds: string[],
+): Promise<Map<string, Record<string, string>>> {
+  const out = new Map<string, Record<string, string>>();
+  if (deviceIds.length === 0) return out;
+
+  const fields = await db.prepare(`SELECT id, key FROM custom_fields WHERE key != ''`).all<{ id: string; key: string }>();
+  if (fields.results.length === 0) return out;
+  const keyById = new Map(fields.results.map(f => [f.id, f.key]));
+
+  const placeholders = deviceIds.map(() => '?').join(',');
+  const values = await db.prepare(
+    `SELECT device_id, field_id, value FROM device_custom_field_values WHERE device_id IN (${placeholders}) AND value IS NOT NULL`
+  ).bind(...deviceIds).all<{ device_id: string; field_id: string; value: string }>();
+
+  for (const row of values.results) {
+    const key = keyById.get(row.field_id);
+    if (!key) continue; // field's key blank, or field deleted since assignment
+    if (!out.has(row.device_id)) out.set(row.device_id, {});
+    out.get(row.device_id)![`CF_${key}`] = row.value;
+  }
+  return out;
+}
+
 // ── Helper: resolve shell for 'auto' ─────────────────────────
 
 function resolveShell(shell: string, osType: string | null): string {
@@ -98,6 +129,7 @@ async function insertJobCommands(
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const inserts: Promise<any>[] = [];
+  const cfVarsByDevice = await fetchCustomFieldVars(db, devices.map(d => d.id));
 
   for (const device of devices) {
     // Skip components whose target_os doesn't match this device's OS
@@ -106,6 +138,8 @@ async function insertJobCommands(
     );
     if (compatible.length === 0) continue;
 
+    const cfVars = cfVarsByDevice.get(device.id) ?? {};
+
     for (const { ref, payload } of compatible) {
       const shell  = resolveShell(payload.shell, device.os_type);
       const cmdId  = uid();
@@ -113,7 +147,10 @@ async function insertJobCommands(
         shell,
         script: payload.script,
         timeout_seconds: payload.timeout_seconds,
-        variables: payload.variables,
+        // Custom-field-derived vars first, component's own declared
+        // variables second -- an explicit input variable always wins on the
+        // (extremely unlikely, given the CF_ prefix) name collision.
+        variables: { ...cfVars, ...payload.variables },
       });
       const compId  = ref.type === 'library' ? ref.component_id : null;
       const compOrd = ref.order;

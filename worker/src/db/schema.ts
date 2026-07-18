@@ -358,6 +358,10 @@ export const commands = sqliteTable('commands', {
 export const customFields = sqliteTable('custom_fields', {
   id:        text('id').primaryKey(),
   name:      text('name').notNull(),
+  // Identifier form of `name` (uppercase, [A-Z_][A-Z0-9_]*) -- lets a script
+  // reference this field's value as the env var CF_<key>, resolved per-device
+  // at job dispatch time. '' means no key assigned yet (not referenceable).
+  key:       text('key').notNull().default(''),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at').notNull(),
 });
