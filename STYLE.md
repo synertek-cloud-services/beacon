@@ -912,6 +912,23 @@ Shown instead of the `completed` badge specifically when `status === 'completed'
 
 Data table cells use `12px 14px` (`jf-td` in `JobFormPage.vue`). Header cells use `10px 14px` (`jf-thead`). Footer/summary rows use `10px 14px`. These were corrected from the original `9px` (cell) / `7px` (header) — the tighter values made tables look cramped against adjacent filter/chip bars. When adding a new data table, use `padding: 12px 14px` for `<td>` and `padding: 10px 14px` for `<th>` as the baseline; only go tighter if the table is inside a constrained panel (e.g. a flyout or a card, where the surrounding padding already provides breathing room).
 
+## `.pf-tbl-head` labels must mirror the row's own flex children, not just its content
+
+A real bug (`CustomFieldsSettingsPage.vue`, user-reported from a screenshot): the header row had two flat `<span>`s ("Name", "Key") sized with `min-width`, while the actual data rows (`.pf-mon-row`) had a **leading reorder-arrows column** (`.pf-mon-order`, ~46px: two 22px `.btn-icon` buttons + 2px gap) before the Name input. The header never accounted for that leading column, so both labels sat one column left of what they were labeling — easy to miss when eyeballing the template (the JSX/HTML looks "close enough"), only obvious once actually rendered side by side.
+
+Fix: give the header the *same* flex children as the row, including an empty spacer for any leading icon/button column, and size each label span to match its input's actual sizing (not just an approximate `min-width`):
+```html
+<div class="pf-tbl-head">
+  <span class="pf-tbl-head-spacer"></span>          <!-- matches .pf-mon-order's width -->
+  <span style="flex:1;max-width:320px">Name</span>   <!-- matches the Name input's flex:1;max-width:320px -->
+  <span style="max-width:160px">Key</span>            <!-- matches the Key input's max-width:160px -->
+</div>
+```
+```css
+.pf-tbl-head-spacer { width: 46px; flex-shrink: 0; }
+```
+Also matched the header's flex `gap` to the row's own `gap` (both `12px` — they'd drifted to `8px`/`12px` respectively). **Whenever a `.pf-tbl-head`/`.pf-mon-row` table gains a leading column that isn't a plain data cell** (reorder arrows, a checkbox, a drag handle, an icon), audit the header for a matching spacer before assuming the existing `min-width`-per-label approach still lines up — it silently won't.
+
 ## Sidebar resizer
 
 ```css
