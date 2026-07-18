@@ -2,7 +2,7 @@ const baseUrl = import.meta.env.VITE_API_URL ?? '';
 import type { ThemeTokens } from './theme';
 
 function token(): string {
-  return localStorage.getItem('beacon_token') ?? '';
+  return sessionStorage.getItem('beacon_emergency_token') ?? localStorage.getItem('beacon_token') ?? '';
 }
 
 async function request<T>(method: string, path: string, body?: unknown, opts?: { skipAuthRedirect?: boolean }): Promise<T> {
@@ -20,6 +20,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: {
     // clear it and bounce to /login rather than leaving the page in a broken state.
     if (!opts?.skipAuthRedirect) {
       localStorage.removeItem('beacon_token');
+      sessionStorage.removeItem('beacon_emergency_token');
       window.location.hash = '#/login';
     }
     throw new Error('unauthorized');
@@ -489,8 +490,9 @@ export interface Device {
 // ── API client ───────────────────────────────────────────────
 
 export const api = {
-  saveToken(t: string)  { localStorage.setItem('beacon_token', t); },
-  clearToken()          { localStorage.removeItem('beacon_token'); },
+  saveToken(t: string)  { sessionStorage.removeItem('beacon_emergency_token'); localStorage.setItem('beacon_token', t); },
+  saveEmergencyToken(t: string) { localStorage.removeItem('beacon_token'); sessionStorage.setItem('beacon_emergency_token', t); },
+  clearToken()          { localStorage.removeItem('beacon_token'); sessionStorage.removeItem('beacon_emergency_token'); },
   hasToken(): boolean   { return !!token(); },
 
   auth: {
@@ -500,9 +502,15 @@ export const api = {
       request<{ ok: boolean }>('POST', '/v1/auth/logout', undefined, { skipAuthRedirect: true }),
     me: () =>
       request<CurrentUser>('GET', '/v1/auth/me'),
+    microsoftAvailable: () => request<{ available: boolean }>('GET', '/v1/auth/microsoft/available', undefined, { skipAuthRedirect: true }),
     microsoftLoginUrl: () => `${baseUrl}/v1/auth/microsoft/login`,
     microsoftExchange: (code: string) =>
       request<{ token: string; user: CurrentUser }>('POST', '/v1/auth/microsoft/exchange', { code }, { skipAuthRedirect: true }),
+    verifyEmergencyAccess: async (secret: string) => {
+      const res = await fetch(`${baseUrl}/v1/auth/me`, { headers: { Authorization: `Bearer ${secret}` } });
+      if (!res.ok) throw new Error('unauthorized');
+      return res.json() as Promise<CurrentUser>;
+    },
   },
 
   users: {

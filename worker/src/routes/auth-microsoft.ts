@@ -22,6 +22,17 @@ function callbackUrl(reqUrl: string): string {
   return `${new URL(reqUrl).origin}/v1/auth/microsoft/callback`;
 }
 
+// Deliberately exposes only whether a sign-in choice can be shown. Provider
+// configuration remains private and /login still checks it authoritatively.
+authMicrosoft.get('/available', async (c) => {
+  const provider = await drizzle(c.env.DB, { schema })
+    .select({ id: schema.ssoProviders.id })
+    .from(schema.ssoProviders)
+    .where(and(eq(schema.ssoProviders.type, 'microsoft'), eq(schema.ssoProviders.enabled, true)))
+    .get();
+  return c.json({ available: !!provider });
+});
+
 // GET /v1/auth/microsoft/login — redirect to Microsoft's authorize endpoint
 authMicrosoft.get('/login', async (c) => {
   const db = drizzle(c.env.DB, { schema });

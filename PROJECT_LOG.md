@@ -17,6 +17,11 @@
   built-ins do not use revisions.
 - Migrations `0033`–`0037` establish the branding model, built-in presets,
   refined Default palette, and the built-in/custom activation split.
+- Reworked the login experience into a theme-aware beacon composition. Microsoft
+  SSO is now shown only when enabled and leads the flow when available; local
+  email/password remains an explicit fallback. Added a subdued, always-present
+  emergency administrator path that validates through existing break-glass
+  authorization and keeps the Admin Secret in browser session storage only.
 
 ### Key technical decisions
 
@@ -25,6 +30,7 @@
 | Built-ins activate by theme; custom themes activate by revision | A shipped palette is already immutable. Revisions only solve the host-draft publish/rollback problem. |
 | Public built-in palettes return from the no-store active pointer | Built-ins change only through an application update; direct return avoids inventing synthetic revision IDs while custom revisions retain immutable cache URLs. |
 | Preserve custom active selections during Default updates and migration | Branding is host-level configuration. A release must not silently replace a host's chosen custom palette. |
+| Emergency access stays separate from ordinary sign-in | `ADMIN_SECRET` is a recovery bearer credential, not a user account. A visually de-emphasized path preserves recoverability without normalizing its routine use. |
 
 ---
 
