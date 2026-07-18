@@ -22,8 +22,9 @@
 
         <div class="pf-monitors">
           <div class="pf-tbl-head">
-            <span style="min-width:220px">Name</span>
-            <span style="min-width:160px">Key</span>
+            <span class="pf-tbl-head-spacer"></span>
+            <span style="flex:1;max-width:320px">Name</span>
+            <span style="max-width:160px">Key</span>
           </div>
           <div v-if="!fields.length" class="pf-mon-empty">
             <p>No custom fields yet. Add one below.</p>
@@ -181,10 +182,14 @@ async function swap(i: number, j: number) {
 
 .pf-monitors { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
 .pf-tbl-head {
-  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  display: flex; align-items: center; gap: 12px; padding: 8px 14px;
   background: var(--surface-2); border-bottom: 1px solid var(--border);
   font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
 }
+/* Matches .pf-mon-order's rendered width (two 22px buttons + 2px gap) so the
+   Name/Key labels line up with their actual input columns below, not the
+   reorder-arrows column. */
+.pf-tbl-head-spacer { width: 46px; flex-shrink: 0; }
 .pf-mon-empty { padding: 24px; text-align: center; }
 .pf-mon-empty p { font-size: 12px; color: var(--muted); margin: 0; }
 .pf-mon-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
