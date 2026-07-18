@@ -252,14 +252,34 @@ export interface Policy {
   id:          string;
   name:        string;
   description: string | null;
+  // Derived (migration 0032), not directly user-set — 'global' when the
+  // policy has zero Targets across sites/devices/groups, 'company' when it
+  // has 1+. See deviceMatchesPolicy in worker/src/lib/alerts.ts.
   scope:       'global' | 'company';
-  companyId:   string | null;
+  companyId:   string | null; // vestigial — superseded by siteIds below
   enabled:     boolean;
   targetOs:    string; // JSON array
   targetClass: string; // JSON array
   createdAt:   number;
   updatedAt:   number;
   monitors:    PolicyMonitor[];
+  // Targets (migration 0032) — a heterogeneous OR-list: a device matches if
+  // it satisfies ANY of siteIds/deviceIds/groupIds, not all. Populated by
+  // the list endpoint; may be absent elsewhere.
+  siteIds?:    string[];
+  deviceIds?:  string[];
+  groupIds?:   string[];
+}
+
+export interface PolicySiteTarget {
+  tenantId: string;
+  name:     string;
+}
+
+export interface PolicyDeviceTarget {
+  deviceId:   string;
+  hostname:   string | null;
+  tenantName: string;
 }
 
 // Returned by GET /v1/admin/devices/:id/effective-monitors — a monitor that
@@ -677,15 +697,13 @@ export const api = {
   },
 
   policies: {
-    list: (params?: { scope?: 'global' | 'company'; company_id?: string }) => {
+    list: (params?: { scope?: 'global' | 'company' }) => {
       const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : '';
       return request<Policy[]>('GET', `/v1/admin/policies${qs ? `?${qs}` : ''}`);
     },
     create: (body: {
       name:          string;
       description?:  string | null;
-      scope?:        'global' | 'company';
-      company_id?:   string | null;
       target_os?:    string[];
       target_class?: string[];
       clone_from?:   string;
@@ -728,6 +746,20 @@ export const api = {
         request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/groups`, { group_id: groupId }),
       remove: (policyId: string, groupId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/groups/${groupId}`),
+    },
+    sites: {
+      list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/policies/${policyId}/sites`),
+      add:  (policyId: string, tenantId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/sites`, { tenant_id: tenantId }),
+      remove: (policyId: string, tenantId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/sites/${tenantId}`),
+    },
+    devices: {
+      list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/policies/${policyId}/devices`),
+      add:  (policyId: string, deviceId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/devices`, { device_id: deviceId }),
+      remove: (policyId: string, deviceId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/devices/${deviceId}`),
     },
   },
 

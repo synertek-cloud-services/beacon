@@ -31,27 +31,32 @@ async function fetchEnabledPolicyMonitors(db: Db): Promise<EnabledPolicyMonitorR
     ));
 }
 
-// Whether a policy's scope/OS/class targeting covers a given device — does
-// NOT check enabled (callers that care already filtered for that) or the
-// same-check_type company-override dedup (that's a cross-policy concern,
-// only relevant when resolving the full effective set, not when re-checking
-// one already-known monitor).
+// Whether a policy's targeting (Sites/Devices/Device Groups + OS/Class)
+// covers a given device — does NOT check enabled (callers that care already
+// filtered for that) or the same-check_type company-override dedup (that's
+// a cross-policy concern, only relevant when resolving the full effective
+// set, not when re-checking one already-known monitor).
 //
-// deviceGroupIds/policyGroupIds implement Device Group targeting (migration
-// 0031): zero groups associated with a policy means unchanged scope/OS/class
-// behavior; one or more means the device must ALSO belong to at least one of
-// them (ANDed with scope/OS/class, ORed across the groups themselves —
-// matches Datto's own "multiple targets = OR logic" documented behavior).
-// Both maps are always pre-fetched by the caller, never queried here — this
-// function runs inside per-device loops on hot paths (every check-in, the
-// 2-minute offline cron over the whole fleet).
+// Targeting (migration 0032) is a heterogeneous OR-list across three kinds
+// — Sites (policySiteIds), individual Devices (policyDeviceIds), and Device
+// Groups (deviceGroupIds/policyGroupIds, migration 0031): zero targets
+// across all three means unrestricted (matches Datto's own "multiple
+// targets = OR logic" documented behavior, generalized from groups-only to
+// all three kinds); one or more means the device must satisfy AT LEAST ONE
+// of them, of ANY kind (OR, not AND — adding a Site target does not require
+// also being in a Group target). Still ANDed with OS/Class, which is a
+// separate, unrelated narrowing dimension. All maps are always pre-fetched
+// by the caller, never queried here — this function runs inside per-device
+// loops on hot paths (every check-in, the 2-minute offline cron over the
+// whole fleet).
 function deviceMatchesPolicy(
   p: Policy,
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
+  policySiteIds: Map<string, Set<string>>,
+  policyDeviceIds: Map<string, Set<string>>,
 ): boolean {
-  if (p.scope === 'company' && p.companyId !== device.tenantId) return false;
   const targetOs    = JSON.parse(p.targetOs)    as string[];
   const targetClass = JSON.parse(p.targetClass) as string[];
   const devClass = device.overrideClass ?? device.detectedClass;
@@ -59,12 +64,16 @@ function deviceMatchesPolicy(
   const classOk = targetClass.length === 0 || (devClass      ? targetClass.includes(devClass)   : false);
   if (!osOk || !classOk) return false;
 
-  const requiredGroups = policyGroupIds.get(p.id);
-  if (requiredGroups && requiredGroups.size > 0) {
-    const inAnyGroup = [...requiredGroups].some(gid => deviceGroupIds.has(gid));
-    if (!inAnyGroup) return false;
-  }
-  return true;
+  const sites   = policySiteIds.get(p.id);
+  const devices = policyDeviceIds.get(p.id);
+  const groups  = policyGroupIds.get(p.id);
+  const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
+  if (total === 0) return true; // unrestricted — matches every device
+
+  const matchesSite   = sites?.has(device.tenantId) ?? false;
+  const matchesDevice = devices?.has(device.id) ?? false;
+  const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
+  return matchesSite || matchesDevice || matchesGroup;
 }
 
 function matchMonitorsForDevice(
@@ -72,8 +81,11 @@ function matchMonitorsForDevice(
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
+  policySiteIds: Map<string, Set<string>>,
+  policyDeviceIds: Map<string, Set<string>>,
 ): EffectiveMonitor[] {
-  const matched = rows.filter(row => deviceMatchesPolicy(row.policies, device, deviceGroupIds, policyGroupIds));
+  const matched = rows.filter(row =>
+    deviceMatchesPolicy(row.policies, device, deviceGroupIds, policyGroupIds, policySiteIds, policyDeviceIds));
 
   // A policy's monitors of the same check_type coexist (e.g. two cpu_usage
   // monitors — a 100%/critical trip and a 95%/high early warning — or
@@ -128,6 +140,28 @@ async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<Map<str
   return out;
 }
 
+// Policy Sites/Devices targeting (migration 0032) — same "fetch whole table
+// once per invocation, never per device" rule as fetchPolicyGroupIds above.
+async function fetchPolicySiteIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.policySites);
+  const out = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!out.has(r.policyId)) out.set(r.policyId, new Set());
+    out.get(r.policyId)!.add(r.tenantId);
+  }
+  return out;
+}
+
+async function fetchPolicyDeviceIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.policyDevices);
+  const out = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!out.has(r.policyId)) out.set(r.policyId, new Set());
+    out.get(r.policyId)!.add(r.deviceId);
+  }
+  return out;
+}
+
 // Single-device convenience wrapper for call sites that only ever evaluate
 // one device per invocation (check-in, audit) — the offline cron evaluates
 // many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
@@ -136,7 +170,9 @@ export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<
   const rows = await fetchEnabledPolicyMonitors(db);
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
-  return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds);
+  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyDeviceIds = await fetchPolicyDeviceIds(db);
+  return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds, policySiteIds, policyDeviceIds);
 }
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
@@ -430,11 +466,15 @@ export async function evaluateOfflineAlerts(
   const policyMonitorRows = await fetchEnabledPolicyMonitors(db);
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = await fetchDeviceGroupIds(db, allDevices.map(d => d.id));
+  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyDeviceIds = await fetchPolicyDeviceIds(db);
 
   for (const device of allDevices) {
     if (device.maintenanceEndsAt != null && device.maintenanceEndsAt > now) continue;
 
-    const monitors = matchMonitorsForDevice(policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds);
+    const monitors = matchMonitorsForDevice(
+      policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds,
+      policySiteIds, policyDeviceIds);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 
     for (const monitor of offlineMonitors) {
@@ -683,12 +723,15 @@ export async function reconcileOrphanedAlerts(
 
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = await fetchDeviceGroupIds(db, rows.map(r => r.devices.id));
+  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyDeviceIds = await fetchPolicyDeviceIds(db);
 
   for (const row of rows) {
     const stillApplies =
       row.policy_monitors.enabled &&
       row.policies.enabled &&
-      deviceMatchesPolicy(row.policies, row.devices, deviceGroupIds.get(row.devices.id) ?? new Set(), policyGroupIds);
+      deviceMatchesPolicy(row.policies, row.devices, deviceGroupIds.get(row.devices.id) ?? new Set(), policyGroupIds,
+        policySiteIds, policyDeviceIds);
     if (stillApplies) continue;
 
     await db.update(schema.alertState)

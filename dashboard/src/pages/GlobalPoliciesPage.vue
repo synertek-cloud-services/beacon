@@ -56,7 +56,7 @@
               <th class="col-name">Name</th>
               <th class="col-targets">Targets</th>
               <th class="col-scope">Scope</th>
-              <th v-if="tab === 'company' && !companyMode" class="col-company">Company</th>
+              <th v-if="tab === 'company' && !companyMode" class="col-company">Sites</th>
               <th class="col-monitors">Monitors</th>
               <th class="col-created">Created</th>
               <th class="col-enabled">Enabled</th>
@@ -77,7 +77,7 @@
                 <td class="col-scope">
                   <span :class="['scope-badge', 'scope-' + policy.scope]">{{ capitalize(policy.scope) }}</span>
                 </td>
-                <td v-if="tab === 'company' && !companyMode" class="col-company">{{ tenantName(policy.companyId) }}</td>
+                <td v-if="tab === 'company' && !companyMode" class="col-company">{{ siteSummary(policy) }}</td>
                 <td class="col-monitors">
                   <span class="monitor-count-badge">{{ policy.monitors.length }}</span>
                 </td>
@@ -210,7 +210,7 @@ const companyName    = computed(() =>
 
 const effectivePolicies = computed(() =>
   companyMode.value
-    ? [...globalPolicies.value, ...companyPolicies.value.filter(p => p.companyId === companyIdParam.value)]
+    ? [...globalPolicies.value, ...companyPolicies.value.filter(p => (p.siteIds ?? []).includes(companyIdParam.value!))]
     : []
 );
 
@@ -220,7 +220,7 @@ const displayedPolicies = computed(() => {
   if (!companyFilter.value.trim()) return companyPolicies.value;
   const q = companyFilter.value.trim().toLowerCase();
   return companyPolicies.value.filter(p =>
-    tenantName(p.companyId).toLowerCase().includes(q)
+    (p.siteIds ?? []).some(id => tenantName(id).toLowerCase().includes(q))
   );
 });
 
@@ -289,9 +289,9 @@ onMounted(async () => {
 
 function createPolicy() {
   if (companyMode.value && companyIdParam.value) {
-    router.push(`/global/policies/new?scope=company&company_id=${companyIdParam.value}`);
+    router.push(`/global/policies/new?company_id=${companyIdParam.value}`);
   } else {
-    router.push('/global/policies/new?scope=' + tab.value);
+    router.push('/global/policies/new');
   }
 }
 
@@ -382,19 +382,21 @@ async function doOverride() {
   overrideModal.saving = true;
   overrideModal.error  = '';
   try {
-    const ids    = [...selectedIds.value];
-    const clones = await Promise.all(
-      ids.map(id => {
-        const src = globalPolicies.value.find(p => p.id === id);
-        return api.policies.create({
+    const ids = [...selectedIds.value];
+    await Promise.all(
+      ids.map(async id => {
+        const src    = globalPolicies.value.find(p => p.id === id);
+        const policy = await api.policies.create({
           name:       (src?.name ?? 'Policy') + ' (Override)',
-          scope:      'company',
-          company_id: overrideModal.companyId,
           clone_from: id,
         });
+        await api.policies.sites.add(policy.id, overrideModal.companyId);
       })
     );
-    companyPolicies.value.push(...clones);
+    // Re-fetch rather than manually splice the local array -- the clones
+    // just got a site added after creation, so the client's cached copy
+    // would otherwise be missing siteIds until the next reload anyway.
+    await loadCompanyPolicies();
     overrideModal.open = false;
     selectedIds.value  = new Set();
     if (!companyMode.value) switchTab('company');
@@ -431,6 +433,14 @@ function targetSummary(policy: Policy): string {
   const osStr  = os.length  === 3 ? 'All OS'      : os.map(capitalize).join(' / ');
   const clsStr = cls.length === 3 ? 'All Classes' : cls.map(capitalize).join(' / ');
   return `${osStr} · ${clsStr}`;
+}
+
+function siteSummary(policy: Policy): string {
+  const ids = policy.siteIds ?? [];
+  if (ids.length === 0) return '—';
+  const names = ids.map(id => tenantName(id));
+  if (names.length <= 2) return names.join(', ');
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
 }
 
 function tenantName(id: string | null): string {

@@ -1,5 +1,40 @@
 # Beacon — Project Log
 
+## Session: 2026-07-18 — Policy targeting redesign: multi-site, individual devices, unified Targets flyout
+
+### What was completed
+
+**Policy targeting rebuilt to match a real Datto Create Policy reference screenshot and `JobFormPage.vue`'s established Add-Target flyout convention** (migration `0032_policy_targets.sql`).
+
+Prior state: `PolicyFormPage.vue` split targeting three ways — a Scope seg-bar (Global/single-Site combobox), OS/Class pill checkboxes, and a separate Device Groups picker. The user compared this against a real Datto reference screenshot (a single unified "Targets" section, one Add Target flyout, one flat list) and asked to fix it to match both the reference and the rest of the app's own conventions.
+
+- **Design locked via `AskUserQuestion` before implementation** (two rounds): (1) unify into one flyout reusing `JobFormPage.vue`'s `.tf-` pattern, with multi-site support and new individual-device targeting, OS/Class staying separate; (2) targeting semantics are a **heterogeneous OR-list**, not Job's single-kind-exclusive model — a policy's Targets can mix a Site AND a Device AND a Device Group simultaneously, and a device qualifies if it matches ANY entry of ANY kind. This was the one point requiring a second clarifying round: Job's own flyout clears previously-selected items on a kind switch, but this project's own prior research into Datto's real docs (recorded in CLAUDE.md from the Device Groups session) says Datto's actual behavior is "OR logic across multiple targets" — the user confirmed the OR-list model, not Job's exclusive one.
+- New tables `policy_sites`/`policy_devices` (composite PK, mirror `policy_groups`' exact shape) — `policies.scope` becomes a **derived, non-authoritative** column (recomputed by a new `recomputePolicyScope()` helper after every targeting mutation: `'global'` when zero targets across all three tables, `'company'` when 1+), `policies.company_id` becomes fully vestigial (same fate as `components.company_id` after migration `0022`).
+- `worker/src/lib/alerts.ts`'s `deviceMatchesPolicy` rewritten: dropped the old `scope==='company' && companyId!==tenantId` AND-check entirely, added `fetchPolicySiteIds`/`fetchPolicyDeviceIds` (same whole-table-fetch-once-per-invocation shape as the existing `fetchPolicyGroupIds`), threaded through the same four call sites that helper already reaches. Verified by hand that no new call sites were needed and the hot-path "fetch once, never per device" rule was preserved throughout (this function runs on every device check-in and the 2-minute offline cron).
+- `worker/src/routes/admin/policies.ts` gained `/:id/sites`/`/:id/devices` nested routes mirroring the pre-existing `/:id/groups` triplet exactly; the pre-existing `/:id/groups` POST/DELETE handlers gained a `recomputePolicyScope()` call each (a real gap — they never touched `scope` before, harmless when scope was site-only, wrong once groups became one of three dimensions). `POST /` no longer accepts `scope`/`company_id` — policies always start empty, matching every other nested-resource creation flow in this codebase; `clone_from` now also copies the source's Sites/Devices/Groups.
+- `PolicyFormPage.vue`: Scope seg-bar deleted entirely; OS/Class section relabeled "OS & Class" to free up "Targets" for the new section; new Targets section reuses `JobFormPage.vue`'s `.tf-` flyout markup/CSS verbatim but with `toggleTarget()` rewritten as a flat push/remove (no kind-switch-clears-previous branch) — the one deliberate behavioral fork from the file it's copied from.
+- `GlobalPoliciesPage.vue`: the Company tab's `col-company` column relabeled "Sites", now shows a joined multi-site summary instead of a single tenant lookup; `companyMode`'s filter changed from `p.companyId === companyIdParam` to checking the new `siteIds` array; the "Override" bulk action (clone a global policy to a company-scoped copy) changed from a single create-call to the same defer-and-batch shape used everywhere else (`create` then `sites.add`).
+- **Went through the full plan-mode workflow given the size**: direct exploration (not delegated — already had strong context from the Device Groups session), a Plan-agent validation pass that caught a real gap in the initial design (the `/:id/groups` routes never calling `recomputePolicyScope`, and a third UI surface — `DeviceDetailPage.vue`'s scope badge — that needed confirming as unaffected rather than assumed), then a manual read of the real `policy_groups`/`component_sites`/`groups.ts` code before finalizing the plan for approval.
+- **Verified end-to-end via `wrangler dev` + local D1, not just type-checked.** Found and cleaned up a pile of zombie `wrangler dev` processes left over from prior sessions (bound to nothing, per the known CLAUDE.md gotcha) before starting a fresh instance. Core proof: a device group containing only device A, plus device B individually targeted on the same policy (zero overlap between the two mechanisms) — confirmed both A and B independently qualify, and removing the group target drops A while B keeps qualifying via its own device target. Hit one red herring during this pass: the first attempt used `disk_space` as the test monitor's check type, which collided with the pre-existing seeded global "Disk Space" policy and triggered the unrelated, already-existing same-check-type company-override dedup rule in `matchMonitorsForDevice` — produced a count that looked wrong until traced back to that pre-existing mechanic, not a bug in the new OR-list logic. Redid the test with `ping` (no seeded collision) for a clean signal. Also confirmed `recomputePolicyScope` flips `global`→`company`→`global` correctly, `clone_from` copies target rows, and the 2-minute cron handler runs clean with the new maps. Full Playwright pass through both `PolicyFormPage.vue` and `GlobalPoliciesPage.vue` (using a small ad-hoc Playwright driver script since neither `chromium-cli` nor a project run-skill existed yet — seeded the break-glass `ADMIN_SECRET` directly into `localStorage` rather than driving a login form) confirmed the UI end to end, including a screenshot proving a Site stays checked in the flyout after switching the category dropdown away and back — the concrete evidence that this flyout does not share Job's kind-exclusive clearing behavior despite identical CSS classes.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Heterogeneous OR-list across Sites/Devices/Groups, not Job's single-kind-exclusive model | Matches Datto's actual documented behavior (already on record in this project's own CLAUDE.md from the Device Groups session) and the reference screenshot's single flat Targets table more faithfully than copying Job's flyout behavior verbatim would have. |
+| `policies.scope` becomes derived, not dropped | Preserves `GlobalPoliciesPage.vue`'s existing Global/Company tab mechanism and `DeviceDetailPage.vue`'s scope badge with zero API-shape breakage, while still generalizing correctly to three targeting dimensions instead of one. |
+| New `policy_sites`/`policy_devices` tables instead of a single polymorphic `policy_targets` table | Matches this codebase's consistent preference for one real FK-constrained join table per relationship (see `policy_groups`, `component_sites`, `device_group_members`) over a generic `kind`+`target_id` discriminator column with no FK integrity. |
+| `POST /v1/admin/policies` no longer accepts `scope`/`company_id` | Matches every other nested-resource creation flow already established in this codebase (create the parent empty, then POST nested items) — Sites/Variables on Components, Monitors/Groups on Policies now extends cleanly to Sites/Devices/Groups too. |
+| Ad-hoc Playwright driver script instead of `chromium-cli` | Neither `chromium-cli` nor a project run-skill was available in this environment; `npx playwright` was already cached locally, so a small one-off `.mjs` script (with the token seeded directly into `localStorage`) was faster than provisioning either. Recommended `/run-skill-generator` as a follow-up, not run this session. |
+
+### Next logical steps
+
+1. **No project run-skill exists yet for Beacon** — every session so far has hand-rolled `wrangler dev`/`vite dev`/Playwright orchestration from scratch. Worth running `/run-skill-generator` once, to stop re-deriving this.
+2. **Deploy migration `0032` + the worker to production** — entirely local-only as of end of session, same standing pattern as every other migration. Needs `wrangler d1 migrations apply beacon --remote` + `wrangler deploy`, plus a commit/push.
+3. Everything else from the prior session's backlog (Patch Management, Custom Fields targeting-by-value, dynamic Filters, Site Groups, Agent Browser rest) is unchanged and still open.
+
+---
+
 ## Session: 2026-07-17 — Alert Detail page, target_os, Linux restart fix, sidebar icon rail
 
 ### What was completed
@@ -95,6 +130,14 @@ Researched Datto RMM's real "Filters and Groups" spec (rmm.datto.com) at the use
 - **Verified end-to-end via `wrangler dev` + local D1**: created a group, bulk-added 2 devices, dispatched a job with `target_type:'group'` and confirmed `deviceCount:2`; the core policy-gating proof — a device matching a zero-group policy by default, losing eligibility once the policy was scoped to a group it's not in (`effective-monitors` dropped from 7 monitors to 6, missing exactly `disk_space`), regaining it after being added to that group, and losing it again after being removed (with the removal correctly triggering `reconcileOrphanedAlerts`). Full Playwright pass through all five touched/new pages confirmed the UI end to end, including that the list endpoint's new `deviceIds` field (added via `group_concat`, not in the original plan — needed so `JobFormPage.vue` can compute an accurate deduped device count across multiple selected groups without an extra request per group) renders correctly.
 - Went through the full plan-mode workflow given the size of this feature: an Explore pass grounding Beacon's existing device/audit data model and targeting mechanisms, a Plan agent producing the concrete implementation plan, and a manual verification read of the highest-risk part (the `alerts.ts` check-in-frequency-sensitive integration) before finalizing — confirmed by hand that `resolveEffectiveMonitors`'s two external callers (`checkin.ts`, `devices.ts`) needed zero changes since its public signature stayed the same.
 
+**10. Small fix: component Variables' Required checkbox was visually detached**
+
+User feedback while looking at `ComponentFormPage.vue`'s Add Variable panel — the Required checkbox sat alone in its own grid row after Description, with nothing beside it, floating. Moved it to sit directly beside the Type select instead (new `.type-required-row` wrapper). Also fixed an unrelated, real specificity bug surfaced by the same change: the checkbox's intended styling (12px, normal-case "Required" text) was being silently overridden by the global `.field label` rule whenever nested inside a `.field` div (uppercase, muted, 11px) — invisible until compared against the identical `checkbox-label` pattern already used correctly elsewhere on the same page (Post-conditions' "Enabled" checkbox, which isn't nested inside `.field` and so never hit the collision). Fixed by bumping `.field .checkbox-label`'s selector specificity rather than reaching for `!important`.
+
+**11. `CLAUDE.md` trimmed — removed the redundant "Project status" changelog section**
+
+Root cause of the "files too large" warning the user gets at Claude Code launch: `CLAUDE.md` is the one file unconditionally loaded into every session's context, and had grown to 594 lines / ~103KB. Its `## Project status (as of DATE)` section alone was ~24KB and substantially duplicated this same file's own dated session history — changelog content bolted onto a file whose stated purpose is architecture/convention reference. Deleted the section entirely (not condensed) and replaced it with a one-line pointer to this file, plus fixed two internal cross-references that pointed back into the deleted section. Net effect: 594→557 lines, 103KB→78KB, zero information loss. Deliberately did **not** also rewrite the verbose narrative style of the remaining architecture sections (Auth System, Two-Tier Policy System, etc.) — a bigger, separate cut the user didn't ask for this pass.
+
 ### Key technical decisions
 
 | Decision | Rationale |
@@ -119,8 +162,14 @@ Researched Datto RMM's real "Filters and Groups" spec (rmm.datto.com) at the use
 | Device Groups: usable for both Jobs and Policies | Confirmed with the user after checking Datto's real docs, which showed Policies target through Groups too, not just Jobs. |
 | Device Groups: composite PK over `component_sites`' synthetic-id pattern | Neither new join table has a row ever referenced by its own id — matches the more recently-established `device_custom_field_values` convention from earlier this session. |
 | Device Groups: `technician` tier, not admin-only like Custom Fields | Groups are operational targeting infrastructure (same tier as editing a Job or Policy), not Settings-area configuration. |
+| Attached Required to Type instead of restyling it in place | The isolated-row layout was the actual complaint; restyling alone wouldn't have fixed the "detached" feel, only pairing it with an adjacent control does. |
+| Deleted the `CLAUDE.md` Project status section rather than condensing it | Condensing still leaves changelog content duplicated across two files forever. Deleting outright, with a pointer to `PROJECT_LOG.md`, removes the duplication permanently instead of just shrinking it. |
 
 ### Next logical steps
+
+**Immediate, for whoever picks this up next:**
+1. **Pick a direction**: the two biggest standing gaps are Patch Management (item 1 below — large, untouched, high real-world MSP value) and closing out the Device Groups/Custom Fields backlog (items 4-6, 8-10 below — smaller, but there's now a real pattern to extend for each). Worth asking the user which one before diving in.
+2. Everything else below is unordered backlog, not yet prioritized against each other.
 
 1. **Patch management / Windows Update status** — Datto's own "Patch Status" nav item is one of the most-used features in real MSP environments. Beacon has no patch scanning, scheduling, or reporting today. This is a large feature (agent-side WUA COM queries on Windows, a new audit blob, a dedicated page) — worth scoping as a separate initiative.
 
@@ -142,7 +191,7 @@ Researched Datto RMM's real "Filters and Groups" spec (rmm.datto.com) at the use
 
 10. **Device Groups on the Devices list** — not built this pass, same gap as Custom Fields (item 6 above): no column/filter for group membership on `DevicesPage.vue`.
 
-11. **Deploy migration 0031 + the worker to production** — Device Groups is entirely local-only as of end of session. Needs `wrangler d1 migrations apply beacon --remote` + `wrangler deploy`, plus a commit/push, before it works anywhere but local dev.
+11. ~~Deploy migration 0031 + the worker to production~~ — done; Device Groups confirmed live in production.
 
 ---
 

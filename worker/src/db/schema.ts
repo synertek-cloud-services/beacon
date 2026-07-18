@@ -119,7 +119,16 @@ export const policies = sqliteTable('policies', {
   id:          text('id').primaryKey(),
   name:        text('name').notNull(),
   description: text('description'),
+  // Derived, not directly user-set (migration 0032) -- recomputed by
+  // recomputePolicyScope in routes/admin/policies.ts after every mutation
+  // of policy_sites/policy_devices/policy_groups: 'global' when a policy has
+  // zero targets across all three, 'company' when it has 1+. Same pattern
+  // components.scope already uses, generalized one level further since this
+  // is now derived from three tables' union instead of a single user pick.
   scope:       text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
+  // Vestigial as of migration 0032 -- superseded by policy_sites (real
+  // multi-site membership). No longer read or written; same fate as
+  // components.companyId after migration 0022.
   companyId:   text('company_id').references(() => tenants.id),
   enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
   targetOs:    text('target_os').notNull().default('["windows","linux","macos"]'),
@@ -150,6 +159,27 @@ export const policyGroups = sqliteTable('policy_groups', {
   groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
+
+// Multi-site targeting (migration 0032) -- one of three targeting
+// dimensions (alongside policyDevices below and policyGroups above), all
+// OR'd together in deviceMatchesPolicy (worker/src/lib/alerts.ts): a device
+// matches if it satisfies ANY entry across ANY of the three tables. Zero
+// rows total = unrestricted, generalizing the "zero policy_groups rows =
+// unchanged" precedent to all three kinds. Mirrors policyGroups' exact
+// composite-PK shape.
+export const policySites = sqliteTable('policy_sites', {
+  policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
+  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+
+// Individual-device targeting (migration 0032) -- see policySites above for
+// the shared OR-across-three-kinds semantics.
+export const policyDevices = sqliteTable('policy_devices', {
+  policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
+  deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.deviceId] })]);
 
 export const alertState = sqliteTable('alert_state', {
   id:                 text('id').primaryKey(),

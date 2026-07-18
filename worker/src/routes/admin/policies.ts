@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
@@ -14,46 +14,62 @@ type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software'];
 const VALID_PRIORITIES:  Priority[]  = ['critical', 'high', 'moderate', 'low'];
 
-// Fetch policies + their monitors in two queries, merge in TS
+// Fetch policies + their monitors and Targets (Sites/Devices/Groups — see
+// deviceMatchesPolicy in lib/alerts.ts for how the three are OR'd together)
+// in a handful of queries, merge in TS.
 async function listWithMonitors(
   db: ReturnType<typeof drizzle<typeof schema>>,
-  whereFilter?: Parameters<typeof db.select>[0],
   scope?: 'global' | 'company',
-  companyId?: string,
 ) {
-  let q = db.select().from(schema.policies);
-  const conditions = [];
-  if (scope)      conditions.push(eq(schema.policies.scope, scope));
-  if (companyId)  conditions.push(eq(schema.policies.companyId, companyId));
-  if (!companyId && !scope) { /* no filter */ }
-
-  const policiesList = conditions.length
-    ? await q.where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    : await q;
+  const policiesList = scope
+    ? await db.select().from(schema.policies).where(eq(schema.policies.scope, scope))
+    : await db.select().from(schema.policies);
 
   if (!policiesList.length) return [];
 
   const ids = policiesList.map(p => p.id);
-  const monitors = await db.select()
-    .from(schema.policyMonitors)
-    .where(inArray(schema.policyMonitors.policyId, ids));
+  const [monitors, sites, devices, groups] = await Promise.all([
+    db.select().from(schema.policyMonitors).where(inArray(schema.policyMonitors.policyId, ids)),
+    db.select().from(schema.policySites).where(inArray(schema.policySites.policyId, ids)),
+    db.select().from(schema.policyDevices).where(inArray(schema.policyDevices.policyId, ids)),
+    db.select().from(schema.policyGroups).where(inArray(schema.policyGroups.policyId, ids)),
+  ]);
 
   return policiesList.map(p => ({
     ...p,
-    monitors: monitors.filter(m => m.policyId === p.id),
+    monitors:  monitors.filter(m => m.policyId === p.id),
+    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.tenantId),
+    deviceIds: devices.filter(d => d.policyId === p.id).map(d => d.deviceId),
+    groupIds:  groups.filter(g => g.policyId === p.id).map(g => g.groupId),
   }));
 }
 
-// ── GET /v1/admin/policies?scope=global|company&company_id=<id> ───────────────
+// Recomputed after every mutation of policy_sites/policy_devices/policy_groups
+// — scope is derived (migration 0032), not directly user-set: 'global' when a
+// policy has zero targets across all three tables, 'company' when it has 1+.
+// Purely a display/tab-filtering convenience (GlobalPoliciesPage.vue's
+// Global/Company tabs, DeviceDetailPage.vue's scope badge) — matching logic
+// itself (deviceMatchesPolicy in lib/alerts.ts) reads the three tables
+// directly and never looks at this column.
+async function recomputePolicyScope(db: ReturnType<typeof drizzle<typeof schema>>, policyId: string): Promise<void> {
+  const [sites, devices, groups] = await Promise.all([
+    db.select().from(schema.policySites).where(eq(schema.policySites.policyId, policyId)),
+    db.select().from(schema.policyDevices).where(eq(schema.policyDevices.policyId, policyId)),
+    db.select().from(schema.policyGroups).where(eq(schema.policyGroups.policyId, policyId)),
+  ]);
+  const scope = (sites.length + devices.length + groups.length) === 0 ? 'global' : 'company';
+  await db.update(schema.policies).set({ scope }).where(eq(schema.policies.id, policyId));
+}
+
+// ── GET /v1/admin/policies?scope=global|company ────────────────────────────────
 policies.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db        = drizzle(c.env.DB, { schema });
-  const scope     = c.req.query('scope') as 'global' | 'company' | undefined;
-  const companyId = c.req.query('company_id');
+  const db    = drizzle(c.env.DB, { schema });
+  const scope = c.req.query('scope') as 'global' | 'company' | undefined;
 
-  const result = await listWithMonitors(db, undefined, scope, companyId);
+  const result = await listWithMonitors(db, scope);
   return c.json(result);
 });
 
@@ -69,8 +85,6 @@ policies.post('/', async (c) => {
   const body = await c.req.json<{
     name?:        string;
     description?: string | null;
-    scope?:       'global' | 'company';
-    company_id?:  string | null;
     target_os?:   string[];
     target_class?: string[];
     clone_from?:  string; // existing policy id to copy from
@@ -78,13 +92,18 @@ policies.post('/', async (c) => {
 
   let name        = body.name ?? '';
   let description = body.description ?? null;
-  let scope       = body.scope ?? 'global';
-  let companyId   = body.company_id ?? null;
   let targetOs    = body.target_os    ? JSON.stringify(body.target_os)    : '["windows","linux","macos"]';
   let targetClass = body.target_class ? JSON.stringify(body.target_class) : '["server","workstation","laptop"]';
 
-  // If cloning, inherit fields from source unless overridden
+  // If cloning, inherit fields (including Targets — Sites/Devices/Groups)
+  // from source unless overridden. New, non-cloned policies always start
+  // with zero targets (scope='global') — Targets are added via the nested
+  // routes below, same "create empty, then POST nested items" convention as
+  // every other nested resource in this codebase.
   let sourceMonitors: (typeof schema.policyMonitors.$inferSelect)[] = [];
+  let sourceSites:    (typeof schema.policySites.$inferSelect)[]    = [];
+  let sourceDevices:  (typeof schema.policyDevices.$inferSelect)[]  = [];
+  let sourceGroups:   (typeof schema.policyGroups.$inferSelect)[]   = [];
   if (body.clone_from) {
     const source = await db.select().from(schema.policies)
       .where(eq(schema.policies.id, body.clone_from)).get();
@@ -95,23 +114,26 @@ policies.post('/', async (c) => {
     if (!body.target_os)    targetOs    = source.targetOs;
     if (!body.target_class) targetClass = source.targetClass;
 
-    sourceMonitors = await db.select().from(schema.policyMonitors)
-      .where(eq(schema.policyMonitors.policyId, source.id));
+    [sourceMonitors, sourceSites, sourceDevices, sourceGroups] = await Promise.all([
+      db.select().from(schema.policyMonitors).where(eq(schema.policyMonitors.policyId, source.id)),
+      db.select().from(schema.policySites).where(eq(schema.policySites.policyId, source.id)),
+      db.select().from(schema.policyDevices).where(eq(schema.policyDevices.policyId, source.id)),
+      db.select().from(schema.policyGroups).where(eq(schema.policyGroups.policyId, source.id)),
+    ]);
   }
 
   if (!name) return c.json({ error: 'name is required' }, 400);
-  if (scope === 'company' && !companyId) return c.json({ error: 'company_id required for company scope' }, 400);
 
   const id = crypto.randomUUID();
   await db.insert(schema.policies).values({
-    id, name, description, scope,
-    companyId,
+    id, name, description,
+    scope: 'global', companyId: null, // derived; recomputePolicyScope corrects below if targets were cloned
     enabled: true,
     targetOs, targetClass,
     createdAt: now, updatedAt: now,
   });
 
-  // Copy monitors when cloning
+  // Copy monitors + Targets when cloning
   if (sourceMonitors.length) {
     await Promise.all(sourceMonitors.map(m =>
       db.insert(schema.policyMonitors).values({
@@ -128,11 +150,23 @@ policies.post('/', async (c) => {
       })
     ));
   }
+  if (sourceSites.length) {
+    await Promise.all(sourceSites.map(s =>
+      db.insert(schema.policySites).values({ policyId: id, tenantId: s.tenantId, createdAt: now })));
+  }
+  if (sourceDevices.length) {
+    await Promise.all(sourceDevices.map(d =>
+      db.insert(schema.policyDevices).values({ policyId: id, deviceId: d.deviceId, createdAt: now })));
+  }
+  if (sourceGroups.length) {
+    await Promise.all(sourceGroups.map(g =>
+      db.insert(schema.policyGroups).values({ policyId: id, groupId: g.groupId, createdAt: now })));
+  }
+  if (sourceSites.length || sourceDevices.length || sourceGroups.length) {
+    await recomputePolicyScope(db, id);
+  }
 
-  const result = await listWithMonitors(drizzle(c.env.DB, { schema }), undefined,
-    scope === 'global' ? 'global' : undefined,
-    companyId ?? undefined,
-  );
+  const result = await listWithMonitors(drizzle(c.env.DB, { schema }));
   const created = result.find(p => p.id === id);
   return c.json(created ?? { id }, 201);
 });
@@ -298,9 +332,11 @@ policies.delete('/:id/monitors/:mid', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Device Groups targeting (nested, independent lifecycle — mirrors
-// components.ts's /:id/sites). Zero rows = unchanged scope/OS/class-only
-// behavior; see deviceMatchesPolicy in lib/alerts.ts. ────────────────────────
+// ── Targets: Sites / Devices / Device Groups (nested, independent
+// lifecycles — mirrors components.ts's /:id/sites). All three are OR'd
+// together, not ANDed — see deviceMatchesPolicy in lib/alerts.ts. Every
+// mutation below recomputes the derived `scope` display column (see
+// recomputePolicyScope above). ─────────────────────────────────────────────
 
 policies.get('/:id/groups', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
@@ -330,10 +366,11 @@ policies.post('/:id/groups', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO policy_groups (policy_id, group_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.group_id, now).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
 
-  // Adding a group only ever widens eligibility (a device already alerting
-  // still qualifies via scope/OS/class if it was matching before groups
-  // existed) — no reconcile needed, unlike the narrowing DELETE below.
+  // Adding a target only ever widens eligibility (OR'd with whatever else
+  // was already required) — no reconcile needed, unlike the narrowing
+  // DELETE below.
   return c.json({ ok: true }, 201);
 });
 
@@ -346,12 +383,119 @@ policies.delete('/:id/groups/:groupId', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM policy_groups WHERE policy_id = ? AND group_id = ?`
   ).bind(policyId, c.req.param('groupId')).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
 
-  // Removing a group can narrow eligibility (if this was the last group
-  // required and other groups still apply, or if this leaves the policy
-  // with zero groups the behavior reverts to scope/OS/class-only, which is
-  // WIDER, not narrower — but if other groups are still required, a device
-  // that only qualified via this one may now be orphaned) — reconcile.
+  // Removing a target can narrow eligibility (a device that only qualified
+  // via this one target may now be orphaned) — reconcile.
+  const monitorIds = (await c.env.DB.prepare(
+    `SELECT id FROM policy_monitors WHERE policy_id = ?`
+  ).bind(policyId).all<{ id: string }>()).results.map(m => m.id);
+  await reconcileOrphanedAlerts(c.env.DB, monitorIds, now);
+
+  return c.json({ ok: true });
+});
+
+policies.get('/:id/sites', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
+    return c.json({ error: 'unauthorized' }, 401);
+
+  const result = await c.env.DB.prepare(
+    `SELECT ps.tenant_id, t.name FROM policy_sites ps
+     JOIN tenants t ON t.id = ps.tenant_id
+     WHERE ps.policy_id = ? ORDER BY t.name ASC`
+  ).bind(c.req.param('id')).all<{ tenant_id: string; name: string }>();
+
+  return c.json(result.results.map(r => ({ tenantId: r.tenant_id, name: r.name })));
+});
+
+policies.post('/:id/sites', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  const body = await c.req.json<{ tenant_id?: string }>();
+  if (!body.tenant_id) return c.json({ error: 'tenant_id is required' }, 400);
+
+  const tenant = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ?`).bind(body.tenant_id).first();
+  if (!tenant) return c.json({ error: 'site not found' }, 404);
+
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO policy_sites (policy_id, tenant_id, created_at) VALUES (?, ?, ?)`
+  ).bind(policyId, body.tenant_id, now).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+
+  // Adding a target only ever widens eligibility — no reconcile needed.
+  return c.json({ ok: true }, 201);
+});
+
+policies.delete('/:id/sites/:tenantId', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  await c.env.DB.prepare(
+    `DELETE FROM policy_sites WHERE policy_id = ? AND tenant_id = ?`
+  ).bind(policyId, c.req.param('tenantId')).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+
+  // Removing a target can narrow eligibility — reconcile.
+  const monitorIds = (await c.env.DB.prepare(
+    `SELECT id FROM policy_monitors WHERE policy_id = ?`
+  ).bind(policyId).all<{ id: string }>()).results.map(m => m.id);
+  await reconcileOrphanedAlerts(c.env.DB, monitorIds, now);
+
+  return c.json({ ok: true });
+});
+
+policies.get('/:id/devices', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
+    return c.json({ error: 'unauthorized' }, 401);
+
+  const result = await c.env.DB.prepare(
+    `SELECT pd.device_id, d.hostname, t.name AS tenant_name FROM policy_devices pd
+     JOIN devices d ON d.id = pd.device_id
+     JOIN tenants t ON t.id = d.tenant_id
+     WHERE pd.policy_id = ? ORDER BY d.hostname ASC`
+  ).bind(c.req.param('id')).all<{ device_id: string; hostname: string | null; tenant_name: string }>();
+
+  return c.json(result.results.map(r => ({ deviceId: r.device_id, hostname: r.hostname, tenantName: r.tenant_name })));
+});
+
+policies.post('/:id/devices', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  const body = await c.req.json<{ device_id?: string }>();
+  if (!body.device_id) return c.json({ error: 'device_id is required' }, 400);
+
+  const device = await c.env.DB.prepare(`SELECT id FROM devices WHERE id = ?`).bind(body.device_id).first();
+  if (!device) return c.json({ error: 'device not found' }, 404);
+
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO policy_devices (policy_id, device_id, created_at) VALUES (?, ?, ?)`
+  ).bind(policyId, body.device_id, now).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+
+  // Adding a target only ever widens eligibility — no reconcile needed.
+  return c.json({ ok: true }, 201);
+});
+
+policies.delete('/:id/devices/:deviceId', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  await c.env.DB.prepare(
+    `DELETE FROM policy_devices WHERE policy_id = ? AND device_id = ?`
+  ).bind(policyId, c.req.param('deviceId')).run();
+  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+
+  // Removing a target can narrow eligibility — reconcile.
   const monitorIds = (await c.env.DB.prepare(
     `SELECT id FROM policy_monitors WHERE policy_id = ?`
   ).bind(policyId).all<{ id: string }>()).results.map(m => m.id);

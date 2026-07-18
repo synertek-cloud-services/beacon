@@ -536,7 +536,7 @@ Four-state badge palette, used for things like antivirus status where "unknown" 
 
 A row of at-a-glance counts above a list-page table. Two visual variants exist in the codebase:
 
-### Plain variant (Components page)
+### Plain variant (Components page, also GroupsPage)
 
 ```html
 <div class="stat-row">
@@ -750,9 +750,11 @@ Three states (`connecting`/`closed`/`error`) share one overlay treatment (semi-t
 ```
 If you're ever tempted to reuse `.cat-badge` for a new "real" categorical field on this page, don't — that's exactly the naming collision this session had to un-do (the old `category` field vs. the new `type` field both being called "Category" in the UI at different points).
 
+**Same collision risk resurfaced with the Device Groups feature** (a later session) — since `components.category` is already user-facing labeled "Group" on `ComponentsPage.vue`, the new device-collection feature is called **"Device Groups"** everywhere in copy/labels, never bare "Groups": the sidebar link, the target-flyout category option, the `JobFormPage.vue` target-row tag (`Device Group`, not `Group`), page titles. If you're adding UI copy for the Device Groups feature and are tempted to shorten it to just "Groups," don't — same reason as above.
+
 ## Add Site flyout (multi-select, stays open across picks)
 
-Used in `ComponentFormPage.vue`'s Sites section. **Not** a single-select combobox (that was the first, wrong attempt this session, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several sites, each row toggling in place:
+Used in `ComponentFormPage.vue`'s Sites section — and now, unmodified, in two more places: `GroupFormPage.vue` (picking devices for a Device Group) and `PolicyFormPage.vue` (picking Device Groups to target a policy). Same `.sf-*` class names duplicated per-component each time (this codebase's established convention), same behavior. Treat this as the default answer for "let the user pick several of X for this record" — don't invent a new multi-select UI. **Not** a single-select combobox (that was the first, wrong attempt when this pattern was originally built, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several items, each row toggling in place:
 
 ```html
 <Teleport to="body">
@@ -818,10 +820,11 @@ The same `.tf-row-selected` / `.tf-check` naming applies for the target flyout �
     <option value="all">All Devices</option>
     <option value="sites">Sites</option>
     <option value="devices">Devices</option>
+    <option value="groups">Device Groups</option>
   </select>
 </div>
 ```
-Switching kind (e.g. from sites to devices) clears previously selected items of the other kind — enforced inside `toggleTarget()`:
+A 4th category (`groups`, added for Device Groups) is just another `v-else-if` template branch with its own `flyoutGroupMatches` computed — same row markup, same `toggleTarget({kind:'group',id,name})` call shape as the `sites` branch. Switching kind (e.g. from sites to devices) clears previously selected items of the other kind — enforced inside `toggleTarget()`:
 ```typescript
 function toggleTarget(item: TargetItem) {
   if (item.kind === 'all') { targetItems.value = isTargeted('all') ? [] : [item]; return; }
@@ -835,6 +838,8 @@ function toggleTarget(item: TargetItem) {
   }
 }
 ```
+
+**Not every `.tf-` flyout is kind-exclusive — check the semantics before copying this markup.** `PolicyFormPage.vue`'s Targets flyout (migration `0032`) reuses this exact `.tf-overlay`/`.tf-panel`/`.tf-row`/`.tf-check` markup and CSS verbatim, but its `toggleTarget()` is a flat push/remove with **no** kind-switch-clears-previous branch — a Policy's targets are a heterogeneous OR-list (a Site AND a Device AND a Device Group can all be selected simultaneously; a device qualifies if it matches any one of them). The two flyouts are visually identical and easy to assume behave the same way; they don't. Pick the exclusive-kind behavior above only when the underlying targeting model genuinely only supports one kind at a time (Jobs); pick the flat OR-list variant when multiple simultaneous target kinds are meant to combine (Policies).
 
 ## Job Detail page layout (`JobDetailPage.vue`)
 
@@ -1015,3 +1020,39 @@ Follows `JobDetailPage.vue`'s shell (breadcrumb + title topbar + section cards).
 **Hono route order gotcha**: `GET /:id` must be registered *before* `/:id/resolve` and `/:id/acknowledge` in `alerts.ts`. Hono matches in registration order — `/resolve` would match `:id = 'resolve'` and 404 if registered first.
 
 Lock cursor on `document.body` during drag (via class) so fast mouse movement over other elements doesn't snap the cursor.
+
+## Attach a lone checkbox to an adjacent control, don't give it its own row
+
+A checkbox that's the only thing in its grid cell reads as visually "detached" — floating with no clear association to anything nearby — even with normal spacing (real user feedback on `ComponentFormPage.vue`'s Variables "Required" checkbox, which sat alone in a `.field` grid row right after Description). Fix: nest it beside the field it actually relates to, in a small flex wrapper, rather than giving it a standalone `.field`:
+
+```html
+<div class="field">
+  <label>Type</label>
+  <div class="type-required-row">
+    <select v-model="varForm.type">...</select>
+    <label class="checkbox-label"><input type="checkbox" v-model="varForm.required" /> Required</label>
+  </div>
+</div>
+```
+```css
+.type-required-row { display: flex; align-items: center; gap: 12px; }
+.type-required-row select { flex: 1; }
+```
+
+**CSS-specificity gotcha found in the same fix**: a `.checkbox-label` nested inside a `.field` div gets its intended styling (12px, normal-case text) silently overridden by the global `.field label` rule (uppercase, muted, 11px, letter-spacing) — `.field label` (class + element selector) outweighs a bare `.checkbox-label` (single class) regardless of scoped-style load order. Invisible until compared against an identical `checkbox-label` used correctly elsewhere on the same page (e.g. Post-conditions' "Enabled" checkbox, which isn't nested inside `.field` and never hits the collision). Fix by bumping specificity, not `!important`:
+```css
+.field .checkbox-label { text-transform: none; font-size: 12px; color: var(--text); letter-spacing: normal; }
+```
+Any time a `checkbox-label` (or similar small inline control) ends up nested inside a `.field` wrapper, check it isn't silently inheriting the field-label look before assuming the scoped CSS "just works."
+
+## Bulk action modal: pick existing or create new (Devices list "Add to Group")
+
+`DevicesPage.vue`'s bulk toolbar (already had Reboot/Audit/Maintenance actions) gained "Add to Group" using the same `.modal-backdrop`/`.modal` shell as the existing Maintenance modal. The pick-existing-or-create-new choice is a plain `<select>` with a sentinel empty value meaning "new," not a separate toggle/tab:
+```html
+<select v-model="groupPickId" class="field-input">
+  <option value="">+ New group…</option>
+  <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+</select>
+<input v-if="!groupPickId" v-model="newGroupName" class="field-input" placeholder="New group name" />
+```
+Submit either creates the group first (if `groupPickId` is empty) or uses the picked id, then calls the bulk-add endpoint once for the whole selection — one API round trip regardless of how many devices are checked. Reasonable default for the next "assign selection to an existing-or-new bucket" bulk action.

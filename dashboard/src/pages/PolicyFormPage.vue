@@ -42,28 +42,6 @@
         <textarea v-model="form.description" class="pf-input pf-textarea" rows="3" placeholder="Enter a description" />
       </div>
 
-      <!-- Scope -->
-      <div class="pf-group">
-        <label class="pf-label">Scope</label>
-        <div class="seg-bar">
-          <button :class="['seg-btn', { active: form.scope === 'global' }]" @click="form.scope = 'global'">Global</button>
-          <button :class="['seg-btn', { active: form.scope === 'company' }]" @click="form.scope = 'company'">Site</button>
-        </div>
-        <div v-if="form.scope === 'company'" class="pf-site-wrap">
-          <div class="pf-site-row">
-            <input v-model="siteQuery" class="pf-input pf-site-input" placeholder="Enter Site name"
-              @focus="siteOpen = true" @blur="hideSiteDrop" />
-            <svg class="pf-site-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-          </div>
-          <div v-if="siteOpen && siteMatches.length" class="pf-site-drop">
-            <div v-for="t in siteMatches" :key="t.id" class="pf-site-opt" @mousedown.prevent="selectSite(t)">{{ t.name }}</div>
-          </div>
-        </div>
-        <span v-if="fieldErr.companyId" class="pf-err">{{ fieldErr.companyId }}</span>
-      </div>
-
       <!-- Monitors -->
       <div class="pf-group">
         <label class="pf-label">Monitors</label>
@@ -96,9 +74,9 @@
         </div>
       </div>
 
-      <!-- Targets -->
+      <!-- OS & Class -->
       <div class="pf-group">
-        <label class="pf-label">Targets</label>
+        <label class="pf-label">OS &amp; Class</label>
         <div class="pf-targets">
           <div class="pf-tbl-head"><span>Name</span></div>
           <div class="pf-target-body">
@@ -124,52 +102,93 @@
         </div>
       </div>
 
-      <!-- Device Groups -->
+      <!-- Targets -->
       <div class="pf-group">
-        <label class="pf-label">Device Groups</label>
+        <label class="pf-label">Targets</label>
         <p class="field-hint" style="margin-top:-4px">
-          Leave empty to target all devices matching the scope/OS/class above. Add one or more groups to
-          additionally require group membership (a device in any of the selected groups qualifies).
+          Add Sites, Devices, or Device Groups to restrict this policy — a device qualifies if it matches
+          ANY target below (not all of them). Leave empty to target every device matching OS &amp; Class above.
         </p>
         <div style="display:flex;gap:8px;margin-top:4px">
-          <button class="btn btn-primary btn-sm" @click="groupsFlyoutOpen = true">Add Group</button>
-          <button class="btn btn-ghost btn-sm" :disabled="selectedGroups.length === 0" @click="removeAllGroups">Remove all</button>
+          <button class="btn btn-primary btn-sm" @click="openTargetFlyout">Add Target</button>
+          <button class="btn btn-ghost btn-sm" :disabled="targetItems.length === 0" @click="removeAllTargets">Remove all</button>
         </div>
         <div class="pf-monitors" style="margin-top:8px">
-          <div v-if="selectedGroups.length === 0" class="pf-mon-empty">
-            <p>No groups selected — this policy targets all devices matching scope/OS/class above.</p>
+          <div v-if="targetItems.length === 0" class="pf-mon-empty">
+            <p>No targets selected — this policy targets all devices matching OS &amp; Class above.</p>
           </div>
-          <div v-else v-for="g in selectedGroups" :key="g.groupId" class="pf-mon-row">
-            <span class="pf-mon-desc">{{ g.name }}</span>
+          <div v-else v-for="(t, i) in targetItems" :key="i" class="pf-mon-row">
+            <span class="pf-mon-desc">{{ targetLabel(t) }}</span>
+            <span class="jf-kind-tag">{{ t.kind === 'site' ? 'Site' : t.kind === 'device' ? 'Device' : 'Device Group' }}</span>
             <div class="pf-mon-actions">
-              <button class="btn-text danger" @click="removeGroup(g.groupId)">Remove</button>
+              <button class="btn-text danger" @click="removeTargetItem(i)">Remove</button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Add Group flyout -->
+      <!-- Target flyout -->
       <Teleport to="body">
-        <div v-if="groupsFlyoutOpen" class="sf-overlay" @click.self="groupsFlyoutOpen = false">
-          <div class="sf-panel">
-            <div class="sf-head">
-              <h2 class="sf-title">Device Groups</h2>
-              <button class="btn-icon" @click="groupsFlyoutOpen = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
+        <div v-if="targetFlyoutOpen" class="tf-overlay" @click.self="targetFlyoutOpen = false">
+          <div class="tf-panel">
+            <div class="tf-head">
+              <h2 class="tf-title">Targets</h2>
+              <button class="tf-close" @click="targetFlyoutOpen = false">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
-            <div class="sf-search">
-              <input v-model="groupFlyoutQuery" class="pf-input" placeholder="Search" />
+            <div class="tf-cat">
+              <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
+                <option value="sites">Sites</option>
+                <option value="devices">Devices</option>
+                <option value="groups">Device Groups</option>
+              </select>
             </div>
-            <div class="sf-list">
-              <div v-for="g in groupFlyoutMatches" :key="g.id" class="sf-row" :class="{ selected: isGroupSelected(g.id) }">
-                <span>{{ g.name }}</span>
-                <button v-if="isGroupSelected(g.id)" class="btn btn-primary btn-sm" @click="removeGroup(g.id)">Remove</button>
-                <button v-else class="btn btn-ghost btn-sm" @click="addGroup(g)">Add</button>
-              </div>
-              <div v-if="groupFlyoutMatches.length === 0" class="pf-mon-empty"><p>No matching groups.</p></div>
+            <div class="tf-search">
+              <input v-model="flyoutSearch" class="pf-input"
+                :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
+                style="max-width:none" />
+            </div>
+            <div class="tf-list">
+              <template v-if="flyoutCategory === 'sites'">
+                <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('site', t.id) }">
+                  <div class="tf-row-info" style="flex:1"><span>{{ t.name }}</span></div>
+                  <button v-if="!isTargeted('site', t.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'site',id:t.id,name:t.name})">Add</button>
+                  <span v-else class="tf-check" @click="toggleTarget({kind:'site',id:t.id,name:t.name})" title="Click to remove">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                </div>
+                <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No sites found.</div>
+              </template>
+              <template v-else-if="flyoutCategory === 'devices'">
+                <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
+                  <div class="tf-row-info" style="flex:1">
+                    <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
+                    <span class="tf-row-sub">{{ d.tenantName }}</span>
+                  </div>
+                  <button v-if="!isTargeted('device', d.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">Add</button>
+                  <span v-else class="tf-check" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})" title="Click to remove">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                </div>
+                <div v-if="!flyoutDeviceMatches.length" class="tf-empty-msg">No matching devices.</div>
+              </template>
+              <template v-else>
+                <div v-for="g in flyoutGroupMatches" :key="g.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('group', g.id) }">
+                  <div class="tf-row-info" style="flex:1">
+                    <span>{{ g.name }}</span>
+                    <span class="tf-row-sub">{{ g.memberCount }} device{{ g.memberCount === 1 ? '' : 's' }}</span>
+                  </div>
+                  <button v-if="!isTargeted('group', g.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'group',id:g.id,name:g.name})">Add</button>
+                  <span v-else class="tf-check" @click="toggleTarget({kind:'group',id:g.id,name:g.name})" title="Click to remove">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                </div>
+                <div v-if="!flyoutGroupMatches.length" class="tf-empty-msg">No matching groups.</div>
+              </template>
+            </div>
+            <div class="tf-footer">
+              <button class="btn btn-primary btn-sm" @click="targetFlyoutOpen = false">Done</button>
             </div>
           </div>
         </div>
@@ -495,7 +514,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type CheckType, type AlertPriority, type Tenant, type DeviceGroup, type PolicyGroupTarget } from '../api';
+import { api, type CheckType, type AlertPriority, type Tenant, type Device, type DeviceGroup } from '../api';
 
 const router = useRouter();
 const route  = useRoute();
@@ -508,58 +527,104 @@ const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
 const tenants   = ref<Tenant[]>([]);
-const siteQuery = ref('');
-const siteOpen  = ref(false);
-const fieldErr  = reactive({ name: '', companyId: '' });
+const devices   = ref<Device[]>([]);
+const fieldErr  = reactive({ name: '' });
 
-// ── Device Groups targeting (independent lifecycle -- existing policies hit
-// the API immediately, same as Sites in ComponentFormPage.vue; new policies
-// accumulate locally and batch-POST after creation) ──
-const allGroups        = ref<DeviceGroup[]>([]);
-const selectedGroups    = ref<PolicyGroupTarget[]>([]);
-const groupsFlyoutOpen  = ref(false);
-const groupFlyoutQuery  = ref('');
+// ── Targets: Sites / Devices / Device Groups (independent lifecycle --
+// existing policies hit the API immediately, same as Sites in
+// ComponentFormPage.vue; new policies accumulate locally and batch-POST
+// after creation). A heterogeneous OR-list, NOT single-kind-exclusive like
+// JobFormPage.vue's flyout -- adding a Site does not clear previously added
+// Devices/Groups. See deviceMatchesPolicy in worker/src/lib/alerts.ts. ──
+type PolicyTargetItem =
+  | { kind: 'site';   id: string; name: string }
+  | { kind: 'device'; id: string; hostname: string }
+  | { kind: 'group';  id: string; name: string };
 
-const groupFlyoutMatches = computed(() => {
-  const q = groupFlyoutQuery.value.trim().toLowerCase();
-  return q ? allGroups.value.filter(g => g.name.toLowerCase().includes(q)) : allGroups.value;
+const targetItems      = ref<PolicyTargetItem[]>([]);
+const targetFlyoutOpen = ref(false);
+const flyoutCategory   = ref<'sites' | 'devices' | 'groups'>('sites');
+const flyoutSearch     = ref('');
+const groups           = ref<DeviceGroup[]>([]);
+
+const flyoutSiteMatches = computed(() => {
+  const q = flyoutSearch.value.toLowerCase();
+  return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
 
-function isGroupSelected(groupId: string): boolean {
-  return selectedGroups.value.some(g => g.groupId === groupId);
+const flyoutDeviceMatches = computed(() => {
+  const q = flyoutSearch.value.toLowerCase();
+  return devices.value.filter(d =>
+    !q ||
+    (d.hostname ?? '').toLowerCase().includes(q) ||
+    (d.tenantName ?? '').toLowerCase().includes(q)
+  );
+});
+
+const flyoutGroupMatches = computed(() => {
+  const q = flyoutSearch.value.toLowerCase();
+  return groups.value.filter(g => !q || g.name.toLowerCase().includes(q));
+});
+
+function isTargeted(kind: string, id: string): boolean {
+  return targetItems.value.some(t => t.kind === kind && t.id === id);
 }
 
-async function addGroup(g: DeviceGroup) {
-  if (isGroupSelected(g.id)) return;
-  if (!isNew.value && policyId.value) {
-    try { await api.policies.groups.add(policyId.value, g.id); }
-    catch (e: any) { saveError.value = e.message; return; }
+async function toggleTarget(item: PolicyTargetItem) {
+  if (isTargeted(item.kind, item.id)) {
+    if (!isNew.value && policyId.value) {
+      try {
+        if (item.kind === 'site')   await api.policies.sites.remove(policyId.value, item.id);
+        if (item.kind === 'device') await api.policies.devices.remove(policyId.value, item.id);
+        if (item.kind === 'group')  await api.policies.groups.remove(policyId.value, item.id);
+      } catch (e: any) { saveError.value = e.message; return; }
+    }
+    targetItems.value = targetItems.value.filter(t => !(t.kind === item.kind && t.id === item.id));
+    return;
   }
-  selectedGroups.value.push({ groupId: g.id, name: g.name });
-}
 
-async function removeGroup(groupId: string) {
   if (!isNew.value && policyId.value) {
-    try { await api.policies.groups.remove(policyId.value, groupId); }
-    catch (e: any) { saveError.value = e.message; return; }
+    try {
+      if (item.kind === 'site')   await api.policies.sites.add(policyId.value, item.id);
+      if (item.kind === 'device') await api.policies.devices.add(policyId.value, item.id);
+      if (item.kind === 'group')  await api.policies.groups.add(policyId.value, item.id);
+    } catch (e: any) { saveError.value = e.message; return; }
   }
-  selectedGroups.value = selectedGroups.value.filter(g => g.groupId !== groupId);
+  targetItems.value.push(item);
 }
 
-async function removeAllGroups() {
+function openTargetFlyout() {
+  flyoutSearch.value = '';
+  targetFlyoutOpen.value = true;
+}
+
+async function removeTargetItem(i: number) {
+  const item = targetItems.value[i];
+  await toggleTarget(item); // toggleTarget removes since it's already targeted
+}
+
+async function removeAllTargets() {
   if (!isNew.value && policyId.value) {
-    for (const g of selectedGroups.value) {
-      try { await api.policies.groups.remove(policyId.value, g.groupId); } catch { /* best-effort, continue clearing locally */ }
+    for (const t of targetItems.value) {
+      try {
+        if (t.kind === 'site')   await api.policies.sites.remove(policyId.value, t.id);
+        if (t.kind === 'device') await api.policies.devices.remove(policyId.value, t.id);
+        if (t.kind === 'group')  await api.policies.groups.remove(policyId.value, t.id);
+      } catch { /* best-effort, continue clearing locally */ }
     }
   }
-  selectedGroups.value = [];
+  targetItems.value = [];
+}
+
+function targetLabel(t: PolicyTargetItem): string {
+  if (t.kind === 'site')   return t.name;
+  if (t.kind === 'device') return t.hostname;
+  return t.name;
 }
 
 const form = reactive({
   name:        '',
   description: '',
-  scope:       (route.query.scope as 'global' | 'company') ?? 'global',
-  companyId:   (route.query.company_id as string) ?? '',
   enabled:     true,
   targetOs:    ['windows', 'linux', 'macos'] as string[],
   targetClass: ['server', 'workstation', 'laptop'] as string[],
@@ -600,24 +665,6 @@ const checkTypeOptions = [
     label: 'Software',
     iconPaths: '<path d="M12.89 1.45l8 4A2 2 0 0 1 22 7.24v9.53a2 2 0 0 1-1.11 1.79l-8 4a2 2 0 0 1-1.79 0l-8-4a2 2 0 0 1-1.1-1.8V7.24a2 2 0 0 1 1.11-1.79l8-4a2 2 0 0 1 1.78 0z"/><polyline points="2.32 6.16 12 11 21.68 6.16"/><line x1="12" y1="22.76" x2="12" y2="11"/>' },
 ];
-
-// ── Site search ──
-
-const siteMatches = computed(() => {
-  if (!siteQuery.value) return tenants.value.slice(0, 10);
-  const q = siteQuery.value.toLowerCase();
-  return tenants.value.filter(t => t.name.toLowerCase().includes(q)).slice(0, 10);
-});
-
-function selectSite(t: Tenant) {
-  form.companyId = t.id;
-  siteQuery.value = t.name;
-  siteOpen.value  = false;
-}
-
-function hideSiteDrop() {
-  setTimeout(() => { siteOpen.value = false; }, 150);
-}
 
 // ── Local monitor type ──
 
@@ -887,7 +934,19 @@ async function doDeleteMonitor(index: number) {
 
 onMounted(async () => {
   try { tenants.value = await api.tenants.list(); } catch { /* ok */ }
-  try { allGroups.value = await api.groups.list(); } catch { /* ok */ }
+  try { devices.value = await api.devices.list(); } catch { /* ok */ }
+  try { groups.value  = await api.groups.list(); } catch { /* ok */ }
+
+  // Arriving from a company's Policies page ("Acme" → Create Policy) --
+  // pre-seed a single Site target for that company, once tenants have
+  // loaded (name resolution needs the fetched list above).
+  if (isNew.value) {
+    const companyId = route.query.company_id as string | undefined;
+    if (companyId) {
+      const t = tenants.value.find(t => t.id === companyId);
+      if (t) targetItems.value.push({ kind: 'site', id: t.id, name: t.name });
+    }
+  }
 
   if (!isNew.value && policyId.value) {
     loading.value = true;
@@ -896,20 +955,24 @@ onMounted(async () => {
       const policy = all.find(p => p.id === policyId.value);
       if (!policy) { loadError.value = 'Policy not found.'; return; }
 
-      try { selectedGroups.value = await api.policies.groups.list(policyId.value); } catch { /* ok */ }
+      try {
+        const [sites, devs, grps] = await Promise.all([
+          api.policies.sites.list(policyId.value),
+          api.policies.devices.list(policyId.value),
+          api.policies.groups.list(policyId.value),
+        ]);
+        targetItems.value = [
+          ...sites.map(s => ({ kind: 'site' as const, id: s.tenantId, name: s.name })),
+          ...devs.map(d => ({ kind: 'device' as const, id: d.deviceId, hostname: d.hostname ?? d.deviceId.slice(0, 8) })),
+          ...grps.map(g => ({ kind: 'group' as const, id: g.groupId, name: g.name })),
+        ];
+      } catch { /* ok */ }
 
       form.name        = policy.name;
       form.description = policy.description ?? '';
-      form.scope       = policy.scope;
-      form.companyId   = policy.companyId ?? '';
       form.enabled     = policy.enabled;
       form.targetOs    = JSON.parse(policy.targetOs)    as string[];
       form.targetClass = JSON.parse(policy.targetClass) as string[];
-
-      if (form.scope === 'company' && form.companyId) {
-        const t = tenants.value.find(t => t.id === form.companyId);
-        if (t) siteQuery.value = t.name;
-      }
 
       monitors.value = policy.monitors.map(m => {
         const cfg = JSON.parse(m.config) as Record<string, unknown>;
@@ -962,12 +1025,10 @@ onMounted(async () => {
 // ── Save policy ──
 
 async function save() {
-  fieldErr.name      = '';
-  fieldErr.companyId = '';
-  saveError.value    = '';
+  fieldErr.name   = '';
+  saveError.value = '';
 
   if (!form.name.trim()) { fieldErr.name = 'Name is required.'; return; }
-  if (form.scope === 'company' && !form.companyId) { fieldErr.companyId = 'Select a company.'; return; }
 
   saving.value = true;
   try {
@@ -975,8 +1036,6 @@ async function save() {
       const policy = await api.policies.create({
         name:         form.name,
         description:  form.description || null,
-        scope:        form.scope,
-        company_id:   form.scope === 'company' ? form.companyId : null,
         target_os:    form.targetOs,
         target_class: form.targetClass,
       });
@@ -991,8 +1050,10 @@ async function save() {
           auto_resolve_after_minutes: m.autoResolveAfterMinutes,
         });
       }
-      for (const g of selectedGroups.value) {
-        await api.policies.groups.add(policy.id, g.groupId);
+      for (const t of targetItems.value) {
+        if (t.kind === 'site')   await api.policies.sites.add(policy.id, t.id);
+        if (t.kind === 'device') await api.policies.devices.add(policy.id, t.id);
+        if (t.kind === 'group')  await api.policies.groups.add(policy.id, t.id);
       }
     } else if (policyId.value) {
       await api.policies.update(policyId.value, {
@@ -1150,22 +1211,6 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 .seg-btn + .seg-btn { border-left: 1px solid var(--border-2); }
 .seg-btn.active { background: var(--surface); color: var(--text); }
 .seg-btn.seg-primary.active { background: var(--accent); color: #fff; }
-
-/* ── Site search ── */
-.pf-site-wrap { position: relative; max-width: 340px; }
-.pf-site-row  { position: relative; }
-.pf-site-input { padding-right: 32px; }
-.pf-site-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
-.pf-site-drop {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 50; overflow: hidden;
-}
-.pf-site-opt {
-  padding: 8px 12px; font-size: 13px; color: var(--text); cursor: pointer;
-  transition: background .08s;
-}
-.pf-site-opt:hover { background: var(--surface-2); }
 
 /* ── Monitors section ── */
 .pf-monitors {
@@ -1363,29 +1408,43 @@ function monitorSummaryLocal(m: LocalMonitor): string {
   border-top: 1px solid var(--border); flex-shrink: 0;
 }
 
-/* ── Add Group flyout (right-side panel, mirrors ComponentFormPage's Add Site flyout) ── */
-.sf-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.45);
-  z-index: 500; display: flex; align-items: stretch; justify-content: flex-end;
+/* ── Target flyout (mirrors JobFormPage.vue's .tf- pattern verbatim, per
+   this codebase's per-component CSS duplication convention) ── */
+.tf-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500;
+  display: flex; align-items: stretch; justify-content: flex-end;
 }
-.sf-panel {
+.tf-panel {
   display: flex; flex-direction: column;
   width: 420px; max-width: calc(100vw - 80px); height: 100%;
   background: var(--surface); border-left: 1px solid var(--border);
   box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden;
 }
-.sf-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+.tf-head { display: flex; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-title { font-size: 15px; font-weight: 600; color: var(--text); flex: 1; margin: 0; }
+.tf-close {
+  background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px;
+  display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s;
 }
-.sf-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
-.sf-search { padding: 14px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.sf-search .pf-input { max-width: none; }
-.sf-list { flex: 1; overflow-y: auto; }
-.sf-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 20px; border-bottom: 1px solid var(--border);
+.tf-close:hover { background: var(--surface-2); color: var(--text); }
+.tf-cat { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-act-btn { flex-shrink: 0; }
+.tf-search { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-list { flex: 1; overflow-y: auto; }
+.tf-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); cursor: pointer; transition: background .08s;
   font-size: 13px; color: var(--text);
 }
-.sf-row.selected { background: rgba(78,126,247,.06); }
+.tf-row:last-child { border-bottom: none; }
+.tf-row:hover { background: var(--surface-2); }
+.tf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--accent); }
+.tf-check { width: 22px; display: flex; align-items: center; justify-content: center; color: var(--teal); flex-shrink: 0; cursor: pointer; }
+.tf-row-info { display: flex; flex-direction: column; gap: 1px; }
+.tf-row-sub { font-size: 11px; color: var(--muted-2); }
+.tf-empty-msg { padding: 20px 16px; font-size: 13px; color: var(--muted); text-align: center; }
+.tf-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+
+/* Target row kind tag (site/device/group) — mirrors JobFormPage.vue's .jf-kind-tag */
+.jf-kind-tag { font-size: 10px; font-weight: 700; color: var(--muted-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
 </style>
