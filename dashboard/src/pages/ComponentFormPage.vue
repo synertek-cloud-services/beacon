@@ -197,12 +197,15 @@
             </div>
             <div class="field">
               <label>Type</label>
-              <select v-model="varForm.type">
-                <option value="string">String</option>
-                <option value="selection">Selection</option>
-                <option value="boolean">Boolean</option>
-                <option value="date">Date</option>
-              </select>
+              <div class="type-required-row">
+                <select v-model="varForm.type">
+                  <option value="string">String</option>
+                  <option value="selection">Selection</option>
+                  <option value="boolean">Boolean</option>
+                  <option value="date">Date</option>
+                </select>
+                <label class="checkbox-label"><input type="checkbox" v-model="varForm.required" /> Required</label>
+              </div>
             </div>
             <div class="field">
               <label>Default Value</label>
@@ -220,9 +223,6 @@
                 <button class="btn-icon" @click="varForm!.options.splice(idx, 1)" title="Remove">×</button>
               </div>
               <button class="btn btn-ghost btn-sm" style="margin-top:6px" @click="varForm.options.push({ label: '', value: '' })">+ Add Option</button>
-            </div>
-            <div class="field">
-              <label class="checkbox-label"><input type="checkbox" v-model="varForm.required" /> Required</label>
             </div>
           </div>
           <div v-if="varFormError" class="error-banner" style="margin:10px 0 0">{{ varFormError }}</div>
@@ -634,6 +634,13 @@ async function save() {
 .var-option-row input { flex: 1; }
 .var-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); font-weight: 400; }
+/* Attach Required directly to its Type select rather than leaving it isolated
+   in its own grid row. `.field .checkbox-label` (two classes) intentionally
+   outweighs the global `.field label` rule's specificity (class+element) so
+   this doesn't get silently uppercased/muted like a field's own label. */
+.type-required-row { display: flex; align-items: center; gap: 12px; }
+.type-required-row select { flex: 1; }
+.field .checkbox-label { text-transform: none; font-size: 12px; color: var(--text); letter-spacing: normal; }
 .required { color: var(--red); }
 
 .pc-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
