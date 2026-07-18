@@ -44,6 +44,8 @@ export type Bindings = {
   // c.req.url reflect the production route even under `wrangler dev`,
   // which previously sent local-dev sessions to the real production worker.
   WORKER_URL: string;
+  // Stores host-uploaded branding logos
+  LOGOS: R2Bucket;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

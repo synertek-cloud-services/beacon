@@ -24,6 +24,10 @@ database_name = "beacon"
 database_id = "your-d1-database-id"
 migrations_dir = "../migrations"
 
+[[r2_buckets]]
+binding = "LOGOS"
+bucket_name = "beacon-logos"
+
 [triggers]
 crons = ["*/2 * * * *"]
 

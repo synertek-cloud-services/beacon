@@ -481,6 +481,16 @@ export const dashboardWidgets = sqliteTable('dashboard_widgets', {
   updatedAt:   integer('updated_at').notNull(),
 });
 
+// Host-level product identity: white-labeled name + logo mark. Kept separate
+// from brandingSettings — that table is strictly a theme-activation pointer,
+// this is a different concern with its own lifecycle.
+export const brandingIdentity = sqliteTable('branding_identity', {
+  id: integer('id').primaryKey(),
+  productName: text('product_name').notNull(),
+  logoKey: text('logo_key'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const deviceGroupMembers = sqliteTable('device_group_members', {
   groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
   deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
