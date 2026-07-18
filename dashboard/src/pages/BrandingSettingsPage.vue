@@ -6,7 +6,7 @@
     <div v-else class="pf-body">
       <section class="pf-group">
         <label class="pf-label">Themes</label>
-        <p class="field-hint">A theme is a complete palette. Publish a host theme when it is ready, then activate a published revision for everyone. Beacon keeps the active revision plus recent rollback revisions, up to five total.</p>
+        <p class="field-hint">A theme is a complete palette. Built-in themes activate directly; host themes publish immutable revisions and retain up to five for rollback.</p>
         <div class="theme-list">
           <button v-for="theme in themes" :key="theme.id" class="theme-row" :class="{ selected: selected?.id === theme.id }" @click="select(theme)">
             <span class="theme-swatch" :style="{ background: theme.draftTokens?.primary ?? 'var(--color-primary)' }" />
@@ -33,10 +33,11 @@
         <div class="pf-row" style="margin-top:14px;gap:8px">
           <button v-if="selected.source === 'custom'" class="btn btn-ghost btn-sm" :disabled="saving" @click="saveDraft">{{ saving ? 'Saving…' : 'Save Draft' }}</button>
           <button v-if="selected.source === 'custom'" class="btn btn-primary btn-sm" :disabled="saving" @click="publish">Publish revision</button>
-          <select v-if="selected.revisions.length" v-model="revisionToActivate" class="pf-input" style="max-width:210px">
+          <select v-if="selected.source === 'custom' && selected.revisions.length" v-model="revisionToActivate" class="pf-input" style="max-width:210px">
             <option v-for="revision in selected.revisions" :key="revision.id" :value="revision.id">Revision {{ revision.revision }}</option>
           </select>
-          <button v-if="revisionToActivate" class="btn btn-primary btn-sm" @click="activate">Make active</button>
+          <button v-if="selected.source === 'built_in' && !selected.active" class="btn btn-primary btn-sm" @click="activateBuiltIn">Make active</button>
+          <button v-if="selected.source === 'custom' && revisionToActivate" class="btn btn-primary btn-sm" @click="activate">Make active</button>
           <button v-if="selected.source === 'custom' && !selected.active" class="btn-text danger" @click="removeTheme">Delete theme</button>
         </div>
         <div v-if="error" class="error-banner">{{ error }}</div>
@@ -76,6 +77,7 @@ async function reload(selectId?: string, preview = false) { themes.value = await
 async function createTheme() { if (!newName.value.trim() || !draft.value) return; error.value = ''; try { const { id } = await api.branding.create(newName.value.trim(), { ...draft.value }); newName.value = ''; await reload(id, true); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not create theme.'; } }
 async function saveDraft() { if (!selected.value || !draft.value) return; saving.value = true; error.value = ''; try { await api.branding.update(selected.value.id, { tokens: draft.value }); await reload(selected.value.id, true); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not save draft.'; } finally { saving.value = false; } }
 async function publish() { if (!selected.value) return; await saveDraft(); if (error.value) return; try { const revision = await api.branding.publish(selected.value.id); revisionToActivate.value = revision.id; await reload(selected.value.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not publish theme.'; } }
+async function activateBuiltIn() { if (!selected.value) return; try { await api.branding.activateBuiltIn(selected.value.id); await loadActiveTheme(); await reload(selected.value.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function activate() { if (!revisionToActivate.value) return; try { await api.branding.activate(revisionToActivate.value); await loadActiveTheme(); await reload(selected.value?.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function removeTheme() { if (!selected.value || !confirm(`Delete ${selected.value.name}?`)) return; try { await api.branding.delete(selected.value.id); await reload(); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not delete theme.'; } }
 onMounted(async () => { try { await reload(); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not load branding.'; } finally { loading.value = false; } });

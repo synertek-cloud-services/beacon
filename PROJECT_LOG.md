@@ -1,5 +1,33 @@
 # Beacon — Project Log
 
+## Session: 2026-07-18 — Host-level branding themes
+
+### What was completed
+
+- Added host-level semantic color branding with a public active-palette
+  endpoint, admin-only theme management, live draft preview, accessibility
+  guidance, and cache-safe immutable revisions for host-created themes.
+- Seeded built-in presets: Default, Sentry-i, Cobalt2-i, SyntaxFM-i, and
+  Slate. Built-ins are immutable complete palettes and now activate directly;
+  only host-created themes retain published revisions (up to five) for
+  rollback.
+- Refined Default as the direct built-in baseline: improved text hierarchy and
+  AA-compliant white primary-button label contrast (4.85:1). The legacy
+  Default revisions are intentionally removed by migration 0037 because
+  built-ins do not use revisions.
+- Migrations `0033`–`0037` establish the branding model, built-in presets,
+  refined Default palette, and the built-in/custom activation split.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Built-ins activate by theme; custom themes activate by revision | A shipped palette is already immutable. Revisions only solve the host-draft publish/rollback problem. |
+| Public built-in palettes return from the no-store active pointer | Built-ins change only through an application update; direct return avoids inventing synthetic revision IDs while custom revisions retain immutable cache URLs. |
+| Preserve custom active selections during Default updates and migration | Branding is host-level configuration. A release must not silently replace a host's chosen custom palette. |
+
+---
+
 ## Session: 2026-07-18 — Policy targeting redesign: multi-site, individual devices, unified Targets flyout
 
 ### What was completed

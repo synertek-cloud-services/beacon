@@ -423,8 +423,8 @@ export const deviceGroups = sqliteTable('device_groups', {
   updatedAt:   integer('updated_at').notNull(),
 });
 
-// Host-level visual branding. A theme draft is editable; published revisions
-// are immutable so public clients can cache a specific palette safely.
+// Host-level visual branding. Built-in themes are immutable palettes; custom
+// themes have drafts plus immutable published revisions for cache-safe rollout.
 export const brandingThemes = sqliteTable('branding_themes', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -444,7 +444,8 @@ export const brandingThemeRevisions = sqliteTable('branding_theme_revisions', {
 
 export const brandingSettings = sqliteTable('branding_settings', {
   id: integer('id').primaryKey(),
-  activeRevisionId: text('active_revision_id').notNull().references(() => brandingThemeRevisions.id),
+  activeThemeId: text('active_theme_id').notNull().references(() => brandingThemes.id),
+  activeRevisionId: text('active_revision_id').references(() => brandingThemeRevisions.id),
   updatedAt: integer('updated_at').notNull(),
 });
 

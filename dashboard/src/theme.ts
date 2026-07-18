@@ -9,10 +9,10 @@ export type ThemeTokens = Record<ThemeKey, string>;
 // Exact current Beacon palette. This keeps the app usable if the branding API
 // is unavailable and serves as the immutable shipped Default theme.
 export const defaultTheme: ThemeTokens = {
-  canvas: '#0c0e16', surface: '#141720', surfaceRaised: '#1c1f2e', surfaceBrand: '#1a0a2e',
-  border: '#232638', borderStrong: '#2d3148', textPrimary: '#d8daf0', textMuted: '#616480',
-  textSubtle: '#8486a8', textOnPrimary: '#ffffff', primary: '#4e7ef7', primaryHover: '#3b6fd4',
-  success: '#2dcfa0', warning: '#f0a840', danger: '#e8566a', info: '#4e7ef7',
+  canvas: '#0c0e16', surface: '#141720', surfaceRaised: '#1c1f2e', surfaceBrand: '#1d1235',
+  border: '#282d40', borderStrong: '#393f59', textPrimary: '#e6e9f5', textMuted: '#a2a8c1',
+  textSubtle: '#7f86a3', textOnPrimary: '#ffffff', primary: '#4169e1', primaryHover: '#4871e0',
+  success: '#2dcfa0', warning: '#f0a840', danger: '#e8566a', info: '#4169e1',
 };
 
 const cssNames: Record<ThemeKey, string> = {
@@ -40,12 +40,13 @@ export async function loadActiveTheme(): Promise<void> {
     const baseUrl = import.meta.env.VITE_API_URL ?? '';
     const active = await fetch(`${baseUrl}/v1/branding/active`, { signal: controller.signal, cache: 'no-store' });
     if (!active.ok) return;
-    const { revisionId } = await active.json() as { revisionId?: string };
+    const { revisionId, tokens: activeTokens } = await active.json() as { revisionId?: string; tokens?: unknown };
+    if (validTokens(activeTokens)) { applyTheme(activeTokens); return; }
     if (!revisionId) return;
     const palette = await fetch(`${baseUrl}/v1/branding/revisions/${encodeURIComponent(revisionId)}`, { signal: controller.signal });
     if (!palette.ok) return;
-    const { tokens } = await palette.json() as { tokens?: unknown };
-    if (validTokens(tokens)) applyTheme(tokens);
+    const { tokens: revisionTokens } = await palette.json() as { tokens?: unknown };
+    if (validTokens(revisionTokens)) applyTheme(revisionTokens);
   } catch {
     // Default stays active: login must never be held hostage by branding.
   } finally {

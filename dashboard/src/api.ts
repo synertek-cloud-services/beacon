@@ -530,6 +530,7 @@ export const api = {
     update: (id: string, body: Partial<{ name: string; tokens: ThemeTokens }>) =>
       request<{ ok: boolean }>('PATCH', `/v1/branding/admin/themes/${id}`, body),
     publish: (id: string) => request<BrandingRevision>('POST', `/v1/branding/admin/themes/${id}/publish`),
+    activateBuiltIn: (id: string) => request<{ ok: boolean }>('POST', `/v1/branding/admin/themes/${id}/activate`),
     activate: (revisionId: string) => request<{ ok: boolean }>('POST', `/v1/branding/admin/revisions/${revisionId}/activate`),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/branding/admin/themes/${id}`),
   },

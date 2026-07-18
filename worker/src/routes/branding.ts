@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -29,18 +29,25 @@ async function admin(c: any) { return requireUser(c.req.header('Authorization'),
 
 const branding = new Hono<{ Bindings: Bindings }>();
 
-// Tiny pointer: always revalidated, so a new active revision is discovered on
-// the next load while the immutable palette itself can be cached long-term.
+// Tiny pointer: built-ins return their immutable palette directly; custom
+// themes return a cacheable published revision pointer.
 branding.get('/active', async (c) => {
   noStore(c);
   const row = await c.env.DB.prepare(`
-    SELECT r.id AS revision_id, r.theme_id, r.revision, r.published_at, t.name
+    SELECT t.id AS theme_id, t.name, t.source, t.draft_tokens,
+      r.id AS revision_id, r.revision, r.published_at
     FROM branding_settings s
-    JOIN branding_theme_revisions r ON r.id = s.active_revision_id
-    JOIN branding_themes t ON t.id = r.theme_id
+    JOIN branding_themes t ON t.id = s.active_theme_id
+    LEFT JOIN branding_theme_revisions r ON r.id = s.active_revision_id
     WHERE s.id = 1
-  `).first<{ revision_id: string; theme_id: string; revision: number; published_at: number; name: string }>();
+  `).first<{ theme_id: string; name: string; source: 'built_in' | 'custom'; draft_tokens: string; revision_id: string | null; revision: number | null; published_at: number | null }>();
   if (!row) return c.json({ error: 'branding is not configured' }, 404);
+  if (row.source === 'built_in') {
+    const tokens = parseTokens(JSON.parse(row.draft_tokens));
+    if (!tokens) return c.json({ error: 'invalid built-in theme' }, 500);
+    return c.json({ themeId: row.theme_id, name: row.name, tokens });
+  }
+  if (!row.revision_id || row.revision === null || row.published_at === null) return c.json({ error: 'active custom theme has no published revision' }, 500);
   return c.json({ revisionId: row.revision_id, themeId: row.theme_id, name: row.name, revision: row.revision, publishedAt: row.published_at });
 });
 
@@ -58,13 +65,13 @@ branding.get('/admin/themes', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const themes = await db.select().from(schema.brandingThemes).all();
-  const active = await db.select({ activeRevisionId: schema.brandingSettings.activeRevisionId }).from(schema.brandingSettings).where(eq(schema.brandingSettings.id, 1)).get();
+  const active = await db.select({ activeThemeId: schema.brandingSettings.activeThemeId }).from(schema.brandingSettings).where(eq(schema.brandingSettings.id, 1)).get();
   const revisions = await db.select().from(schema.brandingThemeRevisions).orderBy(desc(schema.brandingThemeRevisions.publishedAt)).all();
   return c.json(themes.map(theme => ({
     id: theme.id, name: theme.name, source: theme.source,
     draftTokens: parseTokens(JSON.parse(theme.draftTokens)),
-    revisions: revisions.filter(r => r.themeId === theme.id).map(r => ({ id: r.id, revision: r.revision, publishedAt: r.publishedAt })),
-    active: revisions.some(r => r.id === active?.activeRevisionId && r.themeId === theme.id),
+    revisions: theme.source === 'custom' ? revisions.filter(r => r.themeId === theme.id).map(r => ({ id: r.id, revision: r.revision, publishedAt: r.publishedAt })) : [],
+    active: active?.activeThemeId === theme.id,
   })));
 });
 
@@ -124,12 +131,22 @@ branding.post('/admin/themes/:id/publish', async (c) => {
   return c.json({ id, revision, publishedAt: now, pruned }, 201);
 });
 
+branding.post('/admin/themes/:id/activate', async (c) => {
+  if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
+  if (!theme) return c.json({ error: 'theme not found' }, 404);
+  if (theme.source !== 'built_in') return c.json({ error: 'publish and activate a revision for host-created themes' }, 400);
+  await db.update(schema.brandingSettings).set({ activeThemeId: theme.id, activeRevisionId: null, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingSettings.id, 1));
+  return c.json({ ok: true });
+});
+
 branding.post('/admin/revisions/:id/activate', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
-  const revision = await db.select({ id: schema.brandingThemeRevisions.id }).from(schema.brandingThemeRevisions).where(eq(schema.brandingThemeRevisions.id, c.req.param('id'))).get();
+  const revision = await db.select({ id: schema.brandingThemeRevisions.id, themeId: schema.brandingThemeRevisions.themeId }).from(schema.brandingThemeRevisions).where(eq(schema.brandingThemeRevisions.id, c.req.param('id'))).get();
   if (!revision) return c.json({ error: 'theme revision not found' }, 404);
-  await db.update(schema.brandingSettings).set({ activeRevisionId: revision.id, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingSettings.id, 1));
+  await db.update(schema.brandingSettings).set({ activeThemeId: revision.themeId, activeRevisionId: revision.id, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingSettings.id, 1));
   return c.json({ ok: true });
 });
 
@@ -139,9 +156,8 @@ branding.delete('/admin/themes/:id', async (c) => {
   const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
   if (!theme) return c.json({ error: 'theme not found' }, 404);
   if (theme.source === 'built_in') return c.json({ error: 'built-in themes cannot be deleted' }, 403);
-  const active = await db.select({ id: schema.brandingThemeRevisions.id }).from(schema.brandingSettings)
-    .innerJoin(schema.brandingThemeRevisions, eq(schema.brandingSettings.activeRevisionId, schema.brandingThemeRevisions.id)).where(and(eq(schema.brandingSettings.id, 1), eq(schema.brandingThemeRevisions.themeId, theme.id))).get();
-  if (active) return c.json({ error: 'activate another theme before deleting this one' }, 409);
+  const active = await db.select({ activeThemeId: schema.brandingSettings.activeThemeId }).from(schema.brandingSettings).where(eq(schema.brandingSettings.id, 1)).get();
+  if (active?.activeThemeId === theme.id) return c.json({ error: 'activate another theme before deleting this one' }, 409);
   await db.delete(schema.brandingThemes).where(eq(schema.brandingThemes.id, theme.id));
   return c.json({ ok: true });
 });
