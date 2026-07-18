@@ -21,6 +21,7 @@ import adminUsers from './routes/admin/users';
 import adminSso from './routes/admin/sso';
 import adminCustomFields from './routes/admin/custom-fields';
 import adminGroups from './routes/admin/groups';
+import adminDashboards from './routes/admin/dashboards';
 import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
 
@@ -87,6 +88,7 @@ app.route('/v1/admin/users', adminUsers);
 app.route('/v1/admin/sso', adminSso);
 app.route('/v1/admin/custom-fields', adminCustomFields);
 app.route('/v1/admin/groups', adminGroups);
+app.route('/v1/admin/dashboards', adminDashboards);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
 

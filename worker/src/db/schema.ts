@@ -449,6 +449,38 @@ export const brandingSettings = sqliteTable('branding_settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// Shared host-wide dashboards. A dashboard with no dashboardSites rows shows
+// all sites; widget layout is a persisted 12-column grid.
+export const dashboards = sqliteTable('dashboards', {
+  id:        text('id').primaryKey(),
+  name:      text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isHome:    integer('is_home', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const dashboardSites = sqliteTable('dashboard_sites', {
+  dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
+  tenantId:    text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt:   integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.dashboardId, t.tenantId] })]);
+
+export const dashboardWidgets = sqliteTable('dashboard_widgets', {
+  id:          text('id').primaryKey(),
+  dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
+  type:        text('type').notNull(),
+  title:       text('title'),
+  config:      text('config').notNull().default('{}'),
+  gridX:       integer('grid_x').notNull().default(0),
+  gridY:       integer('grid_y').notNull().default(0),
+  gridW:       integer('grid_w').notNull().default(4),
+  gridH:       integer('grid_h').notNull().default(3),
+  sortOrder:   integer('sort_order').notNull().default(0),
+  createdAt:   integer('created_at').notNull(),
+  updatedAt:   integer('updated_at').notNull(),
+});
+
 export const deviceGroupMembers = sqliteTable('device_group_members', {
   groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
   deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
