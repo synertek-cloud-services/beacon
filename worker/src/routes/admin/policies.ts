@@ -298,4 +298,66 @@ policies.delete('/:id/monitors/:mid', async (c) => {
   return c.json({ ok: true });
 });
 
+// ── Device Groups targeting (nested, independent lifecycle — mirrors
+// components.ts's /:id/sites). Zero rows = unchanged scope/OS/class-only
+// behavior; see deviceMatchesPolicy in lib/alerts.ts. ────────────────────────
+
+policies.get('/:id/groups', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
+    return c.json({ error: 'unauthorized' }, 401);
+
+  const result = await c.env.DB.prepare(
+    `SELECT pg.group_id, g.name FROM policy_groups pg
+     JOIN device_groups g ON g.id = pg.group_id
+     WHERE pg.policy_id = ? ORDER BY g.name ASC`
+  ).bind(c.req.param('id')).all<{ group_id: string; name: string }>();
+
+  return c.json(result.results.map(r => ({ groupId: r.group_id, name: r.name })));
+});
+
+policies.post('/:id/groups', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  const body = await c.req.json<{ group_id?: string }>();
+  if (!body.group_id) return c.json({ error: 'group_id is required' }, 400);
+
+  const group = await c.env.DB.prepare(`SELECT id FROM device_groups WHERE id = ?`).bind(body.group_id).first();
+  if (!group) return c.json({ error: 'group not found' }, 404);
+
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO policy_groups (policy_id, group_id, created_at) VALUES (?, ?, ?)`
+  ).bind(policyId, body.group_id, now).run();
+
+  // Adding a group only ever widens eligibility (a device already alerting
+  // still qualifies via scope/OS/class if it was matching before groups
+  // existed) — no reconcile needed, unlike the narrowing DELETE below.
+  return c.json({ ok: true }, 201);
+});
+
+policies.delete('/:id/groups/:groupId', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
+    return c.json({ error: 'unauthorized' }, 401);
+  const policyId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  await c.env.DB.prepare(
+    `DELETE FROM policy_groups WHERE policy_id = ? AND group_id = ?`
+  ).bind(policyId, c.req.param('groupId')).run();
+
+  // Removing a group can narrow eligibility (if this was the last group
+  // required and other groups still apply, or if this leaves the policy
+  // with zero groups the behavior reverts to scope/OS/class-only, which is
+  // WIDER, not narrower — but if other groups are still required, a device
+  // that only qualified via this one may now be orphaned) — reconcile.
+  const monitorIds = (await c.env.DB.prepare(
+    `SELECT id FROM policy_monitors WHERE policy_id = ?`
+  ).bind(policyId).all<{ id: string }>()).results.map(m => m.id);
+  await reconcileOrphanedAlerts(c.env.DB, monitorIds, now);
+
+  return c.json({ ok: true });
+});
+
 export default policies;

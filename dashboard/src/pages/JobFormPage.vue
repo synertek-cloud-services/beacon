@@ -116,7 +116,7 @@
             <div v-for="(t, i) in targetItems" :key="i" class="jf-row">
               <div class="jf-td" style="flex:1;display:flex;align-items:center;gap:8px">
                 <span>{{ targetLabel(t) }}</span>
-                <span v-if="t.kind !== 'all'" class="jf-kind-tag">{{ t.kind === 'company' ? 'Company' : 'Device' }}</span>
+                <span v-if="t.kind !== 'all'" class="jf-kind-tag">{{ t.kind === 'company' ? 'Company' : t.kind === 'group' ? 'Device Group' : 'Device' }}</span>
               </div>
               <div class="jf-td jf-td-actions" style="width:100px">
                 <button class="btn-text danger" @click="removeTargetItem(i)">Remove</button>
@@ -233,11 +233,12 @@
             <option value="all">All Devices</option>
             <option value="sites">Sites</option>
             <option value="devices">Devices</option>
+            <option value="groups">Device Groups</option>
           </select>
         </div>
         <div v-if="flyoutCategory !== 'all'" class="tf-search">
           <input v-model="flyoutSearch" class="pf-input"
-            :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : 'Search devices…'"
+            :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
             style="max-width:none" />
         </div>
         <div class="tf-list">
@@ -268,7 +269,7 @@
             <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No companies found.</div>
           </template>
           <!-- Devices -->
-          <template v-else>
+          <template v-else-if="flyoutCategory === 'devices'">
             <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
               <div class="tf-row-info" style="flex:1">
                 <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
@@ -280,6 +281,20 @@
               </span>
             </div>
             <div v-if="!flyoutDeviceMatches.length" class="tf-empty-msg">No matching devices.</div>
+          </template>
+          <!-- Device Groups -->
+          <template v-else>
+            <div v-for="g in flyoutGroupMatches" :key="g.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('group', g.id) }">
+              <div class="tf-row-info" style="flex:1">
+                <span>{{ g.name }}</span>
+                <span class="tf-row-sub">{{ g.memberCount }} device{{ g.memberCount === 1 ? '' : 's' }}</span>
+              </div>
+              <button v-if="!isTargeted('group', g.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'group',id:g.id,name:g.name})">Add</button>
+              <span v-else class="tf-check" @click="toggleTarget({kind:'group',id:g.id,name:g.name})" title="Click to remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+            </div>
+            <div v-if="!flyoutGroupMatches.length" class="tf-empty-msg">No matching groups.</div>
           </template>
         </div>
         <div class="tf-footer">
@@ -293,7 +308,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Component, type ComponentRef, type Tenant, type Device } from '../api';
+import { api, type Component, type ComponentRef, type Tenant, type Device, type DeviceGroup } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 
 const router = useRouter();
@@ -365,11 +380,13 @@ type TargetItem =
   | { kind: 'all' }
   | { kind: 'company'; id: string; name: string }
   | { kind: 'device';  id: string; hostname: string }
+  | { kind: 'group';   id: string; name: string }
 
 const targetItems      = ref<TargetItem[]>([]);
 const targetFlyoutOpen = ref(false);
-const flyoutCategory   = ref<'all' | 'sites' | 'devices'>('all');
+const flyoutCategory   = ref<'all' | 'sites' | 'devices' | 'groups'>('all');
 const flyoutSearch     = ref('');
+const groups           = ref<DeviceGroup[]>([]);
 
 const flyoutSiteMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
@@ -383,6 +400,11 @@ const flyoutDeviceMatches = computed(() => {
     (d.hostname ?? '').toLowerCase().includes(q) ||
     (d.tenantName ?? '').toLowerCase().includes(q)
   );
+});
+
+const flyoutGroupMatches = computed(() => {
+  const q = flyoutSearch.value.toLowerCase();
+  return groups.value.filter(g => !q || g.name.toLowerCase().includes(q));
 });
 
 function isTargeted(kind: string, id?: string): boolean {
@@ -410,6 +432,7 @@ function openTargetFlyout() {
   const first = targetItems.value[0];
   if (first?.kind === 'company') flyoutCategory.value = 'sites';
   else if (first?.kind === 'device') flyoutCategory.value = 'devices';
+  else if (first?.kind === 'group') flyoutCategory.value = 'groups';
   else flyoutCategory.value = 'all';
   targetFlyoutOpen.value = true;
 }
@@ -419,6 +442,7 @@ function removeTargetItem(i: number) { targetItems.value.splice(i, 1); }
 function targetLabel(t: TargetItem): string {
   if (t.kind === 'all') return 'All Devices';
   if (t.kind === 'company') return t.name;
+  if (t.kind === 'group') return t.name;
   return t.hostname;
 }
 
@@ -429,6 +453,11 @@ const resolvedDeviceCount = computed<number | null>(() => {
   if (first.kind === 'company') {
     const ids = new Set(targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id));
     return devices.value.filter(d => ids.has(d.tenantId)).length;
+  }
+  if (first.kind === 'group') {
+    const groupIds = new Set(targetItems.value.filter(t => t.kind === 'group').map(t => (t as any).id));
+    const deviceIds = new Set(groups.value.filter(g => groupIds.has(g.id)).flatMap(g => g.deviceIds));
+    return deviceIds.size;
   }
   return targetItems.value.length;
 });
@@ -468,12 +497,14 @@ async function submit() {
   formError.value = '';
   try {
     const first = targetItems.value[0];
-    const target_type: 'all' | 'tenants' | 'devices' =
+    const target_type: 'all' | 'tenants' | 'devices' | 'group' =
       first.kind === 'company' ? 'tenants' :
-      first.kind === 'device'  ? 'devices' : 'all';
+      first.kind === 'device'  ? 'devices' :
+      first.kind === 'group'   ? 'group' : 'all';
     const target_ids =
       target_type === 'tenants' ? targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id) :
       target_type === 'devices' ? targetItems.value.filter(t => t.kind === 'device').map(t => (t as any).id) :
+      target_type === 'group'   ? targetItems.value.filter(t => t.kind === 'group').map(t => (t as any).id) :
       [];
 
     const jobType: 'quick' | 'scheduled' = recurrence.value === 'scheduled' ? 'scheduled' : 'quick';
@@ -503,16 +534,18 @@ async function submit() {
 }
 
 onMounted(async () => {
-  const [comps, storeComps, tenantList, deviceList] = await Promise.all([
+  const [comps, storeComps, tenantList, deviceList, groupList] = await Promise.all([
     api.components.list(),
     api.components.store.list(),
     api.tenants.list(),
     api.devices.list('approved'),
+    api.groups.list(),
   ]);
   library.value      = comps;
   storeLibrary.value = storeComps;
   tenants.value = tenantList;
   devices.value = deviceList;
+  groups.value  = groupList;
 
   const preselect = route.query.components;
   if (typeof preselect === 'string' && preselect) {

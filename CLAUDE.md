@@ -130,7 +130,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
 3. Run `make migrate-local` to test locally
 4. Run `make migrate-remote` after deploying the worker
 
-Latest migration: `0030_custom_fields_key.sql` — adds `custom_fields.key` (identifier form of `name`, e.g. `ASSET_TAG`) plus a partial unique index (`WHERE key != ''`, since SQLite can't add a UNIQUE column via `ALTER TABLE`). Lets a script reference a device's custom field value as the env var `CF_<KEY>`, resolved fresh per-device at job dispatch time — see "Custom Fields" below. `0029_custom_fields.sql` — adds `custom_fields` (id, name, sort_order) and `device_custom_field_values` (composite PK `device_id`+`field_id`, both FKs `ON DELETE CASCADE`) — dynamic admin-defined "UDF"-equivalent fields, manual entry only, see "Custom Fields" below. `0028_component_target_os.sql` — adds `components.target_os TEXT DEFAULT NULL` and updates the two Linux ComStore scripts to use a backgrounded 5-second-delayed restart. `0027_alert_acknowledgment.sql` adds `alert_state.acknowledged_at`/`acknowledged_by` (was missing from production and caused 500s on `GET /v1/admin/alerts?status=all` until manually applied). `0026` and earlier carry the jobs/reboot/alert work from prior sessions. `0023_device_external_ip.sql` (single-column add, `devices.external_ip` — see Device detail page below). `0022_component_sites_multi.sql` adds the `component_sites` many-to-many join table (see "Components / Job System" above for why this replaced `0021`'s single-`company_id` design within the same session). `0020_component_variables_store_postconditions.sql` adds `component_variables`, `components.origin`/`post_conditions`, `commands.warning`, plus the ComStore seed rows. `0019_device_warranty.sql` adds `devices.warranty_expires_at` (manually-entered, no agent collector, see Device detail page below). `0017`/`0018` are small fixes (narrowing the seeded offline policy to servers-only; a `commands.component_id` FK `ON DELETE` fix) worth knowing exist since they're easy to miss between the bigger `0016_users_auth.sql` (adds `users`, `user_sessions`, `sso_providers`, `sso_group_role_mappings`, `sso_login_state`, `sso_exchange_codes`, plus `sessions.client_auth_hash` — see Auth System below) and this one.
+Latest migration: `0031_device_groups.sql` — adds `device_groups`, `device_group_members` (composite PK), and `policy_groups` (composite PK) — static, manually-curated Device Groups usable to target Jobs and Policies (Datto's "Groups", adapted; not the dynamic "Filter" half of that system). See "Device Groups" below. `0030_custom_fields_key.sql` — adds `custom_fields.key` (identifier form of `name`, e.g. `ASSET_TAG`) plus a partial unique index (`WHERE key != ''`, since SQLite can't add a UNIQUE column via `ALTER TABLE`). Lets a script reference a device's custom field value as the env var `CF_<KEY>`, resolved fresh per-device at job dispatch time — see "Custom Fields" below. `0029_custom_fields.sql` — adds `custom_fields` (id, name, sort_order) and `device_custom_field_values` (composite PK `device_id`+`field_id`, both FKs `ON DELETE CASCADE`) — dynamic admin-defined "UDF"-equivalent fields, manual entry only, see "Custom Fields" below. `0028_component_target_os.sql` — adds `components.target_os TEXT DEFAULT NULL` and updates the two Linux ComStore scripts to use a backgrounded 5-second-delayed restart. `0027_alert_acknowledgment.sql` adds `alert_state.acknowledged_at`/`acknowledged_by` (was missing from production and caused 500s on `GET /v1/admin/alerts?status=all` until manually applied). `0026` and earlier carry the jobs/reboot/alert work from prior sessions. `0023_device_external_ip.sql` (single-column add, `devices.external_ip` — see Device detail page below). `0022_component_sites_multi.sql` adds the `component_sites` many-to-many join table (see "Components / Job System" above for why this replaced `0021`'s single-`company_id` design within the same session). `0020_component_variables_store_postconditions.sql` adds `component_variables`, `components.origin`/`post_conditions`, `commands.warning`, plus the ComStore seed rows. `0019_device_warranty.sql` adds `devices.warranty_expires_at` (manually-entered, no agent collector, see Device detail page below). `0017`/`0018` are small fixes (narrowing the seeded offline policy to servers-only; a `commands.component_id` FK `ON DELETE` fix) worth knowing exist since they're easy to miss between the bigger `0016_users_auth.sql` (adds `users`, `user_sessions`, `sso_providers`, `sso_group_role_mappings`, `sso_login_state`, `sso_exchange_codes`, plus `sessions.client_auth_hash` — see Auth System below) and this one.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
@@ -339,6 +339,40 @@ A component's script can reference a device's custom field value directly, with 
 - `ComponentFormPage.vue` fetches the field list once on mount and shows a small discoverability hint under the Script textarea (`Available custom fields: CF_ASSET_TAG, CF_SITE_CONTACT`, only fields with a non-empty `key`) — matches the existing placeholder hint's own "Reference variables as..." text. No autocomplete/insertion, purely informational.
 - **State-declaration-order gotcha**: the `customFields`/`customFieldsLoading`/`customFieldSaving` refs must be declared *before* `onIdChange` and the router `watch(..., { immediate: true })` that calls it — that watch fires synchronously during `<script setup>` execution, so any ref it reads must already be initialized textually above it. Declaring them near the bottom of the file (next to unrelated code, e.g. the Warranty-field logic) throws a TDZ `Cannot access '<name>' before initialization` on every page load — a real bug hit once, invisible to `vue-tsc` since it's a runtime evaluation-order issue, not a type error. Fixed by keeping all section-state refs grouped together above `onIdChange`, alongside `auditData`/`deviceAlerts`/`effectiveMonitors`.
 
+## Device Groups
+
+Beacon's equivalent of Datto RMM's "Groups" — a static, manually-curated, named collection of individual devices, usable to target both Jobs and Monitoring Policies. Researched directly against Datto's real Filters/Groups spec (rmm.datto.com) this session: Datto actually has two distinct mechanisms — **Filters** (dynamic, criteria-based, auto-updating membership across ~85 possible attributes) and **Groups** (static, manually-curated). Beacon builds only the Groups half.
+
+### Scope decisions (all confirmed before implementation)
+- **No dynamic Filters** — the actual need was "hold a named, reusable set of specific machines," not a live-query engine. A Filter would need real new infrastructure (a criteria builder, `WHERE`-clause evaluation at dispatch time) for a capability not being asked for.
+- **No "Site Groups"** (a saved collection of whole sites) — `JobFormPage.vue`'s target flyout already supports adding multiple sites to one job today; a saved site-group would only be a naming convenience for something that already works, not new capability.
+- **Flat and global** — a device can belong to more than one group; groups aren't scoped to a site.
+- **Usable to target both Jobs and Policies** — matches Datto's own dual usage (its docs confirm Monitoring Policies target through either Device Filters or Device Groups, with OR logic across multiple targets).
+- **"Device Groups" label everywhere in the UI, never bare "Groups"** — `components.category` is already surfaced in the UI as "Group" (a different concept — component organizational tags); bare "Groups" would collide with that existing term.
+
+### Tables
+- `device_groups` — `id`, `name`, `description`, `created_at`, `updated_at`.
+- `device_group_members` — `(group_id, device_id)` composite PK (migration `0031`), both FKs `ON DELETE CASCADE`. A pure association with no independent row identity ever referenced, so composite PK is the better fit than `component_sites`' synthetic-id + separate `UNIQUE` constraint pattern — matches the more recently-established `device_custom_field_values` convention.
+- `policy_groups` — `(policy_id, group_id)` composite PK. **Zero rows for a policy = unchanged scope/OS/class-only behavior** (today's existing matching); **one or more rows = the device must ALSO belong to at least one of them** (ANDed with scope/OS/class, ORed across the groups themselves — matches Datto's own "multiple targets = OR logic" documented behavior).
+
+### Job targeting
+A 4th `resolveDevices()` branch in `worker/src/routes/admin/jobs.ts` (alongside the existing `devices`/`tenants`/`all`) — `JOIN device_group_members`, `DISTINCT` (so targeting overlapping groups, or a device in more than one targeted group, doesn't double-dispatch), still filtered to `status='approved'`. No migration needed on `jobs` itself — `target_type`/`target_ids` are already unconstrained TEXT/JSON columns, same as when `tenants` targeting was added. Both `dispatchDueScheduledJobs` and the quick-job `POST /` handler flow through this one function, so group targeting works for both dispatch paths automatically.
+
+### Policy targeting — the performance-sensitive part
+`worker/src/lib/alerts.ts`'s `deviceMatchesPolicy`/`matchMonitorsForDevice` gained two new parameters: a device's group-ID set and a policy-ID→group-IDs map, both **always pre-fetched by the caller, never queried inside a per-device loop** — this path runs on real hot paths (every device check-in, the 2-minute offline cron over the whole fleet). New `fetchPolicyGroupIds`/`fetchDeviceGroupIds` helpers follow the exact same "fetch once per invocation" rule `fetchEnabledPolicyMonitors` already established: `resolveEffectiveMonitors`'s check-in path (called once per device every 60s) fetches both maps for just that one device; `evaluateOfflineAlerts` (the bulk cron) fetches both maps **once for the whole tick**, before its device loop, not per device. `reconcileOrphanedAlerts` (already existing, already called from `policies.ts` whenever `target_os`/`target_class` narrows) bulk-fetches for just its affected rows — the new `worker/src/routes/admin/policies.ts` `/:id/groups` DELETE route and `groups.ts`'s member-removal route both call it the same way, so narrowing group targeting (or removing a device from a group) correctly auto-resolves any alert that no longer applies, with no new reconciliation mechanism invented.
+
+### Worker
+- `worker/src/routes/admin/groups.ts` (new) — group CRUD (`GET/POST /`, `PATCH/DELETE /:id`) and nested membership (`GET/POST /:id/members`, `POST /:id/members/bulk` for the `DevicesPage.vue` bulk action, `DELETE /:id/members/:deviceId`). **`technician` for mutations, `readonly` for viewing** — Device Groups are operational targeting infrastructure like Jobs/Policies, not Settings-area config like Custom Field *definitions*/SSO (which are admin-only). `GET /` and `GET /:id` both include `deviceIds: string[]` per group (via `group_concat` on the list route) so the dashboard can compute accurate deduped device counts without an extra request per group.
+- `worker/src/routes/admin/policies.ts` gained nested `/:id/groups` (`GET`/`POST`/`DELETE`), mirroring `components.ts`'s `/:id/sites` shape.
+
+### Dashboard
+- `GroupsPage.vue` (`/groups`) — list page mirroring `ComponentsPage.vue`/`CustomFieldsSettingsPage.vue`.
+- `GroupFormPage.vue` (`/groups/new`, `/groups/:id`) — reuses `ComponentFormPage.vue`'s "Add Site" flyout convention verbatim, adapted to search/add/remove devices instead of sites.
+- `DevicesPage.vue` gained an "Add to Group" bulk toolbar action (next to the existing `bulkAudit`/`bulkEndMaintenance`), using the page's pre-existing bulk-select infrastructure (`selected`/`selectedCount`/`selectedIds`) — pick an existing group or name a new one, then `members.addBulk`.
+- `JobFormPage.vue`'s target flyout gained a 4th `TargetItem` kind (`group`) and flyout category ("Device Groups") — `isTargeted`/`toggleTarget` needed no changes (already generic over kind/id); only the template branch, `submit()`, `targetLabel`, and `resolvedDeviceCount` needed a new case each, the same shape of change adding `tenants` targeting already was.
+- `PolicyFormPage.vue` gained a "Device Groups" section below the existing OS/Class Targets section — independent lifecycle (its own API calls, add/remove hit immediately for existing policies; new policies accumulate locally and batch-POST after creation), same convention Sites already uses in `ComponentFormPage.vue`.
+- Sidebar: "Device Groups" link lives in the **Devices** section (alongside Device Approvals/All), not Automation — groups organize devices, they don't do anything by themselves the way Jobs/Components do.
+
 ## Key backend routes
 
 ```
@@ -404,6 +438,12 @@ GET/POST  /v1/admin/custom-fields[/:id]      Custom field ("UDF") definition CRU
 GET  /v1/admin/devices/:id/custom-fields             This device's values, joined against every field definition
 PATCH  /v1/admin/devices/:id/custom-fields/:fieldId  Set (upsert) one field's value for this device (technician)
 
+GET/POST  /v1/admin/groups[/:id]                     Device Group CRUD (readonly to view, technician to mutate)
+GET/POST  /v1/admin/groups/:id/members[/bulk]        Membership CRUD (single add/remove, or bulk-add for DevicesPage)
+DELETE /v1/admin/groups/:id/members/:deviceId        Remove one device from a group (reconciles orphaned alerts)
+GET/POST  /v1/admin/policies/:id/groups              Device Group targeting for a policy (nested, independent lifecycle)
+DELETE /v1/admin/policies/:id/groups/:groupId        Remove a group target from a policy (reconciles orphaned alerts)
+
 POST /v1/sessions                            Open a remote session (shell or tcp_tunnel), queues open_session for the agent (technician)
 GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the SessionRelay Durable Object
 ```
@@ -417,6 +457,9 @@ GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the S
 /devices               DevicesPage (filterable by ?company=<id>) — list only, row click navigates to detail page
 /devices/:id           DeviceDetailPage   (?section= for deep-linking to a section, see below)
 /devices/:id/change-log DeviceChangeLogPage (category tabs, date-range filter, pagination — see Device detail page below)
+/groups                GroupsPage         (list only — row click navigates to edit page)
+/groups/new            GroupFormPage
+/groups/:id            GroupFormPage      (Add Device flyout for membership, mirrors ComponentFormPage's Add Site)
 /tenants               TenantsPage
 /jobs                  JobsPage
 /jobs/new              JobFormPage        (create — full page form; supports ?components=id1,id2 pre-select from ComponentsPage's "Run as Job")
@@ -441,7 +484,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 
 - **Overview** link
 - **Companies** section: "All Companies" link + active-client block (appears when a company is selected via `?company=` query, persists until cleared)
-- **Devices** link
+- **Devices** section: Device Approvals, All, Device Groups
 - **Global** section: Alerts, Policies
 - **Automation** section: Jobs, Components
 - **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On, Custom Fields

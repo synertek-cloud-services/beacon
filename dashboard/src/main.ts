@@ -21,6 +21,8 @@ import UsersPage from './pages/UsersPage.vue';
 import UserFormPage from './pages/UserFormPage.vue';
 import SsoSettingsPage from './pages/SsoSettingsPage.vue';
 import CustomFieldsSettingsPage from './pages/CustomFieldsSettingsPage.vue';
+import GroupsPage from './pages/GroupsPage.vue';
+import GroupFormPage from './pages/GroupFormPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import type { Role } from './api';
@@ -41,6 +43,9 @@ const router = createRouter({
     { path: '/devices', component: DevicesPage },
     { path: '/devices/:id', component: DeviceDetailPage },
     { path: '/devices/:id/change-log', component: DeviceChangeLogPage },
+    { path: '/groups', component: GroupsPage },
+    { path: '/groups/new', component: GroupFormPage },
+    { path: '/groups/:id', component: GroupFormPage },
     { path: '/tenants', component: TenantsPage },
     { path: '/jobs', component: JobsPage },
     { path: '/jobs/new', component: JobFormPage },

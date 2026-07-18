@@ -74,6 +74,19 @@ async function resolveDevices(
     ).bind(...targetIds).all<{ id: string; tenant_id: string; os_type: string | null }>();
     return result.results;
   }
+  if (targetType === 'group') {
+    if (targetIds.length === 0) return [];
+    const placeholders = targetIds.map(() => '?').join(',');
+    // DISTINCT since targeting multiple groups (or a device in more than one
+    // targeted group) must not double-dispatch the same device.
+    const result = await db.prepare(
+      `SELECT DISTINCT d.id, d.tenant_id, d.os_type
+       FROM devices d
+       JOIN device_group_members m ON m.device_id = d.id
+       WHERE m.group_id IN (${placeholders}) AND d.status = 'approved'`
+    ).bind(...targetIds).all<{ id: string; tenant_id: string; os_type: string | null }>();
+    return result.results;
+  }
   // 'all'
   const result = await db.prepare(
     `SELECT id, tenant_id, os_type FROM devices WHERE status = 'approved'`

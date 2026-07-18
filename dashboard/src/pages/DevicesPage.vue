@@ -50,6 +50,12 @@
             </svg>
             End Maintenance
           </button>
+          <button class="btn btn-ghost btn-sm" @click="openGroupModal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Add to Group
+          </button>
           <button class="btn btn-ghost btn-sm" @click="clearSelection">Uncheck All</button>
         </template>
         <template v-else>
@@ -169,6 +175,37 @@
         </div>
       </div>
     </div>
+    <!-- Add to Group modal -->
+    <div v-if="groupModal" class="modal-backdrop" @click.self="groupModal = false">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+          <span class="modal-title">Add to Group</span>
+          <button class="btn-icon" @click="groupModal = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-muted-2">
+            Add {{ selectedCount }} device{{ selectedCount === 1 ? '' : 's' }} to a Device Group.
+          </p>
+          <label class="field-label" style="margin-top:16px">Group</label>
+          <select v-model="groupPickId" class="field-input">
+            <option value="">+ New group…</option>
+            <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+          </select>
+          <template v-if="!groupPickId">
+            <label class="field-label" style="margin-top:16px">New group name</label>
+            <input v-model="newGroupName" class="field-input" placeholder="e.g. Finance Workstations" />
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="groupModal = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="groupBusy || (!groupPickId && !newGroupName.trim())" @click="submitAddToGroup">
+            {{ groupBusy ? 'Adding…' : 'Add' }}
+          </button>
+        </div>
+      </div>
+    </div>
     <!-- Reboot devices modal -->
     <div v-if="rebootModal" class="modal-backdrop" @click.self="rebootModal = false">
       <div class="modal" style="max-width:440px">
@@ -204,7 +241,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
-import { api, type Device, type Tenant } from '../api';
+import { api, type Device, type Tenant, type DeviceGroup } from '../api';
 
 const route      = useRoute();
 const router     = useRouter();
@@ -294,6 +331,34 @@ async function submitMaintenance() {
     error.value = e.message;
   } finally {
     maintBusy.value = false;
+  }
+}
+
+// ── Add to Group modal ────────────────────────────────────────
+const groupModal   = ref(false);
+const groups       = ref<DeviceGroup[]>([]);
+const groupPickId  = ref('');
+const newGroupName = ref('');
+const groupBusy    = ref(false);
+
+async function openGroupModal() {
+  groupPickId.value = '';
+  newGroupName.value = '';
+  groupModal.value = true;
+  try { groups.value = await api.groups.list(); } catch { /* ok */ }
+}
+
+async function submitAddToGroup() {
+  groupBusy.value = true;
+  try {
+    const groupId = groupPickId.value || (await api.groups.create({ name: newGroupName.value.trim() })).id;
+    await api.groups.members.addBulk(groupId, selectedIds.value);
+    groupModal.value = false;
+    clearSelection();
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    groupBusy.value = false;
   }
 }
 

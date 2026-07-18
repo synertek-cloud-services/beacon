@@ -142,6 +142,15 @@ export const policyMonitors = sqliteTable('policy_monitors', {
   createdAt:               integer('created_at').notNull(),
 });
 
+// Policy targeting via Device Groups -- zero rows for a policy means
+// unchanged scope/OS/class-only behavior; see deviceMatchesPolicy in
+// worker/src/lib/alerts.ts for how this is evaluated.
+export const policyGroups = sqliteTable('policy_groups', {
+  policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
+  groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
+
 export const alertState = sqliteTable('alert_state', {
   id:                 text('id').primaryKey(),
   deviceId:           text('device_id').notNull().references(() => devices.id),
@@ -372,3 +381,20 @@ export const deviceCustomFieldValues = sqliteTable('device_custom_field_values',
   value:     text('value'),
   updatedAt: integer('updated_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.deviceId, t.fieldId] })]);
+
+// Device Groups -- static, manually-curated device collections (Datto's
+// "Groups", not the dynamic "Filter" half of that system). Used to target
+// both Jobs (resolveDevices in jobs.ts) and Policies (policyGroups below).
+export const deviceGroups = sqliteTable('device_groups', {
+  id:          text('id').primaryKey(),
+  name:        text('name').notNull(),
+  description: text('description'),
+  createdAt:   integer('created_at').notNull(),
+  updatedAt:   integer('updated_at').notNull(),
+});
+
+export const deviceGroupMembers = sqliteTable('device_group_members', {
+  groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
+  deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.groupId, t.deviceId] })]);

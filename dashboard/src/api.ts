@@ -406,6 +406,27 @@ export interface CustomField {
   createdAt: number;
 }
 
+export interface DeviceGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+  deviceIds: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DeviceGroupMember {
+  deviceId: string;
+  hostname: string | null;
+  tenantName: string;
+}
+
+export interface PolicyGroupTarget {
+  groupId: string;
+  name: string;
+}
+
 export interface DeviceCustomFieldValue {
   id: string;
   name: string;
@@ -470,6 +491,24 @@ export const api = {
     update: (id: string, body: Partial<{ name: string; sort_order: number; key: string }>) =>
       request<{ ok: boolean }>('PATCH', `/v1/admin/custom-fields/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/custom-fields/${id}`),
+  },
+
+  groups: {
+    list:   () => request<DeviceGroup[]>('GET', '/v1/admin/groups'),
+    get:    (id: string) => request<DeviceGroup>('GET', `/v1/admin/groups/${id}`),
+    create: (body: { name: string; description?: string }) => request<{ id: string }>('POST', '/v1/admin/groups', body),
+    update: (id: string, body: Partial<{ name: string; description: string }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/groups/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/groups/${id}`),
+    members: {
+      list:    (groupId: string) => request<DeviceGroupMember[]>('GET', `/v1/admin/groups/${groupId}/members`),
+      add:     (groupId: string, deviceId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/groups/${groupId}/members`, { device_id: deviceId }),
+      addBulk: (groupId: string, deviceIds: string[]) =>
+        request<{ ok: boolean; added: number }>('POST', `/v1/admin/groups/${groupId}/members/bulk`, { device_ids: deviceIds }),
+      remove:  (groupId: string, deviceId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/groups/${groupId}/members/${deviceId}`),
+    },
   },
 
   sso: {
@@ -682,6 +721,13 @@ export const api = {
       }) => request<{ ok: boolean }>('PATCH', `/v1/admin/policies/${policyId}/monitors/${mid}`, body),
       delete: (policyId: string, mid: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/monitors/${mid}`),
+    },
+    groups: {
+      list: (policyId: string) => request<PolicyGroupTarget[]>('GET', `/v1/admin/policies/${policyId}/groups`),
+      add:  (policyId: string, groupId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/groups`, { group_id: groupId }),
+      remove: (policyId: string, groupId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/groups/${groupId}`),
     },
   },
 

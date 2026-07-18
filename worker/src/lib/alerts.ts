@@ -36,18 +36,44 @@ async function fetchEnabledPolicyMonitors(db: Db): Promise<EnabledPolicyMonitorR
 // same-check_type company-override dedup (that's a cross-policy concern,
 // only relevant when resolving the full effective set, not when re-checking
 // one already-known monitor).
-function deviceMatchesPolicy(p: Policy, device: Device): boolean {
+//
+// deviceGroupIds/policyGroupIds implement Device Group targeting (migration
+// 0031): zero groups associated with a policy means unchanged scope/OS/class
+// behavior; one or more means the device must ALSO belong to at least one of
+// them (ANDed with scope/OS/class, ORed across the groups themselves —
+// matches Datto's own "multiple targets = OR logic" documented behavior).
+// Both maps are always pre-fetched by the caller, never queried here — this
+// function runs inside per-device loops on hot paths (every check-in, the
+// 2-minute offline cron over the whole fleet).
+function deviceMatchesPolicy(
+  p: Policy,
+  device: Device,
+  deviceGroupIds: Set<string>,
+  policyGroupIds: Map<string, Set<string>>,
+): boolean {
   if (p.scope === 'company' && p.companyId !== device.tenantId) return false;
   const targetOs    = JSON.parse(p.targetOs)    as string[];
   const targetClass = JSON.parse(p.targetClass) as string[];
   const devClass = device.overrideClass ?? device.detectedClass;
   const osOk    = targetOs.length    === 0 || (device.osType ? targetOs.includes(device.osType) : false);
   const classOk = targetClass.length === 0 || (devClass      ? targetClass.includes(devClass)   : false);
-  return osOk && classOk;
+  if (!osOk || !classOk) return false;
+
+  const requiredGroups = policyGroupIds.get(p.id);
+  if (requiredGroups && requiredGroups.size > 0) {
+    const inAnyGroup = [...requiredGroups].some(gid => deviceGroupIds.has(gid));
+    if (!inAnyGroup) return false;
+  }
+  return true;
 }
 
-function matchMonitorsForDevice(rows: EnabledPolicyMonitorRow[], device: Device): EffectiveMonitor[] {
-  const matched = rows.filter(row => deviceMatchesPolicy(row.policies, device));
+function matchMonitorsForDevice(
+  rows: EnabledPolicyMonitorRow[],
+  device: Device,
+  deviceGroupIds: Set<string>,
+  policyGroupIds: Map<string, Set<string>>,
+): EffectiveMonitor[] {
+  const matched = rows.filter(row => deviceMatchesPolicy(row.policies, device, deviceGroupIds, policyGroupIds));
 
   // A policy's monitors of the same check_type coexist (e.g. two cpu_usage
   // monitors — a 100%/critical trip and a 95%/high early warning — or
@@ -73,13 +99,44 @@ function matchMonitorsForDevice(rows: EnabledPolicyMonitorRow[], device: Device)
   return effective;
 }
 
+// ── Device Groups (migration 0031) — both fetched once per invocation and
+// reused across every device evaluated in that invocation, same "fetch once,
+// don't re-query per device" rule fetchEnabledPolicyMonitors already
+// established above. policy_groups/a single device's memberships are both
+// tiny queries even at "fetch for the whole fleet" scale (self-hosted, tens
+// not thousands of devices/groups).
+
+async function fetchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.policyGroups);
+  const out = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!out.has(r.policyId)) out.set(r.policyId, new Set());
+    out.get(r.policyId)!.add(r.groupId);
+  }
+  return out;
+}
+
+async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (deviceIds.length === 0) return out;
+  const rows = await db.select().from(schema.deviceGroupMembers)
+    .where(inArray(schema.deviceGroupMembers.deviceId, deviceIds));
+  for (const r of rows) {
+    if (!out.has(r.deviceId)) out.set(r.deviceId, new Set());
+    out.get(r.deviceId)!.add(r.groupId);
+  }
+  return out;
+}
+
 // Single-device convenience wrapper for call sites that only ever evaluate
 // one device per invocation (check-in, audit) — the offline cron evaluates
 // many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
 // directly instead, to fetch the join only once per invocation.
 export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
   const rows = await fetchEnabledPolicyMonitors(db);
-  return matchMonitorsForDevice(rows, device);
+  const policyGroupIds = await fetchPolicyGroupIds(db);
+  const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
+  return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds);
 }
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
@@ -368,13 +425,16 @@ export async function evaluateOfflineAlerts(
 
   // Fetched once for the whole cron tick — this join is identical for every
   // device, so re-querying it per device (as before) was a redundant D1
-  // round trip per device every 2 minutes.
+  // round trip per device every 2 minutes. Same rule for the two Device
+  // Group maps below — fetched once for ALL devices, not per device.
   const policyMonitorRows = await fetchEnabledPolicyMonitors(db);
+  const policyGroupIds = await fetchPolicyGroupIds(db);
+  const deviceGroupIds = await fetchDeviceGroupIds(db, allDevices.map(d => d.id));
 
   for (const device of allDevices) {
     if (device.maintenanceEndsAt != null && device.maintenanceEndsAt > now) continue;
 
-    const monitors = matchMonitorsForDevice(policyMonitorRows, device);
+    const monitors = matchMonitorsForDevice(policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 
     for (const monitor of offlineMonitors) {
@@ -621,11 +681,14 @@ export async function reconcileOrphanedAlerts(
       eq(schema.alertState.isAlerting, true),
     ));
 
+  const policyGroupIds = await fetchPolicyGroupIds(db);
+  const deviceGroupIds = await fetchDeviceGroupIds(db, rows.map(r => r.devices.id));
+
   for (const row of rows) {
     const stillApplies =
       row.policy_monitors.enabled &&
       row.policies.enabled &&
-      deviceMatchesPolicy(row.policies, row.devices);
+      deviceMatchesPolicy(row.policies, row.devices, deviceGroupIds.get(row.devices.id) ?? new Set(), policyGroupIds);
     if (stillApplies) continue;
 
     await db.update(schema.alertState)
