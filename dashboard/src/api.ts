@@ -1,4 +1,5 @@
 const baseUrl = import.meta.env.VITE_API_URL ?? '';
+import type { ThemeTokens } from './theme';
 
 function token(): string {
   return localStorage.getItem('beacon_token') ?? '';
@@ -442,6 +443,16 @@ export interface DeviceGroupMember {
   tenantName: string;
 }
 
+export interface BrandingRevision { id: string; revision: number; publishedAt: number; }
+export interface BrandingTheme {
+  id: string;
+  name: string;
+  source: 'built_in' | 'custom';
+  draftTokens: ThemeTokens | null;
+  revisions: BrandingRevision[];
+  active: boolean;
+}
+
 export interface PolicyGroupTarget {
   groupId: string;
   name: string;
@@ -511,6 +522,16 @@ export const api = {
     update: (id: string, body: Partial<{ name: string; sort_order: number; key: string }>) =>
       request<{ ok: boolean }>('PATCH', `/v1/admin/custom-fields/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/custom-fields/${id}`),
+  },
+
+  branding: {
+    list: () => request<BrandingTheme[]>('GET', '/v1/branding/admin/themes'),
+    create: (name: string, tokens: ThemeTokens) => request<{ id: string }>('POST', '/v1/branding/admin/themes', { name, tokens }),
+    update: (id: string, body: Partial<{ name: string; tokens: ThemeTokens }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/branding/admin/themes/${id}`, body),
+    publish: (id: string) => request<BrandingRevision>('POST', `/v1/branding/admin/themes/${id}/publish`),
+    activate: (revisionId: string) => request<{ ok: boolean }>('POST', `/v1/branding/admin/revisions/${revisionId}/activate`),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/branding/admin/themes/${id}`),
   },
 
   groups: {

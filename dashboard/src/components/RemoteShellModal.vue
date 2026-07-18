@@ -96,7 +96,7 @@ onMounted(() => {
   term = new Terminal({
     fontFamily: 'var(--mono, monospace)',
     fontSize: 13,
-    theme: { background: '#0c0e16' },
+    theme: { background: getComputedStyle(document.documentElement).getPropertyValue('--color-canvas').trim() || '#0c0e16' },
     cursorBlink: true,
   });
   fitAddon = new FitAddon();
@@ -130,30 +130,30 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center;
 }
 .modal {
-  background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px;
+  background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .modal-header {
   display: flex; align-items: center; padding: 16px 18px 12px;
-  border-bottom: 1px solid var(--border); flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border); flex-shrink: 0;
 }
-.modal-title { flex: 1; font-weight: 600; font-size: 14px; color: var(--text); }
+.modal-title { flex: 1; font-weight: 600; font-size: 14px; color: var(--color-text-primary); }
 .btn-icon {
-  background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px;
+  background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 4px;
   display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s;
 }
-.btn-icon:hover { background: var(--surface-2); color: var(--text); }
+.btn-icon:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
 
 .rs-modal { width: 860px; max-width: 92vw; height: 560px; max-height: 85vh; }
-.rs-term-wrap { position: relative; flex: 1; overflow: hidden; background: #0c0e16; }
+.rs-term-wrap { position: relative; flex: 1; overflow: hidden; background: var(--color-canvas); }
 .rs-term { position: absolute; inset: 0; padding: 8px; }
 .rs-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; background: rgba(12,14,22,.88); color: var(--text); font-size: 13px; text-align: center; padding: 20px;
+  gap: 4px; background: rgba(12,14,22,.88); color: var(--color-text-primary); font-size: 13px; text-align: center; padding: 20px;
 }
 .rs-spinner {
-  width: 22px; height: 22px; border: 2px solid var(--border-2); border-top-color: var(--accent);
+  width: 22px; height: 22px; border: 2px solid var(--color-border-strong); border-top-color: var(--color-primary);
   border-radius: 50%; animation: rs-spin .8s linear infinite; margin-bottom: 8px;
 }
 @keyframes rs-spin { to { transform: rotate(360deg); } }

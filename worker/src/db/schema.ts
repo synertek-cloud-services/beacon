@@ -423,6 +423,31 @@ export const deviceGroups = sqliteTable('device_groups', {
   updatedAt:   integer('updated_at').notNull(),
 });
 
+// Host-level visual branding. A theme draft is editable; published revisions
+// are immutable so public clients can cache a specific palette safely.
+export const brandingThemes = sqliteTable('branding_themes', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  source: text('source', { enum: ['built_in', 'custom'] }).notNull(),
+  draftTokens: text('draft_tokens').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const brandingThemeRevisions = sqliteTable('branding_theme_revisions', {
+  id: text('id').primaryKey(),
+  themeId: text('theme_id').notNull().references(() => brandingThemes.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull(),
+  tokens: text('tokens').notNull(),
+  publishedAt: integer('published_at').notNull(),
+});
+
+export const brandingSettings = sqliteTable('branding_settings', {
+  id: integer('id').primaryKey(),
+  activeRevisionId: text('active_revision_id').notNull().references(() => brandingThemeRevisions.id),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const deviceGroupMembers = sqliteTable('device_group_members', {
   groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
   deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),

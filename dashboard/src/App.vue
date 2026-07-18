@@ -147,6 +147,7 @@
             <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
             <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
             <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
+            <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
           </div>
         </template>
 
@@ -224,6 +225,7 @@
         <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
         <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
         <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
+        <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
       </template>
     </div>
 
@@ -265,7 +267,7 @@
               class="search-result"
               @mousedown.prevent="selectCompany(c)"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--muted)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--color-text-muted)">
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
               </svg>
               {{ c.name }}
@@ -478,6 +480,7 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/settings/users')) return 'Users';
   if (route.path === '/settings/sso') return 'Single Sign-On';
   if (route.path === '/settings/custom-fields') return 'Custom Fields';
+  if (route.path === '/settings/branding') return 'Branding';
   return 'Beacon';
 });
 
@@ -509,18 +512,18 @@ async function logout() {
   transition: background .1s;
   flex-shrink: 0;
 }
-.sec-head:hover { background: var(--surface-2); }
-.sec-icon { color: var(--muted); flex-shrink: 0; opacity: .8; }
+.sec-head:hover { background: var(--color-surface-raised); }
+.sec-icon { color: var(--color-text-muted); flex-shrink: 0; opacity: .8; }
 .sec-label {
   flex: 1;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 .sec-chevron {
-  color: var(--muted);
+  color: var(--color-text-muted);
   flex-shrink: 0;
   transform: rotate(-90deg);
   transition: transform .18s;
@@ -528,7 +531,7 @@ async function logout() {
 .sec-chevron.open { transform: rotate(0deg); }
 .sec-badge {
   font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
-  background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
+  background: rgba(240,168,64,.18); color: var(--color-warning); flex-shrink: 0;
 }
 
 /* ── Section body ── */
@@ -542,7 +545,7 @@ async function logout() {
   padding: 5px 12px 5px 32px;
   font-size: 12px;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--color-text-muted);
   cursor: pointer;
   border-radius: 5px;
   margin: 1px 8px;
@@ -552,8 +555,8 @@ async function logout() {
   text-decoration: none;
   transition: background .12s, color .12s;
 }
-.sbi:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
-.sbi.active { background: rgba(78,126,247,.1); color: var(--accent); font-weight: 500; }
+.sbi:hover { background: var(--color-surface-raised); color: var(--color-text-primary); text-decoration: none; }
+.sbi.active { background: rgba(78,126,247,.1); color: var(--color-primary); font-weight: 500; }
 
 /* ── Active client row ── */
 .client-row {
@@ -561,19 +564,19 @@ async function logout() {
   padding: 5px 10px 5px 32px; margin: 2px 8px 0;
   border-radius: 5px;
   background: rgba(78,126,247,.08);
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--color-primary);
 }
-.client-icon { color: var(--accent); flex-shrink: 0; }
+.client-icon { color: var(--color-primary); flex-shrink: 0; }
 .client-name {
-  flex: 1; font-size: 12px; font-weight: 600; color: var(--text);
+  flex: 1; font-size: 12px; font-weight: 600; color: var(--color-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .client-clear {
-  background: none; border: none; color: var(--muted); cursor: pointer;
+  background: none; border: none; color: var(--color-text-muted); cursor: pointer;
   padding: 2px; display: flex; align-items: center; border-radius: 3px; flex-shrink: 0;
   transition: color .1s;
 }
-.client-clear:hover { color: var(--text); }
+.client-clear:hover { color: var(--color-text-primary); }
 
 /* leaf item under active client */
 .sbi-leaf { padding-left: 48px; }
@@ -582,7 +585,7 @@ async function logout() {
 .sbi-badge {
   margin-left: auto;
   font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 10px;
-  background: rgba(240,168,64,.18); color: var(--amber); flex-shrink: 0;
+  background: rgba(240,168,64,.18); color: var(--color-warning); flex-shrink: 0;
 }
 
 /* ── Sidebar user block ── */
@@ -595,7 +598,7 @@ async function logout() {
   font-size: 12px;
 }
 .sidebar-user-name {
-  color: var(--text);
+  color: var(--color-text-primary);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -607,8 +610,8 @@ async function logout() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .04em;
-  color: var(--muted-2);
-  background: var(--surface-2);
+  color: var(--color-text-subtle);
+  background: var(--color-surface-raised);
   padding: 2px 6px;
   border-radius: 8px;
 }
@@ -622,8 +625,8 @@ async function logout() {
 .sidebar.collapsed .sec-body { display: none; }
 .sidebar.collapsed .sec-head { justify-content: center; padding: 10px 0; }
 .sidebar.collapsed .sec-icon { opacity: 1; }
-.sidebar.collapsed .sec-head:hover .sec-icon { color: var(--text); }
-.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--accent); }
+.sidebar.collapsed .sec-head:hover .sec-icon { color: var(--color-text-primary); }
+.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--color-primary); }
 .sidebar.collapsed .sidebar-footer { display: none; }
 .sidebar.collapsed .sidebar-resizer { display: none; }
 
@@ -639,8 +642,8 @@ async function logout() {
   min-width: 180px;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
   border-radius: 0 6px 6px 0;
   box-shadow: 4px 0 20px rgba(0,0,0,.3);
   z-index: 599;
@@ -648,7 +651,7 @@ async function logout() {
 }
 .flyout-head {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--muted); padding: 10px 14px 6px;
+  color: var(--color-text-muted); padding: 10px 14px 6px;
 }
 .nav-flyout .sbi { padding-left: 14px; }
 .nav-flyout .sbi-leaf { padding-left: 28px; }
@@ -663,17 +666,17 @@ async function logout() {
   height: 22px;
   padding: 0;
   border-radius: 50%;
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted-2);
+  color: var(--color-text-subtle);
   cursor: pointer;
   z-index: 601;
   transition: left .2s ease, background .12s, color .12s, border-color .12s;
 }
-.sidebar-toggle-btn:hover { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.sidebar-toggle-btn:hover { background: var(--color-surface); color: var(--color-text-primary); border-color: var(--color-primary); }
 .sidebar-toggle-btn.no-transition { transition: none !important; }
 
 /* ── Topbar search ── */
@@ -681,32 +684,32 @@ async function logout() {
   flex: 1; max-width: 320px; position: relative; display: flex; align-items: center;
   margin: 0 16px;
 }
-.search-icon { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.search-icon { position: absolute; left: 10px; color: var(--color-text-muted); pointer-events: none; }
 .topbar-search-input {
   width: 100%; padding: 5px 10px 5px 32px;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--surface-2); color: var(--text); font-size: 12px; font-family: var(--font);
+  border: 1px solid var(--color-border); border-radius: 6px;
+  background: var(--color-surface-raised); color: var(--color-text-primary); font-size: 12px; font-family: var(--font);
   outline: none; transition: border-color .12s;
 }
-.topbar-search-input:focus { border-color: var(--accent); background: var(--surface); }
-.topbar-search-input::placeholder { color: var(--muted); }
+.topbar-search-input:focus { border-color: var(--color-primary); background: var(--color-surface); }
+.topbar-search-input::placeholder { color: var(--color-text-muted); }
 .topbar-search-input::-webkit-search-cancel-button { cursor: pointer; }
 
 /* ── Search dropdown ── */
 .search-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-  background: var(--surface); border: 1px solid var(--border-2);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.3);
   z-index: 200; overflow: hidden;
 }
 .search-section-head {
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--muted); padding: 8px 12px 4px;
+  color: var(--color-text-muted); padding: 8px 12px 4px;
 }
 .search-result {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px;
-  border: none; background: none; cursor: pointer; color: var(--text); font-size: 13px;
+  border: none; background: none; cursor: pointer; color: var(--color-text-primary); font-size: 13px;
   font-family: var(--font); text-align: left;
 }
-.search-result:hover { background: var(--surface-2); }
+.search-result:hover { background: var(--color-surface-raised); }
 </style>

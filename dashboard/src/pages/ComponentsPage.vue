@@ -149,7 +149,7 @@
           <div class="modal-title">Delete Component</div>
         </div>
         <div class="modal-body">
-          <p class="text-sm" style="color:var(--text)">
+          <p class="text-sm" style="color:var(--color-text-primary)">
             Delete <strong>{{ deleteTarget.name }}</strong>? This cannot be undone. Existing job records that used this component will retain their script output.
           </p>
         </div>
@@ -314,40 +314,40 @@ onMounted(load);
 .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .stat-card {
   flex: 1; display: flex; flex-direction: column; gap: 4px;
-  padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 18px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px;
 }
-.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 
 .tabs { display: flex; }
-.tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab { padding: 0 16px; height: 44px; cursor: pointer; color: var(--color-text-muted); border: none; border-bottom: 2px solid transparent; background: none; font-size: 12px; font-weight: 500; font-family: var(--font); transition: color .12s, border-color .12s; }
+.tab:hover { color: var(--color-text-primary); }
+.tab.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
 
 .search-input {
-  height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 5px;
-  background: var(--surface); color: var(--text); font-size: 12px; font-family: var(--font); width: 220px;
+  height: 30px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 5px;
+  background: var(--color-surface); color: var(--color-text-primary); font-size: 12px; font-family: var(--font); width: 220px;
 }
-.search-input:focus { outline: none; border-color: var(--accent); }
+.search-input:focus { outline: none; border-color: var(--color-primary); }
 .filter-select {
-  height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px;
-  background: var(--surface); color: var(--text); font-size: 12px; font-family: var(--font);
+  height: 30px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 5px;
+  background: var(--color-surface); color: var(--color-text-primary); font-size: 12px; font-family: var(--font);
 }
 
 .th-check { width: 36px; }
 
-.comp-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.comp-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
 
 .cat-badge {
   display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; padding: 2px 7px; border-radius: 3px;
 }
-.cat-maintenance { background: rgba(78,126,247,.12); color: var(--accent); }
-.cat-diagnostic  { background: rgba(45,207,160,.12); color: var(--teal); }
-.cat-deployment  { background: rgba(240,168,64,.12); color: var(--amber); }
+.cat-maintenance { background: rgba(78,126,247,.12); color: var(--color-primary); }
+.cat-diagnostic  { background: rgba(45,207,160,.12); color: var(--color-success); }
+.cat-deployment  { background: rgba(240,168,64,.12); color: var(--color-warning); }
 .cat-monitoring  { background: rgba(156,106,247,.12); color: #9c6af7; }
-.cat-security    { background: rgba(232,86,106,.12);  color: var(--red); }
-.cat-custom      { background: var(--surface-2);       color: var(--muted); }
+.cat-security    { background: rgba(232,86,106,.12);  color: var(--color-danger); }
+.cat-custom      { background: var(--color-surface-raised);       color: var(--color-text-muted); }
 
 /* ── Kind badge — deliberately its own class, distinct from .cat-badge
      (that one now means "Group tag") to avoid recreating the exact
@@ -356,18 +356,18 @@ onMounted(load);
   display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; padding: 2px 7px; border-radius: 3px;
 }
-.kind-script      { background: var(--surface-2); color: var(--muted); }
-.kind-application { background: rgba(78,126,247,.12); color: var(--accent); }
+.kind-script      { background: var(--color-surface-raised); color: var(--color-text-muted); }
+.kind-application { background: rgba(78,126,247,.12); color: var(--color-primary); }
 
 /* ── Scope badge (Sites) ── */
 .scope-badge {
   display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
   padding: 2px 7px; border-radius: 3px; text-transform: none;
 }
-.scope-global  { background: var(--surface-2); color: var(--muted); }
-.scope-company { background: rgba(45,207,160,.12); color: var(--teal); }
+.scope-global  { background: var(--color-surface-raised); color: var(--color-text-muted); }
+.scope-company { background: rgba(45,207,160,.12); color: var(--color-success); }
 
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
-.btn-danger-ghost { color: var(--red) !important; }
+.btn-danger-ghost { color: var(--color-danger) !important; }
 .btn-danger-ghost:hover { background: rgba(232,86,106,.08) !important; }
 </style>

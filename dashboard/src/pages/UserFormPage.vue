@@ -164,53 +164,53 @@ async function resetPassword() {
 <style scoped>
 .pf-page { display: flex; flex-direction: column; min-height: 100%; }
 
-.pf-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
-.pf-crumb-link { color: var(--accent); text-decoration: none; }
+.pf-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-muted); margin-bottom: 14px; }
+.pf-crumb-link { color: var(--color-primary); text-decoration: none; }
 .pf-crumb-link:hover { text-decoration: underline; }
-.pf-crumb-current { color: var(--muted-2); }
+.pf-crumb-current { color: var(--color-text-subtle); }
 
 .pf-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
 .pf-back {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 6px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--muted-2); cursor: pointer; flex-shrink: 0;
+  background: var(--color-surface-raised); border: 1px solid var(--color-border);
+  color: var(--color-text-subtle); cursor: pointer; flex-shrink: 0;
   transition: color .12s, background .12s;
 }
-.pf-back:hover { color: var(--text); background: var(--border); }
-.pf-title { font-size: 20px; font-weight: 700; color: var(--text); flex: 1; margin: 0; }
+.pf-back:hover { color: var(--color-text-primary); background: var(--color-border); }
+.pf-title { font-size: 20px; font-weight: 700; color: var(--color-text-primary); flex: 1; margin: 0; }
 .pf-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
 
-.pf-state { padding: 40px; text-align: center; color: var(--muted); }
+.pf-state { padding: 40px; text-align: center; color: var(--color-text-muted); }
 
 .pf-body { display: flex; flex-direction: column; gap: 0; }
 .pf-group {
   display: flex; flex-direction: column; gap: 10px;
-  padding: 20px 0; border-bottom: 1px solid var(--border);
+  padding: 20px 0; border-bottom: 1px solid var(--color-border);
   max-width: 760px;
 }
 .pf-group:last-child { border-bottom: none; }
-.pf-label { font-size: 15px; font-weight: 600; color: var(--text); }
+.pf-label { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
 .pf-input {
   width: 100%; max-width: 480px;
   padding: 9px 12px;
-  background: var(--surface-2); border: 1px solid var(--border-2);
-  border-radius: 6px; color: var(--text); font-size: 13px; font-family: var(--font);
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-strong);
+  border-radius: 6px; color: var(--color-text-primary); font-size: 13px; font-family: var(--font);
   outline: none; transition: border-color .12s; box-sizing: border-box;
 }
-.pf-input:focus { border-color: var(--accent); }
+.pf-input:focus { border-color: var(--color-primary); }
 .pf-input:disabled { opacity: .6; cursor: not-allowed; }
 .pf-row { display: flex; align-items: center; gap: 8px; }
 
-.field-hint { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.field-hint { display: block; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; }
 
-.seg-bar { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; align-self: flex-start; }
+.seg-bar { display: inline-flex; border: 1px solid var(--color-border-strong); border-radius: 6px; overflow: hidden; align-self: flex-start; }
 .seg-btn {
   padding: 7px 18px; font-size: 13px; font-weight: 500; font-family: var(--font);
-  background: var(--surface-2); color: var(--muted-2); border: none; cursor: pointer;
+  background: var(--color-surface-raised); color: var(--color-text-subtle); border: none; cursor: pointer;
   transition: background .12s, color .12s;
 }
-.seg-btn + .seg-btn { border-left: 1px solid var(--border-2); }
-.seg-btn.active { background: var(--surface); color: var(--text); }
-.seg-btn.seg-primary.active { background: var(--accent); color: #fff; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--color-border-strong); }
+.seg-btn.active { background: var(--color-surface); color: var(--color-text-primary); }
+.seg-btn.seg-primary.active { background: var(--color-primary); color: #fff; }
 </style>

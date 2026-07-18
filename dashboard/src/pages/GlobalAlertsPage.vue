@@ -73,7 +73,7 @@
         <div v-if="loading" class="al-state-msg text-muted">Loading…</div>
 
         <div v-else-if="!pageRows.length" class="al-state-msg">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-text-muted)">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
           <div style="margin-top:8px;font-weight:500">{{ statusFilter === 'active' ? 'No active alerts' : 'No alerts in the last 30 days' }}</div>
@@ -418,27 +418,27 @@ function alertMessage(a: AlertState): string {
 /* ── Search bar ─────────────────────────────────────────────── */
 .al-search-wrap {
   display: flex; align-items: center; gap: 16px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--r-card);
   padding: 12px 16px;
   flex-shrink: 0;
 }
-.al-search-label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.al-search-label { font-size: 12px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
 .al-search-field { flex: 1; max-width: 480px; position: relative; display: flex; align-items: center; }
-.al-search-icon  { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.al-search-icon  { position: absolute; left: 10px; color: var(--color-text-muted); pointer-events: none; }
 .al-search-input {
   width: 100%; padding: 6px 10px 6px 32px;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
-  color: var(--text); font-size: 12px; font-family: var(--font); outline: none;
+  background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: 5px;
+  color: var(--color-text-primary); font-size: 12px; font-family: var(--font); outline: none;
   transition: border-color .12s;
 }
-.al-search-input:focus { border-color: var(--accent); }
-.al-search-input::placeholder { color: var(--muted); }
+.al-search-input:focus { border-color: var(--color-primary); }
+.al-search-input::placeholder { color: var(--color-text-muted); }
 .al-search-input::-webkit-search-cancel-button { cursor: pointer; }
 
 /* ── Table card ─────────────────────────────────────────────── */
 .al-card {
   flex: 1; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--r-card);
 }
 
 .al-card-header {
@@ -448,63 +448,63 @@ function alertMessage(a: AlertState): string {
 }
 .al-card-title {
   display: flex; align-items: center; gap: 8px;
-  font-size: 15px; font-weight: 700; color: var(--text);
+  font-size: 15px; font-weight: 700; color: var(--color-text-primary);
 }
 .al-count-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 6px;
-  background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+  background: var(--color-danger); color: #fff; font-size: 11px; font-weight: 700;
   border-radius: 10px;
 }
 .al-card-actions { display: flex; gap: 8px; }
 .btn-action {
   padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-btn);
-  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--color-border); background: var(--color-surface-raised); color: var(--color-text-primary);
   cursor: pointer; transition: background .1s, border-color .1s;
 }
-.btn-action:hover:not(:disabled) { background: var(--border); border-color: var(--border-2); }
+.btn-action:hover:not(:disabled) { background: var(--color-border); border-color: var(--color-border-strong); }
 .btn-action:disabled { opacity: .4; cursor: default; }
 
 /* ── Filter pills ───────────────────────────────────────────── */
 .al-filters {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-.al-filters-label { font-size: 11px; font-weight: 600; color: var(--muted); }
+.al-filters-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); }
 .al-pill-group { display: flex; align-items: center; gap: 5px; }
-.al-filter-tag { font-size: 11px; color: var(--muted-2); }
+.al-filter-tag { font-size: 11px; color: var(--color-text-subtle); }
 .al-pill {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
-  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted-2);
+  border: 1px solid var(--color-border); background: var(--color-surface-raised); color: var(--color-text-subtle);
   cursor: pointer; transition: background .1s, border-color .1s, color .1s;
 }
-.al-pill:hover { background: var(--border); color: var(--text); }
-.al-pill-active { background: rgba(78,126,247,.16); border-color: rgba(78,126,247,.4); color: var(--accent); }
+.al-pill:hover { background: var(--color-border); color: var(--color-text-primary); }
+.al-pill-active { background: rgba(78,126,247,.16); border-color: rgba(78,126,247,.4); color: var(--color-primary); }
 .al-pill-static { cursor: default; }
 .al-pill-x { opacity: .6; font-size: 13px; line-height: 1; }
-.al-reset { font-size: 11px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
+.al-reset { font-size: 11px; color: var(--color-primary); background: none; border: none; cursor: pointer; padding: 0; }
 .al-reset:hover { text-decoration: underline; }
 
 /* ── Table ──────────────────────────────────────────────────── */
 .al-table-wrap { flex: 1; overflow: auto; }
 .al-state-msg {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-height: 200px; gap: 4px; color: var(--text);
+  min-height: 200px; gap: 4px; color: var(--color-text-primary);
 }
 
 .al-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .al-table thead { position: sticky; top: 0; z-index: 1; }
 .al-table th {
-  background: var(--surface-2); padding: 7px 12px;
+  background: var(--color-surface-raised); padding: 7px 12px;
   text-align: left; font-size: 11px; font-weight: 600;
-  letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
-  border-bottom: 1px solid var(--border); white-space: nowrap;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border); white-space: nowrap;
   cursor: pointer; user-select: none;
 }
-.al-table th:not(.th-check):hover { color: var(--text); }
+.al-table th:not(.th-check):hover { color: var(--color-text-primary); }
 .sort-arrow { font-size: 11px; margin-left: 4px; opacity: .5; }
 .th-check  { width: 36px; cursor: default; }
 .th-created { width: 155px; }
@@ -512,22 +512,22 @@ function alertMessage(a: AlertState): string {
 .th-message  { min-width: 200px; }
 
 .al-table td {
-  padding: 9px 12px; border-bottom: 1px solid var(--border);
-  vertical-align: middle; color: var(--text);
+  padding: 9px 12px; border-bottom: 1px solid var(--color-border);
+  vertical-align: middle; color: var(--color-text-primary);
 }
 .al-table tr:last-child td { border-bottom: none; }
 .al-table tr { cursor: pointer; transition: background .08s; }
-.al-table tr:hover td { background: var(--surface-2); }
+.al-table tr:hover td { background: var(--color-surface-raised); }
 .al-table tr.tr-selected td { background: rgba(78,126,247,.07); }
 .al-table tr.tr-selected:hover td { background: rgba(78,126,247,.12); }
 
 .td-check    { width: 36px; }
-.td-created  { white-space: nowrap; color: var(--muted-2); font-size: 11px; }
-.td-category { white-space: nowrap; color: var(--muted-2); }
-.td-message  .msg-link { color: var(--accent); }
-.td-company  { font-weight: 500; white-space: nowrap; color: var(--accent); }
-.td-hostname { white-space: nowrap; color: var(--accent); }
-.td-montype  { white-space: nowrap; color: var(--accent); }
+.td-created  { white-space: nowrap; color: var(--color-text-subtle); font-size: 11px; }
+.td-category { white-space: nowrap; color: var(--color-text-subtle); }
+.td-message  .msg-link { color: var(--color-primary); }
+.td-company  { font-weight: 500; white-space: nowrap; color: var(--color-primary); }
+.td-hostname { white-space: nowrap; color: var(--color-primary); }
+.td-montype  { white-space: nowrap; color: var(--color-primary); }
 .mono { font-family: var(--mono); }
 
 /* Priority badges — filled pill */
@@ -535,40 +535,40 @@ function alertMessage(a: AlertState): string {
   display: inline-block; padding: 3px 10px; border-radius: 12px;
   font-size: 11px; font-weight: 700; white-space: nowrap;
 }
-.pri-critical { background: var(--red);   color: #fff; }
+.pri-critical { background: var(--color-danger);   color: #fff; }
 .pri-high     { background: #e07830;      color: #fff; }
-.pri-moderate { background: var(--amber); color: #1a1200; }
-.pri-low      { background: var(--muted); color: var(--surface); }
+.pri-moderate { background: var(--color-warning); color: #1a1200; }
+.pri-low      { background: var(--color-text-muted); color: var(--color-surface); }
 
 /* Status pill */
 .status-pill {
   display: inline-block; padding: 2px 8px; border-radius: 4px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.status-open     { background: rgba(232,86,106,.12); color: var(--red); }
-.status-acked    { background: rgba(240,180,40,.12);  color: var(--amber); }
-.status-resolved { color: var(--muted-2); }
+.status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
+.status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
+.status-resolved { color: var(--color-text-subtle); }
 
 /* Escalation marker on priority badge */
 .pri-escalated { font-size: 10px; margin-left: 3px; opacity: .85; }
 
 /* Resolve button gets a mild red tint to differentiate from Acknowledge */
-.btn-action-resolve:not(:disabled) { color: var(--red); border-color: rgba(232,86,106,.3); }
+.btn-action-resolve:not(:disabled) { color: var(--color-danger); border-color: rgba(232,86,106,.3); }
 .btn-action-resolve:hover:not(:disabled) { background: rgba(232,86,106,.08); }
 
 /* ── Pagination ─────────────────────────────────────────────── */
 .al-pagination {
   display: flex; align-items: center; justify-content: flex-end; gap: 4px;
-  padding: 10px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
+  padding: 10px 16px; border-top: 1px solid var(--color-border); flex-shrink: 0;
 }
 .pg-btn {
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2);
-  color: var(--text); font-size: 14px; cursor: pointer; transition: background .1s;
+  border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface-raised);
+  color: var(--color-text-primary); font-size: 14px; cursor: pointer; transition: background .1s;
 }
-.pg-btn:hover:not(:disabled) { background: var(--border); }
+.pg-btn:hover:not(:disabled) { background: var(--color-border); }
 .pg-btn:disabled { opacity: .35; cursor: default; }
-.pg-info { font-size: 12px; font-weight: 600; color: var(--text); padding: 0 4px; }
+.pg-info { font-size: 12px; font-weight: 600; color: var(--color-text-primary); padding: 0 4px; }
 .pg-sep  { flex: 1; }
-.pg-count { font-size: 11px; color: var(--muted); }
+.pg-count { font-size: 11px; color: var(--color-text-muted); }
 </style>

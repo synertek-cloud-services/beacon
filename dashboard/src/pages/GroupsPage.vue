@@ -57,7 +57,7 @@
           <div class="modal-title">Delete Group</div>
         </div>
         <div class="modal-body">
-          <p class="text-sm" style="color:var(--text)">
+          <p class="text-sm" style="color:var(--color-text-primary)">
             Delete <strong>{{ deleteTarget.name }}</strong>? This removes its membership list and any Job/Policy targeting that references it. This cannot be undone.
           </p>
         </div>
@@ -140,20 +140,20 @@ onMounted(load);
 .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .stat-card {
   flex: 1; display: flex; flex-direction: column; gap: 4px;
-  padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 18px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px;
 }
-.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 
 .search-input {
-  height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 5px;
-  background: var(--surface); color: var(--text); font-size: 12px; font-family: var(--font); width: 220px;
+  height: 30px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 5px;
+  background: var(--color-surface); color: var(--color-text-primary); font-size: 12px; font-family: var(--font); width: 220px;
 }
-.search-input:focus { outline: none; border-color: var(--accent); }
+.search-input:focus { outline: none; border-color: var(--color-primary); }
 
-.group-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.group-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
 .row-clickable { cursor: pointer; }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
-.btn-danger-ghost { color: var(--red) !important; }
+.btn-danger-ghost { color: var(--color-danger) !important; }
 .btn-danger-ghost:hover { background: rgba(232,86,106,.08) !important; }
 </style>

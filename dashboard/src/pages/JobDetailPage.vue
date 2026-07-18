@@ -60,48 +60,48 @@
       <div class="jd-flow-wrap">
         <svg class="jd-flow-svg" viewBox="0 0 760 300" preserveAspectRatio="xMidYMid meet">
           <!-- Pending → Running -->
-          <line x1="178" y1="60" x2="258" y2="60" stroke="var(--border-2)" stroke-width="1.5"/>
+          <line x1="178" y1="60" x2="258" y2="60" stroke="var(--color-border-strong)" stroke-width="1.5"/>
           <!-- Pending → Expired (vertical drop) -->
-          <line x1="90" y1="100" x2="90" y2="120" stroke="var(--border-2)" stroke-width="1.5"/>
+          <line x1="90" y1="100" x2="90" y2="120" stroke="var(--color-border-strong)" stroke-width="1.5"/>
           <!-- Running → fork column → Successes / Warnings / Failures -->
           <path d="M 428 60 H 468 V 250 M 468 60 H 508 M 468 155 H 508 M 468 250 H 508"
-            fill="none" stroke="var(--border-2)" stroke-width="1.5"/>
+            fill="none" stroke="var(--color-border-strong)" stroke-width="1.5"/>
 
           <!-- Pending box -->
           <rect x="10" y="20" width="168" height="80" rx="6"
             :fill="flowFill('pending')" :stroke="flowStroke('pending')" stroke-width="1.5"/>
           <text x="94" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('pending')">{{ flowStats.queued }}</text>
-          <text x="94" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Pending</text>
+          <text x="94" y="76" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Pending</text>
 
           <!-- Expired box -->
           <rect x="10" y="120" width="168" height="80" rx="6"
             :fill="flowFill('expired')" :stroke="flowStroke('expired')" stroke-width="1.5"/>
           <text x="94" y="154" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('expired')">{{ flowStats.expired }}</text>
-          <text x="94" y="176" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Expired</text>
+          <text x="94" y="176" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Expired</text>
 
           <!-- Running box -->
           <rect x="258" y="20" width="170" height="80" rx="6"
             :fill="flowFill('running')" :stroke="flowStroke('running')" stroke-width="1.5"/>
           <text x="343" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('running')">{{ flowStats.sent }}</text>
-          <text x="343" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Running</text>
+          <text x="343" y="76" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Running</text>
 
           <!-- Successes box -->
           <rect x="508" y="20" width="172" height="80" rx="6"
             :fill="flowFill('success')" :stroke="flowStroke('success')" stroke-width="1.5"/>
           <text x="594" y="54" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('success')">{{ flowStats.successes }}</text>
-          <text x="594" y="76" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Successes</text>
+          <text x="594" y="76" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Successes</text>
 
           <!-- Warnings box -->
           <rect x="508" y="115" width="172" height="80" rx="6"
             :fill="flowFill('warning')" :stroke="flowStroke('warning')" stroke-width="1.5"/>
           <text x="594" y="149" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('warning')">{{ flowStats.warnings }}</text>
-          <text x="594" y="171" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Warnings</text>
+          <text x="594" y="171" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Warnings</text>
 
           <!-- Failures box -->
           <rect x="508" y="210" width="172" height="80" rx="6"
             :fill="flowFill('failure')" :stroke="flowStroke('failure')" stroke-width="1.5"/>
           <text x="594" y="244" text-anchor="middle" font-size="26" font-weight="700" :fill="flowCount('failure')">{{ flowStats.failures }}</text>
-          <text x="594" y="266" text-anchor="middle" font-size="12" fill="var(--muted)" letter-spacing=".04em">Failures</text>
+          <text x="594" y="266" text-anchor="middle" font-size="12" fill="var(--color-text-muted)" letter-spacing=".04em">Failures</text>
         </svg>
       </div>
     </div>
@@ -237,7 +237,7 @@ function flowVal(box: FlowBox): number {
 }
 function flowFill(box: FlowBox): string {
   const n = flowVal(box);
-  if (!n) return 'var(--surface-2)';
+  if (!n) return 'var(--color-surface-raised)';
   if (box === 'success') return 'rgba(45,207,160,.12)';
   if (box === 'warning') return 'rgba(240,168,64,.10)';
   if (box === 'failure') return 'rgba(232,86,106,.10)';
@@ -246,7 +246,7 @@ function flowFill(box: FlowBox): string {
 }
 function flowStroke(box: FlowBox): string {
   const n = flowVal(box);
-  if (!n) return 'var(--border)';
+  if (!n) return 'var(--color-border)';
   if (box === 'success') return 'rgba(45,207,160,.40)';
   if (box === 'warning') return 'rgba(240,168,64,.35)';
   if (box === 'failure') return 'rgba(232,86,106,.35)';
@@ -255,12 +255,12 @@ function flowStroke(box: FlowBox): string {
 }
 function flowCount(box: FlowBox): string {
   const n = flowVal(box);
-  if (!n) return 'var(--muted-2)';
-  if (box === 'success') return 'var(--teal)';
-  if (box === 'warning') return 'var(--amber)';
-  if (box === 'failure') return 'var(--red)';
+  if (!n) return 'var(--color-text-subtle)';
+  if (box === 'success') return 'var(--color-success)';
+  if (box === 'warning') return 'var(--color-warning)';
+  if (box === 'failure') return 'var(--color-danger)';
   if (box === 'expired') return '#a078dc';
-  return 'var(--accent)';
+  return 'var(--color-primary)';
 }
 
 // ── Details helpers ────────────────────────────────────────────────
@@ -432,25 +432,25 @@ onUnmounted(() => {
 <style scoped>
 /* Page shell */
 .jd-page { display: flex; flex-direction: column; gap: 16px; padding-bottom: 40px; }
-.jd-loading-full { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--muted); font-size: 14px; }
+.jd-loading-full { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--color-text-muted); font-size: 14px; }
 
 /* Topbar */
 .jd-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-.jd-title { font-size: 22px; font-weight: 700; color: var(--text); flex: 1; margin: 0; }
+.jd-title { font-size: 22px; font-weight: 700; color: var(--color-text-primary); flex: 1; margin: 0; }
 .jd-topbar-actions { display: flex; gap: 8px; }
 
 /* Cards */
-.jd-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.jd-card-title { font-size: 13px; font-weight: 600; color: var(--text); padding: 14px 18px 12px; border-bottom: 1px solid var(--border); }
+.jd-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.jd-card-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); padding: 14px 18px 12px; border-bottom: 1px solid var(--color-border); }
 
 /* Details grid */
 .jd-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 6px 0 10px; }
 .jd-details-col { padding: 0 18px; }
-.jd-details-col:first-child { border-right: 1px solid var(--border); }
+.jd-details-col:first-child { border-right: 1px solid var(--color-border); }
 .jd-det-row { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; font-size: 13px; }
-.jd-det-label { font-weight: 600; color: var(--muted); min-width: 100px; flex-shrink: 0; }
-.jd-det-val { color: var(--text); }
-.jd-accent { color: var(--accent); }
+.jd-det-label { font-weight: 600; color: var(--color-text-muted); min-width: 100px; flex-shrink: 0; }
+.jd-det-val { color: var(--color-text-primary); }
+.jd-accent { color: var(--color-primary); }
 
 /* Flow diagram */
 .jd-flow-wrap { padding: 20px 18px; }
@@ -458,40 +458,40 @@ onUnmounted(() => {
 
 /* Devices card */
 .jd-devices-card { padding: 0; }
-.jd-devices-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text); }
-.jd-badge { font-size: 11px; font-weight: 700; background: var(--border-2); color: var(--muted); padding: 1px 7px; border-radius: 10px; }
-.jd-empty-devs { padding: 32px 18px; text-align: center; font-size: 13px; color: var(--muted); }
+.jd-devices-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px 12px; border-bottom: 1px solid var(--color-border); font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.jd-badge { font-size: 11px; font-weight: 700; background: var(--color-border-strong); color: var(--color-text-muted); padding: 1px 7px; border-radius: 10px; }
+.jd-empty-devs { padding: 32px 18px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
 
 /* Devices table */
 .jd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.jd-table th { padding: 8px 14px; text-align: left; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; background: var(--surface-2); border-bottom: 1px solid var(--border); }
-.jd-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
+.jd-table th { padding: 8px 14px; text-align: left; font-size: 10px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .06em; background: var(--color-surface-raised); border-bottom: 1px solid var(--color-border); }
+.jd-table td { padding: 11px 14px; border-bottom: 1px solid var(--color-border); color: var(--color-text-primary); vertical-align: middle; }
 .jd-dev-row:last-child td { border-bottom: none; }
-.jd-dev-row:hover { background: var(--surface-2); }
-.jd-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+.jd-dev-row:hover { background: var(--color-surface-raised); }
+.jd-link { color: var(--color-primary); text-decoration: none; font-weight: 500; }
 .jd-link:hover { text-decoration: underline; }
 
 /* Status badges */
 .jd-status { display: inline-flex; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; }
-.jd-status-success  { background: rgba(45,207,160,.15);   color: var(--teal); }
-.jd-status-failed   { background: rgba(255,69,58,.12);   color: var(--red); }
-.jd-status-warning  { background: rgba(240,168,64,.15);  color: var(--amber); }
-.jd-status-sent     { background: rgba(78,126,247,.12);  color: var(--accent); }
-.jd-status-queued   { background: var(--surface-2);      color: var(--muted); }
+.jd-status-success  { background: rgba(45,207,160,.15);   color: var(--color-success); }
+.jd-status-failed   { background: rgba(255,69,58,.12);   color: var(--color-danger); }
+.jd-status-warning  { background: rgba(240,168,64,.15);  color: var(--color-warning); }
+.jd-status-sent     { background: rgba(78,126,247,.12);  color: var(--color-primary); }
+.jd-status-queued   { background: var(--color-surface-raised);      color: var(--color-text-muted); }
 .jd-status-expired  { background: rgba(160,120,220,.12); color: #a078dc; }
 
 /* Output buttons */
 .jd-out-cell { display: flex; gap: 6px; align-items: center; }
-.jd-out-btn { background: none; border: 1px solid var(--border-2); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--accent); cursor: pointer; font-family: var(--font); transition: background .1s; }
+.jd-out-btn { background: none; border: 1px solid var(--color-border-strong); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--color-primary); cursor: pointer; font-family: var(--font); transition: background .1s; }
 .jd-out-btn:hover { background: rgba(78,126,247,.08); }
-.jd-out-err { color: var(--red); border-color: rgba(255,69,58,.3); }
+.jd-out-err { color: var(--color-danger); border-color: rgba(255,69,58,.3); }
 .jd-out-err:hover { background: rgba(255,69,58,.06); }
 
 /* Output expansion */
-.jd-output-row td { padding: 0; border-bottom: 1px solid var(--border); }
-.jd-output-wrap { background: var(--surface-2); border-top: 1px solid var(--border); }
-.jd-output-label { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.jd-output-close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
-.jd-output-close:hover { color: var(--text); }
-.jd-output-pre { margin: 0; padding: 0 14px 14px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; line-height: 1.6; }
+.jd-output-row td { padding: 0; border-bottom: 1px solid var(--color-border); }
+.jd-output-wrap { background: var(--color-surface-raised); border-top: 1px solid var(--color-border); }
+.jd-output-label { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.jd-output-close { background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 16px; line-height: 1; padding: 0 2px; }
+.jd-output-close:hover { color: var(--color-text-primary); }
+.jd-output-pre { margin: 0; padding: 0 14px 14px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; color: var(--color-text-primary); white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; line-height: 1.6; }
 </style>

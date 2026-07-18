@@ -132,7 +132,7 @@ function signInWithMicrosoft() {
   justify-content: center;
   background:
     radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%),
-    var(--bg);
+    var(--color-canvas);
   padding: 24px;
 }
 
@@ -140,8 +140,8 @@ function signInWithMicrosoft() {
 .lp-card {
   width: 100%;
   max-width: 440px;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
   border-radius: 14px;
   padding: 44px 40px 36px;
   box-shadow:
@@ -162,7 +162,7 @@ function signInWithMicrosoft() {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: #1a0a2e;
+  background: var(--color-surface-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,7 +174,7 @@ function signInWithMicrosoft() {
 .lp-product {
   font-size: 17px;
   font-weight: 700;
-  color: var(--text);
+  color: var(--color-text-primary);
   letter-spacing: -.01em;
   line-height: 1.2;
 }
@@ -182,7 +182,7 @@ function signInWithMicrosoft() {
 .lp-sub {
   font-size: 11px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--color-text-muted);
   letter-spacing: .04em;
   text-transform: uppercase;
   margin-top: 2px;
@@ -191,14 +191,14 @@ function signInWithMicrosoft() {
 /* ── Divider ──────────────────────────────────────────────────── */
 .lp-divider {
   height: 1px;
-  background: var(--border);
+  background: var(--color-border);
   margin-bottom: 26px;
 }
 
 /* ── Lead text ────────────────────────────────────────────────── */
 .lp-lead {
   font-size: 13px;
-  color: var(--muted-2);
+  color: var(--color-text-subtle);
   margin-bottom: 26px;
   line-height: 1.55;
 }
@@ -211,7 +211,7 @@ function signInWithMicrosoft() {
 .lp-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: .06em;
 }
@@ -220,31 +220,31 @@ function signInWithMicrosoft() {
 .lp-input-icon {
   position: absolute;
   left: 13px;
-  color: var(--muted);
+  color: var(--color-text-muted);
   pointer-events: none;
 }
 
 .lp-input {
   width: 100%;
   padding: 12px 14px 12px 38px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
   border-radius: 7px;
-  color: var(--text);
+  color: var(--color-text-primary);
   font-size: 14px;
   font-family: inherit;
   outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
 .lp-input:focus {
-  border-color: var(--accent);
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(78,126,247,.18);
 }
 .lp-input::placeholder { color: #4a4d68; }
 
 .lp-hint {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--color-text-muted);
   margin-top: 2px;
 }
 
@@ -257,7 +257,7 @@ function signInWithMicrosoft() {
   background: rgba(232,86,106,.08);
   border: 1px solid rgba(232,86,106,.22);
   border-radius: 7px;
-  color: var(--red);
+  color: var(--color-danger);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -266,7 +266,7 @@ function signInWithMicrosoft() {
 .lp-btn {
   width: 100%;
   padding: 13px;
-  background: var(--accent);
+  background: var(--color-primary);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -305,7 +305,7 @@ function signInWithMicrosoft() {
   align-items: center;
   gap: 10px;
   margin: 26px 0 20px;
-  color: var(--muted);
+  color: var(--color-text-muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -314,19 +314,19 @@ function signInWithMicrosoft() {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: var(--color-border);
 }
 
 /* ── Microsoft SSO button ─────────────────────────────────────── */
 .lp-btn-ms {
   width: 100%;
   padding: 12px;
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 600;
   font-family: inherit;
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--color-border-strong);
   border-radius: 7px;
   cursor: pointer;
   display: flex;
@@ -335,5 +335,5 @@ function signInWithMicrosoft() {
   gap: 10px;
   transition: border-color .12s, background .12s;
 }
-.lp-btn-ms:hover { border-color: var(--accent); background: var(--border); }
+.lp-btn-ms:hover { border-color: var(--color-primary); background: var(--color-border); }
 </style>

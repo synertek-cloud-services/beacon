@@ -50,14 +50,14 @@ onMounted(async () => {
   justify-content: center;
   background:
     radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%),
-    var(--bg);
+    var(--color-canvas);
   padding: 24px;
 }
 .lp-card {
   width: 100%;
   max-width: 440px;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
   border-radius: 14px;
   padding: 32px 36px;
   box-shadow:
@@ -69,14 +69,14 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--muted-2);
+  color: var(--color-text-subtle);
   font-size: 13px;
 }
 .sso-spinner {
   width: 15px;
   height: 15px;
   border: 2px solid rgba(78,126,247,.25);
-  border-top-color: var(--accent);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin .65s linear infinite;
   flex-shrink: 0;
@@ -90,7 +90,7 @@ onMounted(async () => {
   background: rgba(232,86,106,.08);
   border: 1px solid rgba(232,86,106,.22);
   border-radius: 7px;
-  color: var(--red);
+  color: var(--color-danger);
   font-size: 12px;
   line-height: 1.4;
 }

@@ -80,33 +80,33 @@ onMounted(load);
 <style scoped>
 .up-page { display: flex; flex-direction: column; }
 .up-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.up-title { font-size: 20px; font-weight: 700; color: var(--text); margin: 0; }
-.up-state { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
+.up-title { font-size: 20px; font-weight: 700; color: var(--color-text-primary); margin: 0; }
+.up-state { padding: 32px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
 .up-row-actions { text-align: right; }
 
 .role-chip {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
   padding: 2px 8px; border-radius: 10px;
 }
-.role-admin      { background: rgba(232,86,106,.14); color: var(--red); }
-.role-technician { background: rgba(78,126,247,.14); color: var(--accent); }
-.role-readonly   { background: var(--surface-2); color: var(--muted-2); }
+.role-admin      { background: rgba(232,86,106,.14); color: var(--color-danger); }
+.role-technician { background: rgba(78,126,247,.14); color: var(--color-primary); }
+.role-readonly   { background: var(--color-surface-raised); color: var(--color-text-subtle); }
 
 .row-count-badge {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
-  background: var(--surface-2); color: var(--muted-2); margin-left: 4px;
+  background: var(--color-surface-raised); color: var(--color-text-subtle); margin-left: 4px;
 }
 
 th, td { padding: 10px 20px; text-align: left; font-size: 13px; }
 thead th {
   font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
-  color: var(--muted); border-bottom: 1px solid var(--border);
+  color: var(--color-text-muted); border-bottom: 1px solid var(--color-border);
 }
-tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr { border-bottom: 1px solid var(--color-border); }
 tbody tr:last-child { border-bottom: none; }
 
 .btn-text {
-  background: none; border: none; color: var(--accent); font-size: 12px; font-weight: 500;
+  background: none; border: none; color: var(--color-primary); font-size: 12px; font-weight: 500;
   cursor: pointer; padding: 2px 4px;
 }
 .btn-text:hover { text-decoration: underline; }
@@ -117,9 +117,9 @@ tbody tr:last-child { border-bottom: none; }
 }
 .toggle-track {
   display: block; width: 28px; height: 16px; border-radius: 8px;
-  background: var(--border); position: relative; transition: background .15s;
+  background: var(--color-border); position: relative; transition: background .15s;
 }
-.toggle-btn.enabled .toggle-track { background: var(--accent); }
+.toggle-btn.enabled .toggle-track { background: var(--color-primary); }
 .toggle-thumb {
   display: block; width: 12px; height: 12px; border-radius: 6px;
   background: #fff; position: absolute; top: 2px; left: 2px;

@@ -76,8 +76,8 @@ defineExpose({ validate });
 <style scoped>
 .cvp-list { display: flex; flex-direction: column; gap: 10px; }
 .cvp-row { display: flex; flex-direction: column; gap: 4px; }
-.cvp-label { font-size: 12px; font-weight: 600; color: var(--text); }
-.cvp-desc { font-size: 11px; color: var(--muted); margin: 0; }
-.cvp-checkbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); font-weight: 400; }
-.required { color: var(--red); }
+.cvp-label { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+.cvp-desc { font-size: 11px; color: var(--color-text-muted); margin: 0; }
+.cvp-checkbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-primary); font-weight: 400; }
+.required { color: var(--color-danger); }
 </style>

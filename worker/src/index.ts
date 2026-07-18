@@ -21,6 +21,7 @@ import adminUsers from './routes/admin/users';
 import adminSso from './routes/admin/sso';
 import adminCustomFields from './routes/admin/custom-fields';
 import adminGroups from './routes/admin/groups';
+import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
 
 export { SessionRelay } from './durable-objects/session-relay';
@@ -64,12 +65,14 @@ app.use('/v1/admin/*', corsMiddleware);
 app.use('/v1/auth/*', corsMiddleware);
 app.use('/v1/sessions', corsMiddleware);
 app.use('/v1/sessions/*', corsMiddleware);
+app.use('/v1/branding/*', corsMiddleware);
 
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);
 app.route('/v1/audit', auditRoute);
 app.route('/v1/sessions', sessions);
 app.route('/v1/agent', agentUpdate);
+app.route('/v1/branding', branding);
 app.route('/v1/admin/summary', adminSummary);
 app.route('/v1/admin/tenants', adminTenants);
 app.route('/v1/admin/devices', adminDevices);

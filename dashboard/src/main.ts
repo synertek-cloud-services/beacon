@@ -23,8 +23,10 @@ import SsoSettingsPage from './pages/SsoSettingsPage.vue';
 import CustomFieldsSettingsPage from './pages/CustomFieldsSettingsPage.vue';
 import GroupsPage from './pages/GroupsPage.vue';
 import GroupFormPage from './pages/GroupFormPage.vue';
+import BrandingSettingsPage from './pages/BrandingSettingsPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
+import { loadActiveTheme } from './theme';
 import type { Role } from './api';
 import './style.css';
 
@@ -63,6 +65,7 @@ const router = createRouter({
     { path: '/settings/users/:id', component: UserFormPage, meta: { minRole: 'admin' } },
     { path: '/settings/sso', component: SsoSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/custom-fields', component: CustomFieldsSettingsPage, meta: { minRole: 'admin' } },
+    { path: '/settings/branding', component: BrandingSettingsPage, meta: { minRole: 'admin' } },
   ],
 });
 
@@ -77,4 +80,5 @@ router.beforeEach(async (to) => {
   }
 });
 
+await loadActiveTheme();
 createApp(App).use(router).mount('#app');

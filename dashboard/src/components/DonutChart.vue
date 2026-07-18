@@ -3,7 +3,7 @@
     <div class="donut-svg-wrap">
       <svg class="donut-svg" viewBox="0 0 110 110">
         <!-- Track -->
-        <circle cx="55" cy="55" r="42" fill="none" stroke="var(--border-2)" stroke-width="9"/>
+        <circle cx="55" cy="55" r="42" fill="none" stroke="var(--color-border-strong)" stroke-width="9"/>
         <!-- Segments -->
         <circle
           v-for="(seg, i) in segments"

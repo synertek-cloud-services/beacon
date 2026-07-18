@@ -136,11 +136,11 @@ const zipLabel = computed(() => {
 <style scoped>
 .select-input {
   width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border-2);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--r-btn);
   padding: 8px 11px;
-  color: var(--text);
+  color: var(--color-text-primary);
   font-size: 13px;
   font-family: var(--font);
   outline: none;
@@ -152,6 +152,6 @@ const zipLabel = computed(() => {
   cursor: pointer;
   transition: border-color .12s;
 }
-.select-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
-.select-input option, .select-input optgroup { background: #1c1f2e; color: var(--text); }
+.select-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
+.select-input option, .select-input optgroup { background: var(--color-surface-raised); color: var(--color-text-primary); }
 </style>

@@ -152,18 +152,18 @@ const resolving = ref(false);
 const activeAlerts = computed(() => allAlerts.value.filter(a => a.is_alerting === 1));
 
 const PRIORITY_COLORS: Record<string, string> = {
-  critical: '#e8566a',
+  critical: 'var(--color-danger)',
   high:     '#e07830',
-  moderate: '#f0a840',
-  low:      '#616480',
+  moderate: 'var(--color-warning)',
+  low:      'var(--color-text-muted)',
 };
 
 const AV_COLORS: Record<string, string> = {
-  running_up_to_date:     '#2dcfa0',
-  running_not_up_to_date: '#f0a840',
-  not_running:            '#e8566a',
-  not_detected:           '#e8566a',
-  unknown:                '#616480',
+  running_up_to_date:     'var(--color-success)',
+  running_not_up_to_date: 'var(--color-warning)',
+  not_running:            'var(--color-danger)',
+  not_detected:           'var(--color-danger)',
+  unknown:                'var(--color-text-muted)',
 };
 
 const AV_LABELS: Record<string, string> = {
@@ -175,17 +175,17 @@ const AV_LABELS: Record<string, string> = {
 };
 
 const OS_COLORS: Record<string, string> = {
-  linux:   '#4e7ef7',
-  windows: '#2dcfa0',
-  darwin:  '#f0a840',
-  unknown: '#616480',
+  linux:   'var(--color-primary)',
+  windows: 'var(--color-success)',
+  darwin:  'var(--color-warning)',
+  unknown: 'var(--color-text-muted)',
 };
 
 const CLASS_COLORS: Record<string, string> = {
-  server:      '#4e7ef7',
-  workstation: '#2dcfa0',
-  laptop:      '#f0a840',
-  unknown:     '#616480',
+  server:      'var(--color-primary)',
+  workstation: 'var(--color-success)',
+  laptop:      'var(--color-warning)',
+  unknown:     'var(--color-text-muted)',
 };
 
 // Offline severity isn't uniform across classes — it mirrors the same
@@ -195,22 +195,22 @@ const CLASS_COLORS: Record<string, string> = {
 // exactly as urgent as a downed server, so only "server" gets a warning
 // color; workstation/laptop stay muted/neutral.
 const OFFLINE_CLASS_COLORS: Record<string, string> = {
-  server:      '#e8566a',
-  workstation: '#616480',
-  laptop:      '#616480',
-  unknown:     '#616480',
+  server:      'var(--color-danger)',
+  workstation: 'var(--color-text-muted)',
+  laptop:      'var(--color-text-muted)',
+  unknown:     'var(--color-text-muted)',
 };
 
 const onlineData = computed(() => [
-  { label: 'Online',  value: summary.value?.online  ?? 0, color: '#2dcfa0' },
-  { label: 'Offline', value: summary.value?.offline ?? 0, color: '#2d3148' },
+  { label: 'Online',  value: summary.value?.online  ?? 0, color: 'var(--color-success)' },
+  { label: 'Offline', value: summary.value?.offline ?? 0, color: 'var(--color-border-strong)' },
 ]);
 
 const osData = computed(() =>
   Object.entries(summary.value?.by_os ?? {}).map(([os, count]) => ({
     label: os,
     value: count,
-    color: OS_COLORS[os] ?? '#616480',
+    color: OS_COLORS[os] ?? 'var(--color-text-muted)',
   }))
 );
 
@@ -218,7 +218,7 @@ const classData = computed(() =>
   Object.entries(summary.value?.by_class ?? {}).map(([cls, count]) => ({
     label: cls,
     value: count,
-    color: CLASS_COLORS[cls] ?? '#616480',
+    color: CLASS_COLORS[cls] ?? 'var(--color-text-muted)',
   }))
 );
 
@@ -226,7 +226,7 @@ const offlineClassData = computed(() =>
   Object.entries(summary.value?.offline_by_class ?? {}).map(([cls, count]) => ({
     label: cls,
     value: count,
-    color: OFFLINE_CLASS_COLORS[cls] ?? '#616480',
+    color: OFFLINE_CLASS_COLORS[cls] ?? 'var(--color-text-muted)',
   }))
 );
 
@@ -234,7 +234,7 @@ const avStatusData = computed(() =>
   Object.entries(summary.value?.by_av_status ?? {}).map(([status, count]) => ({
     label: AV_LABELS[status] ?? status,
     value: count,
-    color: AV_COLORS[status] ?? '#616480',
+    color: AV_COLORS[status] ?? 'var(--color-text-muted)',
   }))
 );
 
@@ -246,7 +246,7 @@ const priorityData = computed(() => {
   return PRIORITY_ORDER.filter(p => counts[p]).map(p => ({
     label: p,
     value: counts[p],
-    color: PRIORITY_COLORS[p] ?? '#616480',
+    color: PRIORITY_COLORS[p] ?? 'var(--color-text-muted)',
   }));
 });
 
@@ -385,13 +385,13 @@ onUnmounted(() => clearInterval(timer));
 <style scoped>
 .ov-chart-empty {
   display: flex; align-items: center; justify-content: center;
-  height: 110px; font-size: 12px; color: var(--muted);
+  height: 110px; font-size: 12px; color: var(--color-text-muted);
 }
 
 .ov-count-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px;
-  background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+  background: var(--color-danger); color: #fff; font-size: 11px; font-weight: 700;
   border-radius: 10px;
 }
 
@@ -399,24 +399,24 @@ onUnmounted(() => clearInterval(timer));
 .ov-alert-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ov-alert-table th {
   padding: 9px 16px; text-align: left; font-size: 10px; font-weight: 700;
-  letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
-  border-bottom: 1px solid var(--border); white-space: nowrap;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border); white-space: nowrap;
 }
-.ov-alert-table td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+.ov-alert-table td { padding: 9px 16px; border-bottom: 1px solid var(--color-border); vertical-align: middle; color: var(--color-text-primary); }
 .ov-alert-table tr:last-child td { border-bottom: none; }
 .ov-alert-table tr { cursor: pointer; transition: background .08s; }
-.ov-alert-table tr:hover td { background: var(--surface-2); }
+.ov-alert-table tr:hover td { background: var(--color-surface-raised); }
 .ov-alert-table tr.tr-selected td { background: rgba(78,126,247,.07); }
 .th-check, .td-check { width: 36px; }
-.ov-alert-created { white-space: nowrap; color: var(--muted-2); font-size: 11px; }
-.ov-alert-cat  { color: var(--muted-2); font-size: 11px; white-space: nowrap; }
-.ov-alert-msg  { color: var(--text); }
-.ov-alert-host { color: var(--accent); white-space: nowrap; }
-.ov-alert-company { color: var(--muted); white-space: nowrap; }
+.ov-alert-created { white-space: nowrap; color: var(--color-text-subtle); font-size: 11px; }
+.ov-alert-cat  { color: var(--color-text-subtle); font-size: 11px; white-space: nowrap; }
+.ov-alert-msg  { color: var(--color-text-primary); }
+.ov-alert-host { color: var(--color-primary); white-space: nowrap; }
+.ov-alert-company { color: var(--color-text-muted); white-space: nowrap; }
 
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.status-open     { color: var(--text); }
-.status-resolved { color: var(--muted-2); }
+.status-open     { color: var(--color-text-primary); }
+.status-resolved { color: var(--color-text-subtle); }
 
 /* Duplicated from GlobalAlertsPage.vue per this codebase's established
    duplication-over-sharing convention for small per-page presentational CSS. */
@@ -424,8 +424,8 @@ onUnmounted(() => clearInterval(timer));
   display: inline-block; padding: 3px 10px; border-radius: 12px;
   font-size: 11px; font-weight: 700; white-space: nowrap; text-transform: capitalize;
 }
-.pri-critical { background: var(--red);   color: #fff; }
+.pri-critical { background: var(--color-danger);   color: #fff; }
 .pri-high     { background: #e07830;      color: #fff; }
-.pri-moderate { background: var(--amber); color: #1a1200; }
-.pri-low      { background: var(--muted); color: var(--surface); }
+.pri-moderate { background: var(--color-warning); color: #1a1200; }
+.pri-low      { background: var(--color-text-muted); color: var(--color-surface); }
 </style>
