@@ -78,6 +78,7 @@
 
         <div class="pf-monitors">
           <div class="pf-tbl-head"><span style="flex:1">User</span><span>Role</span><span>Alerts</span></div>
+          <div v-if="!users.length" class="pf-mon-empty"><p>No users yet.</p></div>
           <div v-for="u in users" :key="u.id" class="pf-mon-row">
             <span class="pf-mon-desc" style="flex:1"><strong>{{ u.displayName || u.email }}</strong> <span class="text-muted" style="margin-left:6px">{{ u.email }}</span></span>
             <span :class="['role-chip', 'role-' + u.role]">{{ u.role }}</span>
@@ -85,8 +86,8 @@
           </div>
         </div>
 
-        <div class="pf-monitors" style="margin-top:14px">
-          <label class="pf-sublabel" style="display:block;margin-bottom:6px">Standalone Addresses</label>
+        <label class="pf-sublabel" style="display:block;margin-top:14px;margin-bottom:6px">Standalone Addresses</label>
+        <div class="pf-monitors">
           <div v-if="!notificationEmails.length" class="pf-mon-empty"><p>No standalone addresses yet.</p></div>
           <div v-for="ne in notificationEmails" :key="ne.id" class="pf-mon-row">
             <span class="pf-mon-desc" style="flex:1">{{ ne.email }}</span>
