@@ -22,6 +22,8 @@ import adminSso from './routes/admin/sso';
 import adminCustomFields from './routes/admin/custom-fields';
 import adminGroups from './routes/admin/groups';
 import adminDashboards from './routes/admin/dashboards';
+import adminEmailSettings from './routes/admin/email-settings';
+import adminNotificationEmails from './routes/admin/notification-emails';
 import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
 
@@ -83,6 +85,8 @@ app.route('/v1/admin/commands', adminCommands);
 app.route('/v1/admin/policies', adminPolicies);
 app.route('/v1/admin/alerts', adminAlerts);
 app.route('/v1/admin/webhooks', adminWebhooks);
+app.route('/v1/admin/email-settings', adminEmailSettings);
+app.route('/v1/admin/notification-emails', adminNotificationEmails);
 app.route('/v1/admin/agent/versions', adminAgentVersions);
 app.route('/v1/admin/components', adminComponents);
 app.route('/v1/admin/jobs', adminJobs);
@@ -102,7 +106,7 @@ export default {
   },
   async scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
     const now = Math.floor(Date.now() / 1000);
-    await evaluateOfflineAlerts(env.DB, now);
+    await evaluateOfflineAlerts(env.DB, env, now);
     await dispatchDueScheduledJobs(env.DB, now);
     await cancelExpiredScheduledJobs(env.DB, now);
   },

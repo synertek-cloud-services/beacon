@@ -435,6 +435,19 @@ export interface AppUser {
   updatedAt: number;
   lastLoginAt: number | null;
   createdBy: string | null;
+  receivesAlerts: boolean;
+}
+
+export interface WebhookEndpoint { id: string; url: string; enabled: boolean; createdAt: number; }
+export interface NotificationEmail { id: string; email: string; enabled: boolean; createdAt: number; }
+export type EmailProviderType = 'ses' | 'resend' | 'mailgun';
+export interface EmailSettings {
+  id: number;
+  provider: EmailProviderType | null;
+  fromAddress: string | null;
+  enabled: boolean;
+  hasConfig: boolean;
+  updatedAt: number;
 }
 
 export interface SsoProvider {
@@ -556,11 +569,33 @@ export const api = {
     list:   () => request<AppUser[]>('GET', '/v1/admin/users'),
     create: (body: { email: string; displayName?: string; role: Role; password: string }) =>
       request<{ id: string }>('POST', '/v1/admin/users', body),
-    update: (id: string, body: Partial<{ displayName: string; role: Role; status: 'active' | 'disabled' }>) =>
+    update: (id: string, body: Partial<{ displayName: string; role: Role; status: 'active' | 'disabled'; receivesAlerts: boolean }>) =>
       request<{ ok: boolean }>('PATCH', `/v1/admin/users/${id}`, body),
     resetPassword: (id: string, password: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/users/${id}/reset-password`, { password }),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/users/${id}`),
+  },
+
+  webhooks: {
+    list:   () => request<WebhookEndpoint[]>('GET', '/v1/admin/webhooks'),
+    create: (url: string) => request<{ id: string }>('POST', '/v1/admin/webhooks', { url }),
+    update: (id: string, body: Partial<{ enabled: boolean; url: string }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/webhooks/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/webhooks/${id}`),
+  },
+
+  notificationEmails: {
+    list:   () => request<NotificationEmail[]>('GET', '/v1/admin/notification-emails'),
+    create: (email: string) => request<{ id: string }>('POST', '/v1/admin/notification-emails', { email }),
+    update: (id: string, body: Partial<{ enabled: boolean; email: string }>) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/notification-emails/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/notification-emails/${id}`),
+  },
+
+  emailSettings: {
+    get: () => request<EmailSettings>('GET', '/v1/admin/email-settings'),
+    update: (body: { provider?: EmailProviderType; fromAddress?: string; enabled?: boolean; config?: Record<string, string> }) =>
+      request<{ ok: boolean }>('PATCH', '/v1/admin/email-settings', body),
   },
 
   customFields: {

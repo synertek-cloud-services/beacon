@@ -148,6 +148,7 @@
             <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
             <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
             <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
+            <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
           </div>
         </template>
 
@@ -226,6 +227,7 @@
         <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
         <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
         <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
+        <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
       </template>
     </div>
 
@@ -491,6 +493,7 @@ const pageTitle = computed(() => {
   if (route.path === '/settings/sso') return 'Single Sign-On';
   if (route.path === '/settings/custom-fields') return 'Custom Fields';
   if (route.path === '/settings/branding') return 'Branding';
+  if (route.path === '/settings/notifications') return 'Notifications';
   return 'Beacon';
 });
 

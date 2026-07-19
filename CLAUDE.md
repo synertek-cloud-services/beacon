@@ -134,7 +134,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
    dashboard. Self-hosters using the manual README flow still run migrations
    before their Worker deployment.
 
-Latest migration: `0045` (branding identity). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
+Latest migration: `0046` (alert notifications — webhook_endpoints table rebuild, email_settings, notification_emails, users.receives_alerts). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
@@ -315,6 +315,42 @@ Agent packages added this session (all follow the shell-out-to-native-tool or go
 - **Memory Usage** — 1 monitor: ≥ 90% (high/10m, auto-resolves in 30m)
 - **CPU Usage** — 2 monitors: ≥ 100% (critical/5m) + ≥ 95% early warning (high/15m) — per Datto's own recommended two-tier pattern
 - `file_size`/`ping`/`process`/`service`/`software` have no seeded defaults — no universal target/name/path/process is sane to bake in; operators create their own.
+
+## Alert Notifications
+
+Global (hoster-level), not per-company — Beacon is used by an MSP to monitor their clients, and it's the MSP's own team that reads alerts, not the client company being monitored. Client-facing notification, if ever needed, is out of scope here (would run through a separate PSA integration). Two independent channels, both fired from the same 3 sites inside `processAlertState` (`worker/src/lib/alerts.ts`) — the two `alert.triggered` sites and the one `alert.resolved` (auto-resolve) site — never from `reconcileOrphanedAlerts`/`resolveAllOpenAlerts` (admin bulk-resolve paths, not real-world condition changes).
+
+### Webhooks
+`webhook_endpoints` (`id`, `url`, `enabled`, `created_at`) predates this feature by many sessions (migration `0002`) but was never wired to any dashboard UI, and was originally per-company (`tenant_id` FK) — migration `0046` rebuilt the table to drop that column once the global model was confirmed. `fireWebhooks()` POSTs `{event, timestamp, device_id, tenant_id, hostname, check_type, monitor_id, policy_id, config}` to every `enabled=1` row via `Promise.allSettled` (fire-and-forget, no retry). **Deliberately unsigned** — the user's own call: "we just need to send out webhooks, we don't need to ingest them, the hoster can put in their own endpoint at like Hookdeck" — a receiver that needs authenticity verification fronts the URL with something like Hookdeck itself rather than Beacon implementing HMAC signing.
+
+### Email — real plugin architecture
+`worker/src/lib/email/` — explicitly requested as an adapter/plugin design, not a flat if/else, so a future provider is one new file, not a change to shared code:
+```
+worker/src/lib/email/
+  types.ts        — EmailProvider interface ({send(config, message)}) + EmailMessage type
+  providers/
+    resend.ts      — POST api.resend.com/emails, Bearer auth, JSON body
+    mailgun.ts      — POST api.{mailgun.net|eu.mailgun.net}/v3/<domain>/messages, HTTP Basic, form-encoded body
+    ses.ts          — POST email.<region>.amazonaws.com/v2/email/outbound-emails, hand-rolled AWS SigV4 (no SDK — too large for Workers), JSON body
+  registry.ts      — Record<ProviderType, EmailProvider> — the one place that knows every provider exists
+  index.ts         — sendEmail(env, to[], subject, html, text): the only export alerts.ts imports, zero provider-specific branching
+```
+Every provider file owns its own auth scheme and request encoding entirely — confirmed correct against each provider's real API during this session's verification pass (Resend/Mailgun/SES all rejected fake credentials with a real, well-formed API error — `401`/`403`/`SignatureDoesNotMatch`-class responses, not a parse error — proving the request shape itself, not just that *something* was sent).
+
+**SES's SigV4 signer** (`providers/ses.ts`) is the one genuinely fragile piece — a hand-rolled canonical-request → string-to-sign → HMAC-SHA256 signing-key-chain (`"AWS4"+secret → dateStamp → region → "ses" → "aws4_request"`) implementation, entirely via `crypto.subtle`. A wrong-but-parseable signature and a correct one look identical against a fake key (both get rejected) — only a real AWS key proves the signing math is actually right, not just well-formed. Verify with a real key before trusting a production SES release.
+
+**Config storage**: singleton `email_settings` table (`id=1 CHECK`, mirrors `branding_identity`'s shape) — one active provider at a time, not a list. `config_ciphertext`/`config_nonce` hold the *entire* provider-specific credential blob as one AES-GCM string (shape varies by provider, so per-field encryption doesn't fit) via the same `encryptSecret`/`decryptSecret` + `CONFIG_ENCRYPTION_KEY` pattern `sso_providers` already established — same "secret never returned, blank input means keep existing" contract. `worker/src/routes/admin/email-settings.ts` runtime-validates `provider` against the 3 known values on `PATCH` — the TS type annotation on the request body only checks TypeScript callers, not the actual JSON payload; an unvalidated bad value would otherwise sit silently in the column until `sendEmail()` threw on `PROVIDERS[undefined].send()` (a real gap caught during this session's own verification pass, fixed before merge).
+
+### Recipients — two unioned sources
+- `users.receives_alerts` (bool, default false) — opt-in per existing Beacon account, reuses `users.email`.
+- `notification_emails` (new table: `id`, `email`, `enabled`, `created_at`) — standalone addresses with no Beacon account (a shared mailbox, a ticketing system's inbound address, etc.).
+- `sendAlertEmails()` unions both (`SELECT ... WHERE receives_alerts=1 AND status='active'` plus `SELECT ... FROM notification_emails WHERE enabled=1`, deduped via `Set`) — no-ops on zero recipients, same shape as `fireWebhooks`'s empty-list early return. Email links back to the alert via `${env.ALLOWED_ORIGIN}/#/global/alerts/<alertStateId>`.
+
+### `env` threading through `alerts.ts`
+`processAlertState` and the 7 `evaluate*` functions (`evaluateCheckinAlerts`/`evaluateFileSizeAlerts`/`evaluatePingAlerts`/`evaluateProcessAlerts`/`evaluateServiceAlerts`/`evaluateSoftwareAlerts`/`evaluateOfflineAlerts`) all gained an `env: Bindings` parameter so `sendAlertEmails` (which needs `CONFIG_ENCRYPTION_KEY` and `ALLOWED_ORIGIN`, neither available from just a D1 handle) can be called alongside the existing `fireWebhooks`. Threaded from `checkin.ts` (5 sites), `audit.ts` (1 site), and `index.ts`'s `scheduled()` handler (1 site) — all already had `env`/`c.env` in scope, previously passed only `.DB`.
+
+### Dashboard
+`NotificationSettingsPage.vue` (`/settings/notifications`, admin-only) — one page, three sections (Webhooks list, Email Provider config, Recipients), reusing `SsoSettingsPage.vue`'s `.pf-*`/`.seg-bar`/`.pf-monitors`/`.pf-mon-row` CSS verbatim (duplicated per this codebase's convention, not shared). The provider config form only sends `config` in the `PATCH` when at least one credential field for the selected provider is non-empty — partial credential updates aren't supported, matching the "whole blob, not per-field" storage design; the UI says so directly rather than attempting field-level merge semantics.
 
 ## Components / Job System
 
@@ -554,6 +590,13 @@ DELETE /v1/admin/sso/providers/:id           Remove provider
 GET/POST/DELETE /v1/admin/sso/providers/:id/group-mappings[/:mid]   Group → role mapping CRUD
 GET  /v1/admin/sso/providers/:id/groups?search=      Live Entra group search (app-only Graph token)
 
+GET/POST  /v1/admin/webhooks[/:id]           Global alert webhook CRUD (admin only)
+PATCH  /v1/admin/webhooks/:id                Toggle enabled / edit URL
+GET  /v1/admin/email-settings                Active email provider config (secret never returned, admin only)
+PATCH  /v1/admin/email-settings              Set provider/from-address/enabled/config (config validated against ses|resend|mailgun)
+GET/POST  /v1/admin/notification-emails[/:id]  Standalone alert-email recipient CRUD (admin only)
+PATCH/DELETE /v1/admin/notification-emails/:id
+
 GET/POST  /v1/admin/custom-fields[/:id]      Custom field ("UDF") definition CRUD (admin only)
 GET  /v1/admin/devices/:id/custom-fields             This device's values, joined against every field definition
 PATCH  /v1/admin/devices/:id/custom-fields/:fieldId  Set (upsert) one field's value for this device (technician)
@@ -603,6 +646,7 @@ GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the S
 /settings/sso          SsoSettingsPage     (admin only)
 /settings/custom-fields CustomFieldsSettingsPage (admin only — manage field definitions; per-device values live on DeviceDetailPage instead)
 /settings/branding      BrandingSettingsPage (admin only — theme picker + live draft editor, see Branding above)
+/settings/notifications NotificationSettingsPage (admin only — webhooks, email provider, recipients, see Alert Notifications above)
 ```
 Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects non-admins to `/`.
 
@@ -613,7 +657,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 - **Devices** section: Device Approvals, All, Device Groups
 - **Global** section: Alerts, Policies
 - **Automation** section: Jobs, Components
-- **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On, Custom Fields, Branding
+- **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On, Custom Fields, Branding, Notifications
 - Sidebar footer shows the signed-in user's name/role above the Sign out button
 - Resizable via drag handle (`.sidebar-resizer`); collapsible via a floating chevron button straddling the sidebar's right edge (`.sidebar-toggle-btn`, absolutely positioned relative to `.shell`) — not a topbar hamburger, see STYLE.md
 

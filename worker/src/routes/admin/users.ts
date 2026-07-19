@@ -62,7 +62,7 @@ adminUsers.post('/', async (c) => {
 adminUsers.patch('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const body = await c.req.json<{ displayName?: string; role?: Role; status?: 'active' | 'disabled' }>();
+  const body = await c.req.json<{ displayName?: string; role?: Role; status?: 'active' | 'disabled'; receivesAlerts?: boolean }>();
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
@@ -70,6 +70,7 @@ adminUsers.patch('/:id', async (c) => {
   if (body.displayName !== undefined) updates.displayName = body.displayName;
   if (body.role !== undefined) updates.role = body.role;
   if (body.status !== undefined) updates.status = body.status;
+  if (body.receivesAlerts !== undefined) updates.receivesAlerts = body.receivesAlerts;
 
   await db.update(schema.users).set(updates).where(eq(schema.users.id, c.req.param('id')));
   return c.json({ ok: true });
