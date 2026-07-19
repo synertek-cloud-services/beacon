@@ -6,7 +6,7 @@
     <div v-else class="pf-body">
       <section class="pf-group">
         <label class="pf-label">Identity</label>
-        <p class="field-hint">Product name and logo shown in the sidebar and on the sign-in page.</p>
+        <p class="field-hint">Product name and logo shown in the sidebar and on the sign-in page. Leave the name blank to use "Beacon".</p>
         <div class="pf-row" style="gap:10px;align-items:center">
           <img :src="brandState.logoUrl" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:var(--color-surface-raised)" />
           <label class="btn btn-ghost btn-sm" style="cursor:pointer">
@@ -17,7 +17,7 @@
         </div>
         <p class="field-hint">Square image recommended (256×256px or larger) — it's shown very small (18px in the sidebar, 34px on the sign-in page), so a simple, bold mark works best. Transparent background recommended for non-square art. JPG, PNG, GIF, or SVG, up to 1MB.</p>
         <div class="pf-row" style="gap:8px;margin-top:4px">
-          <input v-model="productNameInput" class="pf-input" placeholder="Product name (defaults to Beacon)" style="max-width:280px" @change="saveProductName" />
+          <input v-model="productNameInput" class="pf-input" placeholder="Product name" style="max-width:280px;width:100%" @change="saveProductName" />
         </div>
         <div v-if="identityError" class="error-banner">{{ identityError }}</div>
       </section>
