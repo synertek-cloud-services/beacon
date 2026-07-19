@@ -5,18 +5,18 @@ Dark-first design system. All tokens defined in `dashboard/src/style.css` as CSS
 ## Design tokens
 
 ```css
---bg:        #0c0e16   /* page background */
---surface:   #141720   /* cards, sidebar, topbar */
---surface-2: #1c1f2e   /* table headers, expanded rows, hover states */
---border:    #232638   /* standard dividers */
---border-2:  #2d3148   /* form inputs, stronger outlines */
---text:      #d8daf0   /* primary text */
---muted:     #616480   /* labels, timestamps, secondary text */
---muted-2:   #8486a8   /* nav items unselected, sub-labels */
---accent:    #4e7ef7   /* primary blue — CTAs, active state, links */
---teal:      #2dcfa0   /* online/success/approved */
---amber:     #f0a840   /* warning, pending */
---red:       #e8566a   /* error, offline, danger */
+--color-canvas:        #0c0e16   /* page background */
+--color-surface:   #141720   /* cards, sidebar, topbar */
+--color-surface-raised: #1c1f2e   /* table headers, expanded rows, hover states */
+--color-border:    #232638   /* standard dividers */
+--color-border-strong:  #2d3148   /* form inputs, stronger outlines */
+--color-text-primary:      #d8daf0   /* primary text */
+--color-text-muted:     #616480   /* labels, timestamps, secondary text */
+--color-text-subtle:   #8486a8   /* nav items unselected, sub-labels */
+--color-primary:    #4e7ef7   /* primary blue — CTAs, active state, links */
+--color-success:      #2dcfa0   /* online/success/approved */
+--color-warning:     #f0a840   /* warning, pending */
+--color-danger:       #e8566a   /* error, offline, danger */
 ```
 
 ## Shell layout
@@ -51,9 +51,9 @@ Collapse/expand is **not** a topbar hamburger button — it's a small circular b
 .sidebar-toggle-btn {
   position: absolute; top: 14px; transform: translateX(-50%);
   width: 22px; height: 22px; border-radius: 50%;
-  background: var(--surface-2); border: 1px solid var(--border-2);
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-strong);
   display: flex; align-items: center; justify-content: center;
-  color: var(--muted-2); z-index: 601; /* above .sidebar's z-index:600 */
+  color: var(--color-text-subtle); z-index: 601; /* above .sidebar's z-index:600 */
   transition: left .2s ease, background .12s, color .12s, border-color .12s;
 }
 .sidebar-toggle-btn.no-transition { transition: none !important; }
@@ -69,12 +69,12 @@ Icon flips direction based on state (chevron-left when expanded → click collap
 
 | Usage | Size | Weight | Color |
 |---|---|---|---|
-| Page title (`h1`) | 20px | 700 | `--text` |
-| Section label (form groups in PolicyFormPage) | 15px | 600 | `--text` |
-| Body / table cells | 13px | 400 | `--text` |
-| Table column headers | 10–11px | 600–700 | `--muted`, uppercase, 0.04–0.08em spacing |
+| Page title (`h1`) | 20px | 700 | `--color-text-primary` |
+| Section label (form groups in PolicyFormPage) | 15px | 600 | `--color-text-primary` |
+| Body / table cells | 13px | 400 | `--color-text-primary` |
+| Table column headers | 10–11px | 600–700 | `--color-text-muted`, uppercase, 0.04–0.08em spacing |
 | Badges / chips | 10–11px | 700 | varies by type |
-| Sub-labels / timestamps | 11–12px | 400 | `--muted` or `--muted-2` |
+| Sub-labels / timestamps | 11–12px | 400 | `--color-text-muted` or `--color-text-subtle` |
 
 ## Buttons
 
@@ -113,13 +113,13 @@ Full palette, 10 colors deep as of this session — check this table before addi
 
 ```css
 .check-chip.chip-disk_space    /* purple tint  — rgba(130,80,240,.14)  / #8050f0 */
-.check-chip.chip-offline       /* amber tint   — var(--amber) tint (also used for "Online Status" label) */
+.check-chip.chip-offline       /* amber tint   — var(--color-warning) tint (also used for "Online Status" label) */
 .check-chip.chip-cpu_usage     /* red tint     — rgba(240,80,60,.12)   / #e04040 */
-.check-chip.chip-memory_usage  /* accent blue  — rgba(78,126,247,.14)  / var(--accent) */
-.check-chip.chip-av_status     /* teal tint    — rgba(45,207,160,.14)  / var(--teal) */
-.check-chip.chip-file_size     /* grey tint    — rgba(132,134,168,.16) / var(--muted-2) */
-.check-chip.chip-ping          /* teal tint    — rgba(45,207,160,.14)  / var(--teal) (shares teal with av_status, contexts don't collide) */
-.check-chip.chip-process       /* amber tint   — rgba(240,168,64,.16)  / var(--amber) (shares amber with offline) */
+.check-chip.chip-memory_usage  /* accent blue  — rgba(78,126,247,.14)  / var(--color-primary) */
+.check-chip.chip-av_status     /* teal tint    — rgba(45,207,160,.14)  / var(--color-success) */
+.check-chip.chip-file_size     /* grey tint    — rgba(132,134,168,.16) / var(--color-text-subtle) */
+.check-chip.chip-ping          /* teal tint    — rgba(45,207,160,.14)  / var(--color-success) (shares teal with av_status, contexts don't collide) */
+.check-chip.chip-process       /* amber tint   — rgba(240,168,64,.16)  / var(--color-warning) (shares amber with offline) */
 .check-chip.chip-service       /* pink/magenta — rgba(200,80,180,.14)  / #c850b4 */
 .check-chip.chip-software      /* green tint   — rgba(80,180,120,.14)  / #50b478 */
 
@@ -172,7 +172,7 @@ Two variants used in the app:
   <span class="toggle-track"><span class="toggle-thumb"></span></span>
 </button>
 ```
-- Track: 28×16px, border-radius 8px, `--border` → `--accent` when enabled
+- Track: 28×16px, border-radius 8px, `--color-border` → `--color-primary` when enabled
 - Thumb: 12×12px white circle
 - Small variant `.toggle-sm`: 22×12px track, 8×8px thumb
 
@@ -197,7 +197,7 @@ Used for Scope (Global/Site) and Enabled/Disabled selectors:
 
 **Critical**: `.seg-bar` must have `align-self: flex-start` when inside a flex column container, otherwise it stretches full width.
 
-Primary variant for the active state: add `.seg-primary` to the button — gives it `--accent` background instead of surface white.
+Primary variant for the active state: add `.seg-primary` to the button — gives it `--color-primary` background instead of surface white.
 
 **Also used for >2 options**: `DeviceChangeLogPage.vue`'s category filter (All/Software/Hardware/Services/Security, 5 buttons) confirms this isn't just a binary toggle — works the same way for any small fixed set of mutually-exclusive filter values, `v-for`'d over an options array instead of two hardcoded buttons.
 
@@ -234,9 +234,9 @@ Centered modal pattern (used for Override, confirmation dialogs, `RemoteShellMod
 </Teleport>
 ```
 ```css
-.modal-header { display: flex; align-items: center; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s; }
-.btn-icon:hover { background: var(--surface-2); color: var(--text); }
+.modal-header { display: flex; align-items: center; padding: 16px 18px 12px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+.btn-icon { background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s; }
+.btn-icon:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
 ```
 
 Modal: 440px wide (default), max 95vw, max 90vh, border-radius 10px, `var(--shadow)`. Widen with a local override class for content-heavy modals (e.g. `RemoteShellModal.vue`'s `.rs-modal { width: 860px; height: 560px; }` for an embedded terminal).
@@ -256,8 +256,8 @@ Used in PolicyFormPage for Add/Edit Monitor:
 .mo-inner {
   width: 620px; max-width: calc(100vw - 160px);
   height: 100%;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
   box-shadow: -8px 0 32px rgba(0,0,0,.4);
 }
 ```
@@ -272,11 +272,11 @@ Full-page form pattern:
 
 ```
 .pf-page (flex column, min-height: 100%)
-  .pf-crumb  (breadcrumb: 12px, --muted, accent links)
+  .pf-crumb  (breadcrumb: 12px, --color-text-muted, accent links)
   .pf-topbar (back button + h1 + Cancel/Save)
   .pf-body (flex column)
     .pf-group (each section: flex column, gap 10px, padding 20px 0, border-bottom)
-      .pf-label (15px, 600, --text)
+      .pf-label (15px, 600, --color-text-primary)
       <content>
 ```
 
@@ -299,7 +299,7 @@ A lighter-weight sibling of the Add Monitor right-side drawer below — used in 
 </div>
 ```
 ```css
-.var-form { margin-top: 10px; padding: 12px; border: 1px solid var(--border-2); border-radius: 7px; background: var(--surface-2); }
+.var-form { margin-top: 10px; padding: 12px; border: 1px solid var(--color-border-strong); border-radius: 7px; background: var(--color-surface-raised); }
 .var-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 ```
 
@@ -326,9 +326,9 @@ The `<input>` is visually hidden (`display: none`) — the entire `<label>` is t
 ```
 
 ```css
-.field-hint { font-size: 11px; color: --muted; margin-top: 4px; }
+.field-hint { font-size: 11px; color: var(--color-text-muted); margin-top: 4px; }
 .field-hint-warn {
-  color: --amber;
+  color: var(--color-warning);
   background: rgba(240,168,64,.08);
   border: 1px solid rgba(240,168,64,.2);
   border-radius: 5px; padding: 6px 10px;
@@ -337,7 +337,7 @@ The `<input>` is visually hidden (`display: none`) — the entire `<label>` is t
 
 Used when CPU threshold ≥ 95% to warn about 100% CPU reliability.
 
-**Note**: `.field-hint` is defined per-component (scoped styles), not globally — it exists independently in `PolicyFormPage.vue`, `GlobalPoliciesPage.vue`, and `TenantsPage.vue`. Adding it to a new component that doesn't already have it needs its own copy of the CSS rule (`display:block; font-size:11px; color:var(--muted); margin-top:6px;`), not just the class name — Vue scoped styles don't leak across components.
+**Note**: `.field-hint` is defined per-component (scoped styles), not globally — it exists independently in `PolicyFormPage.vue`, `GlobalPoliciesPage.vue`, and `TenantsPage.vue`. Adding it to a new component that doesn't already have it needs its own copy of the CSS rule (`display:block; font-size:11px; color:var(--color-text-muted); margin-top:6px;`), not just the class name — Vue scoped styles don't leak across components.
 
 ## Optional-condition checkbox (checkbox toggles between a value and `null`)
 
@@ -346,7 +346,7 @@ Used for the Add Monitor drawer's optional numeric conditions (disk's min-size f
 ```html
 <label class="mf-check-row">
   <input type="checkbox" :checked="form.x !== null"
-    @change="form.x = ($event.target as HTMLInputElement).checked ? DEFAULT_VALUE : null" style="accent-color:var(--accent)" />
+    @change="form.x = ($event.target as HTMLInputElement).checked ? DEFAULT_VALUE : null" style="accent-color:var(--color-primary)" />
   <span>Alert when...</span>
 </label>
 <div v-if="form.x !== null" class="mf-row" style="margin-top:6px">
@@ -397,7 +397,7 @@ Appears inside the Companies `sec-body`, after "All Companies" link, when a comp
   padding: 5px 10px 5px 32px; margin: 2px 8px 0;
   border-radius: 5px;
   background: rgba(78,126,247,.08);
-  border-left: 2px solid --accent;
+  border-left: 2px solid var(--color-primary);
 }
 ```
 
@@ -407,7 +407,7 @@ Sub-links (e.g., Devices) use `.sbi-leaf` with `padding-left: 48px`.
 
 `LoginPage.vue` and `SsoCallbackPage.vue` share a visual family (`.lp-bg` full-screen centered wrapper + `.lp-card`), duplicated per-component (not shared) matching this codebase's established duplication-over-sharing convention — keep both in sync by hand if you tweak one.
 
-- Card: **440px** max-width (not the general 400px — matches the modal-width precedent), `44px 40px 36px` padding, radial accent gradient behind it (`radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%)` over `var(--bg)`).
+- Card: **440px** max-width (not the general 400px — matches the modal-width precedent), `44px 40px 36px` padding, radial accent gradient behind it (`radial-gradient(ellipse 70% 45% at 50% 0%, rgba(78,126,247,.20) 0%, transparent 70%)` over `var(--color-canvas)`).
 - Use `var(--*)` custom properties for every color in these files, not hardcoded hex — they were originally hand-authored with raw hex matching the tokens, which drifts silently if the token palette ever changes. Converted this session.
 - **Input-with-leading-icon** pattern (mail/lock icons inside email/password fields):
   ```html
@@ -418,7 +418,7 @@ Sub-links (e.g., Devices) use `.sbi-leaf` with `padding-left: 48px`.
   ```
   ```css
   .lp-input-wrap { position: relative; display: flex; align-items: center; }
-  .lp-input-icon { position: absolute; left: 13px; color: var(--muted); pointer-events: none; }
+  .lp-input-icon { position: absolute; left: 13px; color: var(--color-text-muted); pointer-events: none; }
   .lp-input { padding: 12px 14px 12px 38px; /* left padding clears the icon */ }
   ```
 - **Gotcha**: don't put `letter-spacing` on a shared input class meant to space out password-dot rendering — it also tracks out any *typed plain text* sharing that class (an actual bug this session: email addresses rendered with unnatural character spacing because `.lp-input` applied `letter-spacing: .08em` to both the email and password fields). If you want wider password-dot spacing, scope it to `input[type="password"]`, not the shared class.
@@ -464,16 +464,16 @@ Skipped from the reference on purpose, not by oversight: Patch Management (no pa
 
 **Section separation** — each section gets a distinct title-bar treatment, not just a thin divider (a thin border alone read as "runs together"):
 ```css
-.ddev-page-section { border-bottom: 6px solid var(--bg); scroll-margin-top: 16px; }
+.ddev-page-section { border-bottom: 6px solid var(--color-canvas); scroll-margin-top: 16px; }
 .ddev-page-section:last-child { border-bottom: none; }
 .ddev-section-heading {
   display: flex; align-items: center;
-  font-size: 14px; font-weight: 700; color: var(--text);
+  font-size: 14px; font-weight: 700; color: var(--color-text-primary);
   padding: 13px 20px; margin: 0;
-  background: var(--surface-2); border-bottom: 1px solid var(--border);
+  background: var(--color-surface-raised); border-bottom: 1px solid var(--color-border);
 }
 ```
-The 6px `var(--bg)`-colored gutter between sections (not a 1px border) is what actually reads as visual separation at a glance.
+The 6px `var(--color-canvas)`-colored gutter between sections (not a 1px border) is what actually reads as visual separation at a glance.
 
 **Left-nav + sticky positioning gotcha**: the nav's wrapping element needs its own class overriding `.section-card`'s global `overflow: hidden` (which otherwise silently breaks `position: sticky` on any descendant — found only by testing actual scroll behavior, not by reading the CSS):
 ```css
@@ -499,10 +499,10 @@ Only editable field on the whole device detail page (everything else is agent-re
 ```
 ```css
 .ddev-date-input {
-  background: var(--bg); border: 1px solid var(--border-2); border-radius: 4px;
-  padding: 3px 6px; color: var(--text); font-family: var(--font);
+  background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: 4px;
+  padding: 3px 6px; color: var(--color-text-primary); font-family: var(--font);
 }
-.ddev-date-input:focus { outline: none; border-color: var(--accent); }
+.ddev-date-input:focus { outline: none; border-color: var(--color-primary); }
 ```
 `:value`/`@change` rather than `v-model`, same reasoning as the optional-condition checkbox pattern above — the source of truth is `device.value.warrantyExpiresAt` (a unix timestamp or `null`), and the date string is a derived, one-way-bound view of it. Convert at UTC midnight in both directions (`new Date(ts * 1000).toISOString().slice(0, 10)` to display; `Math.floor(new Date(\`${val}T00:00:00Z\`).getTime() / 1000)` to save) — `<input type="date">` works in unzoned calendar days, so mixing in local-timezone `Date` parsing would drift the displayed date by one day near midnight in some timezones.
 
@@ -513,9 +513,9 @@ Large bold name with the status dot inline (not a separate meta line below it), 
 .ddev-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; }
 .ddev-header-name { display: flex; align-items: center; gap: 10px; }
 .ddev-status-dot { width: 10px; height: 10px; border-radius: 50%; }
-.dot-online  { background: var(--teal); box-shadow: 0 0 0 3px rgba(45,207,160,.15); }
-.dot-offline { background: var(--muted); }
-.ddev-hostname { font-size: 22px; font-weight: 700; color: var(--text); }
+.dot-online  { background: var(--color-success); box-shadow: 0 0 0 3px rgba(45,207,160,.15); }
+.dot-offline { background: var(--color-text-muted); }
+.ddev-hostname { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
 ```
 A previous version had a secondary meta line below the name (status/approved/OS, `·`-separated) — dropped per feedback once the dot moved inline, since it read as clutter rather than useful context.
 
@@ -525,10 +525,10 @@ A previous version had a secondary meta line below the name (status/approved/OS,
 
 Four-state badge palette, used for things like antivirus status where "unknown" is a real, distinct state from "bad":
 ```css
-.inv-badge-ok     { background: rgba(45,207,160,.12); color: var(--teal); }
-.inv-badge-warn   { background: rgba(240,168,64,.12);  color: var(--amber); }
+.inv-badge-ok     { background: rgba(45,207,160,.12); color: var(--color-success); }
+.inv-badge-warn   { background: rgba(240,168,64,.12);  color: var(--color-warning); }
 .inv-badge-danger { background: rgba(232,86,106,.12);  color: #e8566a; }
-.inv-badge-muted  { background: rgba(97,100,128,.15);  color: var(--muted); }
+.inv-badge-muted  { background: rgba(97,100,128,.15);  color: var(--color-text-muted); }
 ```
 (all four share `font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px;`). Same status vocabulary as `OverviewPage.vue`'s antivirus widget (`running_up_to_date` / `running_not_up_to_date` / `not_running` / `not_detected` / `unknown`) — labels/colors duplicated per-component rather than shared, matching this codebase's established convention.
 
@@ -550,10 +550,10 @@ A row of at-a-glance counts above a list-page table. Two visual variants exist i
 .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .stat-card {
   flex: 1; display: flex; flex-direction: column; gap: 4px;
-  padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 18px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px;
 }
-.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 ```
 
 ### Colored top-border + inline label/value variant (Jobs page)
@@ -569,19 +569,19 @@ Modeled on a real Datto RMM Jobs page screenshot: label and number on the same h
 ```css
 .stat-card {
   flex: 1; display: flex; flex-direction: row; align-items: center; justify-content: space-between;
-  padding: 12px 16px; background: var(--surface);
-  border: 1px solid var(--border); border-top-width: 3px; border-radius: 8px;
+  padding: 12px 16px; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-top-width: 3px; border-radius: 8px;
   transition: border-color .12s, filter .12s;
 }
 .stat-card:hover { filter: brightness(1.06); }
 /* color modifier classes — pick one per card: */
 .stat-blue   { border-top-color: #3b6fd4; }
-.stat-accent { border-top-color: var(--accent); }
+.stat-accent { border-top-color: var(--color-primary); }
 .stat-purple { border-top-color: #9c6af7; }
-.stat-teal   { border-top-color: var(--teal); }
-.stat-muted  { border-top-color: var(--muted); }
-.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.stat-value { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-teal   { border-top-color: var(--color-success); }
+.stat-muted  { border-top-color: var(--color-text-muted); }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 ```
 
 **Clicking a stat card sets `filterStatus` only** — never `filterUser`. An earlier version also set `filterUser` (pinning the current user filter) and was explicitly corrected. Total/type cards clear the status filter (`filterStatus = null`); status cards set it to a specific value.
@@ -607,15 +607,15 @@ Pattern for an active-filter indicator with per-chip × dismiss and a "Reset Fil
 </div>
 ```
 ```css
-.filter-label { font-size: 13px; font-weight: 600; color: var(--text); }   /* section title */
-.filter-count { background: var(--border-2); color: var(--muted); font-size: 10px; padding: 1px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
-.filter-by    { font-size: 11px; color: var(--muted); }
-.filter-chip  { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 2px 6px 2px 8px; }
-.chip-x       { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 0; display: flex; align-items: center; }
-.chip-x:hover { color: var(--text); }
-.btn-reset    { background: none; border: none; cursor: pointer; font-size: 11px; color: var(--accent); font-family: var(--font); padding: 0; }
+.filter-label { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }   /* section title */
+.filter-count { background: var(--color-border-strong); color: var(--color-text-muted); font-size: 10px; padding: 1px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.filter-by    { font-size: 11px; color: var(--color-text-muted); }
+.filter-chip  { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--color-text-primary); background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 2px 6px 2px 8px; }
+.chip-x       { background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 13px; line-height: 1; padding: 0; display: flex; align-items: center; }
+.chip-x:hover { color: var(--color-text-primary); }
+.btn-reset    { background: none; border: none; cursor: pointer; font-size: 11px; color: var(--color-primary); font-family: var(--font); padding: 0; }
 .btn-reset:hover { text-decoration: underline; }
-.btn-link     { background: none; border: none; cursor: pointer; color: var(--accent); font-size: inherit; font-family: var(--font); padding: 0; }
+.btn-link     { background: none; border: none; cursor: pointer; color: var(--color-primary); font-size: inherit; font-family: var(--font); padding: 0; }
 .btn-link:hover { text-decoration: underline; }
 ```
 
@@ -648,15 +648,15 @@ Client-side pagination pattern, established in `JobsPage.vue`. Use when all rows
 </div>
 ```
 ```css
-.pagination     { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--border); }
-.page-info      { font-size: 11px; color: var(--muted); margin-right: auto; font-variant-numeric: tabular-nums; }
+.pagination     { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--color-border); }
+.page-info      { font-size: 11px; color: var(--color-text-muted); margin-right: auto; font-variant-numeric: tabular-nums; }
 .page-controls  { display: flex; align-items: center; gap: 3px; }
-.page-btn       { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-family: var(--font); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .1s, color .1s; }
-.page-btn:hover:not(:disabled) { background: var(--border-2); color: var(--text); }
+.page-btn       { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid var(--color-border-strong); border-radius: 4px; background: var(--color-surface-raised); color: var(--color-text-muted); font-size: 12px; font-family: var(--font); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .1s, color .1s; }
+.page-btn:hover:not(:disabled) { background: var(--color-border-strong); color: var(--color-text-primary); }
 .page-btn:disabled              { opacity: .35; cursor: not-allowed; }
-.page-btn-active                { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
-.page-ellipsis  { font-size: 12px; color: var(--muted); padding: 0 4px; }
-.page-size-select { height: 28px; padding: 0 8px; border: 1px solid var(--border-2); border-radius: 4px; background: var(--surface-2); color: var(--muted); font-size: 11px; font-family: var(--font); cursor: pointer; }
+.page-btn-active                { background: var(--color-primary) !important; color: #fff !important; border-color: var(--color-primary) !important; }
+.page-ellipsis  { font-size: 12px; color: var(--color-text-muted); padding: 0 4px; }
+.page-size-select { height: 28px; padding: 0 8px; border: 1px solid var(--color-border-strong); border-radius: 4px; background: var(--color-surface-raised); color: var(--color-text-muted); font-size: 11px; font-family: var(--font); cursor: pointer; }
 ```
 
 Script-side computed props:
@@ -731,9 +731,9 @@ Used in `RemoteShellModal.vue` for showing connection state on top of an always-
 .rs-term { position: absolute; inset: 0; padding: 8px; }
 .rs-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; background: rgba(12,14,22,.88); color: var(--text); font-size: 13px; text-align: center; padding: 20px;
+  gap: 4px; background: rgba(12,14,22,.88); color: var(--color-text-primary); font-size: 13px; text-align: center; padding: 20px;
 }
-.rs-spinner { width: 22px; height: 22px; border: 2px solid var(--border-2); border-top-color: var(--accent); border-radius: 50%; animation: rs-spin .8s linear infinite; margin-bottom: 8px; }
+.rs-spinner { width: 22px; height: 22px; border: 2px solid var(--color-border-strong); border-top-color: var(--color-primary); border-radius: 50%; animation: rs-spin .8s linear infinite; margin-bottom: 8px; }
 @keyframes rs-spin { to { transform: rotate(360deg); } }
 ```
 Three states (`connecting`/`closed`/`error`) share one overlay treatment (semi-transparent dark scrim + centered content) rather than three different visual languages — the *connected* state is just the absence of an overlay. Reusable for any future live-connection UI built on this same session/relay system (File Manager, Task Manager, etc.).
@@ -745,8 +745,8 @@ Three states (`connecting`/`closed`/`error`) share one overlay treatment (semi-t
 - **Kind** (`.kind-badge`) — Script vs. Application, a real behavior-driving field. Deliberately a **separate CSS class**, not a repurposed `.cat-badge`:
 ```css
 .kind-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
-.kind-script      { background: var(--surface-2); color: var(--muted); }
-.kind-application { background: rgba(78,126,247,.12); color: var(--accent); }
+.kind-script      { background: var(--color-surface-raised); color: var(--color-text-muted); }
+.kind-application { background: rgba(78,126,247,.12); color: var(--color-primary); }
 ```
 If you're ever tempted to reuse `.cat-badge` for a new "real" categorical field on this page, don't — that's exactly the naming collision this session had to un-do (the old `category` field vs. the new `type` field both being called "Category" in the UI at different points).
 
@@ -775,7 +775,7 @@ Used in `ComponentFormPage.vue`'s Sites section — and now, unmodified, in two 
 ```
 ```css
 .sf-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500; display: flex; align-items: stretch; justify-content: flex-end; }
-.sf-panel { display: flex; flex-direction: column; width: 420px; max-width: calc(100vw - 80px); height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden; }
+.sf-panel { display: flex; flex-direction: column; width: 420px; max-width: calc(100vw - 80px); height: 100%; background: var(--color-surface); border-left: 1px solid var(--color-border); box-shadow: -8px 0 32px rgba(0,0,0,.4); overflow: hidden; }
 .sf-row.selected { background: rgba(78,126,247,.06); }
 ```
 
@@ -802,13 +802,13 @@ Both `JobFormPage.vue`'s component picker flyout (`.cf-`) and target picker flyo
 **Row CSS:**
 ```css
 .cf-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer; }
-.cf-row.cf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--accent); }
+.cf-row.cf-row-selected { background: rgba(78,126,247,.08); border-left: 2px solid var(--color-primary); }
 .cf-check { width: 22px; display: flex; align-items: center; justify-content: center;
-            color: var(--teal); flex-shrink: 0; cursor: pointer; }
+            color: var(--color-success); flex-shrink: 0; cursor: pointer; }
 ```
 
 The same `.tf-row-selected` / `.tf-check` naming applies for the target flyout — identical CSS, different prefix. Key behaviors:
-- Left border (`border-left: 2px solid var(--accent)`) + background tint mark selected rows visually.
+- Left border (`border-left: 2px solid var(--color-primary)`) + background tint mark selected rows visually.
 - The **teal checkmark is on the right**, replacing the Add button via `v-if/v-else` — not a separate column and not on the left side. Clicking the checkmark calls the same toggle function as clicking Add (a single `toggle(item)` helper is fine).
 - The flyout stays open across multiple picks — never auto-closes on selection, matching Datto's pattern.
 - Removing via the flyout checkmark is equivalent to clicking the chip's × on the main form — both call the same remove path.
@@ -847,11 +847,11 @@ New page at `/jobs/:id` — fourth full-page form/detail shell in the codebase. 
 
 **Details card:**
 ```css
-.jd-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+.jd-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px;
            padding: 20px 24px; margin-bottom: 20px; }
 .jd-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; }
-.jd-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
-.jd-value { font-size: 13px; color: var(--text); }
+.jd-label { font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.jd-value { font-size: 13px; color: var(--color-text-primary); }
 ```
 
 **SVG flow diagram** (inline, viewBox `0 0 680 210`) — shows the job pipeline as three stages (Pending → Running → Successes/Warnings/Failures). Dynamic bindings use `flowStats` computed over all commands:
@@ -870,15 +870,15 @@ const flowStats = computed(() => {
   return { queued, sent, successes, warnings, failures };
 });
 ```
-Box fill is green/amber/red based on non-zero count; active (queued+sent > 0) box uses `var(--accent)`. Connector path for the fork: `M 368 45 H 400 V 175 M 400 45 H 428 M 400 110 H 428 M 400 175 H 428`.
+Box fill is green/amber/red based on non-zero count; active (queued+sent > 0) box uses `var(--color-primary)`. Connector path for the fork: `M 368 45 H 400 V 175 M 400 45 H 428 M 400 110 H 428 M 400 175 H 428`.
 
 **Command status badges** (`.jd-status-*`):
 ```css
 .jd-status-success { color: var(--green); }
 .jd-status-failed  { color: var(--danger); }
-.jd-status-warning { color: var(--amber); }
-.jd-status-sent    { color: var(--accent); }
-.jd-status-queued  { color: var(--text-muted); }
+.jd-status-warning { color: var(--color-warning); }
+.jd-status-sent    { color: var(--color-primary); }
+.jd-status-queued  { color: var(--color-text-muted); }
 ```
 Use a `badgeClass(cmd)` / `badgeLabel(cmd)` helper pair (same pattern as `JobsPage.vue`'s `.mini-badge`) — class and label change together, so a template ternary would have to be duplicated.
 
@@ -904,7 +904,7 @@ function parseResult(cmd: JobDeviceCommand): CmdResult | null {
 
 `JobsPage.vue`'s `.mini-badge` family (queued/sent/completed/failed) gained a fifth state this session:
 ```css
-.mini-warning { background: rgba(240,168,64,.12); color: var(--amber); }
+.mini-warning { background: rgba(240,168,64,.12); color: var(--color-warning); }
 ```
 Shown instead of the `completed` badge specifically when `status === 'completed' && warning === true` (post-condition match) — computed via a small `badgeClass(cmd)`/`badgeLabel(cmd)` helper pair rather than a template ternary, since both the badge's class *and* its label text need to change together. `warning` never changes the underlying `status` value itself or the stdout/stderr/exit-code display — it's a purely additive visual state. This same helper pattern is now used in `JobDetailPage.vue` for `.jd-status-*` badges.
 
@@ -979,14 +979,14 @@ Close on expand: `toggleSidebar()` also sets `openFlyout.value = null`.
 .sidebar.collapsed .sec-label, .sidebar.collapsed .sec-chevron,
 .sidebar.collapsed .sec-badge, .sidebar.collapsed .sec-body { display: none; }
 .sidebar.collapsed .sec-head { justify-content: center; padding: 10px 0; }
-.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--accent); }
+.sidebar.collapsed .sec-head.flyout-active .sec-icon { color: var(--color-primary); }
 .sidebar.collapsed .sidebar-footer, .sidebar.collapsed .sidebar-resizer { display: none; }
 
 .flyout-backdrop { position: fixed; inset: 0; z-index: 598; }
 .nav-flyout {
   position: fixed; left: 44px; min-width: 180px;
   max-height: calc(100vh - 16px); overflow-y: auto;
-  background: var(--surface); border: 1px solid var(--border-2);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
   border-radius: 0 6px 6px 0; box-shadow: 4px 0 20px rgba(0,0,0,.3); z-index: 599;
 }
 .nav-flyout .sbi { padding-left: 14px; }    /* override the normal 32px */
@@ -1017,8 +1017,8 @@ function alertStatusLabel(a: AlertState) {
 ```
 
 ```css
-.status-open     { background: rgba(232,86,106,.12); color: var(--red); }
-.status-acked    { background: rgba(240,180,40,.12);  color: var(--amber); }
+.status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
+.status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
 .status-resolved { background: rgba(34,197,94,.12);   color: var(--green); }
 ```
 
@@ -1028,7 +1028,7 @@ Follows `JobDetailPage.vue`'s shell (breadcrumb + title topbar + section cards).
 
 **Overview card**: `.ad-grid` — `display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px`. Each field is a `.ad-row` with `.ad-label` / `.ad-val`.
 
-**Timeline card**: vertical event spine. Each event: `display: flex; gap: 12px`. Left column: relative time string + absolute date in `.ad-time-abs`. Right column: icon + title + detail text. Events connected by a vertical line (CSS `border-left: 2px solid var(--border-2)` on a wrapper div, offset so it runs through the icon centers).
+**Timeline card**: vertical event spine. Each event: `display: flex; gap: 12px`. Left column: relative time string + absolute date in `.ad-time-abs`. Right column: icon + title + detail text. Events connected by a vertical line (CSS `border-left: 2px solid var(--color-border-strong)` on a wrapper div, offset so it runs through the icon centers).
 
 **Device Alerts card**: plain `<table>` of the same device's alert history, loaded via `api.alerts.list('all', '', '', alert.value.device_id)`. Current alert highlighted: `.ad-row-current { background: rgba(78,126,247,.06); }`. Row click navigates to that alert's detail (self-referential navigation, flyout closes naturally via route-change watch).
 
@@ -1058,7 +1058,7 @@ A checkbox that's the only thing in its grid cell reads as visually "detached" �
 
 **CSS-specificity gotcha found in the same fix**: a `.checkbox-label` nested inside a `.field` div gets its intended styling (12px, normal-case text) silently overridden by the global `.field label` rule (uppercase, muted, 11px, letter-spacing) — `.field label` (class + element selector) outweighs a bare `.checkbox-label` (single class) regardless of scoped-style load order. Invisible until compared against an identical `checkbox-label` used correctly elsewhere on the same page (e.g. Post-conditions' "Enabled" checkbox, which isn't nested inside `.field` and never hits the collision). Fix by bumping specificity, not `!important`:
 ```css
-.field .checkbox-label { text-transform: none; font-size: 12px; color: var(--text); letter-spacing: normal; }
+.field .checkbox-label { text-transform: none; font-size: 12px; color: var(--color-text-primary); letter-spacing: normal; }
 ```
 Any time a `checkbox-label` (or similar small inline control) ends up nested inside a `.field` wrapper, check it isn't silently inheriting the field-label look before assuming the scoped CSS "just works."
 
