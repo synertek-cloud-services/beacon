@@ -117,11 +117,11 @@
     <!-- Device Alerts card -->
     <div class="ad-card">
       <div class="ad-card-title">
-        Other Alerts on this Device
+        Alert History for this Device
         <span v-if="deviceAlerts.length" class="ad-badge">{{ deviceAlerts.length }}</span>
       </div>
       <div v-if="deviceAlertsLoading" class="ad-empty">Loading…</div>
-      <div v-else-if="!deviceAlerts.length" class="ad-empty">No other alerts for this device in the last 30 days.</div>
+      <div v-else-if="!deviceAlerts.length" class="ad-empty">No alerts for this device in the last 30 days.</div>
       <table v-else class="ad-table">
         <thead>
           <tr>
