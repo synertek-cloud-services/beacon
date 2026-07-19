@@ -463,7 +463,7 @@ adminJobs.post('/', async (c) => {
   }
 
   const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>();
-  return c.json(mapJob(job!, { device_count: devices.length, queued: devices.length * body.components.length, sent: 0, completed: 0, failed: 0 }), 201);
+  return c.json(mapJob(job!, { device_count: devices.length, queued: devices.length * body.components.length, sent: 0, completed: 0, failed: 0, expired: 0 }), 201);
 });
 
 // ── DELETE /:id — retire job (cancel, keep history) ───────────
