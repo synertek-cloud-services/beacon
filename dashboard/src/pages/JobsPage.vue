@@ -155,6 +155,9 @@ const filterType   = ref<string | null>(null);
 function currentUserName(): string | null {
   const u = authState.user;
   if (!u) return null;
+  // The Worker records break-glass job ownership as the operator-facing
+  // label "Admin", rather than its internal recovery email address.
+  if (u.source === 'break-glass') return 'Admin';
   return u.displayName ?? u.email;
 }
 
