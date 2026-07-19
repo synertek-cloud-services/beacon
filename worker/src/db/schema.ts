@@ -107,12 +107,37 @@ export const tenantLocations = sqliteTable('tenant_locations', {
   createdAt: integer('created_at').notNull(),
 });
 
+// Global, not per-company (migration 0046 dropped tenant_id) -- the hoster's
+// own team reads alerts, not the client company being monitored.
 export const webhookEndpoints = sqliteTable('webhook_endpoints', {
   id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
   url: text('url').notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at').notNull(),
+});
+
+// Standalone alert-notification addresses with no Beacon account (a shared
+// mailbox, a ticketing system's inbound address, etc.) -- the other of two
+// unioned recipient sources, alongside users.receivesAlerts below.
+export const notificationEmails = sqliteTable('notification_emails', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at').notNull(),
+});
+
+// Singleton active email provider config, mirrors brandingIdentity's shape.
+// configCiphertext holds the entire provider-specific credential blob as one
+// AES-GCM JSON string (shape varies by provider, so per-field encryption
+// doesn't fit) -- see worker/src/lib/email/.
+export const emailSettings = sqliteTable('email_settings', {
+  id: integer('id').primaryKey(),
+  provider: text('provider', { enum: ['ses', 'resend', 'mailgun'] }),
+  fromAddress: text('from_address'),
+  configCiphertext: text('config_ciphertext'),
+  configNonce: text('config_nonce'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: integer('updated_at').notNull(),
 });
 
 export const policies = sqliteTable('policies', {
@@ -349,6 +374,9 @@ export const users = sqliteTable('users', {
   updatedAt:     integer('updated_at').notNull(),
   lastLoginAt:   integer('last_login_at'),
   createdBy:     text('created_by'),
+  // Opt-in: this account receives alert notification emails (one of two
+  // unioned recipient sources, alongside notificationEmails above).
+  receivesAlerts: integer('receives_alerts', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const userSessions = sqliteTable('user_sessions', {

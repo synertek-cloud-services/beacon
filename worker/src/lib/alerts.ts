@@ -1,7 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
+import type { Bindings } from '../index';
 import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult } from './types';
+import { sendEmail } from './email';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -186,6 +188,7 @@ export interface CheckinAssignments {
 
 export async function evaluateCheckinAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   metrics: Metrics,
   now: number,
@@ -244,7 +247,7 @@ export async function evaluateCheckinAlerts(
     }
 
     const failed = evaluateCheck(monitor, metrics);
-    await processAlertState(db, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now);
   }
 
   return { fileSizeChecks, pingChecks, processChecks, serviceChecks };
@@ -254,6 +257,7 @@ export async function evaluateCheckinAlerts(
 
 export async function evaluateFileSizeAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   results: FileSizeResult[],
   now: number,
@@ -273,7 +277,7 @@ export async function evaluateFileSizeAlerts(
     const sizeMb = result.size_bytes / 1048576;
     const failed = result.exists && (cfg.mode === 'over' ? sizeMb > cfg.threshold_mb : sizeMb < cfg.threshold_mb);
 
-    await processAlertState(db, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now);
   }
 }
 
@@ -281,6 +285,7 @@ export async function evaluateFileSizeAlerts(
 
 export async function evaluatePingAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   results: PingResult[],
   now: number,
@@ -314,7 +319,7 @@ export async function evaluatePingAlerts(
       (cfg.packet_loss_pct !== null && result.packets_received > 0 && lossPct >= cfg.packet_loss_pct) ||
       (cfg.latency_ms !== null && result.packets_received > 0 && result.avg_rtt_ms > cfg.latency_ms);
 
-    await processAlertState(db, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now);
   }
 }
 
@@ -322,6 +327,7 @@ export async function evaluatePingAlerts(
 
 export async function evaluateProcessAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   results: ProcessResult[],
   now: number,
@@ -350,7 +356,7 @@ export async function evaluateProcessAlerts(
       case 'memory':   failed = result.running && cfg.threshold_pct !== null && result.mem_percent >= cfg.threshold_pct; break;
     }
 
-    await processAlertState(db, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now);
   }
 }
 
@@ -358,6 +364,7 @@ export async function evaluateProcessAlerts(
 
 export async function evaluateServiceAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   results: ServiceResult[],
   now: number,
@@ -386,7 +393,7 @@ export async function evaluateServiceAlerts(
       case 'memory':   failed = result.running && cfg.threshold_pct !== null && result.mem_percent >= cfg.threshold_pct; break;
     }
 
-    await processAlertState(db, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now);
   }
 }
 
@@ -414,6 +421,7 @@ interface SoftwareChange {
 
 export async function evaluateSoftwareAlerts(
   DB: D1Database,
+  env: Bindings,
   device: Device,
   changes: SoftwareChange[],
   now: number,
@@ -442,7 +450,7 @@ export async function evaluateSoftwareAlerts(
     // (Datto's spec: manual resolve only), so there's nothing to clear on a
     // non-match; calling with failed=false would just be a pointless read.
     if (matched) {
-      await processAlertState(db, device, monitor, true, now);
+      await processAlertState(db, env, device, monitor, true, now);
     }
   }
 }
@@ -451,6 +459,7 @@ export async function evaluateSoftwareAlerts(
 
 export async function evaluateOfflineAlerts(
   DB: D1Database,
+  env: Bindings,
   now: number,
 ): Promise<void> {
   const db = drizzle(DB, { schema });
@@ -491,7 +500,7 @@ export async function evaluateOfflineAlerts(
         failed = device.lastSeen === null || device.lastSeen < now - cfg.offline_after_seconds;
       }
 
-      await processAlertState(db, device, monitor, failed, now);
+      await processAlertState(db, env, device, monitor, failed, now);
     }
   }
 }
@@ -545,6 +554,7 @@ function evaluateCheck(monitor: PolicyMonitor, metrics: Metrics): boolean {
 
 async function processAlertState(
   db: Db,
+  env: Bindings,
   device: Device,
   monitor: EffectiveMonitor,
   failed: boolean,
@@ -572,8 +582,9 @@ async function processAlertState(
     // — evaluated once per audit, sometimes 24h apart — a transition never
     // repeats, so waiting for a "second" failure meant it could never fire.
     const fireImmediately = monitor.sustainedMinutes === 0;
+    const alertStateId = crypto.randomUUID();
     await db.insert(schema.alertState).values({
-      id:                 crypto.randomUUID(),
+      id:                 alertStateId,
       deviceId:           device.id,
       policyMonitorId:    monitor.id,
       conditionFirstSeen: now,
@@ -583,6 +594,7 @@ async function processAlertState(
     });
     if (fireImmediately) {
       await fireWebhooks(db, device, monitor, 'alert.triggered', now);
+      await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId);
     }
     return;
   }
@@ -615,6 +627,7 @@ async function processAlertState(
 
     if (shouldFire) {
       await fireWebhooks(db, device, monitor, 'alert.triggered', now);
+      await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id);
     }
   } else {
     const wasAlerting     = existing.isAlerting;
@@ -645,10 +658,15 @@ async function processAlertState(
 
     if (wasAlerting && shouldAutoResolve) {
       await fireWebhooks(db, device, monitor, 'alert.resolved', now);
+      await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id);
     }
   }
 }
 
+// Global, not scoped to the triggering device's company — the hoster's own
+// team reads alerts, not the client company being monitored (see the
+// notification_emails/users.receivesAlerts recipient model below, same
+// reasoning).
 async function fireWebhooks(
   db: Db,
   device: Device,
@@ -658,10 +676,7 @@ async function fireWebhooks(
 ): Promise<void> {
   const webhooks = await db.select()
     .from(schema.webhookEndpoints)
-    .where(and(
-      eq(schema.webhookEndpoints.tenantId, device.tenantId),
-      eq(schema.webhookEndpoints.enabled, true),
-    ));
+    .where(eq(schema.webhookEndpoints.enabled, true));
 
   if (!webhooks.length) return;
 
@@ -686,6 +701,43 @@ async function fireWebhooks(
       })
     )
   );
+}
+
+// Recipients are two unioned sources, both global/hoster-level: Beacon
+// accounts opted in via users.receivesAlerts, plus standalone addresses in
+// notification_emails with no Beacon account at all (a shared mailbox, a
+// ticketing system's inbound address, etc.).
+async function sendAlertEmails(
+  env: Bindings,
+  device: Device,
+  monitor: EffectiveMonitor,
+  event: 'alert.triggered' | 'alert.resolved',
+  now: number,
+  alertStateId: string,
+): Promise<void> {
+  const db = drizzle(env.DB, { schema });
+
+  const [userRows, standaloneRows, tenant] = await Promise.all([
+    db.select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(eq(schema.users.receivesAlerts, true), eq(schema.users.status, 'active'))),
+    db.select({ email: schema.notificationEmails.email })
+      .from(schema.notificationEmails)
+      .where(eq(schema.notificationEmails.enabled, true)),
+    db.select({ name: schema.tenants.name }).from(schema.tenants).where(eq(schema.tenants.id, device.tenantId)).get(),
+  ]);
+
+  const emails = [...new Set([...userRows.map(r => r.email), ...standaloneRows.map(r => r.email)])];
+  if (!emails.length) return;
+
+  const verb = event === 'alert.triggered' ? 'triggered' : 'resolved';
+  const subject = `[Beacon] Alert ${verb}: ${device.hostname ?? device.id} — ${monitor.checkType}`;
+  const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
+  const tenantName = tenant?.name ?? device.tenantId;
+  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${tenantName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${monitor.alertPriority}</p><p><a href="${link}">View alert</a></p>`;
+  const text = `Device ${device.hostname ?? device.id} (${tenantName}) — ${monitor.checkType} check ${verb}. Priority: ${monitor.alertPriority}. ${link}`;
+
+  await sendEmail(env, emails, subject, html, text);
 }
 
 // ── Called from policy/monitor admin routes after an edit ────────────────────

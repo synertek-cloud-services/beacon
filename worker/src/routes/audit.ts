@@ -273,7 +273,7 @@ audit.post('/', async (c) => {
 
     const inMaintenance = device.maintenanceEndsAt != null && device.maintenanceEndsAt > now;
     if (swChanges.length > 0 && !inMaintenance) {
-      await evaluateSoftwareAlerts(c.env.DB, device, swChanges, now);
+      await evaluateSoftwareAlerts(c.env.DB, c.env, device, swChanges, now);
     }
   }
 
