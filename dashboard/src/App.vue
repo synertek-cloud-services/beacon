@@ -410,8 +410,8 @@ function closeDropdown() {
 // pendingCount specifically needs to stay live, not just load once — it's
 // sidebar chrome that persists across every page, so it's the one place in
 // the app where a stale count is most visible (e.g. still showing "1" after
-// the device was approved elsewhere). Poll it like OverviewPage/JobsPage do
-// for their own summary data, rather than a one-shot fetch on mount.
+// the device was approved elsewhere). Poll it like JobsPage does for its
+// own summary data, rather than a one-shot fetch on mount.
 async function refreshPending() {
   if (!api.hasToken()) return;
   try {

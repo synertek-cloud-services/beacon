@@ -197,7 +197,7 @@ A custom theme has one **draft** (`draft_tokens`, freely `PATCH`-editable, not y
 ### Token set
 16 fixed keys (`worker/src/routes/branding.ts`'s `THEME_KEYS`, mirrored client-side in `dashboard/src/theme.ts`): `canvas, surface, surfaceRaised, surfaceBrand, border, borderStrong, textPrimary, textMuted, textSubtle, textOnPrimary, primary, primaryHover, success, warning, danger, info`. Server-side `parseTokens()` requires **all 16** present and each a strict `#rrggbb` hex string (no shorthand, no alpha) — a partial palette is rejected outright, not merged with defaults, so a theme is always a complete, self-consistent set.
 
-**This is a real, breaking rename of the app's own CSS custom properties**, not an additive layer: `dashboard/src/style.css`'s `:root` tokens were renamed from the old `--bg`/`--surface`/`--accent`/`--teal`/`--amber`/`--red`/`--text`/`--muted` naming (documented in STYLE.md's "Design tokens" table, now stale) to `--color-canvas`/`--color-surface`/`--color-primary`/`--color-success`/`--color-warning`/`--color-danger`/`--color-text-primary`/`--color-text-muted` etc. — a 1:1 rename to match `THEME_KEYS`, not a parallel token set; the old names no longer exist anywhere in `dashboard/src/**`. Necessary because live re-theming works by overwriting these exact custom properties at runtime (`applyTheme()` below) — the CSS everywhere else in the app was left untouched (still `var(--color-primary)` etc.), only the property *names* changed. **STYLE.md's token table and every code sample using the old names needs updating separately** — out of scope for this pass, flagged here so it isn't missed.
+`dashboard/src/style.css`'s `:root` tokens are a 1:1 rename to match `THEME_KEYS` (old `--bg`/`--surface`/`--accent`/`--teal`/`--amber`/`--red`/`--text`/`--muted` → `--color-canvas`/`--color-surface`/`--color-primary`/`--color-success`/`--color-warning`/`--color-danger`/`--color-text-primary`/`--color-text-muted` etc., see STYLE.md's Design tokens table) — necessary because live re-theming overwrites these exact custom properties at runtime (`applyTheme()` below).
 
 ### Worker (`worker/src/routes/branding.ts`, mounted at `/v1/branding`)
 - `GET /active` (public, `no-store`) — the runtime pointer every page load resolves. Built-in active theme: returns `{themeId, name, tokens}` directly (tokens parsed straight from `draft_tokens`, no revision indirection). Custom active theme: returns `{revisionId, themeId, name, revision, publishedAt}` — no tokens inline, forces a second call.
@@ -227,7 +227,7 @@ Scoped against a Datto RMM Branding reference (User Interface/Agent/Support Requ
 
 ## Shared Dashboards
 
-Replaced the old fixed `OverviewPage` with host-wide, admin-configurable dashboards (migration `0039`). `OverviewPage.vue` is now **orphaned dead code** — still present on disk but no longer imported by `main.ts` or linked from `App.vue` (only stale comments reference it); a future pass should delete it.
+Replaced the old fixed `OverviewPage` with host-wide, admin-configurable dashboards (migration `0039`). `OverviewPage.vue` was deleted (it had already become dead code — no longer imported by `main.ts` or linked from `App.vue`, only referenced by two stale comments, which were also fixed).
 
 ### Tables
 - `dashboards` — `id`, `name`, `sort_order`, `is_home` (bool, exactly one row at a time — enforced procedurally, not a DB constraint: `PATCH .../:id {isHome:true}` first clears every other row's flag in the same batch), timestamps.
@@ -451,7 +451,7 @@ A 4th `resolveDevices()` branch in `worker/src/routes/admin/jobs.ts` (alongside 
 
 ## Policy Targeting (Sites / Devices / Device Groups, migration 0032)
 
-A later-session redesign of policy targeting, triggered by the user comparing `PolicyFormPage.vue` against a real Datto Create Policy reference screenshot and asking to "fix the policy targeting to match the reference aka rest of the site" — Datto's reference shows one unified "Targets" section (a single Add Target flyout, one flat list), while Beacon had it split three ways: a Scope seg-bar (Global/single-Site combobox), OS/Class pill checkboxes, and a separate Device Groups picker.
+Redesigned to match a real Datto Create Policy reference: one unified "Targets" section (a single Add Target flyout, one flat list) — Beacon previously split this three ways: a Scope seg-bar (Global/single-Site combobox), OS/Class pill checkboxes, and a separate Device Groups picker.
 
 ### Scope decisions (confirmed via AskUserQuestion before implementation)
 - **Unify Sites (now multi-site, not one), individual Devices (new), and Device Groups into one Targets flyout**, reusing `JobFormPage.vue`'s `.tf-` flyout pattern verbatim for visual/interaction consistency with the rest of the app.
