@@ -92,6 +92,20 @@ function quote(value) { return `'${String(value).replaceAll("'", "''")}'`; }
 function json(value) { return quote(JSON.stringify(value)); }
 function id(world, kind, key) { return `demo-${world.id}-${kind}-${key}`; }
 function digest() { return createHash('sha256').update(randomBytes(32)).digest('hex'); }
+function avState(value) {
+  return ({ protected: 'running_up_to_date', outdated: 'running_not_up_to_date', unknown: 'not_detected' })[value] ?? 'unknown';
+}
+function securityInfo(os, state) {
+  const product = os === 'windows' ? 'Microsoft Defender' : os === 'macos' ? 'XProtect' : 'ClamAV';
+  return {
+    firewall_enabled: true,
+    antivirus: [{
+      name: state === 'not_detected' ? 'No antivirus detected' : product,
+      enabled: state === 'running_up_to_date' || state === 'running_not_up_to_date',
+      up_to_date: state === 'running_up_to_date',
+    }],
+  };
+}
 
 export function buildWorldSql(world) {
   validateWorld(world);
@@ -112,11 +126,12 @@ export function buildWorldSql(world) {
     sql.push(`INSERT INTO enrollment_tokens (id, tenant_id, token_hash, agent_type, use_count, max_uses, revoked_at, created_at, created_by) VALUES (${quote(token)}, ${quote(tenant)}, ${quote(digest())}, 'standard', 0, 0, ${now}, ${now}, 'demo seed');`);
   }
 
-  for (const [key, site, hostname, role, os, deviceClass, online, avStatus] of world.devices) {
+  for (const [key, site, hostname, role, os, deviceClass, online, seedAvStatus] of world.devices) {
     const device = deviceId.get(key), lastSeen = online ? `${now} - 75` : `${now} - 1800`;
+    const avStatus = avState(seedAvStatus);
     const inventory = { av_status: avStatus, hardware: { system: { manufacturer: world.title, model: role }, architecture: 'amd64' }, software: [] };
     sql.push(`INSERT INTO devices (id, tenant_id, enrollment_token_id, agent_type, device_credential_hash, status, hostname, os_type, os_version, detected_class, agent_version, last_seen, inventory, external_ip, created_at, approved_at) VALUES (${quote(device)}, ${quote(tenantId.get(site))}, ${quote(id(world, 'token', site))}, 'standard', ${quote(digest())}, 'approved', ${quote(hostname)}, ${quote(os)}, ${quote(os === 'windows' ? 'Windows 11 24H2' : os === 'macos' ? 'macOS 15' : 'Ubuntu 24.04')}, ${quote(deviceClass)}, '0.2.8-demo', ${lastSeen}, ${json(inventory)}, '198.51.100.${10 + world.devices.findIndex(([deviceKey]) => deviceKey === key)}', ${now} - 86400 * 14, ${now} - 86400 * 14);`);
-    sql.push(`INSERT INTO device_audits (id, device_id, tenant_id, audit_type, hardware, software, services, security, agent_version, created_at) VALUES (${quote(id(world, 'audit', key))}, ${quote(device)}, ${quote(tenantId.get(site))}, 'full', ${json(inventory.hardware)}, ${json([{ name: 'Beacon Demo Tools', version: '1.0' }])}, '[]', ${json({ antivirus: avStatus })}, '0.2.8-demo', ${now} - 3600);`);
+    sql.push(`INSERT INTO device_audits (id, device_id, tenant_id, audit_type, hardware, software, services, security, agent_version, created_at) VALUES (${quote(id(world, 'audit', key))}, ${quote(device)}, ${quote(tenantId.get(site))}, 'full', ${json(inventory.hardware)}, ${json([{ name: 'Beacon Demo Tools', version: '1.0' }])}, '[]', ${json(securityInfo(os, avStatus))}, '0.2.8-demo', ${now} - 3600);`);
   }
 
   const fields = [
@@ -137,7 +152,7 @@ export function buildWorldSql(world) {
   sql.push(`INSERT INTO policies (id, name, description, scope, enabled, target_os, target_class, created_at, updated_at) VALUES (${quote(policyId)}, ${quote(`${world.title} Operations`)}, ${quote('Demo-only monitoring policy.' )}, 'company', 1, '["windows","linux","macos"]', '["server","workstation","laptop"]', ${now}, ${now});`);
   for (const site of world.sites) sql.push(`INSERT INTO policy_sites (policy_id, tenant_id, created_at) VALUES (${quote(policyId)}, ${quote(tenantId.get(site.key))}, ${now});`);
   for (const type of monitorTypes) {
-    const config = type === 'offline' ? { direction: 'offline', timeout_minutes: 5 } : type === 'cpu_usage' ? { threshold_percent: 90 } : type === 'disk_space' ? { threshold_gb: 10 } : { expected_status: 'protected' };
+    const config = type === 'offline' ? { direction: 'offline', timeout_minutes: 5 } : type === 'cpu_usage' ? { threshold_percent: 90 } : type === 'disk_space' ? { threshold_gb: 10 } : { av_state: 'not_detected' };
     sql.push(`INSERT INTO policy_monitors (id, policy_id, check_type, enabled, config, alert_priority, sustained_minutes, check_interval_minutes, auto_resolve, auto_resolve_after_minutes, created_at) VALUES (${quote(monitorId.get(type))}, ${quote(policyId)}, ${quote(type)}, 1, ${json(config)}, ${quote(monitorPriority.get(type) ?? 'high')}, 5, 1, 1, 60, ${now});`);
   }
   for (const [key, type, priority, minutesAgo] of world.incidents) sql.push(`INSERT INTO alert_state (id, device_id, policy_monitor_id, condition_first_seen, is_alerting, alerted_at, updated_at) VALUES (${quote(id(world, 'alert', key))}, ${quote(deviceId.get(key))}, ${quote(monitorId.get(type))}, ${now} - ${minutesAgo * 60}, 1, ${now} - ${minutesAgo * 60}, ${now});`);

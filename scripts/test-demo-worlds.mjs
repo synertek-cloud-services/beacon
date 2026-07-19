@@ -10,6 +10,7 @@ for (const name of worldNames()) {
   assert.doesNotMatch(sql, /undefined/);
   assert.equal((sql.match(/INSERT INTO tenants/g) ?? []).length, world.sites.length);
   assert.equal((sql.match(/INSERT INTO devices/g) ?? []).length, world.devices.length);
+  assert.equal((sql.match(/"antivirus":\[/g) ?? []).length, world.devices.length);
   assert.equal((sql.match(/INSERT INTO alert_state/g) ?? []).length, world.incidents.length);
 }
 
