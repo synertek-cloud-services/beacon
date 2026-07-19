@@ -55,8 +55,9 @@ unrelated formatting changes, or speculative features.
 - Do **not** run `make db-generate`: Drizzle's migration metadata is stale and
   it would create a bogus catch-up migration. For schema work, add the
   migration, hand-update `schema.ts`, run `make migrate-local`, then run the
-  relevant type checks. Production migrations and Worker deploys are manual
-  operational actions and require explicit user approval.
+  relevant type checks. Production releases run through `.github/workflows/release.yml`
+  after a PR merges to `main`; do not manually migrate or deploy production
+  unless the user explicitly requests a break-glass operational action.
 - Preserve the agent pull model: enrollment obtains a device credential;
   check-ins carry metrics and prior results, then receive queued commands and
   monitoring assignments. Changes to this protocol normally affect worker

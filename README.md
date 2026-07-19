@@ -60,6 +60,23 @@ make dev                # wrangler dev
 
 For production: `make migrate-remote` (after creating your D1 database and setting the `ADMIN_SECRET` secret via `npx wrangler secret put ADMIN_SECRET`), then `make deploy`.
 
+### Maintainer release automation
+
+Beacon's own production releases are performed by GitHub Actions after an
+approved PR is merged to `main`. The workflow applies D1 migrations, deploys
+the Worker, builds/deploys Pages, and checks Worker health in that order. It
+requires these one-time GitHub repository settings:
+
+- Secret `CLOUDFLARE_API_TOKEN` — scoped to deploy the Worker and Pages and
+  modify the production D1 database.
+- Secret `WORKER_WRANGLER_TOML` — the organization-specific
+  `worker/wrangler.toml` content, kept out of source control.
+- Variable `CLOUDFLARE_PAGES_PROJECT` — the Pages project name.
+- Variable `PRODUCTION_WORKER_URL` — the Worker health-check origin.
+
+Disable automatic production Pages deployments in Cloudflare; otherwise Pages
+can publish the frontend before its Worker and database changes are released.
+
 ### 2. Dashboard setup
 
 ```bash

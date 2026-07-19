@@ -35,8 +35,11 @@ cd dashboard
 pnpm dev              # local dev server on :5173
 pnpm run build        # type-check + vite build
 ```
-CI/CD: Cloudflare Pages auto-deploys on push to main when `dashboard/*` changes.
-Root dir: `dashboard`, build command: `pnpm run build`, output: `dist`.
+CI/CD: `.github/workflows/release.yml` runs after a PR merges to `main` and
+releases in order: D1 migrations, Worker, dashboard Pages, health check. Pages
+automatic production deployment must remain disabled so it cannot race ahead
+of this workflow. Root dir: `dashboard`, build command: `pnpm run build`,
+output: `dist`.
 
 **Local full-stack testing gotchas** (hit repeatedly enough to be worth writing down):
 - `dashboard/vite.config.ts` already proxies `/v1` → `http://localhost:8787` — for local `pnpm dev` + `wrangler dev` testing, **don't** set `VITE_API_URL` at all (leave it unset so `api.ts`'s `baseUrl` stays `''`/relative). Setting it to `http://localhost:8787` directly makes the browser issue real cross-origin fetches, which the worker's CORS allowlist (hardcoded to exactly `http://localhost:5173`, see CORS below) will reject for any other local port — a real dead end hit while testing the Job scheduling work, cost real time before realizing the proxy already existed and made the override actively harmful.
@@ -124,11 +127,14 @@ Builds all 5 platform/arch binaries, signs each with `BEACON_SIGNING_KEY`, and r
 
 Migrations live in `migrations/` (not inside `worker/`). Drizzle points there via `wrangler.toml`. When adding a schema change:
 1. Add a new migration file `migrations/XXXX_description.sql`
-2. Run `make db-generate` to regenerate Drizzle types
+2. Hand-update `worker/src/db/schema.ts` to match (do not run `make db-generate`)
 3. Run `make migrate-local` to test locally
-4. Run `make migrate-remote` after deploying the worker
+4. For this repository's production environment, merge the approved PR and
+   let the release workflow apply migrations before deploying the Worker and
+   dashboard. Self-hosters using the manual README flow still run migrations
+   before their Worker deployment.
 
-Latest migration: `0037` (branding themes — see Branding above). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it (Auth System for `0016`; Components/Job System for `0020`/`0022`/`0028`; Device detail page for `0019`/`0023`; Custom Fields for `0029`/`0030`; Device Groups for `0031`; Policy Targeting for `0032`; Branding for `0033`–`0037`). Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
+Latest migration: `0044` (shared dashboards). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
