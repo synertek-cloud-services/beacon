@@ -1,5 +1,55 @@
 # Beacon — Project Log
 
+## Session: 2026-07-19 — Branding Identity, docs cleanup, Alert Notifications
+
+### What was completed
+
+**1. Branding Identity (product name + logo) — built in two passes**
+
+Backend (migration `0038`, later renumbered `0045` by the release-automation merge-order renumbering) shipped first: a singleton `branding_identity` table, an `LOGOS` R2 bucket (this project's first file-upload feature), and 5 endpoints (`GET /identity`, `GET /logo/:key`, `PATCH /admin/identity`, `POST /admin/logo`, `DELETE /admin/logo`). The frontend piece was deliberately deferred at the time — the user had unrelated Shared Dashboards work in flight in the same working tree, and touching `dashboard/` risked a real merge conflict (this pattern recurred enough this session to become a standing rule, see `feedback_dashboard_wip` memory).
+
+Once the dashboards work merged, built the frontend: `dashboard/src/brand.ts` (reactive singleton + loader, mirrors `auth.ts`'s shape, loaded in parallel with `loadActiveTheme()`), wired into the sidebar mark/name, the login page brand lockup, and the browser tab title (which turned out to be hardcoded to the literal string `"dashboard"`, not even "Beacon" — a separate pre-existing bug, fixed as a side effect). New Identity section on `BrandingSettingsPage.vue` (Product Name + logo upload with live preview). Real Playwright testing caught a genuine bug before merge: the loader only wrote `productName`/`logoUrl` when the server returned a truthy value, so clearing a field (Remove Logo, blank name) never reverted the UI — it stayed stuck on the last-set value forever, since nothing ever told it to revert. Fixed to always set both, in both directions.
+
+Two small follow-up UI fixes shipped separately once caught from screenshots: the Product Name placeholder text was clipped by the input's fixed width, and `AlertDetailPage.vue`'s "Other Alerts on this Device" card was mislabeled — it actually includes and highlights the *current* alert by design (see `ad-row-current`), so a device with only ever one alert showed that alert back to the user under a heading calling it "other."
+
+**2. Docs cleanup**
+
+STYLE.md's Design Tokens table and every code sample still referenced the pre-rebrand `--bg`/`--surface`/`--accent`/`--teal`/`--amber`/`--red` token names, months after the real CSS was fully renamed to `--color-*` to support live re-theming — 122 stale references mechanically replaced, plus two pre-existing typos (missing `var()` wrapper) fixed in the same lines. CLAUDE.md was missing the Shared Dashboards feature entirely (new home route, migration `0039`, three new tables) — added a section, fixed the Dashboard routes table and Sidebar structure section (both still described the old fixed `OverviewPage`-based home route), and deleted `OverviewPage.vue` itself once confirmed genuinely orphaned (no imports, no routes, only two stale comments naming it, which were also fixed).
+
+**3. Alert Notifications — global webhooks + pluggable email**
+
+Investigation before planning found webhooks already fired server-side (`fireWebhooks()` in `worker/src/lib/alerts.ts`, calling an existing `webhook_endpoints` table) but had zero dashboard UI and were scoped per-company. Mid-planning the user corrected the whole model: Beacon is used by an MSP to monitor clients, so it's the *hoster's* own team that reads alerts, not the client company — both webhooks and email became global (migration `0046` rebuilt `webhook_endpoints` to drop `tenant_id`), configured on one combined Settings page, matching Datto's own "Setup > Global Settings" framing.
+
+Email is fully new, built as a real plugin architecture per explicit request (not a flat if/else): `worker/src/lib/email/` — an `EmailProvider` interface, one self-contained file per provider (`providers/{resend,mailgun,ses}.ts`), and a small registry that's the only place aware all providers exist. SES needed a hand-rolled AWS Signature Version 4 signer (no usable AWS SDK for Workers) — verified correct by configuring all three providers with fake-but-correctly-shaped credentials and confirming each came back with a real, well-formed rejection from its actual API (Resend `401`, Mailgun `401`, SES `403 invalid security token`) rather than a parse error, proving the request/auth/signing shape itself is right. Caught and fixed a real validation gap during that same pass: the email-settings `PATCH` route accepted any string as `provider` with no runtime check, only a TypeScript type annotation that never validates the actual JSON payload.
+
+Recipients are two unioned sources, both global (the user's own analogy — "like how my UniFi account gets alerts but they're also sent to our support mailbox"): opted-in Beacon user accounts (`users.receives_alerts`) and a standalone address list (`notification_emails`, no Beacon account needed). A follow-up commit fixed two layout bugs caught from a screenshot after the first PR had already merged — see the process note below for why that follow-up needed its own PR.
+
+**4. Process / workflow**
+
+- Set up direct `git push` capability via `gh`'s HTTPS credential helper (previously blocked — no SSH key in this environment). A separate `ssh` remote stays as the user's own manual fallback.
+- Established (the hard way, twice) that once the user says a PR is merged, cleanup must happen immediately and unprompted: `git checkout main && git pull`, then delete the branch both locally and on the remote. A commit pushed to a branch after its PR already merged doesn't retroactively join that PR — it needs a fresh one, discovered when the user reported "don't see any open pull requests" after a follow-up fix silently failed to land.
+- Deleted 10 merged feature branches in one pass (local + remote) once caught up.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Branding logo/config secrets encrypted at rest via existing `CONFIG_ENCRYPTION_KEY`, not a new secret | Reuses the exact `sso_providers` pattern (`encryptSecret`/`decryptSecret`, "never return the secret, blank input means keep existing") rather than inventing a second convention for the same problem. |
+| `brand.ts`'s loader always sets both fields unconditionally, not just when truthy | The same function is called both at app-startup (defaults already correct) and after an admin *clears* a value from Settings (needs to revert) — a truthy-only write silently only ever supported one direction. |
+| Webhooks/email notifications are global (hoster-level), not per-company | Corrected mid-planning by the user: an MSP's own team reads alerts about client devices, not the clients themselves. Client-facing notification would be a separate PSA integration, out of scope here. |
+| Email providers as a real plugin architecture (interface + `providers/` dir + registry) | Explicit user request, rejected an initial flat if/else dispatcher design at the plan-approval step. Adding a future provider is one new file, not a change to shared code — see `feedback_plugin_architecture` memory, now a standing default for any future multi-provider integration. |
+| No webhook request signing | User's own call: outbound-only, no need to verify authenticity server-side — a receiver needing that fronts the URL with something like Hookdeck instead. |
+| Recipients are two unioned sources (Beacon users + standalone addresses), not one | Matches a real reference behavior the user described (personal account alerts + shared team mailbox) rather than forcing a single model that would satisfy only one of the two. |
+| `webhook_endpoints` table rebuilt (not left with a vestigial `tenant_id`) | Unlike other vestigial-column precedents in this codebase (`components.company_id`, `policies.company_id`), this table had zero real UI or usage before this session, so a clean rebuild was safe and cost nothing in migration risk. |
+
+### Next logical steps
+
+1. **Verify real email delivery with live credentials** — local testing proved each provider's request/auth/signing shape is correct (real API rejections, not parse errors), but only a real send confirms actual delivery. SES particularly needs this: a wrong-but-parseable signature and a correct one look identical against a fake key.
+2. **Patch Management** — still the largest untouched backlog item (Windows Update scanning/status, agent-side WUA queries, a dedicated page). Real MSP-facing value, large scope.
+3. **Rest of Agent Browser** (File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover) — deferred since the original Remote Shell session, all reusable on the same session/relay plumbing.
+
+---
+
 ## Session: 2026-07-18 — Ordered GitHub Actions releases
 
 - Added `.github/workflows/release.yml`, triggered only after a PR merges into

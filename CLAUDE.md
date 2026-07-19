@@ -742,6 +742,9 @@ The general form of the pattern above, now established across five independent i
 ### Add-item flyout (multi-select, stays open across picks)
 The `.sf-overlay`/`.sf-panel` right-side flyout (search + per-row Add/Remove toggle) originated in `ComponentFormPage.vue`'s Sites section and is now a proven, generalized pattern — reused verbatim (same CSS class names, duplicated per this codebase's convention) in `GroupFormPage.vue` (picking devices) and `PolicyFormPage.vue` (picking Device Groups). Full markup/CSS/behavior documented in STYLE.md — copy that, don't re-derive it, for the next "pick several of X for this record" UI.
 
+### Settings list (`.pf-monitors`): label outside the box, always add an empty state
+Two real bugs (caught from screenshots) on `NotificationSettingsPage.vue`'s Webhooks/Recipients lists, both easy to reintroduce on the next `.pf-monitors` list: a section label placed as a *child* of `.pf-monitors` sits flush against its top-left border (no internal padding on that element) — put the label as a sibling above the box instead. And a list with a `.pf-tbl-head` header but zero rows and no `v-if="!items.length"` `.pf-mon-empty` branch renders as a bare header with nothing below it. Full detail and correct/wrong markup in STYLE.md.
+
 ### Adding a new check_type to the Add Monitor drawer (PolicyFormPage)
 Established over 6 check types added this session — each one touches the same ~9 spots, always in this order:
 1. `checkTypeOptions` entry (icon + label)

@@ -1073,3 +1073,37 @@ Any time a `checkbox-label` (or similar small inline control) ends up nested ins
 <input v-if="!groupPickId" v-model="newGroupName" class="field-input" placeholder="New group name" />
 ```
 Submit either creates the group first (if `groupPickId` is empty) or uses the picked id, then calls the bulk-add endpoint once for the whole selection — one API round trip regardless of how many devices are checked. Reasonable default for the next "assign selection to an existing-or-new bucket" bulk action.
+
+## Settings list (`.pf-monitors`): section label goes outside the box, every list needs an empty state
+
+`NotificationSettingsPage.vue`'s Webhooks/Recipients/Standalone-Addresses lists reuse `SsoSettingsPage.vue`'s `.pf-monitors`/`.pf-mon-row`/`.pf-mon-empty` chrome (same classes already used by PolicyFormPage's monitor list and ComponentFormPage's variables list — see the Add-item-flyout/nested-resource patterns elsewhere in this doc). Two real bugs fixed while building the Notifications page, both worth checking for on the next new `.pf-monitors` list:
+
+**A section label is a sibling *above* `.pf-monitors`, never a child inside it.** `.pf-monitors` has `border` + `overflow: hidden` and zero internal padding of its own (padding lives on `.pf-tbl-head`/`.pf-mon-row`/`.pf-mon-empty` individually) — a label placed as a direct child sits flush against the top-left corner with no breathing room, reading as "touching the border" (reported from a real screenshot). Correct:
+```html
+<label class="pf-sublabel" style="display:block;margin-top:14px;margin-bottom:6px">Standalone Addresses</label>
+<div class="pf-monitors">
+  <div v-if="!items.length" class="pf-mon-empty"><p>No items yet.</p></div>
+  <div v-for="item in items" ...>...</div>
+</div>
+```
+Wrong (what shipped first, then got corrected):
+```html
+<div class="pf-monitors">
+  <label class="pf-sublabel">Standalone Addresses</label>  <!-- touches the box's top-left border -->
+  ...
+</div>
+```
+
+**Every `.pf-monitors` list needs a `v-if="!items.length"` `.pf-mon-empty` branch, even ones with a `.pf-tbl-head` header row.** A list with a header but zero data rows and no empty-state branch renders as a bare header bar with nothing below it — easy to miss when testing with seeded data already present, only obvious against a genuinely empty table (e.g. a fresh self-host with zero users). `.pf-mon-empty { padding: 24px; text-align: center; }` (already defined wherever `.pf-monitors` is used) handles this with zero extra markup — just remember to add the `v-if` branch, it's not automatic.
+
+## Segmented provider/type picker with per-type fields (multi-integration settings)
+
+`NotificationSettingsPage.vue`'s Email Provider section — a `seg-bar` of `v-for`'d options (SES/Resend/Mailgun) where each selection reveals a different `<template v-if="form.provider === 'x'">` block of fields, exactly the same shape as the Add Monitor drawer's "per-check-type field visibility" pattern documented elsewhere in this file, just applied to a settings page instead of a drawer:
+```html
+<div class="seg-bar">
+  <button v-for="p in providerTypes" :key="p" :class="['seg-btn', { active: form.provider === p }]" @click="form.provider = p">{{ providerLabel(p) }}</button>
+</div>
+<template v-if="form.provider === 'ses'">...ses-specific fields...</template>
+<template v-else-if="form.provider === 'resend'">...resend-specific fields...</template>
+```
+Reach for this whenever a settings page needs to configure "one of several pluggable backends" (matches the backend's own `EmailProvider` interface + `providers/` directory + registry shape in `worker/src/lib/alerts.ts`'s Alert Notifications section of CLAUDE.md) — the frontend field-switcher and the backend plugin registry are two halves of the same "pick one implementation, keep the others' concerns fully separate" idea.
