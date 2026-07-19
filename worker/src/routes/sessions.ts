@@ -24,7 +24,7 @@ sessions.post('/', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
-  const device = await db.select({ id: schema.devices.id })
+  const device = await db.select({ id: schema.devices.id, inventory: schema.devices.inventory })
     .from(schema.devices)
     .where(and(
       eq(schema.devices.id, body.device_id),
@@ -34,6 +34,11 @@ sessions.post('/', async (c) => {
     .get();
 
   if (!device) return c.json({ error: 'device not found or not approved' }, 404);
+  try {
+    if (JSON.parse(device.inventory ?? '{}').demo_seed === true) {
+      return c.json({ error: 'remote sessions are unavailable for seeded demo devices' }, 409);
+    }
+  } catch { /* a malformed inventory blob is not a reason to block a real device */ }
 
   const sessionId = crypto.randomUUID();
   // WORKER_URL is a configured value, not derived from c.req.url — a

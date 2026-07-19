@@ -51,8 +51,9 @@
           </svg>
           Remote Session
         </button>
-        <button class="toolbar-btn" :disabled="device.status !== 'approved'" @click="remoteShellOpen = true"
-          :title="device.status !== 'approved' ? 'Device must be approved to open a session' : ''">
+        <button class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
+          :disabled="device.status !== 'approved' || isDemoDevice(device)" @click="remoteShellOpen = true"
+          :title="isDemoDevice(device) ? 'Remote Shell requires a live agent; seeded demo devices cannot connect' : device.status !== 'approved' ? 'Device must be approved to open a session' : ''">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
           </svg>
@@ -755,6 +756,7 @@ interface DiskInfo {
 }
 
 interface Inventory {
+  demo_seed?: boolean;
   hostname: string;
   os_type: string;
   os_version: string;
@@ -1202,6 +1204,7 @@ function closeMenuOnce() { menuOpen.value = false; }
 function isOnline(d: Device) {
   return d.status === 'approved' && d.lastSeen != null && d.lastSeen > now.value - 300;
 }
+function isDemoDevice(d: Device) { return inventoryOf(d)?.demo_seed === true; }
 function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
 function isWindows(d: Device) { return (d.osType ?? '').toLowerCase() === 'windows'; }
 function isLinux(d: Device)   { return (d.osType ?? '').toLowerCase() === 'linux'; }

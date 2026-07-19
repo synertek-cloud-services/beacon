@@ -50,6 +50,13 @@ let term: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let ws: WebSocket | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let connectTimeout: ReturnType<typeof window.setTimeout> | null = null;
+const CONNECT_TIMEOUT_MS = 70_000;
+
+function clearConnectTimeout() {
+  if (connectTimeout !== null) window.clearTimeout(connectTimeout);
+  connectTimeout = null;
+}
 
 // Sends the terminal's current size as a JSON text control frame — binary
 // frames on this connection carry raw PTY bytes, matching the agent's
@@ -60,23 +67,43 @@ function sendResize() {
 }
 
 async function openSession() {
+  clearConnectTimeout();
   status.value = 'connecting';
   errorMsg.value = '';
   try {
     const { client_ws_url } = await api.sessions.open(props.deviceId, props.tenantId, 'shell');
-    ws = new WebSocket(client_ws_url);
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { fitAddon?.fit(); sendResize(); };
+    const socket = new WebSocket(client_ws_url);
+    ws = socket;
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = () => { fitAddon?.fit(); sendResize(); };
     // First message of any kind flips the UI out of "connecting" — the agent
     // doesn't attach to the relay until its next check-in (up to 60s), so
     // there's no earlier signal to key off without extra relay-side plumbing.
-    ws.onmessage = (ev) => {
+    socket.onmessage = (ev) => {
+      if (ws !== socket) return;
+      clearConnectTimeout();
       if (status.value === 'connecting') status.value = 'connected';
       if (typeof ev.data !== 'string') term?.write(new Uint8Array(ev.data as ArrayBuffer));
     };
-    ws.onclose = () => { status.value = 'closed'; };
-    ws.onerror = () => { status.value = 'error'; errorMsg.value = 'Connection error.'; };
+    socket.onclose = () => {
+      if (ws !== socket) return;
+      clearConnectTimeout();
+      if (status.value !== 'error') status.value = 'closed';
+    };
+    socket.onerror = () => {
+      if (ws !== socket) return;
+      clearConnectTimeout();
+      status.value = 'error';
+      errorMsg.value = 'Connection error.';
+    };
+    connectTimeout = window.setTimeout(() => {
+      if (ws !== socket || status.value !== 'connecting') return;
+      status.value = 'error';
+      errorMsg.value = 'The agent did not connect within 70 seconds. Confirm the device is online and its agent supports Remote Shell.';
+      socket.close();
+    }, CONNECT_TIMEOUT_MS);
   } catch (e: any) {
+    clearConnectTimeout();
     status.value = 'error';
     errorMsg.value = e.message ?? 'Failed to open session.';
   }
@@ -118,6 +145,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  clearConnectTimeout();
   resizeObserver?.disconnect();
   ws?.close();
   term?.dispose();

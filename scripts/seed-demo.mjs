@@ -129,7 +129,7 @@ export function buildWorldSql(world) {
   for (const [key, site, hostname, role, os, deviceClass, online, seedAvStatus] of world.devices) {
     const device = deviceId.get(key), lastSeen = online ? `${now} - 75` : `${now} - 1800`;
     const avStatus = avState(seedAvStatus);
-    const inventory = { av_status: avStatus, hardware: { system: { manufacturer: world.title, model: role }, architecture: 'amd64' }, software: [] };
+    const inventory = { demo_seed: true, av_status: avStatus, hardware: { system: { manufacturer: world.title, model: role }, architecture: 'amd64' }, software: [] };
     sql.push(`INSERT INTO devices (id, tenant_id, enrollment_token_id, agent_type, device_credential_hash, status, hostname, os_type, os_version, detected_class, agent_version, last_seen, inventory, external_ip, created_at, approved_at) VALUES (${quote(device)}, ${quote(tenantId.get(site))}, ${quote(id(world, 'token', site))}, 'standard', ${quote(digest())}, 'approved', ${quote(hostname)}, ${quote(os)}, ${quote(os === 'windows' ? 'Windows 11 24H2' : os === 'macos' ? 'macOS 15' : 'Ubuntu 24.04')}, ${quote(deviceClass)}, '0.2.8-demo', ${lastSeen}, ${json(inventory)}, '198.51.100.${10 + world.devices.findIndex(([deviceKey]) => deviceKey === key)}', ${now} - 86400 * 14, ${now} - 86400 * 14);`);
     sql.push(`INSERT INTO device_audits (id, device_id, tenant_id, audit_type, hardware, software, services, security, agent_version, created_at) VALUES (${quote(id(world, 'audit', key))}, ${quote(device)}, ${quote(tenantId.get(site))}, 'full', ${json(inventory.hardware)}, ${json([{ name: 'Beacon Demo Tools', version: '1.0' }])}, '[]', ${json(securityInfo(os, avStatus))}, '0.2.8-demo', ${now} - 3600);`);
   }

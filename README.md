@@ -70,6 +70,8 @@ real enrollment tokens, or usable agent credentials.
 Available worlds: `matrix`, `minecraft`, `holy-grail`, `fallout`, and
 `star-trek`. Each provides sites, contacts, mixed endpoint states, inventory,
 device groups, custom fields, alerts, and job history.
+They intentionally cannot open Remote Shell or TCP sessions because no live
+agent is behind a demo endpoint.
 
 ```bash
 # Seed a fresh local database.
