@@ -5,6 +5,24 @@
     <div v-if="loading" class="pf-state">Loading…</div>
     <div v-else class="pf-body">
       <section class="pf-group">
+        <label class="pf-label">Identity</label>
+        <p class="field-hint">Product name and logo shown in the sidebar and on the sign-in page.</p>
+        <div class="pf-row" style="gap:10px;align-items:center">
+          <img :src="brandState.logoUrl" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:var(--color-surface-raised)" />
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            {{ logoUploading ? 'Uploading…' : 'Upload Logo' }}
+            <input type="file" accept="image/jpeg,image/png,image/gif,image/svg+xml" style="display:none" :disabled="logoUploading" @change="onLogoChange" />
+          </label>
+          <button v-if="identity?.logoKey" class="btn-text danger" :disabled="logoUploading" @click="removeLogo">Remove</button>
+        </div>
+        <p class="field-hint">Square image recommended (256×256px or larger) — it's shown very small (18px in the sidebar, 34px on the sign-in page), so a simple, bold mark works best. Transparent background recommended for non-square art. JPG, PNG, GIF, or SVG, up to 1MB.</p>
+        <div class="pf-row" style="gap:8px;margin-top:4px">
+          <input v-model="productNameInput" class="pf-input" placeholder="Product name (defaults to Beacon)" style="max-width:280px" @change="saveProductName" />
+        </div>
+        <div v-if="identityError" class="error-banner">{{ identityError }}</div>
+      </section>
+
+      <section class="pf-group">
         <label class="pf-label">Themes</label>
         <p class="field-hint">A theme is a complete palette. Built-in themes activate directly; host themes publish immutable revisions and retain up to five for rollback.</p>
         <div class="theme-list">
@@ -48,13 +66,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { api, type BrandingTheme } from '../api';
+import { api, type BrandingIdentity, type BrandingTheme } from '../api';
 import { applyTheme, defaultTheme, loadActiveTheme, THEME_KEYS, type ThemeKey, type ThemeTokens } from '../theme';
+import { brandState, loadBrandIdentity } from '../brand';
 
 const labels: Record<ThemeKey, string> = { canvas: 'Canvas', surface: 'Surface', surfaceRaised: 'Raised surface', surfaceBrand: 'Brand surface', border: 'Border', borderStrong: 'Strong border', textPrimary: 'Main text', textMuted: 'Muted text', textSubtle: 'Subtle text', textOnPrimary: 'Primary button label', primary: 'Primary button color', primaryHover: 'Primary button hover', success: 'Success', warning: 'Warning', danger: 'Danger', info: 'Info' };
 const themeKeys = THEME_KEYS;
 const themes = ref<BrandingTheme[]>([]); const selected = ref<BrandingTheme | null>(null);
 const draft = ref<ThemeTokens | null>(null); const newName = ref(''); const loading = ref(true); const saving = ref(false); const error = ref(''); const revisionToActivate = ref('');
+const identity = ref<BrandingIdentity | null>(null); const productNameInput = ref(''); const identityError = ref(''); const logoUploading = ref(false);
 
 const fieldWarnings = computed<Partial<Record<ThemeKey, string>>>(() => {
   if (!draft.value) return {};
@@ -80,7 +100,24 @@ async function publish() { if (!selected.value) return; await saveDraft(); if (e
 async function activateBuiltIn() { if (!selected.value) return; try { await api.branding.activateBuiltIn(selected.value.id); await loadActiveTheme(); await reload(selected.value.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function activate() { if (!revisionToActivate.value) return; try { await api.branding.activate(revisionToActivate.value); await loadActiveTheme(); await reload(selected.value?.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function removeTheme() { if (!selected.value || !confirm(`Delete ${selected.value.name}?`)) return; try { await api.branding.delete(selected.value.id); await reload(); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not delete theme.'; } }
-onMounted(async () => { try { await reload(); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not load branding.'; } finally { loading.value = false; } });
+async function saveProductName() { identityError.value = ''; try { await api.branding.identity.update(productNameInput.value.trim()); await loadBrandIdentity(); } catch (e) { identityError.value = e instanceof Error ? e.message : 'Could not save product name.'; } }
+async function onLogoChange(e: Event) {
+  const input = e.target as HTMLInputElement; const file = input.files?.[0]; input.value = '';
+  if (!file) return;
+  logoUploading.value = true; identityError.value = '';
+  try { const { logoKey } = await api.branding.logo.upload(file); if (identity.value) identity.value.logoKey = logoKey; await loadBrandIdentity(); }
+  catch (e) { identityError.value = e instanceof Error ? e.message : 'Could not upload logo.'; }
+  finally { logoUploading.value = false; }
+}
+async function removeLogo() { identityError.value = ''; try { await api.branding.logo.remove(); if (identity.value) identity.value.logoKey = null; await loadBrandIdentity(); } catch (e) { identityError.value = e instanceof Error ? e.message : 'Could not remove logo.'; } }
+onMounted(async () => {
+  try {
+    await reload();
+    identity.value = await api.branding.identity.get();
+    productNameInput.value = identity.value.productName;
+  } catch (e) { error.value = e instanceof Error ? e.message : 'Could not load branding.'; }
+  finally { loading.value = false; }
+});
 onUnmounted(() => { void loadActiveTheme(); });
 </script>
 

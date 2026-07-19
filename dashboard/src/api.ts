@@ -5,6 +5,16 @@ function token(): string {
   return sessionStorage.getItem('beacon_emergency_token') ?? localStorage.getItem('beacon_token') ?? '';
 }
 
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token()}`, 'Content-Type': file.type },
+    body: file,
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => res.statusText)}`);
+  return res.json();
+}
+
 async function request<T>(method: string, path: string, body?: unknown, opts?: { skipAuthRedirect?: boolean }): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method,
@@ -472,6 +482,7 @@ export interface DeviceGroupMember {
   tenantName: string;
 }
 
+export interface BrandingIdentity { productName: string; logoKey: string | null; }
 export interface BrandingRevision { id: string; revision: number; publishedAt: number; }
 export interface BrandingTheme {
   id: string;
@@ -569,6 +580,14 @@ export const api = {
     activateBuiltIn: (id: string) => request<{ ok: boolean }>('POST', `/v1/branding/admin/themes/${id}/activate`),
     activate: (revisionId: string) => request<{ ok: boolean }>('POST', `/v1/branding/admin/revisions/${revisionId}/activate`),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/branding/admin/themes/${id}`),
+    identity: {
+      get: () => request<BrandingIdentity>('GET', '/v1/branding/identity'),
+      update: (productName: string) => request<{ ok: boolean }>('PATCH', '/v1/branding/admin/identity', { productName }),
+    },
+    logo: {
+      upload: (file: File) => uploadFile<{ logoKey: string }>('/v1/branding/admin/logo', file),
+      remove: () => request<{ ok: boolean }>('DELETE', '/v1/branding/admin/logo'),
+    },
   },
 
   groups: {

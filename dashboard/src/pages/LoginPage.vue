@@ -2,10 +2,10 @@
   <main class="lp-page">
     <div class="lp-beacon" aria-hidden="true"><span></span><i></i></div>
     <div class="lp-layout">
-      <section class="lp-brand" aria-label="Beacon RMM">
+      <section class="lp-brand" :aria-label="brandState.productName">
         <div class="lp-brand-lockup">
-          <div class="lp-mark"><img src="/favicon.svg" width="34" height="34" alt="" /></div>
-          <div><strong>Beacon</strong><span>RMM</span></div>
+          <div class="lp-mark"><img :src="brandState.logoUrl" width="34" height="34" alt="" style="object-fit:contain" /></div>
+          <div><strong>{{ brandState.productName }}</strong></div>
         </div>
         <div class="lp-brand-copy">
           <p class="lp-kicker">OPERATIONS CONSOLE</p>
@@ -68,6 +68,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { loadCurrentUser } from '../auth';
+import { brandState } from '../brand';
 
 type LoginMode = 'loading' | 'microsoft' | 'local' | 'emergency';
 const router = useRouter();
@@ -117,7 +118,7 @@ async function submitEmergency() {
 .lp-beacon i { position:absolute; width:42vw; height:1px; left:9%; bottom:29%; background:linear-gradient(90deg,transparent,var(--color-primary),transparent); opacity:.55; transform:rotate(-22deg); }
 .lp-layout { width:min(1060px,100%); min-height:min(640px,calc(100vh - 64px)); display:grid; grid-template-columns:1.1fr .9fr; align-items:center; gap:clamp(48px,9vw,144px); }
 .lp-brand { align-self:stretch; display:flex; flex-direction:column; justify-content:space-between; padding:clamp(20px,4vw,54px) 0; }
-.lp-brand-lockup { display:flex; align-items:center; gap:11px; font-size:18px; letter-spacing:-.02em; }.lp-brand-lockup strong { display:block; }.lp-brand-lockup span { display:block; color:var(--color-text-muted); font-size:10px; font-weight:700; letter-spacing:.17em; margin-top:1px; }
+.lp-brand-lockup { display:flex; align-items:center; gap:11px; font-size:18px; letter-spacing:-.02em; }.lp-brand-lockup strong { display:block; }
 .lp-mark { width:48px; height:48px; display:grid; place-items:center; border-radius:16px; background:color-mix(in srgb,var(--color-surface-brand) 80%,transparent); box-shadow:0 0 32px color-mix(in srgb,var(--color-primary) 40%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--color-text-primary) 12%,transparent); }.lp-mark img { display:block; }
 .lp-brand-copy { max-width:560px; }.lp-kicker { color:var(--color-text-muted); font-size:10px; font-weight:700; letter-spacing:.16em; margin:0 0 16px; }.lp-brand h1 { margin:0; max-width:540px; font-size:clamp(42px,5.5vw,68px); letter-spacing:-.065em; line-height:.98; }.lp-brand-copy > p:last-child { max-width:390px; color:var(--color-text-subtle); font-size:15px; line-height:1.65; margin:24px 0 0; }
 .lp-signal { display:flex; align-items:center; gap:7px; color:var(--color-text-muted); font-size:10px; font-weight:700; letter-spacing:.13em; }.lp-signal span { width:6px; height:6px; border-radius:50%; background:var(--color-primary); box-shadow:0 0 12px var(--color-primary); }.lp-signal span:nth-child(2) { opacity:.6; }.lp-signal span:nth-child(3) { opacity:.25; }.lp-signal small { margin-left:6px; font:inherit; }

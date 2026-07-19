@@ -6,9 +6,9 @@
     <nav class="sidebar" :class="{ 'no-transition': isResizing, collapsed: sidebarCollapsed }" :style="sidebarStyle">
       <div class="sidebar-brand">
         <div class="sidebar-brand-mark">
-          <img src="/favicon.svg" width="18" height="18" alt="" style="display:block" />
+          <img :src="brandState.logoUrl" width="18" height="18" alt="" style="display:block;object-fit:contain" />
         </div>
-        <span class="sidebar-brand-name">Beacon</span>
+        <span class="sidebar-brand-name">{{ brandState.productName }}</span>
       </div>
 
       <div class="sidebar-nav">
@@ -290,6 +290,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Dashboard, type Tenant } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
+import { brandState } from './brand';
 
 // v-click-outside directive — closes the search dropdown when clicking outside
 const vClickOutside = {

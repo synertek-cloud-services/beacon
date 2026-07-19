@@ -28,6 +28,7 @@ import BrandingSettingsPage from './pages/BrandingSettingsPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import { loadActiveTheme } from './theme';
+import { loadBrandIdentity } from './brand';
 import type { Role } from './api';
 import './style.css';
 
@@ -82,5 +83,5 @@ router.beforeEach(async (to) => {
   }
 });
 
-await loadActiveTheme();
+await Promise.all([loadActiveTheme(), loadBrandIdentity()]);
 createApp(App).use(router).mount('#app');
