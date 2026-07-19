@@ -1212,8 +1212,8 @@ function isMacOS(d: Device)   { return (d.osType ?? '').toLowerCase() === 'darwi
 function isInMaintenance(d: Device) { return d.maintenanceEndsAt != null && d.maintenanceEndsAt > Math.floor(Date.now() / 1000); }
 function maintenanceLabel(d: Device) { return d.maintenanceEndsAt ? new Date(d.maintenanceEndsAt * 1000).toLocaleString() : ''; }
 
-// Same vocabulary/labels as OverviewPage.vue's antivirus-status widget —
-// duplicated per this codebase's established per-component convention.
+// This page's own vocabulary/labels for the av_status enum, duplicated per
+// this codebase's established per-component convention rather than shared.
 const AV_LABELS: Record<string, string> = {
   running_up_to_date:     'Up to date',
   running_not_up_to_date: 'Out of date',

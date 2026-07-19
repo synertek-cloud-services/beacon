@@ -10,7 +10,7 @@ For current session-by-session status, recent decisions, and open follow-ups, se
 agent/        Go agent (runs on managed endpoints)
 worker/       Cloudflare Worker (Hono + D1)
 dashboard/    Vue 3 + Vite SPA (Cloudflare Pages)
-migrations/   D1 SQL migrations (0000 … 0028)
+migrations/   D1 SQL migrations, sequential from 0000
 scripts/      Utility scripts
 Makefile      Top-level task runner
 LICENSE       AGPL-3.0
@@ -197,7 +197,7 @@ A custom theme has one **draft** (`draft_tokens`, freely `PATCH`-editable, not y
 ### Token set
 16 fixed keys (`worker/src/routes/branding.ts`'s `THEME_KEYS`, mirrored client-side in `dashboard/src/theme.ts`): `canvas, surface, surfaceRaised, surfaceBrand, border, borderStrong, textPrimary, textMuted, textSubtle, textOnPrimary, primary, primaryHover, success, warning, danger, info`. Server-side `parseTokens()` requires **all 16** present and each a strict `#rrggbb` hex string (no shorthand, no alpha) — a partial palette is rejected outright, not merged with defaults, so a theme is always a complete, self-consistent set.
 
-**This is a real, breaking rename of the app's own CSS custom properties**, not an additive layer: `dashboard/src/style.css`'s `:root` tokens were renamed from the old `--bg`/`--surface`/`--accent`/`--teal`/`--amber`/`--red`/`--text`/`--muted` naming (documented in STYLE.md's "Design tokens" table, now stale) to `--color-canvas`/`--color-surface`/`--color-primary`/`--color-success`/`--color-warning`/`--color-danger`/`--color-text-primary`/`--color-text-muted` etc. — a 1:1 rename to match `THEME_KEYS`, not a parallel token set; the old names no longer exist anywhere in `dashboard/src/**`. Necessary because live re-theming works by overwriting these exact custom properties at runtime (`applyTheme()` below) — the CSS everywhere else in the app was left untouched (still `var(--color-primary)` etc.), only the property *names* changed. **STYLE.md's token table and every code sample using the old names needs updating separately** — out of scope for this pass, flagged here so it isn't missed.
+`dashboard/src/style.css`'s `:root` tokens are a 1:1 rename to match `THEME_KEYS` (old `--bg`/`--surface`/`--accent`/`--teal`/`--amber`/`--red`/`--text`/`--muted` → `--color-canvas`/`--color-surface`/`--color-primary`/`--color-success`/`--color-warning`/`--color-danger`/`--color-text-primary`/`--color-text-muted` etc., see STYLE.md's Design tokens table) — necessary because live re-theming overwrites these exact custom properties at runtime (`applyTheme()` below).
 
 ### Worker (`worker/src/routes/branding.ts`, mounted at `/v1/branding`)
 - `GET /active` (public, `no-store`) — the runtime pointer every page load resolves. Built-in active theme: returns `{themeId, name, tokens}` directly (tokens parsed straight from `draft_tokens`, no revision indirection). Custom active theme: returns `{revisionId, themeId, name, revision, publishedAt}` — no tokens inline, forces a second call.
@@ -224,6 +224,27 @@ Scoped against a Datto RMM Branding reference (User Interface/Agent/Support Requ
 - `dashboard/src/brand.ts` — a `reactive` singleton + loader, mirroring `auth.ts`'s shape (not `theme.ts`'s stateless-DOM-mutation shape) since `App.vue`'s sidebar mark/name and `LoginPage.vue`'s brand lockup both need real template bindings (`:src`, `{{ }}`), not just CSS custom properties. `loadBrandIdentity()` reuses `loadActiveTheme()`'s pre-mount/2.5s-timeout/swallow-failure pattern and runs in parallel with it in `main.ts`. **Always sets both `productName` and `logoUrl` unconditionally on a successful response** (falling back to the defaults when unset), not just when truthy — a real bug caught by Playwright testing: `BrandingSettingsPage.vue` calls this same loader again after an admin *clears* a value (Remove Logo, blank Product Name), and an early version that only wrote truthy values left the sidebar/login stuck on the last-set logo forever after removal, since nothing ever told it to revert.
 - Only a single **Product Name** field exists (no separate Company Name) — confirmed with the user that Beacon has exactly one real UI surface to drive today (sidebar/login/tab title), and a second field with no effect would be the same "fake toggle" problem already avoided elsewhere in this codebase.
 - `BrandingSettingsPage.vue`'s new Identity section (placed before Themes) calls `loadBrandIdentity()` after every save/upload/remove — the sidebar and login page repaint live, the same "actually see the real effect" convention the theme picker's `applyTheme()` preview already established.
+
+## Shared Dashboards
+
+Replaced the old fixed `OverviewPage` with host-wide, admin-configurable dashboards (migration `0039`). `OverviewPage.vue` was deleted (it had already become dead code — no longer imported by `main.ts` or linked from `App.vue`, only referenced by two stale comments, which were also fixed).
+
+### Tables
+- `dashboards` — `id`, `name`, `sort_order`, `is_home` (bool, exactly one row at a time — enforced procedurally, not a DB constraint: `PATCH .../:id {isHome:true}` first clears every other row's flag in the same batch), timestamps.
+- `dashboard_sites` — `(dashboard_id, tenant_id)` composite PK, `ON DELETE CASCADE`. Zero rows for a dashboard means unscoped (shows all sites) — same "empty = unrestricted" convention as Policy Targeting.
+- `dashboard_widgets` — `id`, `dashboard_id`, `type` (one of a fixed `WIDGET_TYPES` set — same bare-`TEXT`-no-migration-needed convention as `policy_monitors.check_type`), `title` (nullable override), `config` (JSON, currently unused by any V1 widget type), `grid_x/y/w/h` (12-column grid, `validLayout()` enforces `1<=w<=12`, `x+w<=12`), `sort_order`.
+
+### Templates vs. real dashboards
+`TEMPLATES` (`worker/src/routes/admin/dashboards.ts`) is an **in-code constant**, not a DB row — `blank` (zero widgets) and `default` (8 pre-arranged widgets) are just starting layouts copied into a brand-new `dashboards` row on `POST /`; there's no "template" table or foreign key, a created dashboard is a fully independent, freely-editable copy from the moment it exists. At least one dashboard must always exist (`DELETE` 409s if it's the last one); deleting the current home dashboard promotes the next one by `sort_order`.
+
+### Routing and home-dashboard redirect
+`/` → `DashboardHomePage.vue` (a thin redirect shim: fetches the dashboard list, finds the `isHome` one — or falls back to the first — and `router.replace`s to `/dashboards/:id`; a fetch failure is swallowed since `DashboardPage.vue` will surface the same error itself post-navigation). The real content lives at `/dashboards/:id` (`DashboardPage.vue`).
+
+### Data fetching
+`GET /v1/admin/dashboards/:id/data` calls `buildDashboardData()` (`worker/src/lib/dashboardData.ts`) once per dashboard, scoped to `dashboard_sites` (or an explicit `?company_id=` override — deliberately wins over the saved scope, matching how the rest of the app's `?company=` query-driven navigation already overrides saved context elsewhere) — **one batched query for every widget on the page**, not a request-per-widget fan-out. Dashboard data refreshes client-side every 30 seconds.
+
+### Widget library (V1, real data only)
+`device_summary`, `online_offline`, `os_distribution`, `class_distribution`, `antivirus_status`, `offline_by_type`, `alerts_by_priority`, `recent_alerts` — every one backed by data Beacon already collects. **Explicitly out of scope**: Patch/M365 widgets (no underlying integration, same reasoning as Summary section's excluded fields elsewhere in this doc), iframe/arbitrary-query/presentation/cycling widgets (no embedding or ad-hoc query surface by design — RBAC and data stay inside Beacon, not delegated to something like Grafana).
 
 ## Two-Tier Policy / Monitor System
 
@@ -430,7 +451,7 @@ A 4th `resolveDevices()` branch in `worker/src/routes/admin/jobs.ts` (alongside 
 
 ## Policy Targeting (Sites / Devices / Device Groups, migration 0032)
 
-A later-session redesign of policy targeting, triggered by the user comparing `PolicyFormPage.vue` against a real Datto Create Policy reference screenshot and asking to "fix the policy targeting to match the reference aka rest of the site" — Datto's reference shows one unified "Targets" section (a single Add Target flyout, one flat list), while Beacon had it split three ways: a Scope seg-bar (Global/single-Site combobox), OS/Class pill checkboxes, and a separate Device Groups picker.
+Redesigned to match a real Datto Create Policy reference: one unified "Targets" section (a single Add Target flyout, one flat list) — Beacon previously split this three ways: a Scope seg-bar (Global/single-Site combobox), OS/Class pill checkboxes, and a separate Device Groups picker.
 
 ### Scope decisions (confirmed via AskUserQuestion before implementation)
 - **Unify Sites (now multi-site, not one), individual Devices (new), and Device Groups into one Targets flyout**, reusing `JobFormPage.vue`'s `.tf-` flyout pattern verbatim for visual/interaction consistency with the rest of the app.
@@ -554,7 +575,8 @@ GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the S
 ## Dashboard routes
 
 ```
-/                      OverviewPage
+/                      DashboardHomePage  (redirect shim → /dashboards/:homeId, see Shared Dashboards above)
+/dashboards/:id        DashboardPage      (the actual dashboard content — widgets, layout editing)
 /login                 LoginPage
 /sso-callback          SsoCallbackPage    (receives the Microsoft SSO redirect)
 /devices               DevicesPage (filterable by ?company=<id>) — list only, row click navigates to detail page
@@ -586,7 +608,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 
 ## Sidebar structure (App.vue)
 
-- **Overview** link
+- **Dashboards** section: one link per dashboard (`v-for` over the live list, see Shared Dashboards above), no fixed "Overview" link anymore
 - **Companies** section: "All Companies" link + active-client block (appears when a company is selected via `?company=` query, persists until cleared)
 - **Devices** section: Device Approvals, All, Device Groups
 - **Global** section: Alerts, Policies
