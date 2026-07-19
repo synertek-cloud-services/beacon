@@ -25,7 +25,7 @@
           </svg>
         </div>
         <div v-show="openSections.dashboards" class="sec-body">
-          <RouterLink to="/" class="sbi" :class="{ active: route.path === '/' }">Default Dashboard</RouterLink>
+          <RouterLink v-for="dashboard in dashboards" :key="dashboard.id" :to="{ path: `/dashboards/${dashboard.id}`, query: activeClientId ? { company: activeClientId } : {} }" class="sbi" :class="{ active: route.params.id === dashboard.id }">{{ dashboard.name }}</RouterLink>
         </div>
 
         <!-- COMPANIES -->
@@ -170,7 +170,7 @@
       <div class="flyout-head">{{ flyoutTitle }}</div>
 
       <template v-if="openFlyout === 'dashboards'">
-        <RouterLink to="/" class="sbi" :class="{ active: route.path === '/' }">Default Dashboard</RouterLink>
+        <RouterLink v-for="dashboard in dashboards" :key="dashboard.id" :to="{ path: `/dashboards/${dashboard.id}`, query: activeClientId ? { company: activeClientId } : {} }" class="sbi" :class="{ active: route.params.id === dashboard.id }">{{ dashboard.name }}</RouterLink>
       </template>
 
       <template v-if="openFlyout === 'sites'">
@@ -288,7 +288,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Tenant } from './api';
+import { api, type Dashboard, type Tenant } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 
 // v-click-outside directive — closes the search dropdown when clicking outside
@@ -311,6 +311,7 @@ const isLogin   = computed(() => route.path === '/login' || route.path === '/sso
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
 const companies      = ref<Tenant[]>([]);
+const dashboards     = ref<Dashboard[]>([]);
 const activeClientId = ref<string | null>(null);
 
 // ── Sidebar resize / collapse ─────────────────────────────────────────────────
@@ -417,25 +418,33 @@ async function refreshPending() {
   } catch { /* keep last known value on a transient failure */ }
 }
 
+async function refreshDashboards() {
+  if (!api.hasToken()) return;
+  try { dashboards.value = await api.dashboards.list(); } catch { /* keep prior navigation on a transient failure */ }
+}
+
 let pendingTimer: ReturnType<typeof setInterval>;
 
 onMounted(async () => {
   if (api.hasToken()) {
     try {
-      const [tenantList, summary] = await Promise.all([api.tenants.list(), api.summary.get()]);
+      const [tenantList, summary, dashboardList] = await Promise.all([api.tenants.list(), api.summary.get(), api.dashboards.list()]);
       companies.value = tenantList;
       pendingCount.value = summary.pending;
+      dashboards.value = dashboardList;
     } catch {}
     if (!authState.user) await loadCurrentUser().catch(() => {});
   }
   pendingTimer = setInterval(refreshPending, 30_000);
   window.addEventListener('beacon:pending-changed', refreshPending);
+  window.addEventListener('beacon:dashboards-changed', refreshDashboards);
 });
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
   clearInterval(pendingTimer);
   window.removeEventListener('beacon:pending-changed', refreshPending);
+  window.removeEventListener('beacon:dashboards-changed', refreshDashboards);
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
 });

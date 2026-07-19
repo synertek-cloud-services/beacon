@@ -3,7 +3,8 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import App from './App.vue';
 import LoginPage from './pages/LoginPage.vue';
 import SsoCallbackPage from './pages/SsoCallbackPage.vue';
-import OverviewPage from './pages/OverviewPage.vue';
+import DashboardHomePage from './pages/DashboardHomePage.vue';
+import DashboardPage from './pages/DashboardPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import DeviceDetailPage from './pages/DeviceDetailPage.vue';
 import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
@@ -39,7 +40,8 @@ declare module 'vue-router' {
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/', component: OverviewPage },
+    { path: '/', component: DashboardHomePage },
+    { path: '/dashboards/:id', component: DashboardPage },
     { path: '/login', component: LoginPage },
     { path: '/sso-callback', component: SsoCallbackPage },
     { path: '/devices', component: DevicesPage },

@@ -52,6 +52,34 @@ export interface Summary {
   by_av_status: Record<string, number>;
 }
 
+export type DashboardWidgetType =
+  | 'device_summary' | 'online_offline' | 'os_distribution' | 'class_distribution'
+  | 'antivirus_status' | 'offline_by_type' | 'alerts_by_priority' | 'recent_alerts';
+
+export interface DashboardWidget {
+  id: string;
+  type: DashboardWidgetType;
+  title: string | null;
+  config: string;
+  x: number; y: number; w: number; h: number; sortOrder: number;
+}
+
+export interface Dashboard {
+  id: string;
+  name: string;
+  sortOrder: number;
+  isHome: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DashboardDetail extends Dashboard {
+  siteIds: string[];
+  widgets: DashboardWidget[];
+}
+
+export interface DashboardData { summary: Summary; alerts: AlertState[] }
+
 export interface Address {
   street?: string;
   city?: string;
@@ -583,6 +611,21 @@ export const api = {
 
   summary: {
     get: () => request<Summary>('GET', '/v1/admin/summary'),
+  },
+
+  dashboards: {
+    list: () => request<Dashboard[]>('GET', '/v1/admin/dashboards'),
+    get: (id: string) => request<DashboardDetail>('GET', `/v1/admin/dashboards/${id}`),
+    data: (id: string, companyId?: string) => request<DashboardData>('GET', `/v1/admin/dashboards/${id}/data${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
+    create: (body: { name: string; template: 'default' | 'blank' }) => request<DashboardDetail>('POST', '/v1/admin/dashboards', body),
+    update: (id: string, body: Partial<{ name: string; sortOrder: number; isHome: boolean; siteIds: string[] }>) => request<DashboardDetail>('PATCH', `/v1/admin/dashboards/${id}`, body),
+    clone: (id: string, body?: { name?: string }) => request<DashboardDetail>('POST', `/v1/admin/dashboards/${id}/clone`, body ?? {}),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/dashboards/${id}`),
+    widgets: {
+      create: (dashboardId: string, body: { type: DashboardWidgetType; title?: string; layout?: { x: number; y: number; w: number; h: number } }) => request<DashboardWidget>('POST', `/v1/admin/dashboards/${dashboardId}/widgets`, body),
+      update: (dashboardId: string, widgetId: string, body: { title?: string | null; layout?: { x: number; y: number; w: number; h: number } }) => request<{ ok: boolean }>('PATCH', `/v1/admin/dashboards/${dashboardId}/widgets/${widgetId}`, body),
+      delete: (dashboardId: string, widgetId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/dashboards/${dashboardId}/widgets/${widgetId}`),
+    },
   },
 
   components: {

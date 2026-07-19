@@ -1,5 +1,33 @@
 # Beacon — Project Log
 
+## Session: 2026-07-18 — Shared dashboards (V1)
+
+### What was completed
+
+- Replaced the fixed Overview screen with shared, host-wide dashboards. Migration
+  `0039_dashboards.sql` seeds one editable Default Dashboard; Blank and Default
+  are immutable server-defined templates for creating new dashboards.
+- Admins can create, clone, rename, delete, order, choose a home dashboard,
+  scope a dashboard to selected sites, add/remove widgets, and edit the layout.
+  The last dashboard cannot be deleted.
+- Dashboards use a responsive 12-column layout on desktop and automatically
+  stack on small screens. Layout editing is explicitly enabled by an admin and
+  persists immediately; dashboard data refreshes every 30 seconds.
+- V1 widget library intentionally contains only real Beacon data: device summary,
+  availability, OS/class/AV distributions, monitored offline devices, alert
+  priority, and recent alerts. Patch, M365, iframe, arbitrary-query, per-user,
+  cycling, and presentation widgets remain out of scope.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Native shared dashboards, not Grafana | Core operational data and RBAC stay inside Beacon; no embedding/auth/data-source boundary is introduced. |
+| One batched dashboard snapshot | Widgets share a scoped data calculation, preventing request-per-widget and divergent summary logic. |
+| Server-defined templates, database-backed copies | Operators can freely customize created dashboards while shipped Default/Blank starting points remain dependable. |
+
+---
+
 ## Session: 2026-07-18 — Host-level branding themes
 
 ### What was completed
