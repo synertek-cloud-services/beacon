@@ -1,5 +1,18 @@
 # Beacon — Project Log
 
+## Session: 2026-07-18 — Ordered GitHub Actions releases
+
+- Added `.github/workflows/release.yml`, triggered only after a PR merges into
+  `main`. It restores gitignored deployment configuration from GitHub secrets,
+  applies D1 migrations, deploys the Worker, builds/deploys Pages, then checks
+  production health. Each step stops the release before the next one on error.
+- Production Pages automatic deployment must remain disabled: the GitHub Action
+  owns ordering so a new frontend never reaches users before its backend/schema.
+- Required repository configuration is documented in README. Operators test
+  locally and approve/merge PRs; GitHub Actions performs production release.
+
+---
+
 ## Session: 2026-07-18 — Shared dashboards (V1)
 
 ### What was completed

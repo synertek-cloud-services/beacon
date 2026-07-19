@@ -1,0 +1,85 @@
+name: Release production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: read
+
+# Releases must never overlap: migrations, Worker deployment, and Pages
+# deployment are one ordered transaction from the operator's perspective.
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+      WORKER_URL: ${{ vars.PRODUCTION_WORKER_URL }}
+
+    steps:
+      - name: Check out the merged revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            worker/pnpm-lock.yaml
+            dashboard/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: |
+          pnpm --dir worker install --frozen-lockfile
+          pnpm --dir dashboard install --frozen-lockfile
+
+      # Deployment configuration is organization-specific and intentionally
+      # gitignored. Write it only for this ephemeral runner.
+      - name: Restore Worker deployment configuration
+        env:
+          WORKER_WRANGLER_TOML: ${{ secrets.WORKER_WRANGLER_TOML }}
+        run: |
+          test -n "$WORKER_WRANGLER_TOML"
+          test -n "$PAGES_PROJECT_NAME"
+          test -n "$WORKER_URL"
+          umask 077
+          printf '%s' "$WORKER_WRANGLER_TOML" > worker/wrangler.toml
+
+      # Additive migrations run first. If this fails, the old Worker and
+      # dashboard stay in service because later release steps never run.
+      - name: Apply production D1 migrations
+        working-directory: worker
+        run: pnpm run migrate:remote
+
+      - name: Deploy Worker
+        working-directory: worker
+        run: pnpm run deploy
+
+      - name: Build dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: ${{ vars.PRODUCTION_WORKER_URL }}
+        run: pnpm run build
+
+      - name: Deploy dashboard
+        working-directory: worker
+        run: pnpm exec wrangler pages deploy ../dashboard/dist --project-name "$PAGES_PROJECT_NAME" --branch main --commit-hash "${{ github.event.pull_request.merge_commit_sha }}"
+
+      - name: Verify production health
+        run: |
+          curl --fail --retry 5 --retry-delay 3 --retry-connrefused "$WORKER_URL/health"
