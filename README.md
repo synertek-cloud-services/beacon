@@ -60,6 +60,34 @@ make dev                # wrangler dev
 
 For production: `make migrate-remote` (after creating your D1 database and setting the `ADMIN_SECRET` secret via `npx wrangler secret put ADMIN_SECRET`), then `make deploy`.
 
+### Optional fictional demo worlds
+
+After migrations, an operator can populate a **fresh** D1 database with a
+fictional demo world for evaluation, screenshots, or local development. Demo
+worlds are never applied by migrations and do not create users, SSO settings,
+real enrollment tokens, or usable agent credentials.
+
+Available worlds: `matrix`, `minecraft`, `holy-grail`, `fallout`, and
+`star-trek`. Each provides sites, contacts, mixed endpoint states, inventory,
+device groups, custom fields, alerts, and job history.
+
+```bash
+# Seed a fresh local database.
+make seed-demo-local WORLD=matrix
+
+# Rebuild the local database from all migrations, then seed it. This destroys
+# local D1 data and requires the explicit reset target.
+make seed-demo-reset WORLD=minecraft
+
+# Seed a fresh remote database. This refuses a non-empty database and requires
+# an explicit acknowledgement; remote reset is deliberately unsupported.
+node scripts/seed-demo.mjs --world fallout --remote --allow-remote
+```
+
+Run `node scripts/seed-demo.mjs --help` for a custom database binding or local
+Wrangler persistence path. Demo packs use lore-inspired names only; they do
+not include third-party images, logos, or dialogue excerpts.
+
 ### Maintainer release automation
 
 Beacon's own production releases are performed by GitHub Actions after an
