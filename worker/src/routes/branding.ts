@@ -61,6 +61,65 @@ branding.get('/revisions/:id', async (c) => {
   return c.json({ id: row.id, tokens });
 });
 
+// Product identity (name + logo). Kept separate from the theme-activation
+// pointer above — same "tiny pointer" shape as /active, but a different concern.
+const MAX_LOGO_BYTES = 1024 * 1024;
+const LOGO_CONTENT_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/svg+xml': 'svg',
+};
+
+branding.get('/identity', async (c) => {
+  noStore(c);
+  const row = await drizzle(c.env.DB, { schema }).select().from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
+  return c.json({ productName: row?.productName ?? '', logoKey: row?.logoKey ?? null });
+});
+
+branding.get('/logo/:key', async (c) => {
+  const obj = await c.env.LOGOS.get(c.req.param('key'));
+  if (!obj) return c.json({ error: 'logo not found' }, 404);
+  const headers = new Headers();
+  obj.writeHttpMetadata(headers);
+  headers.set('etag', obj.httpEtag);
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  return c.body(obj.body, 200, Object.fromEntries(headers));
+});
+
+branding.patch('/admin/identity', async (c) => {
+  if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
+  const body = await c.req.json<{ productName?: string }>();
+  if (typeof body.productName !== 'string') return c.json({ error: 'productName is required' }, 400);
+  await drizzle(c.env.DB, { schema }).update(schema.brandingIdentity).set({ productName: body.productName.trim(), updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingIdentity.id, 1));
+  return c.json({ ok: true });
+});
+
+branding.post('/admin/logo', async (c) => {
+  if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
+  const contentType = c.req.header('content-type') ?? '';
+  const ext = LOGO_CONTENT_TYPES[contentType];
+  if (!ext) return c.json({ error: 'logo must be image/jpeg, image/png, image/gif, or image/svg+xml' }, 400);
+  const declaredLen = Number(c.req.header('content-length') ?? '0');
+  if (declaredLen > MAX_LOGO_BYTES) return c.json({ error: 'logo must be 1MB or smaller' }, 413);
+  const bytes = await c.req.arrayBuffer();
+  if (bytes.byteLength > MAX_LOGO_BYTES) return c.json({ error: 'logo must be 1MB or smaller' }, 413);
+
+  const db = drizzle(c.env.DB, { schema });
+  const existing = await db.select({ logoKey: schema.brandingIdentity.logoKey }).from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
+  const key = `${crypto.randomUUID()}.${ext}`;
+  await c.env.LOGOS.put(key, bytes, { httpMetadata: { contentType } });
+  await db.update(schema.brandingIdentity).set({ logoKey: key, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingIdentity.id, 1));
+  if (existing?.logoKey) await c.env.LOGOS.delete(existing.logoKey);
+  return c.json({ logoKey: key }, 201);
+});
+
+branding.delete('/admin/logo', async (c) => {
+  if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const existing = await db.select({ logoKey: schema.brandingIdentity.logoKey }).from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
+  await db.update(schema.brandingIdentity).set({ logoKey: null, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingIdentity.id, 1));
+  if (existing?.logoKey) await c.env.LOGOS.delete(existing.logoKey);
+  return c.json({ ok: true });
+});
+
 branding.get('/admin/themes', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
