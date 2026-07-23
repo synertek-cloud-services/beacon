@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 
 export const brandState = reactive<{ productName: string; logoUrl: string }>({
   productName: 'Beacon',
-  logoUrl: '/favicon.svg',
+  logoUrl: '/brand-mark.svg',
 });
 
 export async function loadBrandIdentity(): Promise<void> {
@@ -17,7 +17,7 @@ export async function loadBrandIdentity(): Promise<void> {
     // admin clears a value (BrandingSettingsPage.vue), not only at startup,
     // and needs to be able to revert to the default in both directions.
     brandState.productName = productName?.trim() || 'Beacon';
-    brandState.logoUrl = logoKey ? `${baseUrl}/v1/branding/logo/${encodeURIComponent(logoKey)}` : '/favicon.svg';
+    brandState.logoUrl = logoKey ? `${baseUrl}/v1/branding/logo/${encodeURIComponent(logoKey)}` : '/brand-mark.svg';
   } catch {
     // Defaults stay active: login must never be held hostage by branding.
   } finally {
