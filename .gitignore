@@ -14,6 +14,7 @@ dist/
 Thumbs.db
 .dev.vars
 .envrc
+.direnv/
 *.pem
 
 worker/wrangler.toml
