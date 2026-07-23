@@ -2,7 +2,7 @@
   <main class="sc-page">
     <div class="sc-light" aria-hidden="true"></div>
     <section class="sc-status" aria-live="polite">
-      <div class="sc-mark"><img src="/favicon.svg" width="28" height="28" alt="" /></div>
+      <div class="sc-mark"><img src="/brand-mark.svg" width="28" height="28" alt="" /></div>
       <template v-if="!error">
         <span class="sc-spinner"></span>
         <div><p>Secure sign-in</p><strong>Completing Microsoft authentication…</strong></div>
