@@ -252,7 +252,7 @@ The alert/monitoring system uses a **policy → monitor** hierarchy. The old fla
 
 ### Tables
 - `policies` — named policy with scope (`global` or `company`), OS/class targeting (JSON arrays), enabled flag
-- `policy_monitors` — individual check rules attached to a policy: check_type, config (JSON, shape varies by check_type), alert_priority, sustained_minutes, check_interval_minutes, auto_resolve, auto_resolve_after_minutes
+- `policy_monitors` — individual check rules attached to a policy: check_type, config (JSON, shape varies by check_type), alert_priority, sustained_minutes, check_interval_minutes, auto_resolve, auto_resolve_after_minutes, notify_webhook, notify_email (migration 0047 — per-monitor opt-in for external notifications, see Alert Notifications below; default false, independent of the alert itself firing)
 - `alert_state` — per (device, policy_monitor) pair: condition_first_seen, is_alerting, alerted_at, resolved_at
 
 `check_type` is a bare `TEXT` column with no SQL `CHECK` constraint — adding a new check type is a TS-enum-only change (`schema.ts`, `routes/admin/policies.ts` `VALID_CHECK_TYPES`, `dashboard/src/api.ts`) with **no migration required**.
@@ -318,7 +318,12 @@ Agent packages added this session (all follow the shell-out-to-native-tool or go
 
 ## Alert Notifications
 
-Global (hoster-level), not per-company — Beacon is used by an MSP to monitor their clients, and it's the MSP's own team that reads alerts, not the client company being monitored. Client-facing notification, if ever needed, is out of scope here (would run through a separate PSA integration). Two independent channels, both fired from the same 3 sites inside `processAlertState` (`worker/src/lib/alerts.ts`) — the two `alert.triggered` sites and the one `alert.resolved` (auto-resolve) site — never from `reconcileOrphanedAlerts`/`resolveAllOpenAlerts` (admin bulk-resolve paths, not real-world condition changes).
+Global (hoster-level), not per-company — Beacon is used by an MSP to monitor their clients, and it's the MSP's own team that reads alerts, not the client company being monitored. Client-facing notification, if ever needed, is out of scope here (would run through a separate PSA integration). Two independent channels, both potentially fired from the same 3 sites inside `processAlertState` (`worker/src/lib/alerts.ts`) — the two `alert.triggered` sites and the one `alert.resolved` (auto-resolve) site — never from `reconcileOrphanedAlerts`/`resolveAllOpenAlerts` (admin bulk-resolve paths, not real-world condition changes).
+
+### Per-monitor opt-in (migration 0047) — researched against Datto RMM's real notification model
+The alert itself always fires and is always visible in Global Alerts, regardless of notification config — that part is unconditional (`alert_state` gets written either way). Whether it *also* reaches webhook/email is a separate, per-monitor decision: `policy_monitors.notify_webhook`/`notify_email` (both boolean, default `false` — including for existing/seeded monitors, since notifications should only go out when explicitly enabled, not retroactively) gate the `fireWebhooks`/`sendAlertEmails` calls independently at all 3 sites in `processAlertState`. This mirrors Datto RMM's actual model, confirmed against their docs rather than assumed: an alert firing and a monitor's "Send an email" response are two separate toggles, and recipients are configured once, globally (Datto's "default recipients," Beacon's Notification Settings page) rather than per-monitor — only the on/off switch is per-monitor, not the recipient list itself. Beacon splits this into two independent toggles (webhook + email) rather than Datto's one (email + a separate PSA-ticket toggle), since Beacon has two real channels. Datto's further per-monitor "Additional Recipients" (one-off addresses bypassing the global list) was considered and iceboxed — see Icebox below.
+
+Surfaced in `PolicyFormPage.vue`'s Add/Edit Monitor drawer as a "Response" section with two drawer-style toggles ("Send a Webhook" / "Send an Email"). This section pre-existed as a `sendWebhook` stub before migration 0047 — it rendered and toggled visually but was never sent in any `monitors.create`/`update` API call and was hardcoded back to `false` on every page load, a real dead-UI bug fixed as part of wiring this up for real.
 
 ### Webhooks
 `webhook_endpoints` (`id`, `url`, `enabled`, `created_at`) predates this feature by many sessions (migration `0002`) but was never wired to any dashboard UI, and was originally per-company (`tenant_id` FK) — migration `0046` rebuilt the table to drop that column once the global model was confirmed. `fireWebhooks()` POSTs `{event, timestamp, device_id, tenant_id, hostname, check_type, monitor_id, policy_id, config}` to every `enabled=1` row via `Promise.allSettled` (fire-and-forget, no retry). **Deliberately unsigned** — the user's own call: "we just need to send out webhooks, we don't need to ingest them, the hoster can put in their own endpoint at like Hookdeck" — a receiver that needs authenticity verification fronts the URL with something like Hookdeck itself rather than Beacon implementing HMAC signing.
@@ -767,6 +772,12 @@ Established over 6 check types added this session — each one touches the same 
 `null` in the saved config means "this condition is disabled," not zero.
 
 **Hiding shared fields that don't apply to a type**: wrap the irrelevant fields in `<template v-if="...">` inside `mf-pair` rather than hiding the whole block, since e.g. `software` hides period+interval but still needs the priority selector alongside them in the same flex row.
+
+## Icebox
+
+Features explicitly considered and deferred — not rejected, just not now. Standing placeholder until a real kanban-style board exists to track these properly; add new entries here in the meantime rather than letting a deferred decision live only in PROJECT_LOG.md's dated session narrative, where it'll scroll out of easy reach.
+
+- **Per-monitor "Additional Recipients"** (Datto RMM's ad hoc one-off email addresses typed directly into a single monitor's alert config, bypassing the global recipient list) — considered while designing the per-monitor `notify_email`/`notify_webhook` toggles (see Alert Notifications), deferred in favor of just the on/off toggle against the existing global recipient list. Revisit if someone needs a monitor-specific recipient the global list can't cover.
 
 ## Commit rules
 

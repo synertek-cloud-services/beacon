@@ -173,6 +173,12 @@ export const policyMonitors = sqliteTable('policy_monitors', {
   checkIntervalMinutes:    integer('check_interval_minutes').notNull().default(1),
   autoResolve:             integer('auto_resolve', { mode: 'boolean' }).notNull().default(true),
   autoResolveAfterMinutes: integer('auto_resolve_after_minutes').notNull().default(60),
+  // Per-monitor opt-in for external notifications (migration 0047) --
+  // independent of the alert itself firing (always visible in Global
+  // Alerts). Default false: notifications only go out when explicitly
+  // enabled, not retroactively for existing/seeded monitors.
+  notifyWebhook:           integer('notify_webhook', { mode: 'boolean' }).notNull().default(false),
+  notifyEmail:             integer('notify_email', { mode: 'boolean' }).notNull().default(false),
   createdAt:               integer('created_at').notNull(),
 });
 

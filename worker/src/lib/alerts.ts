@@ -593,8 +593,8 @@ async function processAlertState(
       updatedAt:          now,
     });
     if (fireImmediately) {
-      await fireWebhooks(db, device, monitor, 'alert.triggered', now);
-      await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId);
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId);
     }
     return;
   }
@@ -626,8 +626,8 @@ async function processAlertState(
     }
 
     if (shouldFire) {
-      await fireWebhooks(db, device, monitor, 'alert.triggered', now);
-      await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id);
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id);
     }
   } else {
     const wasAlerting     = existing.isAlerting;
@@ -657,8 +657,8 @@ async function processAlertState(
     }
 
     if (wasAlerting && shouldAutoResolve) {
-      await fireWebhooks(db, device, monitor, 'alert.resolved', now);
-      await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id);
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id);
     }
   }
 }

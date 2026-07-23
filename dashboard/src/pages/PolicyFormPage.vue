@@ -484,10 +484,20 @@
             <div class="mf-toggle-row">
               <div class="mf-toggle-text">
                 <span class="mf-toggle-title">Send a Webhook</span>
-                <span class="mf-toggle-sub">When alert is triggered</span>
+                <span class="mf-toggle-sub">To the endpoints configured in Notification Settings</span>
               </div>
-              <button :class="['mf-tgl', { on: monPanel.form.sendWebhook }]"
-                @click="monPanel.form.sendWebhook = !monPanel.form.sendWebhook">
+              <button :class="['mf-tgl', { on: monPanel.form.notifyWebhook }]"
+                @click="monPanel.form.notifyWebhook = !monPanel.form.notifyWebhook">
+                <span class="mf-tgl-thumb"></span>
+              </button>
+            </div>
+            <div class="mf-toggle-row">
+              <div class="mf-toggle-text">
+                <span class="mf-toggle-title">Send an Email</span>
+                <span class="mf-toggle-sub">To the recipients configured in Notification Settings</span>
+              </div>
+              <button :class="['mf-tgl', { on: monPanel.form.notifyEmail }]"
+                @click="monPanel.form.notifyEmail = !monPanel.form.notifyEmail">
                 <span class="mf-tgl-thumb"></span>
               </button>
             </div>
@@ -703,7 +713,8 @@ interface LocalMonitor {
   serviceBootDelayMinutes: number;
   softwareNamePattern:     string;
   softwareMode:            'installed' | 'uninstalled' | 'version_changed';
-  sendWebhook:             boolean;
+  notifyWebhook:           boolean;
+  notifyEmail:             boolean;
 }
 
 let keySeq = 0;
@@ -749,7 +760,8 @@ const monPanel = reactive({
     serviceBootDelayMinutes: 0,
     softwareNamePattern:     '',
     softwareMode:            'installed' as 'installed' | 'uninstalled' | 'version_changed',
-    sendWebhook:             false,
+    notifyWebhook:           false,
+    notifyEmail:             false,
   },
 });
 
@@ -780,7 +792,7 @@ function openAddMonitor() {
     processName: '', processMode: 'stopped', processThresholdPct: 80,
     serviceName: '', serviceMode: 'stopped', serviceThresholdPct: 80, serviceBootDelayMinutes: 0,
     softwareNamePattern: '', softwareMode: 'installed',
-    sendWebhook: false,
+    notifyWebhook: false, notifyEmail: false,
   });
   monPanel.open = true;
 }
@@ -822,7 +834,8 @@ function openEditMonitor(index: number) {
     serviceBootDelayMinutes: m.serviceBootDelayMinutes,
     softwareNamePattern:     m.softwareNamePattern,
     softwareMode:            m.softwareMode,
-    sendWebhook:             m.sendWebhook,
+    notifyWebhook:           m.notifyWebhook,
+    notifyEmail:             m.notifyEmail,
   });
   monPanel.open = true;
 }
@@ -888,6 +901,8 @@ async function saveMonitor() {
             check_interval_minutes:    f.checkIntervalMinutes,
             auto_resolve:               f.autoResolve,
             auto_resolve_after_minutes: f.autoResolveAfterMinutes,
+            notify_webhook:             f.notifyWebhook,
+            notify_email:               f.notifyEmail,
           });
         }
         monitors.value[monPanel.editIndex] = { ...m, ...f };
@@ -900,6 +915,8 @@ async function saveMonitor() {
           check_interval_minutes:    f.checkIntervalMinutes,
           auto_resolve:               f.autoResolve,
           auto_resolve_after_minutes: f.autoResolveAfterMinutes,
+          notify_webhook:             f.notifyWebhook,
+          notify_email:               f.notifyEmail,
         });
         monitors.value.push({ _key: String(keySeq++), id: res.monitor_id, ...f });
       }
@@ -1011,7 +1028,8 @@ onMounted(async () => {
           serviceBootDelayMinutes: (cfg.boot_delay_minutes as number) ?? 0,
           softwareNamePattern:     (cfg.name_pattern as string) ?? '',
           softwareMode:            (cfg.mode         as 'installed' | 'uninstalled' | 'version_changed') ?? 'installed',
-          sendWebhook:             false,
+          notifyWebhook:           m.notifyWebhook,
+          notifyEmail:             m.notifyEmail,
         };
       });
     } catch (e) {
@@ -1048,6 +1066,8 @@ async function save() {
           check_interval_minutes:    m.checkIntervalMinutes,
           auto_resolve:               m.autoResolve,
           auto_resolve_after_minutes: m.autoResolveAfterMinutes,
+          notify_webhook:             m.notifyWebhook,
+          notify_email:               m.notifyEmail,
         });
       }
       for (const t of targetItems.value) {
