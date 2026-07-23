@@ -285,6 +285,8 @@ export interface PolicyMonitor {
   checkIntervalMinutes:    number;
   autoResolve:             boolean;
   autoResolveAfterMinutes: number;
+  notifyWebhook:           boolean;
+  notifyEmail:             boolean;
   createdAt:               number;
 }
 
@@ -854,6 +856,8 @@ export const api = {
         check_interval_minutes?:  number;
         auto_resolve?:             boolean;
         auto_resolve_after_minutes?: number;
+        notify_webhook?:           boolean;
+        notify_email?:             boolean;
       }) => request<{ monitor_id: string }>('POST', `/v1/admin/policies/${policyId}/monitors`, body),
       update: (policyId: string, mid: string, body: {
         enabled?:                boolean;
@@ -863,6 +867,8 @@ export const api = {
         check_interval_minutes?: number;
         auto_resolve?:           boolean;
         auto_resolve_after_minutes?: number;
+        notify_webhook?:         boolean;
+        notify_email?:           boolean;
       }) => request<{ ok: boolean }>('PATCH', `/v1/admin/policies/${policyId}/monitors/${mid}`, body),
       delete: (policyId: string, mid: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/monitors/${mid}`),

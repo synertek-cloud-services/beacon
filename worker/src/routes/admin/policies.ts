@@ -146,6 +146,8 @@ policies.post('/', async (c) => {
         sustainedMinutes:        m.sustainedMinutes,
         autoResolve:             m.autoResolve,
         autoResolveAfterMinutes: m.autoResolveAfterMinutes,
+        notifyWebhook:           m.notifyWebhook,
+        notifyEmail:             m.notifyEmail,
         createdAt:               now,
       })
     ));
@@ -254,6 +256,8 @@ policies.post('/:id/monitors', async (c) => {
     check_interval_minutes?:  number;
     auto_resolve?:             boolean;
     auto_resolve_after_minutes?: number;
+    notify_webhook?:           boolean;
+    notify_email?:             boolean;
   }>();
 
   if (!VALID_CHECK_TYPES.includes(body.check_type))
@@ -274,6 +278,8 @@ policies.post('/:id/monitors', async (c) => {
     checkIntervalMinutes:    body.check_interval_minutes   ?? 1,
     autoResolve:             body.auto_resolve             ?? true,
     autoResolveAfterMinutes: body.auto_resolve_after_minutes ?? 60,
+    notifyWebhook:           body.notify_webhook           ?? false,
+    notifyEmail:             body.notify_email             ?? false,
     createdAt:               now,
   });
 
@@ -297,6 +303,8 @@ policies.patch('/:id/monitors/:mid', async (c) => {
     check_interval_minutes?: number;
     auto_resolve?:           boolean;
     auto_resolve_after_minutes?: number;
+    notify_webhook?:         boolean;
+    notify_email?:           boolean;
   }>();
 
   const patch: Record<string, unknown> = {};
@@ -307,6 +315,8 @@ policies.patch('/:id/monitors/:mid', async (c) => {
   if (body.check_interval_minutes     !== undefined) patch.checkIntervalMinutes     = body.check_interval_minutes;
   if (body.auto_resolve               !== undefined) patch.autoResolve              = body.auto_resolve;
   if (body.auto_resolve_after_minutes !== undefined) patch.autoResolveAfterMinutes  = body.auto_resolve_after_minutes;
+  if (body.notify_webhook             !== undefined) patch.notifyWebhook            = body.notify_webhook;
+  if (body.notify_email               !== undefined) patch.notifyEmail              = body.notify_email;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.update(schema.policyMonitors).set(patch as any).where(eq(schema.policyMonitors.id, mid));
