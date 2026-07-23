@@ -176,7 +176,7 @@ Two variants used in the app:
 - Thumb: 12×12px white circle
 - Small variant `.toggle-sm`: 22×12px track, 8×8px thumb
 
-**Drawer toggle** (used in Add Monitor response section):
+**Drawer toggle** (used in Add Monitor's "Response" section):
 ```html
 <button :class="['mf-tgl', { on: active }]" @click="active = !active">
   <span class="mf-tgl-thumb"></span>
@@ -184,6 +184,21 @@ Two variants used in the app:
 ```
 - Track: 40×22px, border-radius 11px
 - Thumb: 16×16px white circle
+
+**Full toggle row** (label + sub-label + the drawer toggle above) — the Response section's actual unit, not just the bare button:
+```html
+<div class="mf-toggle-row">
+  <div class="mf-toggle-text">
+    <span class="mf-toggle-title">Send a Webhook</span>
+    <span class="mf-toggle-sub">To the endpoints configured in Notification Settings</span>
+  </div>
+  <button :class="['mf-tgl', { on: monPanel.form.notifyWebhook }]"
+    @click="monPanel.form.notifyWebhook = !monPanel.form.notifyWebhook">
+    <span class="mf-tgl-thumb"></span>
+  </button>
+</div>
+```
+The Response section isn't limited to one toggle — it originally shipped with just "Send a Webhook" (as a dead stub, since fixed) and gained a second, independent "Send an Email" row stacked directly beneath it once real per-monitor notification gating was built (see CLAUDE.md's Alert Notifications). Stack additional `.mf-toggle-row`s the same way for any future per-monitor response action (e.g. a hypothetical "Run a Component" or "Create a Ticket" toggle) rather than inventing a new layout — the row already generalizes to N stacked toggles under one "Response" heading.
 
 ## Segmented bar (toggle button group)
 

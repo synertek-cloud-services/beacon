@@ -1,5 +1,57 @@
 # Beacon — Project Log
 
+## Session: 2026-07-23 — Real logo/favicon, .direnv hardening, per-monitor notify toggles
+
+### What was completed
+
+**1. Replaced the placeholder favicon with the real Beacon logo (flame/brazier mark)**
+
+The lightning-bolt favicon was always a placeholder (per the 2026-07-17 session's sidebar work). User supplied the actual logo — an angular purple flame — as a self-contained app-icon SVG (own baked-in rounded-square background + radial glow). Rather than drop that single asset into every spot that shows a logo, split it into two files: `dashboard/public/favicon.svg` (the full asset, unmodified, used only as the actual browser-tab icon) and a new `dashboard/public/brand-mark.svg` (a transparent-background crop of just the flame, tightly cropped to its own bounding box). The split exists because `.sidebar-brand-mark`/`.lp-mark`/`.sc-mark` (sidebar, login page, SSO callback) all draw their own background box already themed via the branding system's `--color-surface-brand` token — dropping the full square asset into those would nest one rounded square inside another with a fixed, non-themed color, silently breaking theme integration for that one element. Updated `brand.ts`'s default `logoUrl` and `SsoCallbackPage.vue`'s hardcoded mark to point at the new transparent crop; `index.html`'s favicon link needed no change. Verified visually via Playwright at both full size and actual render size (18px sidebar / 28px SSO / 34px login / 32px browser tab) before shipping. PR #13.
+
+**2. `.direnv/` added to `.gitignore`**
+
+User recalled a possible past incident where a `.direnv`/`.envrc` file with an active Cloudflare API token had been committed somewhere, unsure which project. Full `git log --all` history search (both a path-search for any `.envrc`/`.direnv/` ever being added, and a content search for `CLOUDFLARE_API_TOKEN`) came back clean for this repo specifically — nothing ever committed here, every hit was just the env var's *name* in docs/CI config, never a value. `.gitignore` already had `.envrc` but not `.direnv/` (direnv's local cache dir, which can also serialize resolved env values) — added defensively regardless, since it's one `git add -A` away from being a real problem even though it wasn't one yet. No rotation needed for this repo; left to the user to check whichever other project they were actually thinking of. PR #14.
+
+**3. Local dev D1 was 23 migrations behind** (0024→0046 never applied locally)
+
+Surfaced when the user asked why their previously-configured branding theme presets weren't showing up after the logo work — `GET /v1/branding/identity` was 500ing. `wrangler d1 migrations list --local` showed everything from Custom Fields/Device Groups/Policy Targeting through Branding Themes/Identity/Notifications as still pending against the local database (a stale `.wrangler/state` predating most of this work). Ran `wrangler d1 migrations apply beacon --local`, confirmed all 5 built-in theme presets came back correctly. Purely a local-environment gap, no bearing on production (which was already fully migrated); no code change.
+
+**4. Per-monitor opt-in for webhook/email alert notifications (migration `0047`)**
+
+User was reviewing the previous session's Alert Notifications feature (global webhooks + pluggable email, see 2026-07-19 entry below) and working through, from first principles, how recipients/notification-scope *should* work — comparing against Datto RMM as the reference and wanting to do better. Landed on the real design question through several rounds of back-and-forth: recipients need to stay global/configure-once (not re-specified per policy, which the user was explicit about wanting to avoid), but individual monitors should be able to opt out of notifying externally at all, since not everyone wants every alert emailed — some hosts may only want the in-dashboard Global Alerts feed.
+
+Rather than guess at Datto's actual behavior, researched their real docs (`rmm.datto.com`) via WebSearch/WebFetch. Confirmed: in Datto, an alert always fires and is always visible regardless of notification config; "send an email" is a separate, per-monitor opt-in toggle; recipients come from a global default list (configured once) plus optional per-monitor one-off "Additional Recipients"; ticket/PSA creation is a third, independent toggle. This mapped directly onto the user's own half-formed model and resolved the tension: keep the existing global Notification Settings page exactly as-is (the "configure once" part), and add a lightweight per-monitor on/off switch that gates whether *that monitor* is allowed to reach the global list at all.
+
+Implemented as two independent booleans (`policy_monitors.notify_webhook`, `notify_email`, both default `false` — including for existing/seeded monitors, per the user's explicit call: "they can just be set to false... we can re-enable as necessary") rather than Datto's one channel (email + separate ticket toggle), since Beacon has two real channels and a host might want e.g. webhook-only PSA integration with no email noise. Gates `fireWebhooks`/`sendAlertEmails` at all 3 call sites in `processAlertState` (`worker/src/lib/alerts.ts`) — the alert itself and Global Alerts visibility are completely unaffected either way.
+
+**Real bug found and fixed along the way**: `PolicyFormPage.vue`'s Add/Edit Monitor drawer already had a "Send a Webhook" toggle in a "Response" section (shipped in the prior Alert Notifications session) — it rendered and toggled visually with zero errors, but was a fully dead stub: never included in any `monitors.create`/`update` API payload, no DB column existed for it, and it was hardcoded back to `false` on every single page load regardless of what had been set. Fixed by wiring it to the new `notify_webhook` column for real, and adding a second "Send an Email" toggle beside it the same way.
+
+Datto's further per-monitor "Additional Recipients" (one-off addresses typed directly into a single monitor, bypassing the global list) was discussed and explicitly deferred rather than built — introduced the **Icebox** concept for this (a new CLAUDE.md section for features considered-and-deferred-not-rejected, standing in for a real kanban board the user plans to eventually set up).
+
+**Verified end-to-end via `wrangler dev` + local D1 + Playwright**: created a policy with both toggles ON through the real UI, confirmed both persisted as `1` in D1; reloaded the page and reopened Edit Monitor, confirmed both read back correctly as ON (proving the old hardcoded-`false`-on-load bug is gone); flipped one off via the edit/PATCH path and confirmed only that flag changed, independently of the other. PR #15.
+
+**5. CLAUDE.md/STYLE.md updated to match**, same session: Two-Tier Policy System's `policy_monitors` column list, a new "Per-monitor opt-in" subsection under Alert Notifications explaining the Datto-researched design, the new Icebox section, the Identity section's two-asset (`favicon.svg`/`brand-mark.svg`) logo split and why, and STYLE.md's toggle-switch section expanded with the full `.mf-toggle-row` markup and a note that the Response section generalizes to N stacked toggles, not just one.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Two logo assets (`favicon.svg` full, `brand-mark.svg` transparent crop), not one | Sidebar/login/SSO marks already draw their own themed background box (`--color-surface-brand`); the full asset has its own baked-in fixed-color background, and using it there would nest one rounded square inside another and silently break theme integration for that element. |
+| `.direnv/` ignored defensively despite no actual leak found in this repo | Full history search came back clean, but the directory wasn't covered by any existing rule — cheap to close the gap before it's ever a real problem. |
+| Per-monitor `notify_webhook`/`notify_email` as two independent booleans, not one combined toggle | User's explicit choice — Beacon has two real channels (unlike Datto's email+ticket), and a host might want e.g. PSA-webhook-only routing with no email noise for a given monitor. |
+| Recipients stay global/configure-once; only the per-monitor on/off switch is local | Matches Datto's real model (researched, not guessed) and directly resolves the user's own stated goal of not having to re-configure recipients across many policies. |
+| All monitors (including existing/seeded ones) default both notify flags to `false` | User's explicit call, given they only have a handful of monitors today and none were relying on the old unconditional-notify behavior — simpler than a migration-time preserve-existing-behavior branch. |
+| Datto's per-monitor "Additional Recipients" iceboxed, not built | Real added surface area in an already-dense Add Monitor drawer for a capability not yet asked for; the Icebox concept now gives this (and future deferrals) a standing home. |
+| Icebox as a CLAUDE.md section, not a new file/system | User doesn't have a real kanban board yet; matches this codebase's existing convention of tracking scope decisions in CLAUDE.md's per-feature "Explicitly out of scope" prose rather than a separate tracker. |
+
+### Next logical steps
+
+1. **Go re-enable `notify_webhook`/`notify_email` on whichever specific monitors the user actually wants alerting them** — every monitor defaults to both `false` after this session's migration, so *nothing* notifies externally right now (Global Alerts visibility is unaffected, but webhook/email are silent fleet-wide) until this is done manually per monitor.
+2. **Verify real email delivery with live SES credentials** — carried over from the 2026-07-19 session, still only verified against fake-but-correctly-shaped credentials (real API rejection, not a parse error), never an actual successful send.
+3. **Patch Management** and **rest of Agent Browser** (File Manager, Task Manager, Registry Editor, Event Viewer, Screenshot, etc.) remain the two largest untouched backlog items, unchanged from prior sessions.
+
+---
+
 ## Session: 2026-07-19 — Branding Identity, docs cleanup, Alert Notifications
 
 ### What was completed
