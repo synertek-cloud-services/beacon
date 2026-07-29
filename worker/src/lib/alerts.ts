@@ -4,6 +4,7 @@ import * as schema from '../db/schema';
 import type { Bindings } from '../index';
 import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult } from './types';
 import { sendEmail } from './email';
+import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -130,7 +131,9 @@ async function fetchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>>> {
   return out;
 }
 
-async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<Map<string, Set<string>>> {
+// Exported for worker/src/lib/maintenance.ts, which reuses the same
+// device_group_members lookup for Maintenance Policy targeting.
+export async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   if (deviceIds.length === 0) return out;
   const rows = await db.select().from(schema.deviceGroupMembers)
@@ -477,9 +480,10 @@ export async function evaluateOfflineAlerts(
   const deviceGroupIds = await fetchDeviceGroupIds(db, allDevices.map(d => d.id));
   const policySiteIds = await fetchPolicySiteIds(db);
   const policyDeviceIds = await fetchPolicyDeviceIds(db);
+  const maintCtx = await fetchMaintenanceContext(db, allDevices.map(d => d.id), now);
 
   for (const device of allDevices) {
-    if (device.maintenanceEndsAt != null && device.maintenanceEndsAt > now) continue;
+    if (isDeviceSuppressed(device, maintCtx)) continue;
 
     const monitors = matchMonitorsForDevice(
       policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds,

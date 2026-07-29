@@ -324,6 +324,47 @@ export interface PolicyDeviceTarget {
   tenantName: string;
 }
 
+// Maintenance Policy (v1: 'one_time'/'weekly' recurrence only — see
+// worker/src/lib/maintenance.ts). Targeting is Sites/Devices/Groups only,
+// no OS/Class filter (matches Datto's real Maintenance Policy scope,
+// narrower than Monitoring Policy above).
+export type MaintenanceRecurrenceType = 'one_time' | 'weekly';
+
+export interface MaintenancePolicy {
+  id:                     string;
+  name:                   string;
+  description:            string | null;
+  enabled:                boolean;
+  recurrenceType:         MaintenanceRecurrenceType;
+  oneTimeStartAt:         number | null;
+  oneTimeDurationMinutes: number | null;
+  weeklyDays:             string | null; // JSON int[], 0=Sun..6=Sat
+  weeklyStartMinute:      number | null;
+  weeklyDurationMinutes:  number | null;
+  createdAt:              number;
+  updatedAt:              number;
+  siteIds?:   string[];
+  deviceIds?: string[];
+  groupIds?:  string[];
+}
+
+export interface MaintenanceRecurrenceBody {
+  type: MaintenanceRecurrenceType;
+  one_time_start_at?:         number;
+  one_time_duration_minutes?: number;
+  weekly_days?:               number[];
+  weekly_start_minute?:       number;
+  weekly_duration_minutes?:   number;
+}
+
+// Host-wide singleton settings (currently just the Maintenance-Policy
+// scheduling timezone) — see worker/src/db/schema.ts's hostSettings.
+export interface HostSettings {
+  id:        number;
+  timezone:  string;
+  updatedAt: number;
+}
+
 // Returned by GET /v1/admin/devices/:id/effective-monitors — a monitor that
 // currently applies to this device, with its parent policy embedded (no
 // `monitors` field on that embedded policy, unlike the full Policy type).
@@ -892,6 +933,50 @@ export const api = {
       remove: (policyId: string, deviceId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/devices/${deviceId}`),
     },
+  },
+
+  maintenancePolicies: {
+    list: () => request<MaintenancePolicy[]>('GET', '/v1/admin/maintenance-policies'),
+    create: (body: {
+      name:         string;
+      description?: string | null;
+      enabled?:     boolean;
+      recurrence?:  MaintenanceRecurrenceBody;
+      clone_from?:  string;
+    }) => request<MaintenancePolicy>('POST', '/v1/admin/maintenance-policies', body),
+    update: (id: string, body: {
+      name?:        string;
+      description?: string | null;
+      enabled?:     boolean;
+      recurrence?:  MaintenanceRecurrenceBody;
+    }) => request<{ ok: boolean }>('PATCH', `/v1/admin/maintenance-policies/${id}`, body),
+    delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${id}`),
+    sites: {
+      list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/sites`),
+      add:  (policyId: string, tenantId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/sites`, { tenant_id: tenantId }),
+      remove: (policyId: string, tenantId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/sites/${tenantId}`),
+    },
+    devices: {
+      list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/devices`),
+      add:  (policyId: string, deviceId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/devices`, { device_id: deviceId }),
+      remove: (policyId: string, deviceId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/devices/${deviceId}`),
+    },
+    groups: {
+      list: (policyId: string) => request<PolicyGroupTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/groups`),
+      add:  (policyId: string, groupId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/groups`, { group_id: groupId }),
+      remove: (policyId: string, groupId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/groups/${groupId}`),
+    },
+  },
+
+  settings: {
+    get: () => request<HostSettings>('GET', '/v1/admin/settings'),
+    update: (body: { timezone?: string }) => request<{ ok: boolean }>('PATCH', '/v1/admin/settings', body),
   },
 
   alerts: {

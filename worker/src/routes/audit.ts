@@ -5,6 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { sha256hex } from '../lib/crypto';
 import { evaluateSoftwareAlerts } from '../lib/alerts';
+import { isDeviceSuppressedNow } from '../lib/maintenance';
 
 const audit = new Hono<{ Bindings: Bindings }>();
 
@@ -271,7 +272,7 @@ audit.post('/', async (c) => {
       await db.insert(schema.deviceAuditChanges).values(ch);
     }
 
-    const inMaintenance = device.maintenanceEndsAt != null && device.maintenanceEndsAt > now;
+    const inMaintenance = await isDeviceSuppressedNow(db, device, now);
     if (swChanges.length > 0 && !inMaintenance) {
       await evaluateSoftwareAlerts(c.env.DB, c.env, device, swChanges, now);
     }
