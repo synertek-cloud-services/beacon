@@ -113,13 +113,8 @@
               </td>
               <td class="td-created mono">{{ formatDate(a.alerted_at) }}</td>
               <td>
-                <span
-                  class="pri-badge"
-                  :class="`pri-${effectivePriority(a)}`"
-                  :title="effectivePriority(a) !== a.priority ? `Escalated from ${capitalize(a.priority)} — unacknowledged for ${Math.floor((Date.now()/1000 - (a.alerted_at ?? 0)) / 3600)}h` : undefined"
-                >
-                  {{ capitalize(effectivePriority(a)) }}
-                  <span v-if="effectivePriority(a) !== a.priority" class="pri-escalated">↑</span>
+                <span class="pri-badge" :class="`pri-${a.priority}`">
+                  {{ capitalize(a.priority) }}
                 </span>
               </td>
               <td class="td-category">{{ categoryLabel(a.check_type) }}</td>
@@ -211,20 +206,6 @@ function onSearch() {
   searchTimer = setTimeout(() => { page.value = 1; load(); }, 350);
 }
 
-// ── Priority escalation ────────────────────────────────────────
-type AlertPriority = 'low' | 'moderate' | 'high' | 'critical';
-const ESCALATION_LADDER: AlertPriority[] = ['low', 'moderate', 'high', 'critical'];
-const ESCALATION_HOURS: Record<AlertPriority, number> = { low: 4, moderate: 4, high: 2, critical: Infinity };
-
-function effectivePriority(a: AlertState): AlertPriority {
-  if (!a.is_alerting || a.acknowledged_at) return a.priority as AlertPriority;
-  const hoursOpen = (Date.now() / 1000 - (a.alerted_at ?? 0)) / 3600;
-  const idx = ESCALATION_LADDER.indexOf(a.priority as AlertPriority);
-  return hoursOpen >= ESCALATION_HOURS[a.priority as AlertPriority] && idx < 3
-    ? ESCALATION_LADDER[idx + 1]
-    : a.priority as AlertPriority;
-}
-
 function alertStatusClass(a: AlertState): string {
   if (!a.is_alerting) return 'status-resolved';
   if (a.acknowledged_at) return 'status-acked';
@@ -245,7 +226,7 @@ const sorted = computed(() => {
   rows.sort((a, b) => {
     let diff = 0;
     if (sortCol.value === 'priority') {
-      diff = (priorityOrder[effectivePriority(a)] ?? 9) - (priorityOrder[effectivePriority(b)] ?? 9);
+      diff = (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9);
     } else {
       diff = (a.alerted_at ?? 0) - (b.alerted_at ?? 0);
     }
@@ -548,9 +529,6 @@ function alertMessage(a: AlertState): string {
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
 .status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
 .status-resolved { color: var(--color-text-subtle); }
-
-/* Escalation marker on priority badge */
-.pri-escalated { font-size: 10px; margin-left: 3px; opacity: .85; }
 
 /* Resolve button gets a mild red tint to differentiate from Acknowledge */
 .btn-action-resolve:not(:disabled) { color: var(--color-danger); border-color: rgba(232,86,106,.3); }

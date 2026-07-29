@@ -11,10 +11,8 @@
 
     <div class="ad-topbar">
       <div class="ad-title-row">
-        <span class="pri-badge" :class="`pri-${effectivePriority(alert)}`"
-          :title="effectivePriority(alert) !== alert.priority ? `Escalated from ${capitalize(alert.priority)}` : undefined">
-          {{ capitalize(effectivePriority(alert)) }}
-          <span v-if="effectivePriority(alert) !== alert.priority" class="pri-escalated">↑</span>
+        <span class="pri-badge" :class="`pri-${alert.priority}`">
+          {{ capitalize(alert.priority) }}
         </span>
         <h1 class="ad-title">Alert on {{ alert.hostname ?? alert.device_id.slice(0, 8) }}</h1>
       </div>
@@ -141,7 +139,7 @@
           >
             <td class="mono text-muted-2" style="white-space:nowrap;font-size:11px">{{ fmtTs(a.alerted_at) }}</td>
             <td>
-              <span class="pri-badge" :class="`pri-${effectivePriority(a)}`">{{ capitalize(effectivePriority(a)) }}</span>
+              <span class="pri-badge" :class="`pri-${a.priority}`">{{ capitalize(a.priority) }}</span>
             </td>
             <td class="text-muted-2" style="white-space:nowrap">{{ categoryLabel(a.check_type) }}</td>
             <td class="ad-msg-link">{{ alertMessage(a) }}</td>
@@ -161,7 +159,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type AlertState, type CheckType, type AlertPriority } from '../api';
+import { api, type AlertState, type CheckType } from '../api';
 
 const route  = useRoute();
 const router = useRouter();
@@ -172,19 +170,6 @@ const actionBusy      = ref(false);
 const actionError     = ref('');
 const deviceAlerts    = ref<AlertState[]>([]);
 const deviceAlertsLoading = ref(true);
-
-// ── Priority escalation ────────────────────────────────────────
-const ESCALATION_LADDER: AlertPriority[] = ['low', 'moderate', 'high', 'critical'];
-const ESCALATION_HOURS: Record<AlertPriority, number> = { low: 4, moderate: 4, high: 2, critical: Infinity };
-
-function effectivePriority(a: AlertState): AlertPriority {
-  if (!a.is_alerting || a.acknowledged_at) return a.priority as AlertPriority;
-  const hoursOpen = (Date.now() / 1000 - (a.alerted_at ?? 0)) / 3600;
-  const idx = ESCALATION_LADDER.indexOf(a.priority as AlertPriority);
-  return hoursOpen >= ESCALATION_HOURS[a.priority as AlertPriority] && idx < 3
-    ? ESCALATION_LADDER[idx + 1]
-    : a.priority as AlertPriority;
-}
 
 const statusClass = computed(() => {
   if (!alert.value) return '';
@@ -425,8 +410,6 @@ function alertMessage(a: AlertState): string {
 .pri-high     { background: #e07830;      color: #fff; }
 .pri-moderate { background: var(--color-warning); color: #1a1200; }
 .pri-low      { background: var(--color-text-muted); color: var(--color-surface); }
-.pri-escalated { font-size: 10px; margin-left: 3px; opacity: .85; }
-
 /* Timeline */
 .ad-timeline { padding: 20px 18px; display: flex; flex-direction: column; gap: 0; }
 .ad-tl-item { display: flex; gap: 16px; }
