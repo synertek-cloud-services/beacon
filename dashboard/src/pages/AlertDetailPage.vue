@@ -18,12 +18,6 @@
       </div>
       <div class="ad-topbar-actions">
         <button
-          v-if="alert.is_alerting && !alert.acknowledged_at"
-          class="btn btn-ghost btn-sm"
-          :disabled="actionBusy"
-          @click="acknowledge"
-        >Acknowledge</button>
-        <button
           v-if="alert.is_alerting"
           class="btn btn-ghost btn-sm btn-danger-ghost"
           :disabled="actionBusy"
@@ -54,10 +48,6 @@
           <div class="ad-row">
             <span class="ad-label">Alert ID</span>
             <span class="ad-val mono text-muted-2" style="font-size:11px">{{ alert.id }}</span>
-          </div>
-          <div v-if="alert.acknowledged_at" class="ad-row">
-            <span class="ad-label">Acknowledged by</span>
-            <span class="ad-val">{{ alert.acknowledged_by ?? '—' }}</span>
           </div>
         </div>
         <div class="ad-col">
@@ -90,9 +80,6 @@
             <span class="ad-tl-icon" :class="'tl-' + evt.kind">
               <svg v-if="evt.kind === 'created'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-              <svg v-else-if="evt.kind === 'acknowledged'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
               </svg>
               <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
@@ -144,8 +131,8 @@
             <td class="text-muted-2" style="white-space:nowrap">{{ categoryLabel(a.check_type) }}</td>
             <td class="ad-msg-link">{{ alertMessage(a) }}</td>
             <td>
-              <span class="status-pill" :class="!a.is_alerting ? 'status-resolved' : a.acknowledged_at ? 'status-acked' : 'status-open'">
-                {{ !a.is_alerting ? 'Resolved' : a.acknowledged_at ? 'Acknowledged' : 'Open' }}
+              <span class="status-pill" :class="a.is_alerting ? 'status-open' : 'status-resolved'">
+                {{ a.is_alerting ? 'Open' : 'Resolved' }}
               </span>
             </td>
           </tr>
@@ -173,22 +160,18 @@ const deviceAlertsLoading = ref(true);
 
 const statusClass = computed(() => {
   if (!alert.value) return '';
-  if (!alert.value.is_alerting) return 'status-resolved';
-  if (alert.value.acknowledged_at) return 'status-acked';
-  return 'status-open';
+  return alert.value.is_alerting ? 'status-open' : 'status-resolved';
 });
 
 const statusLabel = computed(() => {
   if (!alert.value) return '';
-  if (!alert.value.is_alerting) return 'Resolved';
-  if (alert.value.acknowledged_at) return 'Acknowledged';
-  return 'Open';
+  return alert.value.is_alerting ? 'Open' : 'Resolved';
 });
 
 // ── Timeline ───────────────────────────────────────────────────
 interface TimelineEvent {
   key: string;
-  kind: 'created' | 'acknowledged' | 'resolved';
+  kind: 'created' | 'resolved';
   title: string;
   detail?: string;
   ts: number;
@@ -202,9 +185,6 @@ const timeline = computed((): TimelineEvent[] => {
 
   if (a.alerted_at) {
     evts.push({ key: 'created', kind: 'created', title: 'Alert Created', ts: a.alerted_at, last: false });
-  }
-  if (a.acknowledged_at) {
-    evts.push({ key: 'acked', kind: 'acknowledged', title: 'Acknowledged', detail: a.acknowledged_by ? `by ${a.acknowledged_by}` : undefined, ts: a.acknowledged_at, last: false });
   }
   if (a.resolved_at) {
     evts.push({ key: 'resolved', kind: 'resolved', title: 'Resolved', ts: a.resolved_at, last: false });
@@ -241,20 +221,6 @@ onMounted(async () => {
 });
 
 // ── Actions ────────────────────────────────────────────────────
-async function acknowledge() {
-  if (!alert.value) return;
-  actionBusy.value = true;
-  actionError.value = '';
-  try {
-    await api.alerts.acknowledge(alert.value.id);
-    alert.value = { ...alert.value, acknowledged_at: Math.floor(Date.now() / 1000) };
-  } catch (e: any) {
-    actionError.value = e.message;
-  } finally {
-    actionBusy.value = false;
-  }
-}
-
 async function resolve() {
   if (!alert.value) return;
   actionBusy.value = true;
@@ -398,7 +364,6 @@ function alertMessage(a: AlertState): string {
 /* Status pills */
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
-.status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
 .status-resolved { color: var(--color-text-subtle); }
 
 /* Priority badges */
@@ -421,7 +386,6 @@ function alertMessage(a: AlertState): string {
   background: var(--color-surface-raised); color: var(--color-text-muted);
 }
 .tl-created      { border-color: rgba(232,86,106,.5); background: rgba(232,86,106,.1); color: var(--color-danger); }
-.tl-acknowledged { border-color: rgba(240,180,40,.5);  background: rgba(240,180,40,.1);  color: var(--color-warning); }
 .tl-resolved     { border-color: rgba(45,207,160,.5);  background: rgba(45,207,160,.1);  color: var(--color-success); }
 .ad-tl-connector { flex: 1; width: 2px; background: var(--color-border); margin: 4px 0; min-height: 24px; }
 .ad-tl-body { padding-bottom: 24px; flex: 1; }

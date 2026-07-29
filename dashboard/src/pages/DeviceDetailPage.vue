@@ -300,8 +300,8 @@
                     <td class="text-sm">{{ categoryLabel(a.check_type) }}</td>
                     <td class="text-sm msg-link">{{ alertMessage(a) }}</td>
                     <td>
-                      <span class="status-pill" :class="!a.is_alerting ? 'status-resolved' : a.acknowledged_at ? 'status-acked' : 'status-open'">
-                        {{ !a.is_alerting ? 'Resolved' : a.acknowledged_at ? 'Acknowledged' : 'Open' }}
+                      <span class="status-pill" :class="a.is_alerting ? 'status-open' : 'status-resolved'">
+                        {{ a.is_alerting ? 'Open' : 'Resolved' }}
                       </span>
                     </td>
                   </tr>
@@ -1827,7 +1827,6 @@ function shellLabel(shell: string): string {
 .alert-mini-table .col-check { width: 32px; }
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
-.status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
 .status-resolved { color: var(--color-text-subtle); }
 .msg-link        { color: var(--color-primary); }
 .pri-badge {

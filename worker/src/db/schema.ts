@@ -226,8 +226,6 @@ export const alertState = sqliteTable('alert_state', {
   // changing history. Nullable/never reset on resolve, same as alertedAt.
   alertPriority:      text('alert_priority', { enum: ['critical', 'high', 'moderate', 'low'] }),
   resolvedAt:         integer('resolved_at'),
-  acknowledgedAt:     integer('acknowledged_at'),
-  acknowledgedBy:     text('acknowledged_by'),
   updatedAt:          integer('updated_at').notNull(),
 });
 

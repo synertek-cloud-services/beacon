@@ -337,8 +337,6 @@ export interface AlertState {
   condition_first_seen: number | null;
   alerted_at:           number | null;
   resolved_at:          number | null;
-  acknowledged_at:      number | null;
-  acknowledged_by:      string | null;
   updated_at:           number;
   device_id:            string;
   hostname:             string | null;
@@ -903,8 +901,6 @@ export const api = {
       request<AlertState>('GET', `/v1/admin/alerts/${id}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
-    acknowledge: (id: string) =>
-      request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/acknowledge`),
   },
 
   devices: {
