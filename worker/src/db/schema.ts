@@ -534,3 +534,68 @@ export const deviceGroupMembers = sqliteTable('device_group_members', {
   deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.groupId, t.deviceId] })]);
+
+// Maintenance Policy (v1: 'one_time' + 'weekly' recurrence only, matching
+// Datto RMM's real Maintenance Policy scope) -- fleet-wide scheduled alert
+// suppression, alongside (not replacing) the existing per-device ad-hoc
+// window above (devices.maintenanceEndsAt/maintenanceReason, migration
+// 0025). Targeting mirrors policySites/policyDevices/policyGroups' exact
+// shape as independent parallel tables -- a different policy type with its
+// own targeting, not a reuse of Monitoring Policy's tables. No OS/Class gate
+// -- Datto's own Maintenance Policy has no such filter, narrower scope than
+// Monitoring Policy. See worker/src/lib/maintenance.ts for evaluation.
+export const maintenancePolicies = sqliteTable('maintenance_policies', {
+  id:          text('id').primaryKey(),
+  name:        text('name').notNull(),
+  description: text('description'),
+  enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  recurrenceType: text('recurrence_type', { enum: ['one_time', 'weekly'] }).notNull(),
+  // One-time fields -- null unless recurrenceType='one_time'. Stored as an
+  // absolute UTC instant (like devices.maintenanceEndsAt) -- the host
+  // timezone is "baked in" once at creation time via the dashboard's
+  // conversion helper, not re-interpreted on every evaluation.
+  oneTimeStartAt:         integer('one_time_start_at'),
+  oneTimeDurationMinutes: integer('one_time_duration_minutes'),
+  // Weekly fields -- null unless recurrenceType='weekly'. Wall-clock, always
+  // re-interpreted against the CURRENT host_settings.timezone at evaluation
+  // time (unlike one-time above) -- matches Datto's own "one account-wide
+  // Time Zone applies to schedules" behavior. weeklyDays follows the same
+  // "JSON-stringified array in a text column" convention as
+  // policies.targetOs/targetClass, not a bitmask.
+  weeklyDays:            text('weekly_days'),            // JSON int[], 0=Sun..6=Sat
+  weeklyStartMinute:     integer('weekly_start_minute'), // 0-1439, host-tz minutes since midnight
+  weeklyDurationMinutes: integer('weekly_duration_minutes'), // 1-1439 (Datto caps just under 24h)
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const maintenancePolicySites = sqliteTable('maintenance_policy_sites', {
+  policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
+  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+
+export const maintenancePolicyDevices = sqliteTable('maintenance_policy_devices', {
+  policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
+  deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.deviceId] })]);
+
+export const maintenancePolicyGroups = sqliteTable('maintenance_policy_groups', {
+  policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
+  groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
+
+// Host-wide singleton settings -- currently just the Maintenance-Policy
+// scheduling timezone (Datto: Setup > Account Settings > Time Zone, one
+// value for the whole account, no per-tenant override -- confirmed against
+// Datto's real docs and explicitly declined by the user when floated as an
+// option). Same id=1 CHECK singleton shape as emailSettings/
+// brandingSettings/brandingIdentity. A natural home for other future
+// host-wide settings.
+export const hostSettings = sqliteTable('host_settings', {
+  id:        integer('id').primaryKey(),
+  timezone:  text('timezone').notNull().default('UTC'), // IANA name, e.g. "America/New_York"
+  updatedAt: integer('updated_at').notNull(),
+});

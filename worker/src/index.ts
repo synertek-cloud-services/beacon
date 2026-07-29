@@ -22,6 +22,8 @@ import adminSso from './routes/admin/sso';
 import adminCustomFields from './routes/admin/custom-fields';
 import adminGroups from './routes/admin/groups';
 import adminDashboards from './routes/admin/dashboards';
+import adminMaintenancePolicies from './routes/admin/maintenance-policies';
+import adminSettings from './routes/admin/settings';
 import adminEmailSettings from './routes/admin/email-settings';
 import adminNotificationEmails from './routes/admin/notification-emails';
 import branding from './routes/branding';
@@ -95,6 +97,8 @@ app.route('/v1/admin/sso', adminSso);
 app.route('/v1/admin/custom-fields', adminCustomFields);
 app.route('/v1/admin/groups', adminGroups);
 app.route('/v1/admin/dashboards', adminDashboards);
+app.route('/v1/admin/maintenance-policies', adminMaintenancePolicies);
+app.route('/v1/admin/settings', adminSettings);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
 

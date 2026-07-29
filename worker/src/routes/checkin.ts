@@ -7,6 +7,7 @@ import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
 import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
+import { isDeviceSuppressedNow } from '../lib/maintenance';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
 
@@ -105,7 +106,7 @@ checkin.post('/', async (c) => {
     }
   }
 
-  const inMaintenance = device.maintenanceEndsAt != null && device.maintenanceEndsAt > now;
+  const inMaintenance = await isDeviceSuppressedNow(db, device, now);
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks } = inMaintenance

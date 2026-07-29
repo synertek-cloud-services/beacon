@@ -114,6 +114,7 @@
         <div v-show="openSections.global" class="sec-body">
           <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
           <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
+          <RouterLink to="/global/maintenance-policies" class="sbi" :class="{ active: route.path.startsWith('/global/maintenance-policies') }">Maintenance Policies</RouterLink>
         </div>
 
         <!-- AUTOMATION -->
@@ -144,6 +145,7 @@
             </svg>
           </div>
           <div v-show="openSections.settings" class="sec-body">
+            <RouterLink to="/settings/general" class="sbi" :class="{ active: route.path === '/settings/general' }">General</RouterLink>
             <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
             <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
             <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
@@ -215,6 +217,7 @@
       <template v-if="openFlyout === 'global'">
         <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
         <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
+        <RouterLink to="/global/maintenance-policies" class="sbi" :class="{ active: route.path.startsWith('/global/maintenance-policies') }">Maintenance Policies</RouterLink>
       </template>
 
       <template v-if="openFlyout === 'automation'">
@@ -223,6 +226,7 @@
       </template>
 
       <template v-if="openFlyout === 'settings'">
+        <RouterLink to="/settings/general" class="sbi" :class="{ active: route.path === '/settings/general' }">General</RouterLink>
         <RouterLink to="/settings/users" class="sbi" :class="{ active: route.path.startsWith('/settings/users') }">Users</RouterLink>
         <RouterLink to="/settings/sso" class="sbi" :class="{ active: route.path === '/settings/sso' }">Single Sign-On</RouterLink>
         <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
@@ -489,6 +493,8 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/jobs')) return 'Jobs';
   if (route.path === '/global/alerts') return 'Global Alerts';
   if (route.path === '/global/policies') return 'Global Policies';
+  if (route.path.startsWith('/global/maintenance-policies')) return 'Maintenance Policies';
+  if (route.path === '/settings/general') return 'General Settings';
   if (route.path.startsWith('/settings/users')) return 'Users';
   if (route.path === '/settings/sso') return 'Single Sign-On';
   if (route.path === '/settings/custom-fields') return 'Custom Fields';
