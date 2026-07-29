@@ -29,11 +29,6 @@
         </div>
         <div class="al-card-actions">
           <button
-            class="btn-action"
-            :disabled="!selected.size || acknowledging"
-            @click="acknowledgeSelected"
-          >{{ acknowledging ? 'Acknowledging…' : 'Acknowledge' }}</button>
-          <button
             class="btn-action btn-action-resolve"
             :disabled="!selected.size || resolving"
             @click="resolveSelected"
@@ -160,7 +155,6 @@ const allAlerts    = ref<AlertState[]>([]);
 const tenants      = ref<Tenant[]>([]);
 const loading      = ref(true);
 const resolving    = ref(false);
-const acknowledging = ref(false);
 const statusFilter = ref<'active' | 'all'>('active');
 const searchQuery  = ref('');
 const selected     = ref(new Set<string>());
@@ -207,15 +201,11 @@ function onSearch() {
 }
 
 function alertStatusClass(a: AlertState): string {
-  if (!a.is_alerting) return 'status-resolved';
-  if (a.acknowledged_at) return 'status-acked';
-  return 'status-open';
+  return a.is_alerting ? 'status-open' : 'status-resolved';
 }
 
 function alertStatusLabel(a: AlertState): string {
-  if (!a.is_alerting) return 'Resolved';
-  if (a.acknowledged_at) return 'Acknowledged';
-  return 'Open';
+  return a.is_alerting ? 'Open' : 'Resolved';
 }
 
 // ── Priority sort order ────────────────────────────────────────
@@ -287,26 +277,6 @@ async function resolveSelected() {
     // individual errors are silent; reload will show current state
   } finally {
     resolving.value = false;
-  }
-}
-
-async function acknowledgeSelected() {
-  if (!selected.value.size) return;
-  acknowledging.value = true;
-  try {
-    await Promise.all([...selected.value].map(id => api.alerts.acknowledge(id)));
-    // Update local state immediately so the status pills flip without a reload
-    const ids = new Set(selected.value);
-    const now = Math.floor(Date.now() / 1000);
-    allAlerts.value = allAlerts.value.map(a =>
-      ids.has(a.id) ? { ...a, acknowledged_at: now } : a
-    );
-    selected.value.clear();
-    selected.value = new Set();
-  } catch {
-    await load();
-  } finally {
-    acknowledging.value = false;
   }
 }
 
@@ -527,10 +497,8 @@ function alertMessage(a: AlertState): string {
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
-.status-acked    { background: rgba(240,180,40,.12);  color: var(--color-warning); }
 .status-resolved { color: var(--color-text-subtle); }
 
-/* Resolve button gets a mild red tint to differentiate from Acknowledge */
 .btn-action-resolve:not(:disabled) { color: var(--color-danger); border-color: rgba(232,86,106,.3); }
 .btn-action-resolve:hover:not(:disabled) { background: rgba(232,86,106,.08); }
 

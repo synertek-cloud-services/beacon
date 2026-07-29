@@ -47,7 +47,7 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
 
   const alertScope = tenantIds?.length ? ` AND t.id IN (${placeholders(tenantIds)})` : '';
   const alerts = await db.prepare(`
-    SELECT s.id, s.is_alerting, s.condition_first_seen, s.alerted_at, s.resolved_at, s.acknowledged_at, s.acknowledged_by, s.updated_at,
+    SELECT s.id, s.is_alerting, s.condition_first_seen, s.alerted_at, s.resolved_at, s.updated_at,
       d.id AS device_id, d.hostname, d.os_type, d.detected_class, d.override_class, t.id AS tenant_id, t.name AS tenant_name,
       pm.id AS monitor_id, pm.check_type, pm.config, COALESCE(s.alert_priority, pm.alert_priority) AS priority, p.id AS policy_id, p.name AS policy_name, p.scope AS policy_scope
     FROM alert_state s JOIN devices d ON d.id = s.device_id JOIN tenants t ON t.id = d.tenant_id
