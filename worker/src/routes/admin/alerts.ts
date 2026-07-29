@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
+import { manuallyResolveAlert } from '../../lib/alerts';
 
 const alerts = new Hono<{ Bindings: Bindings }>();
 
@@ -53,7 +54,7 @@ alerts.get('/', async (c) => {
       pm.id             AS monitor_id,
       pm.check_type,
       pm.config,
-      pm.alert_priority AS priority,
+      COALESCE(s.alert_priority, pm.alert_priority) AS priority,
       pm.sustained_minutes,
       p.id   AS policy_id,
       p.name AS policy_name,
@@ -111,7 +112,7 @@ alerts.get('/:id', async (c) => {
       pm.id             AS monitor_id,
       pm.check_type,
       pm.config,
-      pm.alert_priority AS priority,
+      COALESCE(s.alert_priority, pm.alert_priority) AS priority,
       pm.sustained_minutes,
       p.id   AS policy_id,
       p.name AS policy_name,
@@ -129,31 +130,20 @@ alerts.get('/:id', async (c) => {
   return c.json(result);
 });
 
-// POST /v1/admin/alerts/:id/resolve — manually clear an active alert
+// POST /v1/admin/alerts/:id/resolve — manually clear an active alert. Fires
+// the same alert.resolved webhook/email as auto-resolve does (gated by the
+// monitor's notifyWebhook/notifyEmail flags) — see manuallyResolveAlert in
+// lib/alerts.ts.
 alerts.post('/:id/resolve', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  const db  = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const id  = c.req.param('id');
 
-  const state = await db.select()
-    .from(schema.alertState)
-    .where(eq(schema.alertState.id, id))
-    .get();
-
-  if (!state) return c.json({ error: 'not found' }, 404);
-
-  await db.update(schema.alertState)
-    .set({
-      isAlerting:         false,
-      conditionFirstSeen: null,
-      resolvedAt:         now,
-      updatedAt:          now,
-    })
-    .where(eq(schema.alertState.id, id));
+  const found = await manuallyResolveAlert(c.env.DB, c.env, id, now);
+  if (!found) return c.json({ error: 'not found' }, 404);
 
   return c.json({ ok: true });
 });

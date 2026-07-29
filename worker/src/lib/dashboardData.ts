@@ -49,7 +49,7 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
   const alerts = await db.prepare(`
     SELECT s.id, s.is_alerting, s.condition_first_seen, s.alerted_at, s.resolved_at, s.acknowledged_at, s.acknowledged_by, s.updated_at,
       d.id AS device_id, d.hostname, d.os_type, d.detected_class, d.override_class, t.id AS tenant_id, t.name AS tenant_name,
-      pm.id AS monitor_id, pm.check_type, pm.config, pm.alert_priority AS priority, p.id AS policy_id, p.name AS policy_name, p.scope AS policy_scope
+      pm.id AS monitor_id, pm.check_type, pm.config, COALESCE(s.alert_priority, pm.alert_priority) AS priority, p.id AS policy_id, p.name AS policy_name, p.scope AS policy_scope
     FROM alert_state s JOIN devices d ON d.id = s.device_id JOIN tenants t ON t.id = d.tenant_id
     JOIN policy_monitors pm ON pm.id = s.policy_monitor_id JOIN policies p ON p.id = pm.policy_id
     WHERE s.alerted_at IS NOT NULL${alertScope} ORDER BY s.alerted_at DESC LIMIT 100
