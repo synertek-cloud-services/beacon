@@ -590,11 +590,12 @@ async function processAlertState(
       conditionFirstSeen: now,
       isAlerting:         fireImmediately,
       alertedAt:          fireImmediately ? now : null,
+      alertPriority:      fireImmediately ? monitor.alertPriority : null,
       updatedAt:          now,
     });
     if (fireImmediately) {
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId);
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
     }
     return;
   }
@@ -608,11 +609,13 @@ async function processAlertState(
     const newConditionFirstSeen = existing.conditionFirstSeen ?? now;
     const newIsAlerting         = shouldFire || existing.isAlerting;
     const newAlertedAt          = shouldFire ? now : existing.alertedAt;
+    const newAlertPriority      = shouldFire ? monitor.alertPriority : existing.alertPriority;
 
     const changed =
       newConditionFirstSeen !== existing.conditionFirstSeen ||
       newIsAlerting          !== existing.isAlerting ||
-      newAlertedAt           !== existing.alertedAt;
+      newAlertedAt           !== existing.alertedAt ||
+      newAlertPriority        !== existing.alertPriority;
 
     if (changed) {
       await db.update(schema.alertState)
@@ -620,14 +623,15 @@ async function processAlertState(
           conditionFirstSeen: newConditionFirstSeen,
           isAlerting:         newIsAlerting,
           alertedAt:          newAlertedAt,
+          alertPriority:      newAlertPriority,
           updatedAt:          now,
         })
         .where(eq(schema.alertState.id, existing.id));
     }
 
     if (shouldFire) {
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id);
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
     }
   } else {
     const wasAlerting     = existing.isAlerting;
@@ -657,10 +661,62 @@ async function processAlertState(
     }
 
     if (wasAlerting && shouldAutoResolve) {
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id);
+      // Fallback only matters for rows that fired before migration 0048
+      // shipped and never got a snapshot -- every row created after ships
+      // with alertPriority already set by the time it can resolve.
+      const priority = existing.alertPriority ?? monitor.alertPriority;
+      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority);
     }
   }
+}
+
+// Manual resolve (dashboard "Resolve" button, POST /v1/admin/alerts/:id/resolve)
+// -- mirrors the auto-resolve notification behavior above (same event,
+// same per-monitor notifyWebhook/notifyEmail gating), but triggered by an
+// explicit technician action instead of a passing evaluation. The bulk
+// paths below (reconcileOrphanedAlerts/resolveAllOpenAlerts) deliberately
+// do NOT call this -- those fire on policy/monitor config edits (narrowed
+// targeting, deletion), not on the real-world condition actually clearing,
+// and notifying on those would read as a ticketing system's alert closing
+// for a reason unrelated to the monitored problem going away.
+export async function manuallyResolveAlert(
+  DB: D1Database,
+  env: Bindings,
+  alertStateId: string,
+  now: number,
+): Promise<boolean> {
+  const db = drizzle(DB, { schema });
+
+  const row = await db.select()
+    .from(schema.alertState)
+    .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.id, schema.alertState.policyMonitorId))
+    .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+    .innerJoin(schema.devices, eq(schema.devices.id, schema.alertState.deviceId))
+    .where(eq(schema.alertState.id, alertStateId))
+    .get();
+
+  if (!row) return false;
+
+  const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+  const wasAlerting = row.alert_state.isAlerting;
+
+  await db.update(schema.alertState)
+    .set({
+      isAlerting:         false,
+      conditionFirstSeen: null,
+      resolvedAt:         now,
+      updatedAt:          now,
+    })
+    .where(eq(schema.alertState.id, alertStateId));
+
+  if (wasAlerting) {
+    const priority = row.alert_state.alertPriority ?? monitor.alertPriority;
+    if (monitor.notifyWebhook) await fireWebhooks(db, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
+    if (monitor.notifyEmail)   await sendAlertEmails(env, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
+  }
+
+  return true;
 }
 
 // Global, not scoped to the triggering device's company — the hoster's own
@@ -673,6 +729,8 @@ async function fireWebhooks(
   monitor: EffectiveMonitor,
   event: 'alert.triggered' | 'alert.resolved',
   now: number,
+  alertStateId: string,
+  priority: string,
 ): Promise<void> {
   const webhooks = await db.select()
     .from(schema.webhookEndpoints)
@@ -683,12 +741,14 @@ async function fireWebhooks(
   const body = JSON.stringify({
     event,
     timestamp:  now,
+    alert_id:   alertStateId,
     device_id:  device.id,
     tenant_id:  device.tenantId,
     hostname:   device.hostname,
     check_type: monitor.checkType,
     monitor_id: monitor.id,
     policy_id:  monitor.policyId,
+    priority,
     config:     JSON.parse(monitor.config),
   });
 
@@ -714,6 +774,7 @@ async function sendAlertEmails(
   event: 'alert.triggered' | 'alert.resolved',
   now: number,
   alertStateId: string,
+  priority: string,
 ): Promise<void> {
   const db = drizzle(env.DB, { schema });
 
@@ -734,8 +795,8 @@ async function sendAlertEmails(
   const subject = `[Beacon] Alert ${verb}: ${device.hostname ?? device.id} — ${monitor.checkType}`;
   const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
   const tenantName = tenant?.name ?? device.tenantId;
-  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${tenantName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${monitor.alertPriority}</p><p><a href="${link}">View alert</a></p>`;
-  const text = `Device ${device.hostname ?? device.id} (${tenantName}) — ${monitor.checkType} check ${verb}. Priority: ${monitor.alertPriority}. ${link}`;
+  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${tenantName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${priority}</p><p><a href="${link}">View alert</a></p>`;
+  const text = `Device ${device.hostname ?? device.id} (${tenantName}) — ${monitor.checkType} check ${verb}. Priority: ${priority}. ${link}`;
 
   await sendEmail(env, emails, subject, html, text);
 }

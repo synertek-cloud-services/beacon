@@ -1,0 +1,16 @@
+-- Snapshot the alert's severity at the moment it actually fires, instead of
+-- always live-JOINing policy_monitors.alert_priority on every read. Without
+-- this, editing a monitor's priority retroactively changes the reported
+-- severity of every past alert tied to it, including already-resolved ones
+-- -- a real problem for an external system (e.g. a ticketing integration)
+-- that needs "what severity was this when it fired" to be immutable.
+--
+-- Nullable, no default, no backfill -- a historical row that never captured
+-- its fire-time priority has no way to recover the true historical value,
+-- and backfilling from the current live policy_monitors.alert_priority
+-- wouldn't add information beyond what the existing live-JOIN fallback
+-- (COALESCE(s.alert_priority, pm.alert_priority)) already provides for those
+-- rows. Set going forward in worker/src/lib/alerts.ts's processAlertState,
+-- in lockstep with alerted_at (both persist as "last alert" history, neither
+-- resets on resolve -- same convention alerted_at/resolved_at already use).
+ALTER TABLE alert_state ADD COLUMN alert_priority TEXT;

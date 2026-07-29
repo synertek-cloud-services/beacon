@@ -219,6 +219,12 @@ export const alertState = sqliteTable('alert_state', {
   conditionFirstSeen: integer('condition_first_seen'),
   isAlerting:         integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
   alertedAt:          integer('alerted_at'),
+  // Snapshotted from policy_monitors.alert_priority at the moment this alert
+  // actually fires (set in lockstep with alertedAt, migration 0048) -- the
+  // source of truth for "what severity was this when it fired," since the
+  // monitor's own priority can be edited later without retroactively
+  // changing history. Nullable/never reset on resolve, same as alertedAt.
+  alertPriority:      text('alert_priority', { enum: ['critical', 'high', 'moderate', 'low'] }),
   resolvedAt:         integer('resolved_at'),
   acknowledgedAt:     integer('acknowledged_at'),
   acknowledgedBy:     text('acknowledged_by'),
