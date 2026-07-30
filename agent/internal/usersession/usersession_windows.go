@@ -43,9 +43,23 @@ func RunAsActiveUser(exe string, args []string) error {
 
 	var userToken windows.Token
 	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
-		// A console session ID with no queryable user token happens right
-		// at the login/lock-screen transition -- treat the same as "no
-		// session" rather than a hard error.
+		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+			// A real, distinct failure -- the caller doesn't hold
+			// SE_TCB_NAME ("Act as part of the operating system"), which
+			// only SYSTEM has by default. Caught via real-hardware testing:
+			// running the verification tool directly as an Administrator
+			// (not via a SYSTEM-context scheduled task) hits exactly this,
+			// and the original code below was swallowing it as a silent
+			// no-op -- which would have hidden a genuine misconfiguration
+			// if the real agent service ever lost this privilege. Must
+			// never be conflated with "no one is logged in."
+			return fmt.Errorf("usersession: caller lacks SE_TCB_NAME privilege (must run as SYSTEM): %w", err)
+		}
+		// A console session ID with no queryable user token can happen
+		// right at the login/lock-screen transition -- treat the same as
+		// "no session" rather than a hard error, but only for this
+		// catch-all case, now that the known, always-deterministic
+		// privilege failure above is handled distinctly.
 		log.Printf("usersession: session %d has no queryable user token: %v", sessionID, err)
 		return ErrNoActiveSession
 	}
