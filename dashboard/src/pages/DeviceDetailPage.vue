@@ -106,6 +106,17 @@
               </svg>
               Force Update Check
             </button>
+            <button
+              v-if="eligiblePatchInstallIds.length"
+              class="kebab-item"
+              :disabled="device.status !== 'approved'"
+              @click="installApprovedPatches(device.id)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Install Approved Patches ({{ eligiblePatchInstallIds.length }})
+            </button>
             <button v-if="isInMaintenance(device)" class="kebab-item" @click="endMaintenance(device.id)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="9"/>
@@ -1501,6 +1512,26 @@ async function forceUpdateCheck(deviceId: string) {
   menuOpen.value = false;
   try {
     await api.devices.commands.create(deviceId, { type: 'force_update' });
+    showJobQueued();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+// Patches currently pending on this device (per its latest audit) that also
+// have a fleet-wide 'approved' status -- the real, server-re-validated
+// install action only ever touches this set.
+const eligiblePatchInstallIds = computed(() =>
+  (auditData.value?.patches ?? [])
+    .map(p => p.update_id)
+    .filter((id): id is string => !!id && patchApprovalMap.value[id] === 'approved'),
+);
+
+async function installApprovedPatches(deviceId: string) {
+  menuOpen.value = false;
+  if (!eligiblePatchInstallIds.value.length) return;
+  try {
+    await api.devices.commands.create(deviceId, { type: 'install_patches', update_ids: eligiblePatchInstallIds.value });
     showJobQueued();
   } catch (e: any) {
     error.value = e.message;

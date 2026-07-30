@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
@@ -181,10 +181,11 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
+    update_ids?: string[];
   }>();
 
   let cmdType = 'run_script';
@@ -217,6 +218,20 @@ adminDevices.post('/:id/commands', async (c) => {
     // to wake its own self-update check early -- no payload needed.
     cmdType = 'force_update';
     payload = {};
+  } else if (body.type === 'install_patches') {
+    if (!body.update_ids?.length) return c.json({ error: 'update_ids is required' }, 400);
+    // Server-side re-validation, not just trusting the caller: only
+    // update_ids with a real 'approved' row in patch_approvals are allowed
+    // through, even though the dashboard only ever offers approved ones --
+    // this is a real, consequential action on a live machine, worth
+    // defense in depth beyond the UI alone.
+    const approved = await db.select({ updateId: schema.patchApprovals.updateId })
+      .from(schema.patchApprovals)
+      .where(and(inArray(schema.patchApprovals.updateId, body.update_ids), eq(schema.patchApprovals.status, 'approved')))
+      .all();
+    if (!approved.length) return c.json({ error: 'none of the given update_ids are approved' }, 400);
+    cmdType = 'install_patches';
+    payload = { update_ids: approved.map(a => a.updateId) };
   } else {
     return c.json({ error: 'unknown command type' }, 400);
   }
