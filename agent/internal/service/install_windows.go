@@ -107,6 +107,44 @@ func hardenService(s *mgr.Service) {
 	}
 }
 
+// Reharden re-applies the tamper-resistance hardening (recovery actions,
+// SDDL lock, install-dir ACL) to an already-installed service. Unlike
+// hardenService/hardenInstallDir above, which only ever ran once from
+// Install(), this is called on every agent startup (see main.go) so
+// hardening is self-healing: a device enrolled before this feature
+// existed, or one where hardening was manually stripped, becomes
+// protected again the next time its service starts for any reason --
+// boot, manual restart, or a self-update swap -- with no separate
+// remediation step required.
+//
+// This closes a real gap found in production: self-update's Windows swap
+// (swap_windows.go's atomicSwap) relies entirely on pre-configured SCM
+// recovery actions to restart the service after its os.Exit(0) -- on a
+// device that was never hardened, that exit was permanent, since nothing
+// was ever configured to bring the service back. The new binary would
+// sit on disk, fully updated, and never run.
+//
+// Best-effort and silent on failure to open the service (e.g. running
+// interactively before `install` has ever been run) -- there's nothing to
+// harden yet in that case, and this must never block normal agent startup.
+func Reharden() {
+	m, err := mgr.Connect()
+	if err != nil {
+		log.Printf("tamper: reharden: connect to service manager: %v", err)
+		return
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return
+	}
+	defer s.Close()
+
+	hardenService(s)
+	hardenInstallDir()
+}
+
 // hardenInstallDir locks the install directory so only SYSTEM has write access.
 // Administrators retain read + execute so they can see and run the binary, but
 // cannot delete, replace, or modify it without elevated SYSTEM-level access.
