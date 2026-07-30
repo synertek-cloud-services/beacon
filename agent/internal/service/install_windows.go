@@ -99,9 +99,25 @@ func hardenService(s *mgr.Service) {
 	// SDDL: SYSTEM gets full control; Administrators get query+start only
 	// (no WP=Stop, no SD=Delete, no DT=Pause). This survives a reboot.
 	// D: = DACL
-	//   SY = SYSTEM:  CC LC SW RP WP DT LO CR RC (everything)
+	//   SY = SYSTEM:  GA (Generic All -- genuinely everything, including
+	//                 DELETE and WRITE_DAC)
 	//   BA = Admins:  CC LC RP RC            (query, start, read — no stop/delete)
-	const svcSDDL = `D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCRPRC;;;BA)`
+	//
+	// Real bug found via production testing (uninstall on a real device hit
+	// "Access is denied" even when escalated to SYSTEM via a scheduled
+	// task): the SYSTEM grant used to be spelled out as the specific rights
+	// CCLCSWRPWPDTLOCRRC, which -- despite the comment here previously
+	// calling it "everything" -- omits DE (SERVICE_DELETE) and WD
+	// (WRITE_DAC). Go's mgr.OpenService always requests SERVICE_ALL_ACCESS
+	// internally, which needs DELETE among other rights -- so that SDDL
+	// denied SERVICE_ALL_ACCESS to *everyone*, including SYSTEM, the moment
+	// it was successfully applied. Worse, without WD, not even a future
+	// Reharden() call (which re-runs sc sdset, itself a DACL-modifying
+	// operation) could self-heal it, since changing a DACL requires
+	// WRITE_DAC too. GA sidesteps this whole class of "manually enumerate
+	// every right and miss one" bug for the one principal (SYSTEM) that's
+	// supposed to have literally everything anyway.
+	const svcSDDL = `D:(A;;GA;;;SY)(A;;CCLCRPRC;;;BA)`
 	if out, err := exec.Command("sc.exe", "sdset", ServiceName, svcSDDL).CombinedOutput(); err != nil {
 		log.Printf("tamper: sc sdset: %v — %s", err, out)
 	}
