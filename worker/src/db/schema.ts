@@ -606,6 +606,49 @@ export const maintenancePolicyGroups = sqliteTable('maintenance_policy_groups', 
   createdAt: integer('created_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
 
+// Patch Policy (migration 0054) -- severity-threshold auto-approval rules
+// plus recurring scheduled install windows. Recurrence columns are a
+// verbatim duplicate of maintenancePolicies, not shared -- same
+// per-policy-type mirroring convention. Unlike Maintenance Policy's
+// passive suppression gate, this needs active cron dispatch (like Jobs);
+// lastDispatchedAt is the one new piece of state that requires. See
+// worker/src/lib/patchPolicies.ts.
+export const patchPolicies = sqliteTable('patch_policies', {
+  id:          text('id').primaryKey(),
+  name:        text('name').notNull(),
+  description: text('description'),
+  enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  recurrenceType: text('recurrence_type', { enum: ['one_time', 'weekly'] }).notNull(),
+  oneTimeStartAt:         integer('one_time_start_at'),
+  oneTimeDurationMinutes: integer('one_time_duration_minutes'),
+  weeklyDays:            text('weekly_days'),
+  weeklyStartMinute:     integer('weekly_start_minute'),
+  weeklyDurationMinutes: integer('weekly_duration_minutes'),
+  minSeverity:       text('min_severity', { enum: ['Critical', 'Important', 'Moderate', 'Low'] }),
+  autoReboot:        integer('auto_reboot', { mode: 'boolean' }).notNull().default(false),
+  lastDispatchedAt:  integer('last_dispatched_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const patchPolicySites = sqliteTable('patch_policy_sites', {
+  policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
+  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+
+export const patchPolicyDevices = sqliteTable('patch_policy_devices', {
+  policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
+  deviceId:  text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.deviceId] })]);
+
+export const patchPolicyGroups = sqliteTable('patch_policy_groups', {
+  policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
+  groupId:   text('group_id').notNull().references(() => deviceGroups.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
+
 // Host-wide singleton settings -- currently just the Maintenance-Policy
 // scheduling timezone (Datto: Setup > Account Settings > Time Zone, one
 // value for the whole account, no per-tenant override -- confirmed against
