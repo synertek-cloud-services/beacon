@@ -18,6 +18,21 @@ const (
 	gracePeriod   = 10 * time.Minute
 )
 
+// versionCheckClient and downloadClient exist because the bare http.Get used
+// here previously (http.DefaultClient) has no timeout at all -- a request
+// that hangs instead of erroring (a laptop sleeping/waking or roaming
+// networks mid-request, unlike a stationary workstation) blocks runLoop's
+// goroutine forever with no way to recover, silently ending update checks
+// for the rest of the process's life. A real bug found via a real device
+// stuck for 13 days with zero updater log activity after one successful
+// update cycle, while check-ins (which already use protocol.Client's 30s
+// timeout) kept working the whole time. downloadClient gets a longer budget
+// since it transfers the whole ~10MB binary, not a small JSON response.
+var (
+	versionCheckClient = &http.Client{Timeout: 30 * time.Second}
+	downloadClient     = &http.Client{Timeout: 5 * time.Minute}
+)
+
 // checkInC is closed or sent on when the agent successfully checks in.
 // Buffered so NotifyCheckIn never blocks.
 var checkInC = make(chan struct{}, 1)
@@ -119,7 +134,7 @@ func checkAndApply(serverURL, currentVersion, credDir, exe, statePath string) er
 	goarch := runtime.GOARCH
 
 	url := fmt.Sprintf("%s/v1/agent/version?os=%s&arch=%s&current=%s", serverURL, goos, goarch, currentVersion)
-	resp, err := http.Get(url) //nolint:gosec // URL built from known-safe components
+	resp, err := versionCheckClient.Get(url) //nolint:gosec // URL built from known-safe components
 	if err != nil {
 		return fmt.Errorf("version check: %w", err)
 	}
@@ -185,7 +200,7 @@ func applyUpdate(exe, statePath, version, downloadURL, sigHex string) error {
 }
 
 func downloadFile(url, dest string) error {
-	resp, err := http.Get(url) //nolint:gosec
+	resp, err := downloadClient.Get(url) //nolint:gosec
 	if err != nil {
 		return err
 	}
