@@ -43,6 +43,10 @@
             <span class="jd-det-val">{{ expirationLabel }}</span>
           </div>
           <div class="jd-det-row">
+            <span class="jd-det-label">Execution</span>
+            <span class="jd-det-val">{{ detail.runAsSystem ? 'System account' : 'Logged in user' }}</span>
+          </div>
+          <div class="jd-det-row">
             <span class="jd-det-label">Created</span>
             <span class="jd-det-val">{{ fmtTs(detail.createdAt) }}</span>
           </div>
