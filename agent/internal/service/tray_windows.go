@@ -19,10 +19,11 @@ import (
 var trayBinary []byte
 
 var (
-	trayMu      sync.Mutex
-	agentVer    string
-	lastSession uint32 = 0xFFFFFFFF // sentinel: nothing launched yet
-	lastPID     uint32
+	trayMu          sync.Mutex
+	agentVer        string
+	lastSession     uint32 = 0xFFFFFFFF // sentinel: nothing launched yet
+	lastPID         uint32
+	loggedNoSession bool // have we already logged the current no-console-session streak?
 )
 
 // SetAgentVersion records the running agent's version string for the tray
@@ -53,9 +54,28 @@ func EnsureTrayRunning() {
 		// is a normal, common state (locked... no, locking doesn't trigger
 		// this -- see usersession's own doc comment -- but a server with
 		// no interactive session, or between logoff and the next logon,
-		// genuinely has no active console session).
+		// genuinely has no active console session). Also the permanent
+		// state for a machine only ever accessed via RDP -- v1 targets the
+		// console session specifically, an RDP session is a different,
+		// unsupported session ID. Logged once per transition into this
+		// state (not every 60s tick) so a real "nothing's wrong, there's
+		// just no console session to launch into" case is distinguishable
+		// in agent.log from "EnsureTrayRunning never got called at all" --
+		// the silent version of this looked identical to a hang, caught via
+		// real testing on a console-less Vultr VPS reached only by RDP.
+		trayMu.Lock()
+		alreadyLogged := loggedNoSession
+		loggedNoSession = true
+		lastSession, lastPID = 0xFFFFFFFF, 0
+		trayMu.Unlock()
+		if !alreadyLogged {
+			log.Printf("service: tray: no active console session (RDP-only access has no console session -- expected, not an error)")
+		}
 		return
 	}
+	trayMu.Lock()
+	loggedNoSession = false
+	trayMu.Unlock()
 
 	trayPath, err := extractTrayIfStale()
 	if err != nil {
