@@ -107,7 +107,7 @@ func main() {
 	updater.Start(*serverURL, version, credential.Dir())
 	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
-	service.Run(func() {
+	service.Run(func(stop <-chan struct{}) {
 		for {
 			if err := checkIn(client, cred); err != nil {
 				log.Printf("check-in error: %v", err)
@@ -121,6 +121,11 @@ func main() {
 				// before the full 60-second interval elapses (important for
 				// commands like reboot that shut the machine down shortly after).
 				time.Sleep(2 * time.Second)
+			case <-stop:
+				// Windows service stop/shutdown request (see runner_windows.go)
+				// -- must actually return here, not just acknowledge it, or
+				// this goroutine keeps running orphaned from SCM forever.
+				return
 			}
 		}
 	})
