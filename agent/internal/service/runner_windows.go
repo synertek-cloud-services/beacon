@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -29,7 +30,7 @@ type handler struct{ loop func(stop <-chan struct{}) }
 // agent kept checking in, since "the service" (as far as SCM's Execute/
 // Status protocol is concerned) and "the OS process" had silently diverged.
 func (h *handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
-	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown | svc.AcceptSessionChange}
 
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -40,6 +41,16 @@ func (h *handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.S
 
 	for c := range r {
 		switch c.Cmd {
+		case svc.SessionChange:
+			// EventData points to a WTSSESSION_NOTIFICATION for session-change
+			// events; only WTS_SESSION_LOGON matters here (someone just logged
+			// into the console) -- everything else (lock/unlock/disconnect/etc.)
+			// is ignored. Run in its own goroutine: EnsureTrayRunning does I/O
+			// (extraction, process launch) and must never block this loop from
+			// picking up the next control request, including a Stop.
+			if c.EventType == windows.WTS_SESSION_LOGON {
+				go EnsureTrayRunning()
+			}
 		case svc.Stop, svc.Shutdown:
 			// WaitHint tells SCM how long to stay patient before it
 			// considers the service hung -- without this, SCM's default

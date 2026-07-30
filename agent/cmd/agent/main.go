@@ -106,6 +106,16 @@ func main() {
 	// recovery actions to survive its own exit.
 	service.Reharden()
 
+	// Tray icon lifecycle (Windows-only; no-op elsewhere). SetAgentVersion
+	// must be called before any EnsureTrayRunning call -- see its own doc
+	// comment for why version is package-level state rather than a
+	// parameter (the session-change hook in runner_windows.go calls
+	// EnsureTrayRunning too, with no access to this local `version`).
+	// This first call covers "agent starts, someone's already logged in";
+	// the check-in loop below covers everything after.
+	service.SetAgentVersion(version)
+	service.EnsureTrayRunning()
+
 	updater.Start(*serverURL, version, credential.Dir())
 	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
@@ -116,6 +126,12 @@ func main() {
 			} else {
 				updater.NotifyCheckIn()
 			}
+			// Resilience net for the tray icon (Windows-only; no-op
+			// elsewhere) -- piggybacks on this existing 60s cadence rather
+			// than a separate ticker. Catches a crashed/killed tray or a
+			// missed session-change event; the hook in runner_windows.go is
+			// just a latency optimization on top of this, not a replacement.
+			service.EnsureTrayRunning()
 			select {
 			case <-time.After(checkInInterval):
 			case <-triggerCheckin:

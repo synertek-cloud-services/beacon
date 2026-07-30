@@ -33,12 +33,15 @@ var ErrNoActiveSession = errors.New("usersession: no active console session")
 
 // RunAsActiveUser launches exe (with args) in the context of whoever is
 // logged into the active console session, using that user's own primary
-// token and environment block -- not the SYSTEM service's own context.
-func RunAsActiveUser(exe string, args []string) error {
+// token and environment block -- not the SYSTEM service's own context. On
+// success it returns the launched process's PID, so callers that need to
+// track liveness later (see agent/internal/service's tray supervision
+// logic) don't need to re-derive it themselves.
+func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == 0xFFFFFFFF {
 		log.Printf("usersession: no active console session")
-		return ErrNoActiveSession
+		return 0, ErrNoActiveSession
 	}
 
 	var userToken windows.Token
@@ -53,7 +56,7 @@ func RunAsActiveUser(exe string, args []string) error {
 			// no-op -- which would have hidden a genuine misconfiguration
 			// if the real agent service ever lost this privilege. Must
 			// never be conflated with "no one is logged in."
-			return fmt.Errorf("usersession: caller lacks SE_TCB_NAME privilege (must run as SYSTEM): %w", err)
+			return 0, fmt.Errorf("usersession: caller lacks SE_TCB_NAME privilege (must run as SYSTEM): %w", err)
 		}
 		// A console session ID with no queryable user token can happen
 		// right at the login/lock-screen transition -- treat the same as
@@ -61,7 +64,7 @@ func RunAsActiveUser(exe string, args []string) error {
 		// catch-all case, now that the known, always-deterministic
 		// privilege failure above is handled distinctly.
 		log.Printf("usersession: session %d has no queryable user token: %v", sessionID, err)
-		return ErrNoActiveSession
+		return 0, ErrNoActiveSession
 	}
 	defer userToken.Close()
 
@@ -77,27 +80,27 @@ func RunAsActiveUser(exe string, args []string) error {
 		windows.TokenPrimary,
 		&primaryToken,
 	); err != nil {
-		return fmt.Errorf("usersession: duplicate token: %w", err)
+		return 0, fmt.Errorf("usersession: duplicate token: %w", err)
 	}
 	defer primaryToken.Close()
 
 	var envBlock *uint16
 	if err := windows.CreateEnvironmentBlock(&envBlock, primaryToken, false); err != nil {
-		return fmt.Errorf("usersession: create environment block: %w", err)
+		return 0, fmt.Errorf("usersession: create environment block: %w", err)
 	}
 	defer windows.DestroyEnvironmentBlock(envBlock)
 
 	cmdLine, err := commandLine(exe, args)
 	if err != nil {
-		return fmt.Errorf("usersession: %w", err)
+		return 0, fmt.Errorf("usersession: %w", err)
 	}
 	cmdLinePtr, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
-		return fmt.Errorf("usersession: encode command line: %w", err)
+		return 0, fmt.Errorf("usersession: encode command line: %w", err)
 	}
 	desktop, err := windows.UTF16PtrFromString(`winsta0\default`)
 	if err != nil {
-		return fmt.Errorf("usersession: encode desktop: %w", err)
+		return 0, fmt.Errorf("usersession: encode desktop: %w", err)
 	}
 
 	si := windows.StartupInfo{Desktop: desktop}
@@ -110,20 +113,29 @@ func RunAsActiveUser(exe string, args []string) error {
 		cmdLinePtr,
 		nil, nil, // process/thread security attributes
 		false, // inheritHandles
-		windows.CREATE_UNICODE_ENVIRONMENT|windows.CREATE_NEW_CONSOLE,
+		// CREATE_NEW_CONSOLE deliberately omitted -- the only real consumer
+		// today (beacon-tray.exe) is a pure GUI/systray app with no console
+		// I/O at all, and that flag pops up a visible, empty, useless
+		// console window alongside it. Caught via real-hardware testing on
+		// a real VPS console (the tray icon itself worked correctly; this
+		// stray window was the only actual defect). If a future consumer
+		// genuinely needs a console (e.g. a script-execution use case),
+		// that's a reason to make this configurable then, not to default
+		// to it now for the one consumer that doesn't want it.
+		windows.CREATE_UNICODE_ENVIRONMENT,
 		envBlock,
 		nil, // currentDir -- inherit
 		&si,
 		&pi,
 	)
 	if err != nil {
-		return fmt.Errorf("usersession: create process as user: %w", err)
+		return 0, fmt.Errorf("usersession: create process as user: %w", err)
 	}
 	defer windows.CloseHandle(pi.Process)
 	defer windows.CloseHandle(pi.Thread)
 
 	log.Printf("usersession: launched pid %d in session %d", pi.ProcessId, sessionID)
-	return nil
+	return pi.ProcessId, nil
 }
 
 // commandLine builds a properly quoted Windows command line from exe+args --

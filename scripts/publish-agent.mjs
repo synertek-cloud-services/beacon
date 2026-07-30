@@ -12,6 +12,8 @@
  *     node scripts/publish-agent.mjs 0.2.9
  *
  * What it does:
+ *   0. Rebuilds beacon-tray.exe and embeds it into the Windows agent binary
+ *      (not its own release artifact -- see internal/service/tray_windows.go)
  *   1. Builds all 5 platform binaries with -trimpath (reproducible across machines/dirs)
  *   2. Creates (or reuses) a GitHub release vX.Y.Z and uploads the binaries
  *   3. Signs each binary with the Ed25519 key
@@ -57,6 +59,20 @@ const tag = `v${version}`;
 // ── Step 1: Build all binaries ──────────────────────────────────────────────
 
 execSync(`mkdir -p ${distDir}`);
+
+// beacon-tray.exe gets embedded into the Windows agent binary via
+// //go:embed (internal/service/tray_windows.go) rather than shipped as its
+// own release artifact -- the self-update/versions-registration pipeline
+// stays untouched, still exactly one beacon-agent.exe per platform. Must be
+// rebuilt with -trimpath here, before the main loop below, so the
+// windows/amd64 build picks up fresh bytes -- its own reproducibility
+// requirement, same reasoning as the main binary: these bytes become part
+// of it.
+console.log('Building beacon-tray.exe (embedded into the Windows agent binary)…');
+execSync(
+  `go build -trimpath -o internal/service/embedded/beacon-tray.exe ./cmd/beacon-tray`,
+  { cwd: agentDir, env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' }, stdio: 'inherit' }
+);
 
 for (const { os, arch } of targets) {
   const outName = os === 'windows' ? `beacon-agent-${os}-${arch}.exe` : `beacon-agent-${os}-${arch}`;
