@@ -167,6 +167,7 @@ type AuditPayload struct {
 	Software []SoftwareItem `json:"software,omitempty"`
 	Services []ServiceItem  `json:"services,omitempty"`
 	Security *SecurityInfo  `json:"security,omitempty"`
+	Patches  []PatchItem    `json:"patches,omitempty"`
 }
 
 type HardwareInfo struct {
@@ -263,6 +264,18 @@ type AVEntry struct {
 	Name     string `json:"name"`
 	Enabled  bool   `json:"enabled"`
 	UpToDate bool   `json:"up_to_date"`
+}
+
+// PatchItem is a pending/missing Windows Update, as reported by
+// audit.collectPatches — Windows-only, scan+report only (no approval/install
+// state; matches Datto RMM's Patch Management scope for this v1 slice).
+type PatchItem struct {
+	Title        string   `json:"title"`
+	KBArticleIDs []string `json:"kb_article_ids"`
+	Severity     string   `json:"severity"` // Critical|Important|Moderate|Low|Unspecified
+	Categories   []string `json:"categories"`
+	SizeBytes    uint64   `json:"size_bytes,omitempty"`
+	IsDownloaded bool     `json:"is_downloaded"`
 }
 
 type AuditResponse struct {

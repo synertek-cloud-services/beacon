@@ -380,6 +380,44 @@
             </div>
           </section>
 
+          <!-- ── Patches (audit, Windows-only) ── -->
+          <section :id="'ddev-sec-patches'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Patches</h2>
+            <div class="inv-tab-body">
+              <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
+              <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
+                <button class="btn btn-primary btn-sm" :disabled="device.status !== 'approved'" @click="runAuditNow(device.id)">Run Audit Now</button>
+              </div>
+              <template v-else-if="auditData.patches?.length">
+                <div class="inv-section">
+                  <div class="inv-section-title">
+                    Patches
+                    <span class="text-xs text-muted-2 normal-weight" style="margin-left:6px">{{ auditData.patches.length }} pending</span>
+                  </div>
+                  <div class="sw-list">
+                    <div v-for="p in pagedPatches" :key="p.title" class="sw-row">
+                      <span class="sw-name text-sm" style="max-width:360px">{{ p.title }}</span>
+                      <span class="sw-ver mono text-xs text-muted-2">{{ p.kb_article_ids?.length ? p.kb_article_ids.map(k => 'KB' + k).join(', ') : '—' }}</span>
+                      <span :class="patchSeverityBadge(p.severity)">{{ p.severity }}</span>
+                      <span v-if="p.categories?.length" class="sw-pub text-xs text-muted-2">{{ p.categories.join(', ') }}</span>
+                    </div>
+                  </div>
+                  <div class="inv-pagination">
+                    <select v-model="patchPageSize" class="pag-size-select">
+                      <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                    </select>
+                    <template v-if="patchesPageCount > 1">
+                      <button class="pag-btn" :disabled="patchesPage === 0" @click="patchesPage--">‹</button>
+                      <span class="pag-info text-xs text-muted-2">{{ patchesPage + 1 }} / {{ patchesPageCount }}</span>
+                      <button class="pag-btn" :disabled="patchesPage >= patchesPageCount - 1" @click="patchesPage++">›</button>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <div v-else class="inv-empty">No pending patches — device is fully up to date, or no audit data yet.</div>
+            </div>
+          </section>
+
           <!-- ── Services (audit) ── -->
           <section :id="'ddev-sec-services'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Services</h2>
@@ -785,6 +823,7 @@ const sections = [
   { value: 'alerts',    label: 'Alerts' },
   { value: 'policies',  label: 'Policies' },
   { value: 'software',  label: 'Software' },
+  { value: 'patches',   label: 'Patches' },
   { value: 'services',  label: 'Services' },
   { value: 'memory',    label: 'Memory' },
   { value: 'storage',   label: 'Storage' },
@@ -825,6 +864,7 @@ const auditData       = ref<DeviceAudit | null>(null);
 const auditLoading    = ref(false);
 const softwareSearch  = ref('');
 const softwarePage    = ref(0);
+const patchesPage     = ref(0);
 const servicesPage    = ref(0);
 
 // Alerts section (device-scoped)
@@ -843,6 +883,7 @@ const customFields = ref<DeviceCustomFieldValue[]>([]);
 const customFieldsLoading = ref(true);
 const customFieldSaving = reactive<Record<string, boolean>>({});
 const swPageSize      = ref(20);
+const patchPageSize   = ref(20);
 const svcPageSize     = ref(20);
 const PAGE_SIZES      = [20, 50, 100];
 
@@ -979,6 +1020,7 @@ async function onIdChange(id: string | undefined) {
   customFields.value = [];
   softwareSearch.value = '';
   softwarePage.value = 0;
+  patchesPage.value  = 0;
   servicesPage.value = 0;
 
   await loadDevice(id);
@@ -1230,6 +1272,13 @@ function avBadgeClass(status: string): string {
   if (status === 'unknown') return 'inv-badge-muted';
   return 'inv-badge-danger';
 }
+// Maps Microsoft's MSRC severity scale onto the page's existing 4-state
+// badge palette — no new CSS needed.
+function patchSeverityBadge(severity: string): string {
+  if (severity === 'Critical') return 'inv-badge-danger';
+  if (severity === 'Important') return 'inv-badge-warn';
+  return 'inv-badge-muted'; // Moderate | Low | Unspecified
+}
 // There's no dedicated boot-time field — derived from the most recent
 // check-in's uptime sample, which is as fresh as lastSeen itself.
 function lastRebootTs(d: Device): number | null {
@@ -1352,11 +1401,14 @@ const filteredSoftware = computed(() => {
 });
 const softwarePageCount = computed(() => Math.ceil(filteredSoftware.value.length / swPageSize.value));
 const pagedSoftware     = computed(() => filteredSoftware.value.slice(softwarePage.value * swPageSize.value, (softwarePage.value + 1) * swPageSize.value));
+const patchesPageCount  = computed(() => Math.ceil((auditData.value?.patches?.length ?? 0) / patchPageSize.value));
+const pagedPatches      = computed(() => (auditData.value?.patches ?? []).slice(patchesPage.value * patchPageSize.value, (patchesPage.value + 1) * patchPageSize.value));
 const servicesPageCount = computed(() => Math.ceil((auditData.value?.services?.length ?? 0) / svcPageSize.value));
 const pagedServices     = computed(() => (auditData.value?.services ?? []).slice(servicesPage.value * svcPageSize.value, (servicesPage.value + 1) * svcPageSize.value));
 
 watch(softwareSearch, () => { softwarePage.value = 0; });
 watch(swPageSize,     () => { softwarePage.value = 0; });
+watch(patchPageSize,  () => { patchesPage.value = 0; });
 watch(svcPageSize,    () => { servicesPage.value = 0; });
 
 async function runAuditNow(deviceId: string) {

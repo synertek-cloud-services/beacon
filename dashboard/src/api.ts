@@ -424,6 +424,16 @@ export interface SoftwareItem { name: string; version: string; publisher: string
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
 export interface AVEntry      { name: string; enabled: boolean; up_to_date: boolean }
 export interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
+// Pending/missing Windows Update patch (Windows-only, scan+report only —
+// see agent/internal/audit/patches.go and worker/src/routes/audit.ts).
+export interface PatchItem {
+  title: string
+  kb_article_ids: string[]
+  severity: string // Critical | Important | Moderate | Low | Unspecified
+  categories: string[]
+  size_bytes?: number
+  is_downloaded: boolean
+}
 
 export interface DeviceAudit {
   id: string
@@ -436,6 +446,7 @@ export interface DeviceAudit {
   software: SoftwareItem[] | null
   services: ServiceItem[] | null
   security: SecurityInfo | null
+  patches: PatchItem[] | null
 }
 
 export interface AuditChange {

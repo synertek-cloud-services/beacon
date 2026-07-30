@@ -252,6 +252,10 @@ export const deviceAudits = sqliteTable('device_audits', {
   software:     text('software'),   // JSON blob
   services:     text('services'),   // JSON blob
   security:     text('security'),   // JSON blob
+  // Pending/missing Windows Update patches (migration 0052) -- Windows-only,
+  // scan+report only (no approval/install state). See
+  // agent/internal/audit/patches.go.
+  patches:      text('patches'),    // JSON blob
   agentVersion: text('agent_version'),
   createdAt:    integer('created_at').notNull(),
 });

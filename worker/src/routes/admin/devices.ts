@@ -255,6 +255,7 @@ adminDevices.get('/:id/audit/latest', async (c) => {
     software:     row.software  ? JSON.parse(row.software)  : null,
     services:     row.services  ? JSON.parse(row.services)  : null,
     security:     row.security  ? JSON.parse(row.security)  : null,
+    patches:      row.patches   ? JSON.parse(row.patches)   : null,
   });
 });
 
