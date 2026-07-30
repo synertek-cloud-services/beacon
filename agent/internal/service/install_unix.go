@@ -49,6 +49,12 @@ func Uninstall() error {
 // equivalent gap to self-heal here. See install_windows.go's Reharden.
 func Reharden() {}
 
+// PendingRebootMarkerPath is a no-op stub outside Windows -- the whole
+// pending-reboot-notification flow is Windows-only (it exists to prompt a
+// signed-in user via the tray icon, itself Windows-only). Empty string
+// signals "nothing to do" to callers rather than a real path.
+func PendingRebootMarkerPath() string { return "" }
+
 const linuxUnitTmpl = `[Unit]
 Description=Beacon RMM Agent
 After=network-online.target

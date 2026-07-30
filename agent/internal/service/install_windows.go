@@ -23,6 +23,14 @@ const (
 
 func installPath() string { return filepath.Join(installDir, exeName) }
 
+// PendingRebootMarkerPath is the canonical path both cmd/agent (writes it
+// after a patch install that reports RebootRequired, polls it for a tray's
+// response) and cmd/beacon-tray (polls it to decide whether to prompt, and
+// writes the user's response) agree on. Exported from here rather than
+// duplicated as a string literal in both, or hardcoded separately, since
+// this is already the one place installDir is defined.
+func PendingRebootMarkerPath() string { return filepath.Join(installDir, "pending-reboot.json") }
+
 func Install(serverURL, enrollToken string) error {
 	exe, err := os.Executable()
 	if err != nil {

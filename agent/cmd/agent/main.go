@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -132,6 +133,9 @@ func main() {
 			// missed session-change event; the hook in runner_windows.go is
 			// just a latency optimization on top of this, not a replacement.
 			service.EnsureTrayRunning()
+			// Same piggyback cadence -- see pollPendingReboot's own doc
+			// comment for why this is polled state, not a named pipe.
+			pollPendingReboot()
 			select {
 			case <-time.After(checkInInterval):
 			case <-triggerCheckin:
@@ -368,6 +372,9 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					summary, _ := json.Marshal(res)
 					stdout = string(summary)
 					log.Printf("install_patches finished: reboot_required=%v", res.RebootRequired)
+					if res.RebootRequired {
+						writePendingRebootMarker()
+					}
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{
@@ -413,4 +420,64 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 	}
 
 	return nil
+}
+
+// rebootMarker is the on-disk state shared between the agent and
+// beacon-tray.exe (agent/internal/service.PendingRebootMarkerPath) -- a
+// polled file rather than a named pipe, deliberately, since a reboot
+// prompt isn't latency-critical and this avoids real Windows IPC
+// connection-lifecycle complexity for marginal benefit. SnoozedUntil==0
+// means not currently snoozed; Confirmed is set by the tray once the user
+// picks "Restart Now" -- the agent (not the tray) performs the actual
+// reboot, matching the established "the agent always does the actual
+// privileged action" pattern the rest of patch install already follows.
+type rebootMarker struct {
+	CreatedAt    int64 `json:"created_at"`
+	SnoozedUntil int64 `json:"snoozed_until"`
+	Confirmed    bool  `json:"confirmed"`
+}
+
+// writePendingRebootMarker creates the marker if one doesn't already exist
+// -- never clobbers an in-progress snooze from a previous install's prompt
+// that the user hasn't responded to yet.
+func writePendingRebootMarker() {
+	path := service.PendingRebootMarkerPath()
+	if path == "" {
+		return // non-Windows; no-op
+	}
+	if _, err := os.Stat(path); err == nil {
+		return // already pending, leave any existing snooze state alone
+	}
+	data, _ := json.Marshal(rebootMarker{CreatedAt: time.Now().Unix()})
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		log.Printf("write pending-reboot marker: %v", err)
+	}
+}
+
+// pollPendingReboot checks whether the user has confirmed a pending reboot
+// via the tray prompt and, if so, actually performs it -- same shutdown
+// invocation worker/src/routes/admin/devices.ts's "reboot" command already
+// uses, for consistency. Best-effort: any error here just gets logged, not
+// escalated, since this runs unconditionally on every check-in tick.
+func pollPendingReboot() {
+	path := service.PendingRebootMarkerPath()
+	if path == "" {
+		return // non-Windows; no-op
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no marker -- nothing pending
+	}
+	var m rebootMarker
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	if !m.Confirmed {
+		return
+	}
+	log.Printf("reboot confirmed via tray prompt -- restarting")
+	os.Remove(path)
+	if err := exec.Command("shutdown", "/r", "/t", "0").Run(); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
 }
