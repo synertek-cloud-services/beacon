@@ -42,7 +42,7 @@ func main() {
 	args := os.Args[2:]
 
 	logger.Printf("attempting RunAsActiveUser(%q, %v)", exe, args)
-	err = usersession.RunAsActiveUser(exe, args)
+	pid, err := usersession.RunAsActiveUser(exe, args)
 	if err == usersession.ErrNoActiveSession {
 		logger.Println("RESULT: no active console session (expected/clean no-op) -- ErrNoActiveSession")
 		return
@@ -51,6 +51,6 @@ func main() {
 		logger.Printf("RESULT: FAILED: %v", err)
 		os.Exit(1)
 	}
-	logger.Println("RESULT: launched successfully -- check the active console session for the process")
+	logger.Printf("RESULT: launched successfully, pid=%d -- check the active console session for the process", pid)
 	fmt.Println("log written to", logPath)
 }

@@ -4,6 +4,12 @@ dist/
 
 *.exe
 *.exe~
+# Exception: the tray binary embedded into beacon-agent.exe via //go:embed
+# (agent/internal/service/tray_windows.go) -- must be a real, checked-in
+# file or a fresh clone can't build ./cmd/agent at all. Refreshed by
+# scripts/publish-agent.mjs's pre-build step before an actual release, but
+# needs to exist and work correctly for local dev in the meantime.
+!agent/internal/service/embedded/beacon-tray.exe
 *.dll
 *.so
 *.dylib

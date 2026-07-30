@@ -10,6 +10,6 @@ var ErrNoActiveSession = errors.New("usersession: not supported on this platform
 
 // RunAsActiveUser is a no-op stub outside Windows -- there's no equivalent
 // Session 0 Isolation concept on Linux/macOS for this package to bridge.
-func RunAsActiveUser(exe string, args []string) error {
-	return ErrNoActiveSession
+func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
+	return 0, ErrNoActiveSession
 }
