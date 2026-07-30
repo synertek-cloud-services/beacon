@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/session"
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/updater"
+	"github.com/synertek-cloud-services/beacon/agent/internal/wuinstall"
 )
 
 // version is a var, not a const, so `go build -ldflags="-X main.version=..."`
@@ -329,6 +331,40 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					Stdout:    "audit triggered",
 				})
 				pendingMu.Unlock()
+				return
+			}
+			if cmd.Type == "install_patches" {
+				var payload struct {
+					UpdateIDs []string `json:"update_ids"`
+				}
+				status := "completed"
+				var stdout, stderr string
+				if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("invalid payload: %v", err)
+				} else {
+					log.Printf("install_patches received: %d update(s)", len(payload.UpdateIDs))
+					res := wuinstall.Install(payload.UpdateIDs)
+					if res.Error != "" {
+						status = "failed"
+						stderr = res.Error
+					}
+					summary, _ := json.Marshal(res)
+					stdout = string(summary)
+					log.Printf("install_patches finished: reboot_required=%v", res.RebootRequired)
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
 				return
 			}
 			if cmd.Type == "force_update" {
