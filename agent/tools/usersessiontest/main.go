@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	logPath := `C:\Windows\Temp\usersessiontest.log`
+	logPath := `C:\Temp\usersessiontest.log`
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	var out io.Writer = os.Stdout
 	if err == nil {
