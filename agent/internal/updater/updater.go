@@ -46,6 +46,32 @@ func NotifyCheckIn() {
 	}
 }
 
+// forceCheckC lets an operator-triggered force_update command (see main.go's
+// command dispatch) skip the rest of runLoop's current wait and check for an
+// update immediately, instead of waiting up to 24h for the next scheduled
+// check. Buffered so ForceCheck never blocks; a signal that arrives while
+// runLoop isn't between waits (e.g. mid checkAndApply, or during
+// awaitConfirmation) just sits here and fires the next time control reaches
+// a wait, which is harmless -- worst case an update check happens slightly
+// earlier than otherwise, never later.
+var forceCheckC = make(chan struct{}, 1)
+
+// ForceCheck requests an immediate update check, bypassing the current wait.
+func ForceCheck() {
+	select {
+	case forceCheckC <- struct{}{}:
+	default:
+	}
+}
+
+// wait blocks for d, or returns early if ForceCheck is called.
+func wait(d time.Duration) {
+	select {
+	case <-time.After(d):
+	case <-forceCheckC:
+	}
+}
+
 type versionResponse struct {
 	LatestVersion   string  `json:"latest_version"`
 	UpdateAvailable bool    `json:"update_available"`
@@ -83,14 +109,16 @@ func Start(serverURL, currentVersion, credDir string) {
 }
 
 func runLoop(serverURL, currentVersion, credDir, exe, statePath string) {
-	// Stagger the first check so all agents don't hammer the worker simultaneously.
-	time.Sleep(5 * time.Minute)
+	// Stagger the first check so all agents don't hammer the worker simultaneously
+	// -- unless a force_update command is already waiting, in which case skip
+	// the stagger and check right away.
+	wait(5 * time.Minute)
 
 	for {
 		if err := checkAndApply(serverURL, currentVersion, credDir, exe, statePath); err != nil {
 			log.Printf("updater: %v", err)
 		}
-		time.Sleep(checkInterval)
+		wait(checkInterval)
 	}
 }
 
