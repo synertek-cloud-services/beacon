@@ -42,6 +42,13 @@ func Uninstall() error {
 	}
 }
 
+// Reharden is a no-op on Linux/macOS -- their restart-on-exit behavior
+// (systemd's Restart=on-failure, launchd's KeepAlive) is written directly
+// into the unit/plist file at install time, not configured via a separate
+// runtime API call the way Windows' SCM recovery actions are, so there's no
+// equivalent gap to self-heal here. See install_windows.go's Reharden.
+func Reharden() {}
+
 const linuxUnitTmpl = `[Unit]
 Description=Beacon RMM Agent
 After=network-online.target
