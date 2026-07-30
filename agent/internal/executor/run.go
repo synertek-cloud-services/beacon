@@ -58,7 +58,19 @@ func runScript(cmd protocol.Command) protocol.CommandResult {
 	}
 	defer os.Remove(tmp.Name())
 
-	if _, err := tmp.WriteString(p.Script); err != nil {
+	// Windows PowerShell 5.1 has no reliable way to detect a BOM-less script's
+	// encoding and falls back to the system codepage, not UTF-8 -- any
+	// non-ASCII byte (smart quotes, em/en dashes, accented characters) gets
+	// silently misdecoded, which can corrupt string literals and break
+	// parsing entirely (a real bug hit via the seeded "Restart Agent"
+	// ComStore component's em dash). A UTF-8 BOM makes Windows PowerShell
+	// interpret the file as UTF-8 unambiguously. bash/sh scripts need no
+	// equivalent -- they're UTF-8 by default with no BOM detection quirk.
+	content := p.Script
+	if p.Shell == "powershell" {
+		content = "\ufeff" + content
+	}
+	if _, err := tmp.WriteString(content); err != nil {
 		result.Stderr = fmt.Sprintf("writing script: %v", err)
 		return result
 	}
