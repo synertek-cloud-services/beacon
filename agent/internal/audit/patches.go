@@ -39,6 +39,17 @@ func collectPatches() ([]protocol.PatchItem, error) {
 // -Depth 6, not the default 2). And Search() can genuinely take 10-90+
 // seconds on a first run or WSUS-backed box, well past the 15s timeout
 // every other collector in this package uses.
+//
+// "Definition Updates" (Defender AV signature packages) are filtered out
+// client-side after the search, not via the WUA search-criteria string --
+// IUpdateSearcher's query language only supports CategoryIDs by GUID, not
+// friendly category names. Confirmed against a real device's output
+// (Beacon session verification): a fully-patched machine's WUA search still
+// returned a pending "Security Intelligence Update for Microsoft Defender
+// Antivirus" -- these refresh multiple times a day on their own and aren't
+// something an admin manages through a patching workflow, so they'd just
+// add noise to a "pending patches" list without ever really going away.
+// Matches how real patch management tools scope this.
 const patchesPS = `$ErrorActionPreference = 'Stop'
 try {
 	$session  = New-Object -ComObject Microsoft.Update.Session
@@ -46,8 +57,9 @@ try {
 	$result   = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'")
 	$updates = @()
 	foreach ($u in $result.Updates) {
-		$kbs = @(); foreach ($kb in $u.KBArticleIDs) { $kbs += $kb }
 		$cats = @(); foreach ($c in $u.Categories) { $cats += $c.Name }
+		if ($cats -contains 'Definition Updates') { continue }
+		$kbs = @(); foreach ($kb in $u.KBArticleIDs) { $kbs += $kb }
 		$updates += [PSCustomObject]@{
 			Title = $u.Title; KBArticleIDs = $kbs; MsrcSeverity = $u.MsrcSeverity
 			Categories = $cats; SizeBytes = $u.MaxDownloadSize; IsDownloaded = $u.IsDownloaded
