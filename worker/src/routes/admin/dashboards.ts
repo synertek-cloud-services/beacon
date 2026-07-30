@@ -8,6 +8,7 @@ const dashboards = new Hono<{ Bindings: Bindings }>();
 const WIDGET_TYPES = new Set([
   'device_summary', 'online_offline', 'os_distribution', 'class_distribution',
   'antivirus_status', 'offline_by_type', 'alerts_by_priority', 'recent_alerts',
+  'patches_by_severity',
 ]);
 const TEMPLATES: Record<string, Array<{ type: string; x: number; y: number; w: number; h: number }>> = {
   blank: [],
