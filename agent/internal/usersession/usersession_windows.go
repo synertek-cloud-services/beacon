@@ -113,7 +113,16 @@ func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 		cmdLinePtr,
 		nil, nil, // process/thread security attributes
 		false, // inheritHandles
-		windows.CREATE_UNICODE_ENVIRONMENT|windows.CREATE_NEW_CONSOLE,
+		// CREATE_NEW_CONSOLE deliberately omitted -- the only real consumer
+		// today (beacon-tray.exe) is a pure GUI/systray app with no console
+		// I/O at all, and that flag pops up a visible, empty, useless
+		// console window alongside it. Caught via real-hardware testing on
+		// a real VPS console (the tray icon itself worked correctly; this
+		// stray window was the only actual defect). If a future consumer
+		// genuinely needs a console (e.g. a script-execution use case),
+		// that's a reason to make this configurable then, not to default
+		// to it now for the one consumer that doesn't want it.
+		windows.CREATE_UNICODE_ENVIRONMENT,
 		envBlock,
 		nil, // currentDir -- inherit
 		&si,
