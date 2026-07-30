@@ -19,11 +19,10 @@ import (
 var trayBinary []byte
 
 var (
-	trayMu          sync.Mutex
-	agentVer        string
-	lastSession     uint32 = 0xFFFFFFFF // sentinel: nothing launched yet
-	lastPID         uint32
-	loggedNoSession bool // have we already logged the current no-console-session streak?
+	trayMu       sync.Mutex
+	agentVer     string
+	trayPIDs     = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
+	loggedActive = -1                  // last logged count of active sessions; -1 = never logged yet
 )
 
 // SetAgentVersion records the running agent's version string for the tray
@@ -39,43 +38,43 @@ func SetAgentVersion(v string) {
 	agentVer = v
 }
 
-// EnsureTrayRunning makes sure the tray icon is running for whoever's
-// currently logged into the active console session, launching or
-// relaunching it if needed. Safe to call frequently and from multiple
-// goroutines -- extraction and the launch decision are both idempotent.
-// Called from three places: once at agent startup, once per check-in loop
-// tick (the resilience net -- catches a crashed/killed tray or a missed
-// session-change event), and from the session-change hook itself (a
-// latency optimization on top of the tick, not a replacement for it).
+// EnsureTrayRunning makes sure every currently-active session has its own
+// tray icon running, launching or relaunching per session as needed. Not
+// console-specific -- RDS (many concurrent users, console typically
+// unused) and AVD/Windows 365 (no console session at all, ever) both need
+// every active session covered, not just one special-cased console
+// session; see usersession.ActiveSessions' doc comment. Safe to call
+// frequently and from multiple goroutines -- extraction and the launch
+// decision are both idempotent. Called from three places: once at agent
+// startup, once per check-in loop tick (the resilience net -- catches a
+// crashed/killed tray or a missed session-change event), and from the
+// session-change hook itself (a latency optimization on top of the tick,
+// not a replacement for it).
 func EnsureTrayRunning() {
-	sessionID := windows.WTSGetActiveConsoleSessionId()
-	if sessionID == 0xFFFFFFFF {
-		// Nobody logged in right now -- nothing to do. Not an error; this
-		// is a normal, common state (locked... no, locking doesn't trigger
-		// this -- see usersession's own doc comment -- but a server with
-		// no interactive session, or between logoff and the next logon,
-		// genuinely has no active console session). Also the permanent
-		// state for a machine only ever accessed via RDP -- v1 targets the
-		// console session specifically, an RDP session is a different,
-		// unsupported session ID. Logged once per transition into this
-		// state (not every 60s tick) so a real "nothing's wrong, there's
-		// just no console session to launch into" case is distinguishable
-		// in agent.log from "EnsureTrayRunning never got called at all" --
-		// the silent version of this looked identical to a hang, caught via
-		// real testing on a console-less Vultr VPS reached only by RDP.
-		trayMu.Lock()
-		alreadyLogged := loggedNoSession
-		loggedNoSession = true
-		lastSession, lastPID = 0xFFFFFFFF, 0
-		trayMu.Unlock()
-		if !alreadyLogged {
-			log.Printf("service: tray: no active console session (RDP-only access has no console session -- expected, not an error)")
-		}
+	active, err := usersession.ActiveSessions()
+	if err != nil {
+		log.Printf("service: tray: enumerate active sessions: %v", err)
 		return
 	}
+
+	// Logged once per transition in the active-session count (0->N, N->0,
+	// N->M), not every 60s tick -- so a real "nothing's wrong, there's just
+	// nobody logged in right now" case is distinguishable in agent.log from
+	// "EnsureTrayRunning never got called at all." The silent version of
+	// this looked identical to a hang during real testing on a console-less
+	// Vultr VPS reached only by RDP.
 	trayMu.Lock()
-	loggedNoSession = false
-	trayMu.Unlock()
+	if len(active) != loggedActive {
+		loggedActive = len(active)
+		trayMu.Unlock()
+		log.Printf("service: tray: %d active session(s)", len(active))
+	} else {
+		trayMu.Unlock()
+	}
+
+	if len(active) == 0 {
+		return
+	}
 
 	trayPath, err := extractTrayIfStale()
 	if err != nil {
@@ -84,14 +83,19 @@ func EnsureTrayRunning() {
 	}
 
 	trayMu.Lock()
-	needsLaunch := sessionID != lastSession || !processAlive(lastPID)
 	version := agentVer
-	trayMu.Unlock()
-
-	if !needsLaunch {
-		return
+	// Prune tracked sessions that are no longer active -- the tray process
+	// ends with its session, nothing to explicitly kill, just stop
+	// bookkeeping it so the map doesn't grow forever on a busy RDS box.
+	activeSet := make(map[uint32]struct{}, len(active))
+	for _, id := range active {
+		activeSet[id] = struct{}{}
 	}
-
+	for id := range trayPIDs {
+		if _, ok := activeSet[id]; !ok {
+			delete(trayPIDs, id)
+		}
+	}
 	// --dashboard-url is deliberately omitted: the agent only knows its own
 	// worker URL (--server-url), not the dashboard's -- a different host in
 	// production (rmm-api. vs rmm.) -- and there's no existing mechanism for
@@ -99,20 +103,28 @@ func EnsureTrayRunning() {
 	// Dashboard" menu item is already conditional on this flag being set,
 	// so it just won't appear -- honest, not a guess that could be wrong.
 	args := []string{"--version=" + version}
-	pid, err := usersession.RunAsActiveUser(trayPath, args)
-	if err != nil {
-		if err == usersession.ErrNoActiveSession {
-			return
+	var toLaunch []uint32
+	for _, id := range active {
+		if !processAlive(trayPIDs[id]) {
+			toLaunch = append(toLaunch, id)
 		}
-		log.Printf("service: tray: launch: %v", err)
-		return
 	}
-
-	trayMu.Lock()
-	lastSession = sessionID
-	lastPID = pid
 	trayMu.Unlock()
-	log.Printf("service: tray: launched pid %d for session %d", pid, sessionID)
+
+	for _, id := range toLaunch {
+		pid, err := usersession.RunAsSession(id, trayPath, args)
+		if err != nil {
+			if err == usersession.ErrNoActiveSession {
+				continue // session ended between enumeration and launch -- fine, next tick reconciles
+			}
+			log.Printf("service: tray: launch for session %d: %v", id, err)
+			continue
+		}
+		trayMu.Lock()
+		trayPIDs[id] = pid
+		trayMu.Unlock()
+		log.Printf("service: tray: launched pid %d for session %d", pid, id)
+	}
 }
 
 // processAlive reports whether pid still refers to a running process.

@@ -32,18 +32,28 @@ import (
 var ErrNoActiveSession = errors.New("usersession: no active console session")
 
 // RunAsActiveUser launches exe (with args) in the context of whoever is
-// logged into the active console session, using that user's own primary
-// token and environment block -- not the SYSTEM service's own context. On
-// success it returns the launched process's PID, so callers that need to
-// track liveness later (see agent/internal/service's tray supervision
-// logic) don't need to re-derive it themselves.
+// logged into the active *console* session specifically. Kept as a thin
+// wrapper around RunAsSession for agent/tools/usersessiontest and anything
+// else that genuinely only cares about the console -- most real callers
+// (the tray supervisor) want RunAsSession across every active session
+// instead, since console-only misses RDS/AVD/Windows 365 entirely (see
+// ActiveSessions' doc comment).
 func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == 0xFFFFFFFF {
 		log.Printf("usersession: no active console session")
 		return 0, ErrNoActiveSession
 	}
+	return RunAsSession(sessionID, exe, args)
+}
 
+// RunAsSession launches exe (with args) in the context of whoever is logged
+// into the given session ID, using that user's own primary token and
+// environment block -- not the SYSTEM service's own context. On success it
+// returns the launched process's PID, so callers that need to track
+// liveness later (see agent/internal/service's tray supervision logic)
+// don't need to re-derive it themselves.
+func RunAsSession(sessionID uint32, exe string, args []string) (pid uint32, err error) {
 	var userToken windows.Token
 	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
 		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
@@ -136,6 +146,34 @@ func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 
 	log.Printf("usersession: launched pid %d in session %d", pi.ProcessId, sessionID)
 	return pi.ProcessId, nil
+}
+
+// ActiveSessions returns the session IDs of every currently-active
+// interactive session on this machine -- not just the console session.
+// This is the primitive that makes RDS (many concurrent users, console
+// typically unused) and AVD/Windows 365 (no console session at all, ever --
+// the single user's one session is itself delivered over the RDP protocol)
+// actually work: console-only session targeting misses all of them, not
+// just "extra" RDP sessions on top of a workstation's console one.
+func ActiveSessions() ([]uint32, error) {
+	var sessionsPtr *windows.WTS_SESSION_INFO
+	var count uint32
+	// handle 0 is WTS_CURRENT_SERVER_HANDLE, the documented Win32 sentinel
+	// for "the local RD Session Host server" -- no separate WTSOpenServer
+	// call needed for the local machine.
+	if err := windows.WTSEnumerateSessions(0, 0, 1, &sessionsPtr, &count); err != nil {
+		return nil, fmt.Errorf("usersession: enumerate sessions: %w", err)
+	}
+	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(sessionsPtr)))
+
+	sessions := unsafe.Slice(sessionsPtr, count)
+	var active []uint32
+	for _, s := range sessions {
+		if s.State == windows.WTSActive {
+			active = append(active, s.SessionID)
+		}
+	}
+	return active, nil
 }
 
 // commandLine builds a properly quoted Windows command line from exe+args --

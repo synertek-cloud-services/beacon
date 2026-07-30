@@ -13,3 +13,13 @@ var ErrNoActiveSession = errors.New("usersession: not supported on this platform
 func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 	return 0, ErrNoActiveSession
 }
+
+// RunAsSession is a no-op stub outside Windows, matching RunAsActiveUser.
+func RunAsSession(sessionID uint32, exe string, args []string) (pid uint32, err error) {
+	return 0, ErrNoActiveSession
+}
+
+// ActiveSessions is a no-op stub outside Windows -- always empty.
+func ActiveSessions() ([]uint32, error) {
+	return nil, nil
+}
