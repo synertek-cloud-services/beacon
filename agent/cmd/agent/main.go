@@ -331,6 +331,22 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				pendingMu.Unlock()
 				return
 			}
+			if cmd.Type == "force_update" {
+				// Reuses the agent's own verified self-update path (Ed25519
+				// signature check included) instead of a separate unsigned
+				// download-and-swap, unlike the ComStore "Reinstall Agent"
+				// script -- this just wakes updater.runLoop early rather than
+				// waiting up to 24h for its next scheduled check.
+				updater.ForceCheck()
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    "completed",
+					Stdout:    "update check triggered",
+				})
+				pendingMu.Unlock()
+				return
+			}
 			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
 			result := executor.Execute(cmd)
 			log.Printf("command %s finished: status=%s exit_code=%d", cmd.CommandID, result.Status, result.ExitCode)

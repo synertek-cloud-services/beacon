@@ -181,7 +181,7 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
@@ -211,6 +211,11 @@ adminDevices.post('/:id/commands', async (c) => {
     payload = {};
   } else if (body.type === 'restart_agent') {
     cmdType = 'restart_agent';
+    payload = {};
+  } else if (body.type === 'force_update') {
+    // Agent dispatches on this literal command type (agent/cmd/agent/main.go)
+    // to wake its own self-update check early -- no payload needed.
+    cmdType = 'force_update';
     payload = {};
   } else {
     return c.json({ error: 'unknown command type' }, 400);
