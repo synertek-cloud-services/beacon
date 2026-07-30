@@ -84,6 +84,12 @@ func sendAudit(
 		payload.Security = sec
 	}
 
+	if patches, err := collectPatches(); err != nil {
+		log.Printf("audit: patches collection failed: %v", err)
+	} else {
+		payload.Patches = patches
+	}
+
 	req := protocol.AuditRequest{
 		DeviceID:     deviceID,
 		TenantID:     tenantID,

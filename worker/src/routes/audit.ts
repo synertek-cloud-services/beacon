@@ -24,11 +24,18 @@ interface SoftwareItem { name: string; version: string; publisher: string; insta
 interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
 interface AVEntry      { name: string; enabled: boolean; up_to_date: boolean }
 interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
+// Pending/missing Windows Update patch (Windows-only, scan+report only --
+// see agent/internal/audit/patches.go).
+interface PatchItem {
+  title: string; kb_article_ids: string[]; severity: string
+  categories: string[]; size_bytes?: number; is_downloaded: boolean
+}
 interface AuditPayload {
   hardware?: HardwareInfo
   software?: SoftwareItem[]
   services?: ServiceItem[]
   security?: SecurityInfo
+  patches?: PatchItem[]
 }
 interface AuditRequest {
   device_id: string; tenant_id: string; timestamp: number
@@ -233,6 +240,7 @@ audit.post('/', async (c) => {
     software:     payload.software   ? JSON.stringify(payload.software)  : null,
     services:     payload.services   ? JSON.stringify(payload.services)  : null,
     security:     payload.security   ? JSON.stringify(payload.security)  : null,
+    patches:      payload.patches    ? JSON.stringify(payload.patches)   : null,
     agentVersion: body.agent_version,
     createdAt:    now,
   });
