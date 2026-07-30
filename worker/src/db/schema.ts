@@ -252,12 +252,27 @@ export const deviceAudits = sqliteTable('device_audits', {
   software:     text('software'),   // JSON blob
   services:     text('services'),   // JSON blob
   security:     text('security'),   // JSON blob
-  // Pending/missing Windows Update patches (migration 0052) -- Windows-only,
-  // scan+report only (no approval/install state). See
+  // Pending/missing Windows Update patches (migration 0052) -- Windows-only.
+  // Approval state lives separately in patchApprovals below (fleet-wide, not
+  // per-device), keyed by each patch's own update_id. See
   // agent/internal/audit/patches.go.
   patches:      text('patches'),    // JSON blob
   agentVersion: text('agent_version'),
   createdAt:    integer('created_at').notNull(),
+});
+
+// Fleet-wide patch approval decisions (migration 0053) -- one row per Windows
+// Update (keyed by WUA's UpdateID GUID), not per device. No row means
+// undecided/pending. title/kbArticleIds/severity are a display-only snapshot
+// taken at approval time -- the live "which devices have this pending" answer
+// still comes from each device's latest deviceAudits.patches blob.
+export const patchApprovals = sqliteTable('patch_approvals', {
+  updateId:     text('update_id').primaryKey(),
+  status:       text('status').notNull(), // 'approved' | 'ignored'
+  title:        text('title').notNull(),
+  kbArticleIds: text('kb_article_ids').notNull(), // JSON array
+  severity:     text('severity'),
+  updatedAt:    integer('updated_at').notNull(),
 });
 
 export const deviceAuditChanges = sqliteTable('device_audit_changes', {

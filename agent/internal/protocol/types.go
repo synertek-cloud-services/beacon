@@ -267,9 +267,15 @@ type AVEntry struct {
 }
 
 // PatchItem is a pending/missing Windows Update, as reported by
-// audit.collectPatches — Windows-only, scan+report only (no approval/install
-// state; matches Datto RMM's Patch Management scope for this v1 slice).
+// audit.collectPatches — Windows-only, scan+report only (no install state;
+// approval state lives fleet-wide in the worker's patch_approvals table,
+// keyed by UpdateID, not on the agent side).
 type PatchItem struct {
+	// UpdateID is WUA's own stable identity GUID (IUpdate.Identity.UpdateID)
+	// -- the real key for fleet-wide approval decisions. Empty on older
+	// agents that predate this field; the worker must treat that case as
+	// "needs a rescan," not a broken/missing patch.
+	UpdateID     string   `json:"update_id,omitempty"`
 	Title        string   `json:"title"`
 	KBArticleIDs []string `json:"kb_article_ids"`
 	Severity     string   `json:"severity"` // Critical|Important|Moderate|Low|Unspecified
