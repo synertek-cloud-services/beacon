@@ -115,6 +115,7 @@
           <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
           <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
           <RouterLink to="/global/maintenance-policies" class="sbi" :class="{ active: route.path.startsWith('/global/maintenance-policies') }">Maintenance Policies</RouterLink>
+          <RouterLink to="/global/patches" class="sbi" :class="{ active: route.path === '/global/patches' }">Patches</RouterLink>
         </div>
 
         <!-- AUTOMATION -->
@@ -218,6 +219,7 @@
         <RouterLink to="/global/alerts" class="sbi" :class="{ active: route.path === '/global/alerts' }">Alerts</RouterLink>
         <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
         <RouterLink to="/global/maintenance-policies" class="sbi" :class="{ active: route.path.startsWith('/global/maintenance-policies') }">Maintenance Policies</RouterLink>
+        <RouterLink to="/global/patches" class="sbi" :class="{ active: route.path === '/global/patches' }">Patches</RouterLink>
       </template>
 
       <template v-if="openFlyout === 'automation'">
@@ -494,6 +496,7 @@ const pageTitle = computed(() => {
   if (route.path === '/global/alerts') return 'Global Alerts';
   if (route.path === '/global/policies') return 'Global Policies';
   if (route.path.startsWith('/global/maintenance-policies')) return 'Maintenance Policies';
+  if (route.path === '/global/patches') return 'Patches';
   if (route.path === '/settings/general') return 'General Settings';
   if (route.path.startsWith('/settings/users')) return 'Users';
   if (route.path === '/settings/sso') return 'Single Sign-On';

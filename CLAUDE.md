@@ -137,7 +137,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
    dashboard. Self-hosters using the manual README flow still run migrations
    before their Worker deployment.
 
-Latest migration: `0047` (`policy_monitors.notify_webhook`/`notify_email` — per-monitor opt-in for external alert notifications, see Alert Notifications below). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
+Latest migration: `0053` (`patch_approvals` — fleet-wide patch approval decisions, see Patch Management below). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
@@ -248,7 +248,7 @@ Replaced the old fixed `OverviewPage` with host-wide, admin-configurable dashboa
 `GET /v1/admin/dashboards/:id/data` calls `buildDashboardData()` (`worker/src/lib/dashboardData.ts`) once per dashboard, scoped to `dashboard_sites` (or an explicit `?company_id=` override — deliberately wins over the saved scope, matching how the rest of the app's `?company=` query-driven navigation already overrides saved context elsewhere) — **one batched query for every widget on the page**, not a request-per-widget fan-out. Dashboard data refreshes client-side every 30 seconds.
 
 ### Widget library (V1, real data only)
-`device_summary`, `online_offline`, `os_distribution`, `class_distribution`, `antivirus_status`, `offline_by_type`, `alerts_by_priority`, `recent_alerts` — every one backed by data Beacon already collects. **Explicitly out of scope**: Patch/M365 widgets (no underlying integration, same reasoning as Summary section's excluded fields elsewhere in this doc), iframe/arbitrary-query/presentation/cycling widgets (no embedding or ad-hoc query surface by design — RBAC and data stay inside Beacon, not delegated to something like Grafana).
+`device_summary`, `online_offline`, `os_distribution`, `class_distribution`, `antivirus_status`, `offline_by_type`, `alerts_by_priority`, `recent_alerts` — every one backed by data Beacon already collects. **Explicitly out of scope**: M365 widgets (no underlying integration, same reasoning as Summary section's excluded fields elsewhere in this doc); a Patch widget specifically is a real future candidate now that Patch Management (below) exists, just not built yet; iframe/arbitrary-query/presentation/cycling widgets (no embedding or ad-hoc query surface by design — RBAC and data stay inside Beacon, not delegated to something like Grafana).
 
 ## Two-Tier Policy / Monitor System
 
@@ -524,6 +524,29 @@ Redesigned to match a real Datto Create Policy reference: one unified "Targets" 
 
 **Testing gotcha**: don't use `disk_space` (or any check type a seeded global policy already uses) as the monitor in a quick manual test of targeting logic — `matchMonitorsForDevice`'s *pre-existing, unrelated* same-check-type company-override dedup rule (a company-scoped policy's monitors of a given check_type replace a matching global policy's monitors of that same type, see Two-Tier Policy System above) will silently interact with whatever targeting scenario you're testing and produce a monitor count that looks wrong. Use a check type with no seeded collision (`ping`, `file_size`, etc.) for a clean signal.
 
+## Patch Management
+
+Windows Update integration, built in two deliberate slices matching this codebase's established scoping pattern (see Components/Job System's ComStore, Device Groups, etc.): **Patch Visibility** (scan+report only) shipped first, **approval workflow** (fleet-wide approve/ignore) second. Both explicitly declined to build install/scheduling — that's a further, later slice, not started.
+
+### Patch Visibility (scan+report)
+- `agent/internal/audit/patches.go`'s `collectPatches()` — Windows-only (matches Datto RMM's own Patch Management scope), runs as part of the regular audit. Uses the native `Microsoft.Update.Session` COM API via PowerShell (`CreateUpdateSearcher().Search("IsInstalled=0 and IsHidden=0 and Type='Software'")`) — no `PSWindowsUpdate` module dependency, and searching (not installing) needs no admin rights. `Type='Software'` deliberately excludes driver updates. A 180s context timeout, well past every other collector's usual 15s, since WUA search can genuinely take 10-90+ seconds on a first run or WSUS-backed box.
+- "Definition Updates" (Defender AV signature packages) are filtered out client-side after the search, not via the WUA query string — `IUpdateSearcher`'s criteria language only supports `CategoryIDs` by GUID, not friendly names. Without this, a fully-patched machine still shows a permanently-recurring pending "Security Intelligence Update," which isn't something an admin manages through a patching workflow.
+- Rides the existing `device_audits` JSON-blob-per-category pattern (migration `0052`, `patches` column) — no dedicated table, one array per device's latest audit, same as `hardware`/`software`/`services`/`security`. Not diffed into `device_audit_changes` (no `'patches'` category exists there) and not stripped in privacy mode (only `software`/`services` are).
+- `GET /v1/admin/devices/:id/audit/latest` is the only read surface — returns the whole latest audit row, patches included, any role. No dedicated `/patches`-per-device endpoint.
+- `DeviceDetailPage.vue`'s Patches section sits between Software and Services in nav order — flat list (no grouping by category), each row: title, `KB123, KB456` join, severity badge (`Critical`→danger, `Important`→warn, else muted), categories as plain text. Pagination only, no filter/sort.
+
+### Approval workflow (migration `0053`)
+Confirmed via AskUserQuestion before building: approval is **fleet-wide, not per-device** — one decision per Windows Update, applying everywhere it's detected, matching how Datto RMM and real-world patch management actually works (you're deciding whether an update is safe to roll out, not re-deciding it machine by machine). Simpler schema than a per-device state table would need, too.
+
+- **Stable identity was the real prerequisite**: patches had no persisted key before this — `PatchItem` only carried `Title`/`KBArticleIDs[]`, neither guaranteed unique or stable. `agent/internal/audit/patches.go` now also captures WUA's own `$update.Identity.UpdateID` GUID (`PatchItem.UpdateID`, `omitempty` — empty on pre-upgrade agents). **A patch entry with no `update_id` can't be approved** — the worker surfaces a `needsRescan` count instead of erroring, and the dashboard shows a "needs a rescan" note rather than a broken button. Existing already-scanned fleet data has no `UpdateID` until devices update again and re-audit — same "code merged ≠ deployed" gap as every other agent-side change.
+- `patch_approvals` — `update_id` primary key, `status` (`'approved'|'ignored'`), plus a `title`/`kb_article_ids`/`severity` **snapshot** taken at approval time for display. No row = pending/undecided, same "absence means default state" convention as `policy_monitors.notify_webhook`. The live "which devices currently have this pending" answer always comes from devices' latest audits, never from this table.
+- `worker/src/routes/admin/patches.ts` (mounted at `/v1/admin/patches`): `GET /` (readonly) fetches every `approved` device's latest non-null-patches audit (one query per device, fine at self-hosted scale — same reasoning as the Custom Fields rename guard's full-table scan), groups by `update_id` into `{title, kb_article_ids, severity, categories, deviceIds[], status}`, left-joined against `patch_approvals`. `PATCH /:updateId` (technician) upserts `patch_approvals` via the established check-then-insert-or-update pattern (not `ON CONFLICT`) — `status: 'pending'` deletes the row rather than storing a third status value.
+- `PatchesPage.vue` (`/global/patches`) — list page mirroring `GlobalAlertsPage.vue`'s table shape: Title, KB(s), Severity, Categories, Device count, Status pill, Approve/Ignore/Reset actions. Sidebar: "Patches" added to the **Global** section alongside Alerts/Policies/Maintenance Policies.
+- `DeviceDetailPage.vue`'s existing Patches section gained a small read-only status badge per row (fetches the same fleet-wide list alongside everything else in `onIdChange`'s `Promise.all`) — same "summary here, real edit surface is the Global page" pattern the Policies section already establishes on this page.
+
+### Explicitly out of scope (this slice)
+Install/staging, approval filters or auto-approve-by-severity rules, patch policies or scheduled patch windows, patch history (only pending/missing is tracked, same as Patch Visibility), any Shared Dashboards widget (a real future candidate now that real data + approval state exist, just not built). All natural candidates for a further slice once this one has been used for a while.
+
 ## Key backend routes
 
 ```
@@ -620,6 +643,9 @@ DELETE /v1/admin/policies/:id/sites/:tenantId        Remove a site target from a
 GET/POST  /v1/admin/policies/:id/devices             Individual device targeting for a policy (nested, OR'd with sites/groups)
 DELETE /v1/admin/policies/:id/devices/:deviceId      Remove a device target from a policy (reconciles orphaned alerts)
 
+GET  /v1/admin/patches                       Fleet-wide distinct pending patches, merged with approval status
+PATCH  /v1/admin/patches/:updateId           Set (or clear, via status:'pending') a patch's fleet-wide approval status (technician)
+
 POST /v1/sessions                            Open a remote session (shell or tcp_tunnel), queues open_session for the agent (technician)
 GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the SessionRelay Durable Object
 ```
@@ -649,6 +675,7 @@ GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the S
 /global/policies       GlobalPoliciesPage  (list — table with expand rows)
 /global/policies/new   PolicyFormPage      (create — full page form)
 /global/policies/:id   PolicyFormPage      (edit — full page form)
+/global/patches         PatchesPage         (fleet-wide patch list, approve/ignore — see Patch Management above)
 /settings/users        UsersPage           (admin only)
 /settings/users/new    UserFormPage        (admin only)
 /settings/users/:id    UserFormPage        (admin only)
@@ -664,7 +691,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 - **Dashboards** section: one link per dashboard (`v-for` over the live list, see Shared Dashboards above), no fixed "Overview" link anymore
 - **Companies** section: "All Companies" link + active-client block (appears when a company is selected via `?company=` query, persists until cleared)
 - **Devices** section: Device Approvals, All, Device Groups
-- **Global** section: Alerts, Policies
+- **Global** section: Alerts, Policies, Maintenance Policies, Patches
 - **Automation** section: Jobs, Components
 - **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On, Custom Fields, Branding, Notifications
 - Sidebar footer shows the signed-in user's name/role above the Sign out button
@@ -686,7 +713,7 @@ Data for every section is fetched eagerly once per device load (`onIdChange`'s `
 
 **Summary section fields** — three columns (System / Identifiers / Activity), deliberately trimmed to *not* duplicate System (below):
 - Populated: Company, Class, Enrolled / Device ID, Agent Version, Antivirus **status** (real check-in `av_status`, badge-styled — `.inv-badge-{ok,warn,danger,muted}`) / Last seen, Last Reboot (**derived**, `lastSeen - uptime_seconds` — no dedicated boot-time field exists), Last Audit (`auditData.createdAt`), Uptime.
-- Deliberately excluded, not faked: M365 User, PSA Device ID, Network Node, SNMP Credential, Assigned Network Node, Patch Status, Software Status — none of these have any real data behind them in Beacon (no PSA/M365/SNMP integration, no patch-management feature). Don't add placeholder/fabricated values for these if asked to match a reference more closely — surface the gap instead.
+- Deliberately excluded, not faked: M365 User, PSA Device ID, Network Node, SNMP Credential, Assigned Network Node, Patch Status, Software Status — none of these have any real data behind them in Beacon (no PSA/M365/SNMP integration; Patch Status specifically means a per-device up-to-date/needs-patches summary badge, which Beacon doesn't compute even though it now has real patch data and an approval workflow — see Patch Management below). Don't add placeholder/fabricated values for these if asked to match a reference more closely — surface the gap instead.
 - OS, Windows Version/Build, Last User, and Serial Number **used to live here too** — moved to System exclusively once the duplication above was flagged. "Approved" date was dropped per feedback (not useful at a glance); "Hostname" row was dropped (redundant with the now-large header hostname).
 
 **System section** — a "Change Log" button sits right below the section heading, above the two-column field grid (matches Datto's own placement exactly) — navigates to `DeviceChangeLogPage.vue`, see above.

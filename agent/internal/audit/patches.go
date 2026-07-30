@@ -61,6 +61,7 @@ try {
 		if ($cats -contains 'Definition Updates') { continue }
 		$kbs = @(); foreach ($kb in $u.KBArticleIDs) { $kbs += $kb }
 		$updates += [PSCustomObject]@{
+			UpdateID = $u.Identity.UpdateID
 			Title = $u.Title; KBArticleIDs = $kbs; MsrcSeverity = $u.MsrcSeverity
 			Categories = $cats; SizeBytes = $u.MaxDownloadSize; IsDownloaded = $u.IsDownloaded
 		}
@@ -83,6 +84,7 @@ func collectPatchesWindows() ([]protocol.PatchItem, error) {
 
 	var v struct {
 		Updates []struct {
+			UpdateID     string   `json:"UpdateID"`
 			Title        string   `json:"Title"`
 			KBArticleIDs []string `json:"KBArticleIDs"`
 			MsrcSeverity string   `json:"MsrcSeverity"`
@@ -111,6 +113,7 @@ func collectPatchesWindows() ([]protocol.PatchItem, error) {
 			sev = "Unspecified"
 		}
 		result = append(result, protocol.PatchItem{
+			UpdateID:     u.UpdateID,
 			Title:        strings.TrimSpace(u.Title),
 			KBArticleIDs: u.KBArticleIDs,
 			Severity:     sev,

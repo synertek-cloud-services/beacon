@@ -406,6 +406,7 @@
                       <span class="sw-ver mono text-xs text-muted-2">{{ p.kb_article_ids?.length ? p.kb_article_ids.map(k => 'KB' + k).join(', ') : '—' }}</span>
                       <span :class="patchSeverityBadge(p.severity)">{{ p.severity }}</span>
                       <span v-if="p.categories?.length" class="sw-pub text-xs text-muted-2">{{ p.categories.join(', ') }}</span>
+                      <span v-if="p.update_id && patchApprovalMap[p.update_id]" class="inv-badge-muted" style="text-transform:capitalize">{{ patchApprovalMap[p.update_id] }}</span>
                     </div>
                   </div>
                   <div class="inv-pagination">
@@ -888,6 +889,11 @@ const effectiveMonitorsLoading = ref(false);
 const customFields = ref<DeviceCustomFieldValue[]>([]);
 const customFieldsLoading = ref(true);
 const customFieldSaving = reactive<Record<string, boolean>>({});
+
+// Fleet-wide patch approval status, keyed by update_id — read-only summary
+// here; the real edit surface is the Global Patches page (same "summary
+// here, edit elsewhere" pattern the Policies section already uses).
+const patchApprovalMap = ref<Record<string, 'approved' | 'ignored'>>({});
 const swPageSize      = ref(20);
 const patchPageSize   = ref(20);
 const svcPageSize     = ref(20);
@@ -1024,6 +1030,7 @@ async function onIdChange(id: string | undefined) {
   deviceAlerts.value = [];
   effectiveMonitors.value = [];
   customFields.value = [];
+  patchApprovalMap.value = {};
   softwareSearch.value = '';
   softwarePage.value = 0;
   patchesPage.value  = 0;
@@ -1039,7 +1046,17 @@ async function onIdChange(id: string | undefined) {
     .catch(() => { /* leave null — "Run Audit Now" empty state covers this */ })
     .finally(() => { auditLoading.value = false; });
 
-  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadCustomFields(device.value.id)]);
+  const patchApprovalsPromise = api.patches.list()
+    .then(res => {
+      const map: Record<string, 'approved' | 'ignored'> = {};
+      for (const p of res.patches) {
+        if (p.status !== 'pending') map[p.updateId] = p.status;
+      }
+      patchApprovalMap.value = map;
+    })
+    .catch(() => { /* leave empty — patch rows just show no status badge */ });
+
+  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadCustomFields(device.value.id), patchApprovalsPromise]);
 
   // Deep-link support: jump to whatever ?section= names (or Summary/top for
   // a plain device switch that doesn't carry one), now that everything's

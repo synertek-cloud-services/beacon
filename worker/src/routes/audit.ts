@@ -27,7 +27,7 @@ interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
 // Pending/missing Windows Update patch (Windows-only, scan+report only --
 // see agent/internal/audit/patches.go).
 interface PatchItem {
-  title: string; kb_article_ids: string[]; severity: string
+  update_id?: string; title: string; kb_article_ids: string[]; severity: string
   categories: string[]; size_bytes?: number; is_downloaded: boolean
 }
 interface AuditPayload {

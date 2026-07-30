@@ -426,13 +426,28 @@ export interface AVEntry      { name: string; enabled: boolean; up_to_date: bool
 export interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
 // Pending/missing Windows Update patch (Windows-only, scan+report only —
 // see agent/internal/audit/patches.go and worker/src/routes/audit.ts).
+// update_id is WUA's own stable identity GUID -- the key for fleet-wide
+// approval decisions (see FleetPatch below); empty on pre-upgrade agents.
 export interface PatchItem {
+  update_id?: string
   title: string
   kb_article_ids: string[]
   severity: string // Critical | Important | Moderate | Low | Unspecified
   categories: string[]
   size_bytes?: number
   is_downloaded: boolean
+}
+
+// A distinct Windows Update currently pending somewhere in the fleet, merged
+// with its fleet-wide approval decision (see worker/src/routes/admin/patches.ts).
+export interface FleetPatch {
+  updateId: string
+  title: string
+  kbArticleIds: string[]
+  severity: string
+  categories: string[]
+  deviceIds: string[]
+  status: 'pending' | 'approved' | 'ignored'
 }
 
 export interface DeviceAudit {
@@ -997,6 +1012,12 @@ export const api = {
       request<AlertState>('GET', `/v1/admin/alerts/${id}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
+  },
+
+  patches: {
+    list: () => request<{ patches: FleetPatch[]; needsRescan: number }>('GET', '/v1/admin/patches'),
+    setStatus: (updateId: string, body: { status: 'approved' | 'ignored' | 'pending'; title?: string; kb_article_ids?: string[]; severity?: string }) =>
+      request<{ ok: boolean }>('PATCH', `/v1/admin/patches/${encodeURIComponent(updateId)}`, body),
   },
 
   devices: {
