@@ -151,7 +151,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
    dashboard. Self-hosters using the manual README flow still run migrations
    before their Worker deployment.
 
-Latest migration: `0053` (`patch_approvals` — fleet-wide patch approval decisions, see Patch Management below). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
+Latest migration: `0056` (`device_delete_cascade_fix` — adds `ON DELETE CASCADE` to `device_id` FKs on `alert_state`/`sessions`/`device_audits`/`device_audit_changes`/`commands`, fixing a 500 on `DELETE /v1/admin/devices/:id` for any device that had ever generated real data; see migration file for the SQLite table-rebuild-ordering gotcha this hit). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
