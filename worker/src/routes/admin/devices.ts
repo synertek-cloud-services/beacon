@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc, and, inArray } from 'drizzle-orm';
+import { eq, desc, and, inArray, isNull } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
@@ -149,7 +149,14 @@ adminDevices.delete('/:id/maintenance', async (c) => {
   return c.json({ ok: true });
 });
 
-// GET /v1/admin/devices/:id/commands — list recent commands (newest first)
+// GET /v1/admin/devices/:id/commands — list recent direct commands (newest
+// first). Job-dispatched commands (jobId set) are excluded — those already
+// have full visibility via JobDetailPage's per-device breakdown, and
+// including them here would make this list grow unbounded on a device with
+// many recurring jobs. This covers the previously-invisible gap: kebab-menu
+// actions (reboot, restart_agent, force_update, install_patches,
+// uninstall_agent) and single-device Quick Job runs had no UI surface at
+// all before this, even though they were always being recorded.
 adminDevices.get('/:id/commands', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
@@ -157,11 +164,12 @@ adminDevices.get('/:id/commands', async (c) => {
   const cmds = await db
     .select()
     .from(schema.commands)
-    .where(eq(schema.commands.deviceId, c.req.param('id')))
+    .where(and(eq(schema.commands.deviceId, c.req.param('id')), isNull(schema.commands.jobId)))
+    .orderBy(desc(schema.commands.createdAt))
+    .limit(50)
     .all();
 
-  // Return newest first
-  return c.json(cmds.sort((a, b) => b.createdAt - a.createdAt));
+  return c.json(cmds);
 });
 
 // POST /v1/admin/devices/:id/commands — queue a command for the device

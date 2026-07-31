@@ -915,6 +915,8 @@ function parseResult(cmd: JobDeviceCommand): CmdResult | null {
 }
 ```
 
+**Third real consumer: `DeviceDetailPage.vue`'s Command History section** — same discriminated-object-ref toggle shape and `<tr class="cmd-output-row">` structure (CSS duplicated as `.cmd-out-btn`/`.cmd-output-*`, per this codebase's convention), but status badges reuse the page's own existing `.inv-badge-{ok,warn,danger,muted}` family instead of duplicating a second `.jd-status-*`-style palette — that four-state badge set was already on this page for Summary's antivirus status, and reused directly rather than adding a third near-identical color mapping to the codebase.
+
 ## Mini-badge palette (Jobs page per-device command status)
 
 `JobsPage.vue`'s `.mini-badge` family (queued/sent/completed/failed) gained a fifth state this session:

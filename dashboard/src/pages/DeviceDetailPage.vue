@@ -290,6 +290,59 @@
             </div>
           </section>
 
+          <!-- ── Command History (direct commands only — see worker route comment) ── -->
+          <section :id="'ddev-sec-commands'" class="ddev-page-section">
+            <h2 class="ddev-section-heading">Command History</h2>
+            <div class="inv-tab-body">
+              <div class="inv-toolbar">
+                <span class="text-xs text-muted-2">Last 50 direct commands (reboot, restart agent, update check, patches, etc.). Commands run as part of a Job are shown on that Job's own detail page instead.</span>
+              </div>
+              <div v-if="deviceCommandsLoading" class="inv-empty">Loading commands…</div>
+              <div v-else-if="deviceCommands.length === 0" class="inv-empty">No direct commands have been sent to this device yet.</div>
+              <table v-else class="cmd-mini-table">
+                <thead>
+                  <tr>
+                    <th>Command</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Completed</th>
+                    <th>Output</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="cmd in deviceCommands" :key="cmd.id">
+                    <tr>
+                      <td class="text-sm">{{ commandTypeLabel(cmd.type) }}</td>
+                      <td><span :class="CMD_STATUS_BADGE[cmd.status] ?? 'inv-badge-muted'">{{ capitalize(cmd.status) }}</span></td>
+                      <td class="mono text-xs text-muted-2">{{ absDate(cmd.createdAt) }}</td>
+                      <td class="mono text-xs text-muted-2">{{ cmd.completedAt ? absDate(cmd.completedAt) : '—' }}</td>
+                      <td>
+                        <template v-if="parseCommandResult(cmd)">
+                          <button v-if="parseCommandResult(cmd)!.stdout" class="cmd-out-btn"
+                            @click="toggleCmdOutput(cmd.id, 'stdout', parseCommandResult(cmd)!.stdout!)">StdOut</button>
+                          <button v-if="parseCommandResult(cmd)!.stderr" class="cmd-out-btn cmd-out-err"
+                            @click="toggleCmdOutput(cmd.id, 'stderr', parseCommandResult(cmd)!.stderr!)">StdErr</button>
+                        </template>
+                        <span v-else class="text-xs text-muted-2">—</span>
+                      </td>
+                    </tr>
+                    <tr v-if="expandedCmdOutput?.cmdId === cmd.id" class="cmd-output-row">
+                      <td colspan="5">
+                        <div class="cmd-output-wrap">
+                          <div class="cmd-output-label">
+                            {{ expandedCmdOutput.type === 'stdout' ? 'Standard Output' : 'Standard Error' }}
+                            <button class="cmd-output-close" @click="expandedCmdOutput = null">×</button>
+                          </div>
+                          <pre class="cmd-output-pre">{{ expandedCmdOutput.content }}</pre>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <!-- ── Alerts (device-scoped) ── -->
           <section :id="'ddev-sec-alerts'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Alerts</h2>
@@ -805,7 +858,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue, type DeviceCommand } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 import RemoteShellModal from '../components/RemoteShellModal.vue';
 
@@ -844,6 +897,7 @@ const now     = ref(Math.floor(Date.now() / 1000));
 const sections = [
   { value: 'summary',   label: 'Summary' },
   { value: 'system',    label: 'System' },
+  { value: 'commands',  label: 'Command History' },
   { value: 'alerts',    label: 'Alerts' },
   { value: 'policies',  label: 'Policies' },
   { value: 'software',  label: 'Software' },
@@ -900,6 +954,12 @@ const alertsResolving     = ref(false);
 // Policies section (effective monitors for this device)
 const effectiveMonitors        = ref<EffectiveMonitor[]>([]);
 const effectiveMonitorsLoading = ref(false);
+
+// Command History section — direct (non-Job) commands only, see the
+// worker route's own comment for why Job-dispatched commands are excluded.
+const deviceCommands        = ref<DeviceCommand[]>([]);
+const deviceCommandsLoading = ref(false);
+const expandedCmdOutput     = ref<{ cmdId: string; type: 'stdout' | 'stderr'; content: string } | null>(null);
 
 // Custom fields — manual entry only (see migrations/0029). Definitions are
 // managed globally under Settings → Custom Fields; values are per-device.
@@ -1033,6 +1093,47 @@ async function loadEffectiveMonitors() {
   finally { effectiveMonitorsLoading.value = false; }
 }
 
+async function loadDeviceCommands() {
+  if (!device.value) return;
+  deviceCommandsLoading.value = true;
+  try { deviceCommands.value = await api.devices.commands.list(device.value.id); }
+  catch { deviceCommands.value = []; }
+  finally { deviceCommandsLoading.value = false; }
+}
+
+const COMMAND_TYPE_LABELS: Record<string, string> = {
+  reboot: 'Reboot',
+  restart_agent: 'Restart Agent',
+  force_update: 'Check for Agent Update',
+  run_audit: 'Run Audit',
+  run_script: 'Run Script',
+  install_patches: 'Install Patches',
+  uninstall_agent: 'Uninstall Agent',
+};
+function commandTypeLabel(type: string): string {
+  return COMMAND_TYPE_LABELS[type] ?? type;
+}
+
+const CMD_STATUS_BADGE: Record<string, string> = {
+  queued: 'inv-badge-muted',
+  sent: 'inv-badge-warn',
+  completed: 'inv-badge-ok',
+  failed: 'inv-badge-danger',
+};
+
+interface CmdResult { stdout?: string; stderr?: string; exit_code?: number; }
+function parseCommandResult(cmd: DeviceCommand): CmdResult | null {
+  if (!cmd.result) return null;
+  try { return JSON.parse(cmd.result); } catch { return null; }
+}
+function toggleCmdOutput(cmdId: string, type: 'stdout' | 'stderr', content: string) {
+  if (expandedCmdOutput.value?.cmdId === cmdId && expandedCmdOutput.value.type === type) {
+    expandedCmdOutput.value = null;
+  } else {
+    expandedCmdOutput.value = { cmdId, type, content };
+  }
+}
+
 // Runs whenever the route's :id actually changes (including the initial
 // load) — resets audit/alerts/policies/pagination state and eagerly
 // fetches everything, since this is one continuous scrollable page
@@ -1046,6 +1147,7 @@ async function onIdChange(id: string | undefined) {
   auditData.value = null;
   deviceAlerts.value = [];
   effectiveMonitors.value = [];
+  deviceCommands.value = [];
   customFields.value = [];
   patchApprovalMap.value = {};
   softwareSearch.value = '';
@@ -1073,7 +1175,7 @@ async function onIdChange(id: string | undefined) {
     })
     .catch(() => { /* leave empty — patch rows just show no status badge */ });
 
-  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadCustomFields(device.value.id), patchApprovalsPromise]);
+  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadDeviceCommands(), loadCustomFields(device.value.id), patchApprovalsPromise]);
 
   // Deep-link support: jump to whatever ?section= names (or Summary/top for
   // a plain device switch that doesn't carry one), now that everything's
@@ -1455,6 +1557,7 @@ async function runAuditNow(deviceId: string) {
   try {
     await api.devices.commands.create(deviceId, { type: 'run_audit' });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) { error.value = e.message; }
 }
 
@@ -1499,6 +1602,7 @@ async function scheduleReboot(d: Device) {
   try {
     await api.devices.commands.create(d.id, { type: 'reboot' });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) {
     error.value = e.message;
   }
@@ -1509,6 +1613,7 @@ async function restartAgent(deviceId: string) {
   try {
     await api.devices.commands.create(deviceId, { type: 'restart_agent' });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) {
     error.value = e.message;
   }
@@ -1519,6 +1624,7 @@ async function forceUpdateCheck(deviceId: string) {
   try {
     await api.devices.commands.create(deviceId, { type: 'force_update' });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) {
     error.value = e.message;
   }
@@ -1540,6 +1646,7 @@ async function uninstallAgent(deviceId: string) {
   try {
     await api.devices.commands.create(deviceId, { type: 'uninstall_agent' });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) {
     error.value = e.message;
   }
@@ -1560,6 +1667,7 @@ async function installApprovedPatches(deviceId: string) {
   try {
     await api.devices.commands.create(deviceId, { type: 'install_patches', update_ids: eligiblePatchInstallIds.value });
     showJobQueued();
+    loadDeviceCommands();
   } catch (e: any) {
     error.value = e.message;
   }
@@ -1971,6 +2079,24 @@ function shellLabel(shell: string): string {
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
 .status-resolved { color: var(--color-text-subtle); }
+
+.cmd-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cmd-mini-table th {
+  text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--color-border);
+}
+.cmd-mini-table td { padding: 7px 10px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.cmd-mini-table tr:last-child td { border-bottom: none; }
+.cmd-out-btn { background: none; border: 1px solid var(--color-border-strong); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--color-primary); cursor: pointer; font-family: var(--font); transition: background .1s; margin-right: 4px; }
+.cmd-out-btn:hover { background: rgba(78,126,247,.08); }
+.cmd-out-err { color: var(--color-danger); border-color: rgba(255,69,58,.3); }
+.cmd-out-err:hover { background: rgba(255,69,58,.06); }
+.cmd-output-row td { padding: 0; border-bottom: 1px solid var(--color-border); }
+.cmd-output-wrap { background: var(--color-surface-raised); border-top: 1px solid var(--color-border); }
+.cmd-output-label { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.cmd-output-close { background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 16px; line-height: 1; padding: 0 2px; }
+.cmd-output-close:hover { color: var(--color-text-primary); }
+.cmd-output-pre { margin: 0; padding: 0 14px 14px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; color: var(--color-text-primary); white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; line-height: 1.6; }
 .msg-link        { color: var(--color-primary); }
 .pri-badge {
   display: inline-block; padding: 1px 7px; border-radius: 10px;

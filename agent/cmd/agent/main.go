@@ -436,6 +436,20 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					Stdout:    "update check triggered",
 				})
 				pendingMu.Unlock()
+				// Every other command handler does this to report its result
+				// within ~2s instead of waiting up to the full 60s interval --
+				// this one specifically needs it more than most: if an update
+				// really is available, updater.ForceCheck() (above) races to
+				// download+verify+swap the running binary, which replaces this
+				// process (wiping pendingResults) before the next unprompted
+				// check-in would otherwise fire. Without this nudge, that race
+				// is lost almost every time an update actually applies, and the
+				// command sits at "sent" forever in the dashboard even though
+				// the update itself succeeded.
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
 				return
 			}
 			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
