@@ -1122,3 +1122,40 @@ Wrong (what shipped first, then got corrected):
 <template v-else-if="form.provider === 'resend'">...resend-specific fields...</template>
 ```
 Reach for this whenever a settings page needs to configure "one of several pluggable backends" (matches the backend's own `EmailProvider` interface + `providers/` directory + registry shape in `worker/src/lib/alerts.ts`'s Alert Notifications section of CLAUDE.md) — the frontend field-switcher and the backend plugin registry are two halves of the same "pick one implementation, keep the others' concerns fully separate" idea.
+
+## Dashboard grid (gridstack.js drag/resize, `DashboardPage.vue` + `DashWidget.vue`)
+
+Replaced a hand-rolled CSS Grid + native-HTML5-drag system with `gridstack/dist/vue` — see CLAUDE.md's Shared Dashboards section for the full library-choice rationale and the sizing-model gotchas (`h * cellHeight` vs. CSS Grid's row-gap-inclusive sizing, per-item `margin` vs. a single shared gap). This section is the copy-paste reference for the actual markup/values.
+
+```html
+<GridStack :key="dashboard.id" ref="gridRef" class="dash-grid" :options="gridOptions" :components="{ DashWidget }" @change="onGridChange" />
+```
+```ts
+const gridOptions = computed<GridStackOptions>(() => ({
+  column: 12,
+  cellHeight: 20,   // NOT 8 -- see CLAUDE.md, gridstack's sizing model differs from the old CSS Grid one
+  margin: 7,        // NOT 14 -- gridstack insets every item on all 4 sides; 7+7 between neighbors reproduces the old single 14px gap
+  float: false,
+  staticGrid: !editing.value,   // the whole "Edit layout" toggle is just this one flag
+  resizable: { handles: 'se' }, // bottom-right corner only, not all four
+  children: (dashboard.value?.widgets ?? []).map(w => ({
+    id: w.id, x: w.x, y: w.y, w: w.w, h: w.h,
+    minW: 2, minH: 4, maxH: 24,
+    component: 'DashWidget',
+    props: { type: w.type, title: w.title },
+  })),
+}));
+```
+
+**Header/button horizontal alignment**: `.dash-head`/`.add-widget` need `margin: 0 7px ...` (not `0`) to line up with the visible widget cards' left/right edges — gridstack's per-item `margin` insets the cards themselves, so anything meant to align with them needs the same inset. A precisely-measured 7px misalignment here was a real bug caught only by shrinking the browser window and comparing edges directly (see CLAUDE.md) — verify with `getBoundingClientRect()`, not by eye at a wide viewport where it's easy to miss.
+
+**Widget content wrapper** (`DashWidget.vue`) — every widget type renders inside the same content shell, gridstack only owns the outer `.grid-stack-item`/`.grid-stack-item-content`:
+```css
+.dwig-content { position:relative; height:100%; box-sizing:border-box; overflow:hidden; display:flex; flex-direction:column; background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:14px; }
+.dwig-remove { position:absolute; top:8px; right:8px; z-index:2; /* "x" overlay, not in-flow -- an in-flow editbar steals height from a fixed-size box */ }
+```
+`v-if="editing"` gates the remove button; gridstack's own drag/resize handles are separately gated by `staticGrid`, so the two edit-mode affordances (remove vs. drag/resize) are controlled by different mechanisms that happen to flip together.
+
+**Vertical-centering gotcha**: for a flex column of stat cards inside `.dwig-content`, neither `justify-content:center` on the parent nor `flex-grow:1` on the row measurably centered anything in testing (computed styles showed both correctly applied, the box didn't move) -- `margin: auto 0` on the row is what actually worked, root cause not identified. If a future widget type needs vertical centering inside this same shell, try `margin:auto` first rather than re-deriving `justify-content`/`flex-grow` from scratch.
+
+**Persisting drag/resize**: gridstack's own `updateOptions()` re-reads `children` on every call when non-empty (confirmed by reading its source, not assumed) — `onGridChange`'s handler must update the local `dashboard.value.widgets` array in addition to `PATCH`ing the API, or a later unrelated re-render (e.g. toggling Edit/Done) reconciles against stale data and visibly snaps a just-dragged widget back to its old position. Same fix needed on the remove path (`removeLocalWidget`, provided down to `DashWidget.vue` so its own remove button can update the same array).
