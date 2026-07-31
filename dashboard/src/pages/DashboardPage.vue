@@ -129,7 +129,14 @@ onMounted(async () => { await Promise.all([loadList(), api.tenants.list().then(v
 </script>
 
 <style scoped>
-.dash-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; gap:16px; } h1 { margin:0; font-size:20px; }.dash-context { margin:5px 0 0; color:var(--color-text-muted); font-size:12px; }.dash-actions { display:flex; gap:8px; }.dash-loading { color:var(--color-text-muted); font-size:13px; padding:32px; text-align:center; }.dash-grid { display:block; }
+/* Every grid item already carries its own 14px top inset (gridstack's own
+   margin, applied on all 4 sides of every item independently -- confirmed
+   by inspecting the live --gs-item-margin-* values, not assumed). So the
+   *first* widget's visible top gap is already this header's margin-bottom
+   PLUS that built-in 14px inset -- setting margin-bottom to 14px (not 28px)
+   is what actually makes the total match the between-widget gap (14+14=28px
+   on each side there too), not a mismatched double-count of the same inset. */
+.dash-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; gap:16px; } h1 { margin:0; font-size:20px; }.dash-context { margin:5px 0 0; color:var(--color-text-muted); font-size:12px; }.dash-actions { display:flex; gap:8px; }.dash-loading { color:var(--color-text-muted); font-size:13px; padding:32px; text-align:center; }.dash-grid { display:block; }
 /* gridstack's default placeholder (rgba(0,0,0,.1)) is nearly invisible
    against this app's already-dark background -- swap for the same
    dashed-primary-color language ".add-widget" already uses elsewhere on

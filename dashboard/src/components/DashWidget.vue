@@ -86,7 +86,7 @@ async function onRemove() {
    genuinely fills the widget's full height regardless of h. */
 .dash-stats { height:100%; display:flex; gap:10px; }
 .dash-stats .stat-card { flex:1; min-width:0; padding:12px; display:flex; flex-direction:column; justify-content:center; gap:4px; }
-.widget-title { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:700; margin-bottom:20px; flex-shrink:0; }
+.widget-title { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:700; margin-bottom:12px; flex-shrink:0; }
 .widget-title a { font-size:11px; font-weight:400; }
 .widget-chart :deep(.donut-wrap) { flex:1; min-height:0; align-items:center; }
 .widget-chart :deep(.donut-legend) { gap:6px; }
