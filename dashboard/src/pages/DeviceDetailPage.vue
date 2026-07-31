@@ -1527,10 +1527,13 @@ async function forceUpdateCheck(deviceId: string) {
 // Distinct from remove()/"Delete Device" below -- this only tears down the
 // agent on the remote machine itself (service + install directory); the
 // device's own row/history in Beacon is untouched, so it just goes offline
-// rather than disappearing from the dashboard. Added specifically so a
-// hardened, tamper-protected install can be torn down remotely at all --
-// previously the only way was local registry surgery + a reboot, since the
-// service's own SDDL blocks an external admin from stopping/deleting it.
+// rather than disappearing from the dashboard. Originally added so a
+// hardened, tamper-protected install could be torn down remotely at all
+// (the service's own SDDL blocked an external admin from stopping/deleting
+// it, otherwise only fixable via local registry surgery + a reboot) --
+// that SDDL/ACL locking has since been removed (see install_windows.go's
+// setRecoveryActions doc comment), but this remains a genuinely useful
+// remote convenience on its own, so it stayed.
 async function uninstallAgent(deviceId: string) {
   menuOpen.value = false;
   if (!confirm('Uninstall the Beacon agent from this device? It will stop checking in immediately and will need to be manually reinstalled to be managed again. This cannot be undone remotely.')) return;

@@ -98,13 +98,15 @@ func main() {
 
 	log.Printf("beacon agent %s — device %s", version, cred.DeviceID)
 
-	// Self-healing tamper-resistance hardening (Windows-only; no-op
-	// elsewhere) -- runs before the updater starts so a device that was
-	// never hardened (enrolled before this existed, or manually stripped)
-	// is protected before it ever attempts a self-update swap. See
-	// Reharden's doc comment in internal/service/install_windows.go for
-	// why this matters: self-update relies entirely on pre-configured SCM
-	// recovery actions to survive its own exit.
+	// Self-healing recovery-action config (Windows-only; no-op elsewhere) --
+	// runs before the updater starts so a device that never had this set
+	// (enrolled before it existed, or manually stripped) gets it before it
+	// ever attempts a self-update swap. See Reharden's doc comment in
+	// internal/service/install_windows.go for why this matters: self-update
+	// relies entirely on pre-configured SCM recovery actions to survive its
+	// own exit. (This used to also apply tamper-resistance SDDL/ACL locking
+	// under the same call -- deliberately removed, see that same doc
+	// comment.)
 	service.Reharden()
 
 	// Tray icon lifecycle (Windows-only; no-op elsewhere). SetAgentVersion
