@@ -271,6 +271,34 @@ export interface DeviceCommand {
   completedAt: number | null;
 }
 
+export interface ActivityLogEntry {
+  id: string;
+  createdAt: number;
+  actorType: 'user' | 'system' | 'break-glass';
+  actorId: string | null;
+  actorLabel: string | null;
+  category: string;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  tenantId: string | null;
+  method: string;
+  path: string | null;
+  details: string | null; // JSON
+}
+
+export interface ActivityLogFilters {
+  tenant_id?: string;
+  actor_id?: string;
+  category?: string;
+  entity_type?: string;
+  entity_id?: string;
+  from?: number;
+  to?: number;
+  limit?: number;
+  offset?: number;
+}
+
 // ── Monitor / Alert types ────────────────────────────────────
 
 export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
@@ -1085,6 +1113,17 @@ export const api = {
       request<AlertState>('GET', `/v1/admin/alerts/${id}`),
     resolve: (id: string) =>
       request<{ ok: boolean }>('POST', `/v1/admin/alerts/${id}/resolve`),
+  },
+
+  activityLog: {
+    list: (filters: ActivityLogFilters = {}) => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) {
+        if (v !== undefined && v !== '') params.set(k, String(v));
+      }
+      const qs = params.toString();
+      return request<{ rows: ActivityLogEntry[]; total: number }>('GET', `/v1/admin/activity-log${qs ? `?${qs}` : ''}`);
+    },
   },
 
   patches: {

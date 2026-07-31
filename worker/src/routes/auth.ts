@@ -6,6 +6,7 @@ import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { verifyPassword } from '../lib/password';
 import { sha256hex, generateToken } from '../lib/crypto';
+import { logActivity } from '../lib/activityLog';
 
 const auth = new Hono<{ Bindings: Bindings }>();
 
@@ -21,12 +22,22 @@ auth.post('/login', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const user = await db.select().from(schema.users).where(eq(schema.users.email, email)).get();
 
-  // Same generic error for "no such user" and "wrong password" — avoid enumeration.
-  const invalid = () => c.json({ error: 'invalid email or password' }, 401);
+  // Same generic error for "no such user" and "wrong password" — avoid
+  // enumeration. Layer-2 activity logging (not covered by the generic
+  // middleware -- POST /login carries no Authorization header yet, so
+  // there's no actor to resolve generically) lives in this one shared
+  // closure rather than at each of the three call sites below.
+  const invalid = async () => {
+    await logActivity(db, {
+      actorType: 'system', category: 'Auth', action: 'Failed login attempt',
+      method: 'POST', path: '/v1/auth/login', details: { email },
+    });
+    return c.json({ error: 'invalid email or password' }, 401);
+  };
 
-  if (!user || user.authSource !== 'local' || !user.passwordHash) return invalid();
-  if (user.status !== 'active') return invalid();
-  if (!(await verifyPassword(password, user.passwordHash))) return invalid();
+  if (!user || user.authSource !== 'local' || !user.passwordHash) return await invalid();
+  if (user.status !== 'active') return await invalid();
+  if (!(await verifyPassword(password, user.passwordHash))) return await invalid();
 
   const now = Math.floor(Date.now() / 1000);
   const token = generateToken();
@@ -40,6 +51,10 @@ auth.post('/login', async (c) => {
     ip: c.req.header('CF-Connecting-IP') ?? null,
   });
   await db.update(schema.users).set({ lastLoginAt: now }).where(eq(schema.users.id, user.id));
+  await logActivity(db, {
+    actorType: 'user', actorId: user.id, actorLabel: user.email,
+    category: 'Auth', action: 'Logged in', method: 'POST', path: '/v1/auth/login',
+  });
 
   return c.json({
     token,

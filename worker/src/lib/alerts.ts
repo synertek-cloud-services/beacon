@@ -5,6 +5,7 @@ import type { Bindings } from '../index';
 import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult } from './types';
 import { sendEmail } from './email';
 import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
+import { logActivity } from './activityLog';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -600,6 +601,11 @@ async function processAlertState(
     if (fireImmediately) {
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
+      await logActivity(db, {
+        actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
+        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId },
+      });
     }
     return;
   }
@@ -636,6 +642,11 @@ async function processAlertState(
     if (shouldFire) {
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
+      await logActivity(db, {
+        actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
+        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId: existing.id },
+      });
     }
   } else {
     const wasAlerting     = existing.isAlerting;
@@ -671,6 +682,11 @@ async function processAlertState(
       const priority = existing.alertPriority ?? monitor.alertPriority;
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority);
+      await logActivity(db, {
+        actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
+        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        method: 'CRON', details: { policy: monitor.policy.name, priority, alertStateId: existing.id },
+      });
     }
   }
 }
