@@ -23,11 +23,19 @@ const TEMPLATES: Record<string, Array<{ type: string; x: number; y: number; w: n
 async function auth(c: any, min: 'readonly' | 'technician' | 'admin' = 'readonly') {
   return requireUser(c.req.header('Authorization'), c.env, min);
 }
+// h's own cap was stale even before the gridstack resize UI existed -- the
+// seeded `default` template below already ships recent_alerts at h:14,
+// exceeding the old h<=12 cap, since template inserts never went through
+// this validation (trusted server-side data). Raised to 24 (matching the
+// dashboard's own gridstack maxH constraint) so a real resize drag that
+// lands past 12 doesn't get silently rejected by PATCH and snap back --
+// found via real browser testing, not a guess. w stays capped at 12 since
+// the grid is genuinely only 12 columns wide.
 function validLayout(value: unknown): value is { x: number; y: number; w: number; h: number } {
   if (!value || typeof value !== 'object') return false;
   const { x, y, w, h } = value as Record<string, unknown>;
   return [x, y, w, h].every(Number.isInteger) && (x as number) >= 0 && (y as number) >= 0 &&
-    (w as number) >= 1 && (w as number) <= 12 && (h as number) >= 1 && (h as number) <= 12 && (x as number) + (w as number) <= 12;
+    (w as number) >= 1 && (w as number) <= 12 && (h as number) >= 1 && (h as number) <= 24 && (x as number) + (w as number) <= 12;
 }
 function dashboardRow(row: Record<string, unknown>) {
   return { id: row.id, name: row.name, sortOrder: row.sort_order, isHome: row.is_home === 1, createdAt: row.created_at, updatedAt: row.updated_at };

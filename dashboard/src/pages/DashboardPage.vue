@@ -67,7 +67,15 @@ const availableWidgets = Object.keys(widgetLabels) as DashboardWidgetType[];
 // layout/Done editing toggle works through this computed with no extra code.
 const gridOptions = computed<GridStackOptions>(() => ({
   column: 12,
-  cellHeight: 8,
+  // Not a straight port of the old CSS Grid's 8px grid-auto-rows: gridstack
+  // sizes an item as h * cellHeight directly, with no equivalent of CSS
+  // Grid's row-gap being included inside a spanned item's own height (that
+  // gap-inclusion was where the old system's real per-widget height came
+  // from at such a small base unit). Found via live inspection of a
+  // widget's actual computed height coming out far too small to hold its
+  // own title + chart -- 20 is fit to land close to the old system's real
+  // pixel heights across its existing h values (7, 8, 14), not a guess.
+  cellHeight: 20,
   margin: 14,
   float: false,
   staticGrid: !editing.value,
