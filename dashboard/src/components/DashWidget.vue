@@ -78,13 +78,16 @@ async function onRemove() {
 <style scoped>
 .dwig-content { position:relative; height:100%; box-sizing:border-box; overflow:hidden; display:flex; flex-direction:column; background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:14px; }
 .dwig-remove { position:absolute; top:8px; right:8px; z-index:2; background:color-mix(in srgb, var(--color-surface) 85%, transparent); border:1px solid var(--color-border); color:var(--color-text-muted); border-radius:5px; width:22px; height:22px; cursor:pointer; }
-/* Overrides the global .stat-grid's display:grid -- a CSS Grid with no
-   grid-template-rows has a single implicit row sized to its content, not
-   stretched to fill leftover container height, so a taller widget just grew
-   the dead space below the row instead of the row itself. Flex fixes that:
-   flex items stretch to fill the cross axis by default, so each stat-card
-   genuinely fills the widget's full height regardless of h. */
-.dash-stats { height:100%; display:flex; gap:10px; }
+/* Overrides the global .stat-grid's display:grid, whose single implicit row
+   sizes to its content rather than stretching -- a taller widget just grew
+   dead space below the row, not the row itself. Neither justify-content:center
+   on the .dwig-content parent nor flex-grow:1 on .dash-stats itself actually
+   moved the rendered box in testing (computed styles showed both applied
+   correctly; the box didn't respond either way -- not fully explained, but
+   margin:auto is the one centering technique that measurably worked, so
+   that's what's here, verified against real pixel measurements before and
+   after, not assumed from the CSS alone). */
+.dash-stats { display:flex; gap:10px; flex-shrink:0; margin:auto 0; }
 .dash-stats .stat-card { flex:1; min-width:0; padding:12px; display:flex; flex-direction:column; justify-content:center; gap:4px; }
 .widget-title { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:700; margin-bottom:12px; flex-shrink:0; }
 .widget-title a { font-size:11px; font-weight:400; }
