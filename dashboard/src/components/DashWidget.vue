@@ -41,6 +41,7 @@ const router = useRouter();
 const data    = inject<Ref<DashboardData | null>>('dashboardData')!;
 const editing = inject<Ref<boolean>>('dashboardEditing')!;
 const dashboardId = inject<Ref<string | undefined>>('dashboardId')!;
+const removeLocalWidget = inject<(id: string) => void>('dashboardRemoveLocalWidget')!;
 
 const { removeWidget } = useGridStack();
 const item = useGridStackItem();
@@ -75,6 +76,7 @@ function alertMessage(alert: AlertState) { try { const config = JSON.parse(alert
 async function onRemove() {
   if (!dashboardId.value || !confirm('Remove this widget?')) return;
   await api.dashboards.widgets.delete(dashboardId.value, item.id);
+  removeLocalWidget(item.id);
   const el = item.node?.el;
   if (el) removeWidget(el, true, true);
 }

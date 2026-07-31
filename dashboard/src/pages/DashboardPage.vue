@@ -53,6 +53,15 @@ function rawGrid(): GridStackCore | null {
 provide('dashboardData', data);
 provide('dashboardEditing', editing);
 provide('dashboardId', computed(() => dashboard.value?.id));
+// Same reason onGridChange updates dashboard.value.widgets locally on every
+// drag/resize -- gridstack's updateOptions() calls grid.load(children) on
+// every options change (e.g. the Edit layout/Done editing toggle), which
+// would silently re-add a widget that was removed from the server but not
+// from this local array.
+provide('dashboardRemoveLocalWidget', (id: string) => {
+  if (!dashboard.value) return;
+  dashboard.value.widgets = dashboard.value.widgets.filter(w => w.id !== id);
+});
 
 const widgetLabels: Record<DashboardWidgetType, string> = { device_summary: 'Device summary', online_offline: 'Online / Offline', os_distribution: 'Operating systems', class_distribution: 'Device classes', antivirus_status: 'Antivirus status', offline_by_type: 'Offline devices by type', alerts_by_priority: 'Alerts by priority', recent_alerts: 'Recent alerts', patches_by_severity: 'Pending patches' };
 const widgetDescriptions: Record<DashboardWidgetType, string> = { device_summary: 'Key device and alert counts', online_offline: 'Approved device availability', os_distribution: 'Device distribution by OS', class_distribution: 'Device distribution by class', antivirus_status: 'Current antivirus reporting state', offline_by_type: 'Alerting offline devices by class', alerts_by_priority: 'Open alerts by priority', recent_alerts: 'Latest alert activity', patches_by_severity: 'Distinct pending Windows Updates by severity' };
@@ -100,6 +109,16 @@ function onGridChange(_e: Event, nodes: Array<{ id?: string; x?: number; y?: num
   if (!dashboard.value) return;
   for (const node of nodes) {
     if (!node.id || node.x == null || node.y == null || node.w == null || node.h == null) continue;
+    // Update the local copy immediately, not just the server -- gridstack's
+    // own updateOptions() calls grid.load(children) on every options change
+    // (confirmed by reading its source; an earlier assumption that it never
+    // re-reads children was wrong), which happens on the very next Edit
+    // layout/Done editing toggle. Without this, that reconciliation used
+    // stale pre-drag positions and visibly snapped the widget back until
+    // the next 30s poll happened to refresh dashboard.value with correct
+    // data -- a real, reproduced bug, not a guess.
+    const local = dashboard.value.widgets.find(w => w.id === node.id);
+    if (local) { local.x = node.x; local.y = node.y; local.w = node.w; local.h = node.h; }
     api.dashboards.widgets.update(dashboard.value.id, node.id, { layout: { x: node.x, y: node.y, w: node.w, h: node.h } }).catch(load);
   }
 }
