@@ -23,7 +23,7 @@
           </select>
         </div>
         <div class="al-pill-group">
-          <span class="al-filter-tag">Site</span>
+          <span class="al-filter-tag">Company</span>
           <select v-model="companyFilter" class="page-size-select">
             <option value="">All</option>
             <option v-for="t in companies" :key="t.id" :value="t.id">{{ t.name }}</option>
@@ -62,7 +62,7 @@
               <th>Actor</th>
               <th>Category</th>
               <th class="th-action">Action</th>
-              <th>Site</th>
+              <th>Company</th>
               <th>Entity</th>
             </tr>
           </thead>

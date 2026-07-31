@@ -235,14 +235,14 @@
         <div class="tf-cat">
           <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
             <option value="all">All Devices</option>
-            <option value="sites">Sites</option>
+            <option value="companies">Companies</option>
             <option value="devices">Devices</option>
             <option value="groups">Device Groups</option>
           </select>
         </div>
         <div v-if="flyoutCategory !== 'all'" class="tf-search">
           <input v-model="flyoutSearch" class="pf-input"
-            :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
+            :placeholder="flyoutCategory === 'companies' ? 'Search companies…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
             style="max-width:none" />
         </div>
         <div class="tf-list">
@@ -259,9 +259,9 @@
               </span>
             </div>
           </template>
-          <!-- Sites -->
-          <template v-else-if="flyoutCategory === 'sites'">
-            <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
+          <!-- Companies -->
+          <template v-else-if="flyoutCategory === 'companies'">
+            <div v-for="t in flyoutCompanyMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
               <div class="tf-row-info" style="flex:1">
                 <span>{{ t.name }}</span>
               </div>
@@ -270,7 +270,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
               </span>
             </div>
-            <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No companies found.</div>
+            <div v-if="!flyoutCompanyMatches.length" class="tf-empty-msg">No companies found.</div>
           </template>
           <!-- Devices -->
           <template v-else-if="flyoutCategory === 'devices'">
@@ -388,11 +388,11 @@ type TargetItem =
 
 const targetItems      = ref<TargetItem[]>([]);
 const targetFlyoutOpen = ref(false);
-const flyoutCategory   = ref<'all' | 'sites' | 'devices' | 'groups'>('all');
+const flyoutCategory   = ref<'all' | 'companies' | 'devices' | 'groups'>('all');
 const flyoutSearch     = ref('');
 const groups           = ref<DeviceGroup[]>([]);
 
-const flyoutSiteMatches = computed(() => {
+const flyoutCompanyMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
   return companies.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
@@ -434,7 +434,7 @@ function toggleTarget(item: TargetItem) {
 function openTargetFlyout() {
   flyoutSearch.value = '';
   const first = targetItems.value[0];
-  if (first?.kind === 'company') flyoutCategory.value = 'sites';
+  if (first?.kind === 'company') flyoutCategory.value = 'companies';
   else if (first?.kind === 'device') flyoutCategory.value = 'devices';
   else if (first?.kind === 'group') flyoutCategory.value = 'groups';
   else flyoutCategory.value = 'all';
@@ -642,18 +642,18 @@ onMounted(async () => {
 .jf-kind-tag { font-size: 10px; font-weight: 700; color: var(--color-text-subtle); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: 3px; padding: 1px 5px; }
 
 /* Combobox */
-.pf-site-wrap { position: relative; }
-.pf-site-input { max-width: none; }
-.pf-site-drop {
+.pf-company-wrap { position: relative; }
+.pf-company-input { max-width: none; }
+.pf-company-drop {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0;
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 50; overflow: hidden; max-height: 220px; overflow-y: auto;
 }
-.pf-site-opt {
+.pf-company-opt {
   padding: 8px 12px; font-size: 13px; color: var(--color-text-primary); cursor: pointer;
   display: flex; align-items: center; gap: 8px; transition: background .08s;
 }
-.pf-site-opt:hover { background: var(--color-surface-raised); }
+.pf-company-opt:hover { background: var(--color-surface-raised); }
 
 /* Utility buttons */
 .btn-text { background: none; border: none; padding: 2px 7px; font-size: 11px; font-family: var(--font); color: var(--color-text-muted); cursor: pointer; border-radius: 3px; transition: background .1s, color .1s; }

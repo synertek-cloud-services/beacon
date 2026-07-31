@@ -65,22 +65,22 @@ function validateRecurrence(r: RecurrenceBody): { patch: Record<string, unknown>
   };
 }
 
-// Fetch policies + their Sites/Devices/Groups targeting in a handful of
+// Fetch policies + their Companies/Devices/Groups targeting in a handful of
 // queries, merge in TS — mirrors listWithMonitors in policies.ts.
 async function listWithTargets(db: ReturnType<typeof drizzle<typeof schema>>) {
   const policiesList = await db.select().from(schema.maintenancePolicies);
   if (!policiesList.length) return [];
 
   const ids = policiesList.map(p => p.id);
-  const [sites, devices, groups] = await Promise.all([
-    db.select().from(schema.maintenancePolicySites).where(inArray(schema.maintenancePolicySites.policyId, ids)),
+  const [companies, devices, groups] = await Promise.all([
+    db.select().from(schema.maintenancePolicyCompanies).where(inArray(schema.maintenancePolicyCompanies.policyId, ids)),
     db.select().from(schema.maintenancePolicyDevices).where(inArray(schema.maintenancePolicyDevices.policyId, ids)),
     db.select().from(schema.maintenancePolicyGroups).where(inArray(schema.maintenancePolicyGroups.policyId, ids)),
   ]);
 
   return policiesList.map(p => ({
     ...p,
-    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.companyId),
+    companyIds:   companies.filter(s => s.policyId === p.id).map(s => s.companyId),
     deviceIds: devices.filter(d => d.policyId === p.id).map(d => d.deviceId),
     groupIds:  groups.filter(g => g.policyId === p.id).map(g => g.groupId),
   }));
@@ -120,7 +120,7 @@ maintenancePolicies.post('/', async (c) => {
   let enabled     = body.enabled ?? true;
   let recurrencePatch: Record<string, unknown> | null = null;
 
-  let sourceSites:   (typeof schema.maintenancePolicySites.$inferSelect)[]   = [];
+  let sourceCompanies:   (typeof schema.maintenancePolicyCompanies.$inferSelect)[]   = [];
   let sourceDevices: (typeof schema.maintenancePolicyDevices.$inferSelect)[] = [];
   let sourceGroups:  (typeof schema.maintenancePolicyGroups.$inferSelect)[]  = [];
 
@@ -143,8 +143,8 @@ maintenancePolicies.post('/', async (c) => {
       };
     }
 
-    [sourceSites, sourceDevices, sourceGroups] = await Promise.all([
-      db.select().from(schema.maintenancePolicySites).where(eq(schema.maintenancePolicySites.policyId, source.id)),
+    [sourceCompanies, sourceDevices, sourceGroups] = await Promise.all([
+      db.select().from(schema.maintenancePolicyCompanies).where(eq(schema.maintenancePolicyCompanies.policyId, source.id)),
       db.select().from(schema.maintenancePolicyDevices).where(eq(schema.maintenancePolicyDevices.policyId, source.id)),
       db.select().from(schema.maintenancePolicyGroups).where(eq(schema.maintenancePolicyGroups.policyId, source.id)),
     ]);
@@ -171,7 +171,7 @@ maintenancePolicies.post('/', async (c) => {
     createdAt: now, updatedAt: now,
   });
 
-  if (sourceSites.length || sourceDevices.length || sourceGroups.length) {
+  if (sourceCompanies.length || sourceDevices.length || sourceGroups.length) {
     await copyMaintenanceTargets(c.env.DB, body.clone_from!, id, now);
   }
 
@@ -226,13 +226,13 @@ maintenancePolicies.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Sites ────────────────────────────────────────────────────────────────────
-maintenancePolicies.get('/:id/sites', async (c) => {
+// ── Companies ────────────────────────────────────────────────────────────────────
+maintenancePolicies.get('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(
-    `SELECT mps.company_id, t.name FROM maintenance_policy_sites mps
+    `SELECT mps.company_id, t.name FROM maintenance_policy_companies mps
      JOIN companies t ON t.id = mps.company_id
      WHERE mps.policy_id = ? ORDER BY t.name ASC`
   ).bind(c.req.param('id')).all<{ company_id: string; name: string }>();
@@ -240,7 +240,7 @@ maintenancePolicies.get('/:id/sites', async (c) => {
   return c.json(result.results.map(r => ({ companyId: r.company_id, name: r.name })));
 });
 
-maintenancePolicies.post('/:id/sites', async (c) => {
+maintenancePolicies.post('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
   const policyId = c.req.param('id');
@@ -253,18 +253,18 @@ maintenancePolicies.post('/:id/sites', async (c) => {
   if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO maintenance_policy_sites (policy_id, company_id, created_at) VALUES (?, ?, ?)`
+    `INSERT OR IGNORE INTO maintenance_policy_companies (policy_id, company_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.company_id, now).run();
 
   return c.json({ ok: true }, 201);
 });
 
-maintenancePolicies.delete('/:id/sites/:companyId', async (c) => {
+maintenancePolicies.delete('/:id/companies/:companyId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
   await c.env.DB.prepare(
-    `DELETE FROM maintenance_policy_sites WHERE policy_id = ? AND company_id = ?`
+    `DELETE FROM maintenance_policy_companies WHERE policy_id = ? AND company_id = ?`
   ).bind(c.req.param('id'), c.req.param('companyId')).run();
 
   return c.json({ ok: true });

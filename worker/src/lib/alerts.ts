@@ -35,19 +35,19 @@ async function fetchEnabledPolicyMonitors(db: Db): Promise<EnabledPolicyMonitorR
     ));
 }
 
-// Whether a policy's targeting (Sites/Devices/Device Groups + OS/Class)
+// Whether a policy's targeting (Companies/Devices/Device Groups + OS/Class)
 // covers a given device — does NOT check enabled (callers that care already
 // filtered for that) or the same-check_type company-override dedup (that's
 // a cross-policy concern, only relevant when resolving the full effective
 // set, not when re-checking one already-known monitor).
 //
 // Targeting (migration 0032) is a heterogeneous OR-list across three kinds
-// — Sites (policySiteIds), individual Devices (policyDeviceIds), and Device
+// — Companies (policyCompanyIds), individual Devices (policyDeviceIds), and Device
 // Groups (deviceGroupIds/policyGroupIds, migration 0031): zero targets
 // across all three means unrestricted (matches Datto's own "multiple
 // targets = OR logic" documented behavior, generalized from groups-only to
 // all three kinds); one or more means the device must satisfy AT LEAST ONE
-// of them, of ANY kind (OR, not AND — adding a Site target does not require
+// of them, of ANY kind (OR, not AND — adding a Company target does not require
 // also being in a Group target). Still ANDed with OS/Class, which is a
 // separate, unrelated narrowing dimension. All maps are always pre-fetched
 // by the caller, never queried here — this function runs inside per-device
@@ -58,7 +58,7 @@ function deviceMatchesPolicy(
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
-  policySiteIds: Map<string, Set<string>>,
+  policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
 ): boolean {
   const targetOs    = JSON.parse(p.targetOs)    as string[];
@@ -68,16 +68,16 @@ function deviceMatchesPolicy(
   const classOk = targetClass.length === 0 || (devClass      ? targetClass.includes(devClass)   : false);
   if (!osOk || !classOk) return false;
 
-  const sites   = policySiteIds.get(p.id);
+  const companies   = policyCompanyIds.get(p.id);
   const devices = policyDeviceIds.get(p.id);
   const groups  = policyGroupIds.get(p.id);
-  const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
+  const total = (companies?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.companyId) ?? false;
+  const matchesCompany   = companies?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
-  return matchesSite || matchesDevice || matchesGroup;
+  return matchesCompany || matchesDevice || matchesGroup;
 }
 
 function matchMonitorsForDevice(
@@ -85,11 +85,11 @@ function matchMonitorsForDevice(
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
-  policySiteIds: Map<string, Set<string>>,
+  policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
 ): EffectiveMonitor[] {
   const matched = rows.filter(row =>
-    deviceMatchesPolicy(row.policies, device, deviceGroupIds, policyGroupIds, policySiteIds, policyDeviceIds));
+    deviceMatchesPolicy(row.policies, device, deviceGroupIds, policyGroupIds, policyCompanyIds, policyDeviceIds));
 
   // A policy's monitors of the same check_type coexist (e.g. two cpu_usage
   // monitors — a 100%/critical trip and a 95%/high early warning — or
@@ -146,10 +146,10 @@ export async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<
   return out;
 }
 
-// Policy Sites/Devices targeting (migration 0032) — same "fetch whole table
+// Policy Companies/Devices targeting (migration 0032) — same "fetch whole table
 // once per invocation, never per device" rule as fetchPolicyGroupIds above.
-async function fetchPolicySiteIds(db: Db): Promise<Map<string, Set<string>>> {
-  const rows = await db.select().from(schema.policySites);
+async function fetchPolicyCompanyIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.policyCompanies);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
@@ -176,9 +176,9 @@ export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<
   const rows = await fetchEnabledPolicyMonitors(db);
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
-  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyCompanyIds = await fetchPolicyCompanyIds(db);
   const policyDeviceIds = await fetchPolicyDeviceIds(db);
-  return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds, policySiteIds, policyDeviceIds);
+  return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds, policyCompanyIds, policyDeviceIds);
 }
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
@@ -479,7 +479,7 @@ export async function evaluateOfflineAlerts(
   const policyMonitorRows = await fetchEnabledPolicyMonitors(db);
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = await fetchDeviceGroupIds(db, allDevices.map(d => d.id));
-  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyCompanyIds = await fetchPolicyCompanyIds(db);
   const policyDeviceIds = await fetchPolicyDeviceIds(db);
   const maintCtx = await fetchMaintenanceContext(db, allDevices.map(d => d.id), now);
 
@@ -488,7 +488,7 @@ export async function evaluateOfflineAlerts(
 
     const monitors = matchMonitorsForDevice(
       policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds,
-      policySiteIds, policyDeviceIds);
+      policyCompanyIds, policyDeviceIds);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
 
     for (const monitor of offlineMonitors) {
@@ -856,7 +856,7 @@ export async function reconcileOrphanedAlerts(
 
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = await fetchDeviceGroupIds(db, rows.map(r => r.devices.id));
-  const policySiteIds = await fetchPolicySiteIds(db);
+  const policyCompanyIds = await fetchPolicyCompanyIds(db);
   const policyDeviceIds = await fetchPolicyDeviceIds(db);
 
   for (const row of rows) {
@@ -864,7 +864,7 @@ export async function reconcileOrphanedAlerts(
       row.policy_monitors.enabled &&
       row.policies.enabled &&
       deviceMatchesPolicy(row.policies, row.devices, deviceGroupIds.get(row.devices.id) ?? new Set(), policyGroupIds,
-        policySiteIds, policyDeviceIds);
+        policyCompanyIds, policyDeviceIds);
     if (stillApplies) continue;
 
     await db.update(schema.alertState)

@@ -121,7 +121,7 @@
         <thead>
           <tr>
             <th>Hostname</th>
-            <th>Site</th>
+            <th>Company</th>
             <th>Component results</th>
             <th>Ran On</th>
             <th>Job Status</th>
@@ -288,7 +288,7 @@ const targetsLabel = computed(() => {
   if (!j) return '—';
   if (j.targetType === 'all') return 'All Devices';
   const ids = (() => { try { return JSON.parse(j.targetIds ?? '[]') as string[]; } catch { return []; } })();
-  if (j.targetType === 'companies') return `${ids.length} site${ids.length !== 1 ? 's' : ''}`;
+  if (j.targetType === 'companies') return `${ids.length} compan${ids.length !== 1 ? 'ies' : 'y'}`;
   return `${j.deviceCount} device${j.deviceCount !== 1 ? 's' : ''}`;
 });
 

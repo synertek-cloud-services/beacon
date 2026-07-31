@@ -29,7 +29,7 @@
         </div>
 
         <!-- COMPANIES -->
-        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'sites' }" @click="handleSectionClick('sites', $event)">
+        <div class="sec-head" :class="{ 'flyout-active': sidebarCollapsed && openFlyout === 'companies' }" @click="handleSectionClick('companies', $event)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sec-icon">
             <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
             <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
@@ -37,11 +37,11 @@
             <path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
           </svg>
           <span class="sec-label">Companies</span>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.sites }">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sec-chevron" :class="{ open: openSections.companies }">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
         </div>
-        <div v-show="openSections.sites" class="sec-body">
+        <div v-show="openSections.companies" class="sec-body">
           <RouterLink to="/companies" class="sbi" :class="{ active: route.path.startsWith('/companies') }">All Companies</RouterLink>
           <template v-if="activeClientId">
             <div class="client-row">
@@ -179,7 +179,7 @@
         <RouterLink v-for="dashboard in dashboards" :key="dashboard.id" :to="{ path: `/dashboards/${dashboard.id}`, query: activeClientId ? { company: activeClientId } : {} }" class="sbi" :class="{ active: route.params.id === dashboard.id }">{{ dashboard.name }}</RouterLink>
       </template>
 
-      <template v-if="openFlyout === 'sites'">
+      <template v-if="openFlyout === 'companies'">
         <RouterLink to="/companies" class="sbi" :class="{ active: route.path.startsWith('/companies') }">All Companies</RouterLink>
         <template v-if="activeClientId">
           <div class="client-row">
@@ -361,7 +361,7 @@ function handleSectionClick(key: string, event: MouseEvent) {
 }
 
 const flyoutTitle = computed(() => ({
-  dashboards: 'Dashboards', sites: 'Companies', devices: 'Devices',
+  dashboards: 'Dashboards', companies: 'Companies', devices: 'Devices',
   global: 'Global', automation: 'Automation', settings: 'Settings',
 } as Record<string, string>)[openFlyout.value ?? ''] ?? '');
 
@@ -395,7 +395,7 @@ const activeClientName = computed(() =>
   companies.value.find(c => c.id === activeClientId.value)?.name ?? ''
 );
 
-const openSections = ref({ dashboards: true, sites: true, devices: true, global: true, automation: false, settings: false });
+const openSections = ref({ dashboards: true, companies: true, devices: true, global: true, automation: false, settings: false });
 
 const searchQuery  = ref('');
 const showDropdown = ref(false);

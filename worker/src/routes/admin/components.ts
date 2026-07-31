@@ -36,7 +36,7 @@ function mapRow(r: any) {
   };
 }
 
-function mapSite(r: any) {
+function mapCompany(r: any) {
   return { companyId: r.company_id, name: r.name };
 }
 
@@ -56,9 +56,9 @@ function mapVariable(r: any) {
   };
 }
 
-// Fetch components + their variables + their sites in three queries, merge in
-// TS (mirrors policies.ts's listWithMonitors pattern) — avoids N+1 lookups
-// from the dashboard.
+// Fetch components + their variables + their companies in three queries,
+// merge in TS (mirrors policies.ts's listWithMonitors pattern) — avoids N+1
+// lookups from the dashboard.
 async function embedRelations(db: D1Database, rows: any[]) {
   if (!rows.length) return [];
   const ids = rows.map(r => r.id);
@@ -74,21 +74,21 @@ async function embedRelations(db: D1Database, rows: any[]) {
     varsByComponent.get(mapped.componentId)!.push(mapped);
   }
 
-  const sites = await db.prepare(
-    `SELECT cs.component_id, cs.company_id, t.name FROM component_sites cs
+  const companiesResult = await db.prepare(
+    `SELECT cs.component_id, cs.company_id, t.name FROM component_companies cs
      JOIN companies t ON t.id = cs.company_id
      WHERE cs.component_id IN (${placeholders}) ORDER BY t.name ASC`
   ).bind(...ids).all<any>();
-  const sitesByComponent = new Map<string, ReturnType<typeof mapSite>[]>();
-  for (const s of sites.results) {
-    if (!sitesByComponent.has(s.component_id)) sitesByComponent.set(s.component_id, []);
-    sitesByComponent.get(s.component_id)!.push(mapSite(s));
+  const companiesByComponent = new Map<string, ReturnType<typeof mapCompany>[]>();
+  for (const s of companiesResult.results) {
+    if (!companiesByComponent.has(s.component_id)) companiesByComponent.set(s.component_id, []);
+    companiesByComponent.get(s.component_id)!.push(mapCompany(s));
   }
 
   return rows.map(r => ({
     ...mapRow(r),
     variables: varsByComponent.get(r.id) ?? [],
-    sites: sitesByComponent.get(r.id) ?? [],
+    companies: companiesByComponent.get(r.id) ?? [],
   }));
 }
 
@@ -119,7 +119,7 @@ adminComponents.get('/store', async (c) => {
 // GET /?company_id=<id> — list components. With no company_id, returns
 // everything (used by the library list page). With company_id, returns only
 // what's usable against that company: global components + components whose
-// Sites list includes that company — used by job-creation flows targeting a
+// Companies list includes that company — used by job-creation flows targeting a
 // single company.
 adminComponents.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
@@ -127,7 +127,7 @@ adminComponents.get('/', async (c) => {
 
   const result = companyId
     ? await c.env.DB.prepare(
-        `SELECT * FROM components WHERE scope = 'global' OR id IN (SELECT component_id FROM component_sites WHERE company_id = ?) ORDER BY name ASC`
+        `SELECT * FROM components WHERE scope = 'global' OR id IN (SELECT component_id FROM component_companies WHERE company_id = ?) ORDER BY name ASC`
       ).bind(companyId).all<any>()
     : await c.env.DB.prepare(`SELECT * FROM components ORDER BY name ASC`).all<any>();
 
@@ -186,9 +186,9 @@ adminComponents.post('/', async (c) => {
     now, now,
   ).run();
 
-  // Sites are added afterward via POST /:id/sites (mirrors how variables are
+  // Companies are added afterward via POST /:id/companies (mirrors how variables are
   // batched onto a brand-new component) — a fresh component always starts
-  // with an empty Sites list even when scope is 'company'.
+  // with an empty Companies list even when scope is 'company'.
   const row = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(id).first<any>();
   const [withRelations] = await embedRelations(c.env.DB, [row]);
   return c.json(withRelations, 201);
@@ -232,11 +232,11 @@ adminComponents.patch('/:id', async (c) => {
   vals.push(id);
   await c.env.DB.prepare(`UPDATE components SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
 
-  // Switching back to global drops any Sites membership — a "Remove all"
+  // Switching back to global drops any Companies membership — a "Remove all"
   // equivalent, so re-enabling company scope later starts from a clean list
-  // rather than silently resurrecting stale sites.
+  // rather than silently resurrecting stale companies.
   if (body.scope === 'global') {
-    await c.env.DB.prepare(`DELETE FROM component_sites WHERE component_id = ?`).bind(id).run();
+    await c.env.DB.prepare(`DELETE FROM component_companies WHERE component_id = ?`).bind(id).run();
   }
 
   return c.json({ ok: true });
@@ -287,13 +287,13 @@ adminComponents.post('/:id/clone', async (c) => {
     `).bind(uid(), newId, v.name, v.label, v.type, v.options, v.default_value, v.description, v.required, v.sort_order, now).run();
   }
 
-  const sourceSites = await c.env.DB.prepare(
-    `SELECT company_id FROM component_sites WHERE component_id = ?`
+  const sourceCompanies = await c.env.DB.prepare(
+    `SELECT company_id FROM component_companies WHERE component_id = ?`
   ).bind(sourceId).all<any>();
 
-  for (const s of sourceSites.results) {
+  for (const s of sourceCompanies.results) {
     await c.env.DB.prepare(`
-      INSERT INTO component_sites (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)
+      INSERT INTO component_companies (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)
     `).bind(uid(), newId, s.company_id, now).run();
   }
 
@@ -302,20 +302,20 @@ adminComponents.post('/:id/clone', async (c) => {
   return c.json(withRelations, 201);
 });
 
-// ── Sites (nested, independent lifecycle — a component can be added to
-// several sites one at a time via an "Add Site" flyout, mirroring Datto) ────
+// ── Companies (nested, independent lifecycle — a component can be added to
+// several companies one at a time via an "Add Company" flyout, mirroring Datto) ────
 
-adminComponents.get('/:id/sites', async (c) => {
+adminComponents.get('/:id/companies', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const result = await c.env.DB.prepare(
-    `SELECT cs.company_id, t.name FROM component_sites cs
+    `SELECT cs.company_id, t.name FROM component_companies cs
      JOIN companies t ON t.id = cs.company_id
      WHERE cs.component_id = ? ORDER BY t.name ASC`
   ).bind(c.req.param('id')).all<any>();
-  return c.json(result.results.map(mapSite));
+  return c.json(result.results.map(mapCompany));
 });
 
-adminComponents.post('/:id/sites', async (c) => {
+adminComponents.post('/:id/companies', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const componentId = c.req.param('id');
 
@@ -330,13 +330,13 @@ adminComponents.post('/:id/sites', async (c) => {
   if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO component_sites (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO component_companies (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)`
   ).bind(uid(), componentId, body.company_id, Math.floor(Date.now() / 1000)).run();
 
   return c.json({ ok: true }, 201);
 });
 
-adminComponents.delete('/:id/sites/:companyId', async (c) => {
+adminComponents.delete('/:id/companies/:companyId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const componentId = c.req.param('id');
 
@@ -345,7 +345,7 @@ adminComponents.delete('/:id/sites/:companyId', async (c) => {
   if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
 
   await c.env.DB.prepare(
-    `DELETE FROM component_sites WHERE component_id = ? AND company_id = ?`
+    `DELETE FROM component_companies WHERE component_id = ? AND company_id = ?`
   ).bind(componentId, c.req.param('companyId')).run();
   return c.json({ ok: true });
 });

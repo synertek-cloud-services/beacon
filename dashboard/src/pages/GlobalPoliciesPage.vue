@@ -56,7 +56,7 @@
               <th class="col-name">Name</th>
               <th class="col-targets">Targets</th>
               <th class="col-scope">Scope</th>
-              <th v-if="tab === 'company' && !companyMode" class="col-company">Sites</th>
+              <th v-if="tab === 'company' && !companyMode" class="col-company">Companies</th>
               <th class="col-monitors">Monitors</th>
               <th class="col-created">Created</th>
               <th class="col-enabled">Enabled</th>
@@ -77,7 +77,7 @@
                 <td class="col-scope">
                   <span :class="['scope-badge', 'scope-' + policy.scope]">{{ capitalize(policy.scope) }}</span>
                 </td>
-                <td v-if="tab === 'company' && !companyMode" class="col-company">{{ siteSummary(policy) }}</td>
+                <td v-if="tab === 'company' && !companyMode" class="col-company">{{ companySummary(policy) }}</td>
                 <td class="col-monitors">
                   <span class="monitor-count-badge">{{ policy.monitors.length }}</span>
                 </td>
@@ -210,7 +210,7 @@ const companyName    = computed(() =>
 
 const effectivePolicies = computed(() =>
   companyMode.value
-    ? [...globalPolicies.value, ...companyPolicies.value.filter(p => (p.siteIds ?? []).includes(companyIdParam.value!))]
+    ? [...globalPolicies.value, ...companyPolicies.value.filter(p => (p.companyIds ?? []).includes(companyIdParam.value!))]
     : []
 );
 
@@ -220,7 +220,7 @@ const displayedPolicies = computed(() => {
   if (!companyFilter.value.trim()) return companyPolicies.value;
   const q = companyFilter.value.trim().toLowerCase();
   return companyPolicies.value.filter(p =>
-    (p.siteIds ?? []).some(id => companyNameFor(id).toLowerCase().includes(q))
+    (p.companyIds ?? []).some(id => companyNameFor(id).toLowerCase().includes(q))
   );
 });
 
@@ -390,12 +390,12 @@ async function doOverride() {
           name:       (src?.name ?? 'Policy') + ' (Override)',
           clone_from: id,
         });
-        await api.policies.sites.add(policy.id, overrideModal.companyId);
+        await api.policies.companies.add(policy.id, overrideModal.companyId);
       })
     );
     // Re-fetch rather than manually splice the local array -- the clones
-    // just got a site added after creation, so the client's cached copy
-    // would otherwise be missing siteIds until the next reload anyway.
+    // just got a company added after creation, so the client's cached copy
+    // would otherwise be missing companyIds until the next reload anyway.
     await loadCompanyPolicies();
     overrideModal.open = false;
     selectedIds.value  = new Set();
@@ -435,8 +435,8 @@ function targetSummary(policy: Policy): string {
   return `${osStr} · ${clsStr}`;
 }
 
-function siteSummary(policy: Policy): string {
-  const ids = policy.siteIds ?? [];
+function companySummary(policy: Policy): string {
+  const ids = policy.companyIds ?? [];
   if (ids.length === 0) return '—';
   const names = ids.map(id => companyNameFor(id));
   if (names.length <= 2) return names.join(', ');

@@ -14,7 +14,7 @@
       <div class="pf-group">
         <label class="pf-label">Fields</label>
         <p class="field-hint" style="margin-top:-4px">
-          Admin-defined fields for information the agent doesn't collect (asset tags, site contacts, etc.).
+          Admin-defined fields for information the agent doesn't collect (asset tags, company contacts, etc.).
           Values are entered manually per device on the device's Custom Fields section. A field with a Key
           can be referenced in a script as <code>${CF_&lt;KEY&gt;}</code> (bash), <code>$env:CF_&lt;KEY&gt;</code>
           (PowerShell), or <code>%CF_&lt;KEY&gt;%</code> (Batch) — resolved to that device's own value at job dispatch time.

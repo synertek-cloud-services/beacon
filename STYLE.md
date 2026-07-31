@@ -202,7 +202,7 @@ The Response section isn't limited to one toggle — it originally shipped with 
 
 ## Segmented bar (toggle button group)
 
-Used for Scope (Global/Site) and Enabled/Disabled selectors:
+Used for Scope (Global/Company) and Enabled/Disabled selectors:
 ```html
 <div class="seg-bar">
   <button :class="['seg-btn', { active: val === 'a' }]" @click="val = 'a'">Option A</button>
@@ -441,7 +441,7 @@ Sub-links (e.g., Devices) use `.sbi-leaf` with `padding-left: 48px`.
 
 ## Async search-as-you-type combobox
 
-Distinct from the client-side-filter combobox already documented above (`.pf-site-drop` in PolicyFormPage, which filters an already-loaded in-memory list) — this variant debounces and calls a backend API per keystroke, for searching data that isn't (and shouldn't be) fully loaded client-side, e.g. `SsoSettingsPage.vue`'s Entra group search:
+Distinct from the client-side-filter combobox already documented above (`.pf-company-drop` in PolicyFormPage, which filters an already-loaded in-memory list) — this variant debounces and calls a backend API per keystroke, for searching data that isn't (and shouldn't be) fully loaded client-side, e.g. `SsoSettingsPage.vue`'s Entra group search:
 
 ```typescript
 const query = ref('');
@@ -465,7 +465,7 @@ async function runSearch(q: string) {
   finally { searching.value = false; }
 }
 ```
-Dropdown markup reuses the same `position: relative` wrapper / `position: absolute` dropdown shape as `.pf-site-drop`, with `@mousedown.prevent` on each option (fires before the input's `@blur` would otherwise close the dropdown first) and a `setTimeout(..., 150)` delay on `@blur` itself for the same reason. Show three states in the dropdown: searching, error (surface `searchError` — don't swallow it, these calls can fail for real infra reasons like a missing API permission), and empty/no-match — not just a bare list.
+Dropdown markup reuses the same `position: relative` wrapper / `position: absolute` dropdown shape as `.pf-company-drop`, with `@mousedown.prevent` on each option (fires before the input's `@blur` would otherwise close the dropdown first) and a `setTimeout(..., 150)` delay on `@blur` itself for the same reason. Show three states in the dropdown: searching, error (surface `searchError` — don't swallow it, these calls can fail for real infra reasons like a missing API permission), and empty/no-match — not just a bare list.
 
 ## Device detail page: one-page-with-anchor-nav (not tabs)
 
@@ -767,21 +767,21 @@ If you're ever tempted to reuse `.cat-badge` for a new "real" categorical field 
 
 **Same collision risk resurfaced with the Device Groups feature** (a later session) — since `components.category` is already user-facing labeled "Group" on `ComponentsPage.vue`, the new device-collection feature is called **"Device Groups"** everywhere in copy/labels, never bare "Groups": the sidebar link, the target-flyout category option, the `JobFormPage.vue` target-row tag (`Device Group`, not `Group`), page titles. If you're adding UI copy for the Device Groups feature and are tempted to shorten it to just "Groups," don't — same reason as above.
 
-## Add Site flyout (multi-select, stays open across picks)
+## Add Company flyout (multi-select, stays open across picks)
 
-Used in `ComponentFormPage.vue`'s Sites section — and now, unmodified, in two more places: `GroupFormPage.vue` (picking devices for a Device Group) and `PolicyFormPage.vue` (picking Device Groups to target a policy). Same `.sf-*` class names duplicated per-component each time (this codebase's established convention), same behavior. Treat this as the default answer for "let the user pick several of X for this record" — don't invent a new multi-select UI. **Not** a single-select combobox (that was the first, wrong attempt when this pattern was originally built, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several items, each row toggling in place:
+Used in `ComponentFormPage.vue`'s Companies section — and now, unmodified, in two more places: `GroupFormPage.vue` (picking devices for a Device Group) and `PolicyFormPage.vue` (picking Device Groups to target a policy). Same `.sf-*` class names duplicated per-component each time (this codebase's established convention), same behavior. Treat this as the default answer for "let the user pick several of X for this record" — don't invent a new multi-select UI. **Not** a single-select combobox (that was the first, wrong attempt when this pattern was originally built, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several items, each row toggling in place. Originally called the "Add Site flyout" — renamed alongside the rest of the Tenant→Company terminology pass (the underlying `*_sites` tables/route paths and the `.sf-*`/`.tf-*` CSS class *prefixes* were deliberately left as-is in that first pass, then renamed in a dedicated follow-on; this doc reflects the current, fully-renamed state):
 
 ```html
 <Teleport to="body">
-  <div v-if="sitesFlyoutOpen" class="sf-overlay" @click.self="sitesFlyoutOpen = false">
+  <div v-if="companiesFlyoutOpen" class="sf-overlay" @click.self="companiesFlyoutOpen = false">
     <div class="sf-panel">
-      <div class="sf-head"><h2 class="sf-title">Sites</h2><button class="btn-icon" @click="sitesFlyoutOpen = false">×</button></div>
-      <div class="sf-search"><input v-model="siteFlyoutQuery" class="pf-input" placeholder="Search" /></div>
+      <div class="sf-head"><h2 class="sf-title">Companies</h2><button class="btn-icon" @click="companiesFlyoutOpen = false">×</button></div>
+      <div class="sf-search"><input v-model="companyFlyoutQuery" class="pf-input" placeholder="Search" /></div>
       <div class="sf-list">
-        <div v-for="t in siteFlyoutMatches" :key="t.id" class="sf-row" :class="{ selected: isSiteSelected(t.id) }">
+        <div v-for="t in companyFlyoutMatches" :key="t.id" class="sf-row" :class="{ selected: isCompanySelected(t.id) }">
           <span>{{ t.name }}</span>
-          <button v-if="isSiteSelected(t.id)" class="btn btn-primary btn-sm" @click="removeSite(t.id)">Remove</button>
-          <button v-else class="btn btn-ghost btn-sm" @click="addSite(t)">Add</button>
+          <button v-if="isCompanySelected(t.id)" class="btn btn-primary btn-sm" @click="removeCompany(t.id)">Remove</button>
+          <button v-else class="btn btn-ghost btn-sm" @click="addCompany(t)">Add</button>
         </div>
       </div>
     </div>
@@ -795,9 +795,9 @@ Used in `ComponentFormPage.vue`'s Sites section — and now, unmodified, in two 
 ```
 
 Key behaviors, all confirmed against the real Datto reference (not guessed):
-- Clicking "Add" does **not** close the flyout or remove the row from its list — the button flips to "Remove" in place (with the `.selected` background), so a user can add several sites in one open/close cycle.
-- The panel's own list shows *every* site (selected or not) with the appropriate button state — it is not "available sites only."
-- The main form page shows a separate, simpler read-only list of currently-selected sites (name only, no per-row actions) plus a page-level "Remove all" button — removal from the *main* list happens by reopening the flyout and clicking "Remove" there, or via "Remove all."
+- Clicking "Add" does **not** close the flyout or remove the row from its list — the button flips to "Remove" in place (with the `.selected` background), so a user can add several companies in one open/close cycle.
+- The panel's own list shows *every* company (selected or not) with the appropriate button state — it is not "available companies only."
+- The main form page shows a separate, simpler read-only list of currently-selected companies (name only, no per-row actions) plus a page-level "Remove all" button — removal from the *main* list happens by reopening the flyout and clicking "Remove" there, or via "Remove all."
 - Same right-side-panel shell as the Add Monitor drawer (`.mo-overlay`/`.mo-inner` — see below), just narrower (420px vs. 620px) and without the multi-section internal structure, since this only has one job (search + pick).
 
 ## Flyout selected-state pattern (consistent across component and target flyouts)
@@ -833,13 +833,13 @@ The same `.tf-row-selected` / `.tf-check` naming applies for the target flyout �
 <div class="tf-cat">
   <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
     <option value="all">All Devices</option>
-    <option value="sites">Sites</option>
+    <option value="companies">Companies</option>
     <option value="devices">Devices</option>
     <option value="groups">Device Groups</option>
   </select>
 </div>
 ```
-A 4th category (`groups`, added for Device Groups) is just another `v-else-if` template branch with its own `flyoutGroupMatches` computed — same row markup, same `toggleTarget({kind:'group',id,name})` call shape as the `sites` branch. Switching kind (e.g. from sites to devices) clears previously selected items of the other kind — enforced inside `toggleTarget()`:
+A 4th category (`groups`, added for Device Groups) is just another `v-else-if` template branch with its own `flyoutGroupMatches` computed — same row markup, same `toggleTarget({kind:'group',id,name})` call shape as the `companies` branch. Switching kind (e.g. from companies to devices) clears previously selected items of the other kind — enforced inside `toggleTarget()`:
 ```typescript
 function toggleTarget(item: TargetItem) {
   if (item.kind === 'all') { targetItems.value = isTargeted('all') ? [] : [item]; return; }
@@ -854,7 +854,7 @@ function toggleTarget(item: TargetItem) {
 }
 ```
 
-**Not every `.tf-` flyout is kind-exclusive — check the semantics before copying this markup.** `PolicyFormPage.vue`'s Targets flyout (migration `0032`) reuses this exact `.tf-overlay`/`.tf-panel`/`.tf-row`/`.tf-check` markup and CSS verbatim, but its `toggleTarget()` is a flat push/remove with **no** kind-switch-clears-previous branch — a Policy's targets are a heterogeneous OR-list (a Site AND a Device AND a Device Group can all be selected simultaneously; a device qualifies if it matches any one of them). The two flyouts are visually identical and easy to assume behave the same way; they don't. Pick the exclusive-kind behavior above only when the underlying targeting model genuinely only supports one kind at a time (Jobs); pick the flat OR-list variant when multiple simultaneous target kinds are meant to combine (Policies).
+**Not every `.tf-` flyout is kind-exclusive — check the semantics before copying this markup.** `PolicyFormPage.vue`'s Targets flyout (migration `0032`) reuses this exact `.tf-overlay`/`.tf-panel`/`.tf-row`/`.tf-check` markup and CSS verbatim, but its `toggleTarget()` is a flat push/remove with **no** kind-switch-clears-previous branch — a Policy's targets are a heterogeneous OR-list (a Company AND a Device AND a Device Group can all be selected simultaneously; a device qualifies if it matches any one of them). The two flyouts are visually identical and easy to assume behave the same way; they don't. Pick the exclusive-kind behavior above only when the underlying targeting model genuinely only supports one kind at a time (Jobs); pick the flat OR-list variant when multiple simultaneous target kinds are meant to combine (Policies).
 
 ## Job Detail page layout (`JobDetailPage.vue`)
 
@@ -972,7 +972,7 @@ function handleSectionClick(key: string, event: MouseEvent) {
   flyoutTop.value = (event.currentTarget as HTMLElement).getBoundingClientRect().top;
   openFlyout.value = key;
 }
-const flyoutTitle = computed(() => ({ dashboards: 'Dashboards', sites: 'Companies', ... }[openFlyout.value ?? ''] ?? ''));
+const flyoutTitle = computed(() => ({ dashboards: 'Dashboards', companies: 'Companies', ... }[openFlyout.value ?? ''] ?? ''));
 ```
 
 Close on route change: `watch(() => route.path, () => { openFlyout.value = null; })`.  

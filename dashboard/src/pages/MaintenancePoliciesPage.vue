@@ -118,10 +118,10 @@ async function togglePolicy(policy: MaintenancePolicy) {
 }
 
 function targetSummary(p: MaintenancePolicy): string {
-  const sites = p.siteIds?.length ?? 0, devices = p.deviceIds?.length ?? 0, groups = p.groupIds?.length ?? 0;
-  if (sites + devices + groups === 0) return 'All devices';
+  const companies = p.companyIds?.length ?? 0, devices = p.deviceIds?.length ?? 0, groups = p.groupIds?.length ?? 0;
+  if (companies + devices + groups === 0) return 'All devices';
   const parts: string[] = [];
-  if (sites)   parts.push(`${sites} site${sites === 1 ? '' : 's'}`);
+  if (companies) parts.push(`${companies} compan${companies === 1 ? 'y' : 'ies'}`);
   if (devices) parts.push(`${devices} device${devices === 1 ? '' : 's'}`);
   if (groups)  parts.push(`${groups} group${groups === 1 ? '' : 's'}`);
   return parts.join(', ');

@@ -146,13 +146,13 @@ export const policies = sqliteTable('policies', {
   description: text('description'),
   // Derived, not directly user-set (migration 0032) -- recomputed by
   // recomputePolicyScope in routes/admin/policies.ts after every mutation
-  // of policy_sites/policy_devices/policy_groups: 'global' when a policy has
+  // of policy_companies/policy_devices/policy_groups: 'global' when a policy has
   // zero targets across all three, 'company' when it has 1+. Same pattern
   // components.scope already uses, generalized one level further since this
   // is now derived from three tables' union instead of a single user pick.
   scope:       text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
-  // Vestigial as of migration 0032 -- superseded by policy_sites (real
-  // multi-site membership). No longer read or written; same fate as
+  // Vestigial as of migration 0032 -- superseded by policy_companies (real
+  // multi-company membership). No longer read or written; same fate as
   // components.companyId after migration 0022.
   companyId:   text('company_id').references(() => companies.id),
   enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
@@ -191,20 +191,20 @@ export const policyGroups = sqliteTable('policy_groups', {
   createdAt: integer('created_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.policyId, t.groupId] })]);
 
-// Multi-site targeting (migration 0032) -- one of three targeting
+// Multi-company targeting (migration 0032) -- one of three targeting
 // dimensions (alongside policyDevices below and policyGroups above), all
 // OR'd together in deviceMatchesPolicy (worker/src/lib/alerts.ts): a device
 // matches if it satisfies ANY entry across ANY of the three tables. Zero
 // rows total = unrestricted, generalizing the "zero policy_groups rows =
 // unchanged" precedent to all three kinds. Mirrors policyGroups' exact
 // composite-PK shape.
-export const policySites = sqliteTable('policy_sites', {
+export const policyCompanies = sqliteTable('policy_companies', {
   policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
   companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.policyId, t.companyId] })]);
 
-// Individual-device targeting (migration 0032) -- see policySites above for
+// Individual-device targeting (migration 0032) -- see policyCompanies above for
 // the shared OR-across-three-kinds semantics.
 export const policyDevices = sqliteTable('policy_devices', {
   policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
@@ -287,7 +287,7 @@ export const patchApprovals = sqliteTable('patch_approvals', {
 // to resolve an actor from. Deliberately NO FK constraints on
 // actorId/entityId/companyId -- this table must never cascade-delete or be
 // blocked by a delete elsewhere just because it recorded something about a
-// user/entity/site that no longer exists; actorLabel is a display-time
+// user/entity/company that no longer exists; actorLabel is a display-time
 // snapshot for the same "survive the referenced row's deletion" reason
 // patchApprovals already established for title/severity. entityId is NOT
 // similarly snapshotted -- the Activity Log UI does a best-effort live join
@@ -332,11 +332,11 @@ export const components = sqliteTable('components', {
   category:       text('category'), // freeform organizational tag — surfaced in the UI as "Group", not to be confused with `type`
   type:           text('type', { enum: ['script', 'application'] }).notNull().default('script'),
   origin:         text('origin', { enum: ['custom', 'store'] }).notNull().default('custom'),
-  // "Sites" scoping — 'global' means usable everywhere; 'company' means
-  // restricted to the sites listed in component_sites (a real many-to-many,
+  // "Companies" scoping — 'global' means usable everywhere; 'company' means
+  // restricted to the companies listed in component_companies (a real many-to-many,
   // not a single company — see that table for the actual membership list).
   scope:          text('scope', { enum: ['global', 'company'] }).notNull().default('global'),
-  // Vestigial — superseded by component_sites (0022) before this ever saw
+  // Vestigial — superseded by component_companies (0022) before this ever saw
   // real usage. No longer read or written; kept only because the physical
   // column exists and D1's SQLite doesn't make DROP COLUMN worth it here.
   companyId:      text('company_id').references(() => companies.id),
@@ -363,10 +363,10 @@ export const componentVariables = sqliteTable('component_variables', {
   createdAt:     integer('created_at').notNull(),
 });
 
-// Multi-site "Sites" membership for company-scoped components — a component
-// can be restricted to several sites at once, added/removed one at a time
-// (mirrors Datto's "Add Site" flyout).
-export const componentSites = sqliteTable('component_sites', {
+// Multi-company "Companies" membership for company-scoped components — a component
+// can be restricted to several companies at once, added/removed one at a time
+// (mirrors Datto's "Add Company" flyout).
+export const componentCompanies = sqliteTable('component_companies', {
   id:          text('id').primaryKey(),
   componentId: text('component_id').notNull().references(() => components.id, { onDelete: 'cascade' }),
   companyId:    text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -542,8 +542,8 @@ export const brandingSettings = sqliteTable('branding_settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-// Shared host-wide dashboards. A dashboard with no dashboardSites rows shows
-// all sites; widget layout is a persisted 12-column grid.
+// Shared host-wide dashboards. A dashboard with no dashboardCompanies rows shows
+// all companies; widget layout is a persisted 12-column grid.
 export const dashboards = sqliteTable('dashboards', {
   id:        text('id').primaryKey(),
   name:      text('name').notNull(),
@@ -553,7 +553,7 @@ export const dashboards = sqliteTable('dashboards', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-export const dashboardSites = sqliteTable('dashboard_sites', {
+export const dashboardCompanies = sqliteTable('dashboard_companies', {
   dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
   companyId:    text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt:   integer('created_at').notNull(),
@@ -594,7 +594,7 @@ export const deviceGroupMembers = sqliteTable('device_group_members', {
 // Datto RMM's real Maintenance Policy scope) -- fleet-wide scheduled alert
 // suppression, alongside (not replacing) the existing per-device ad-hoc
 // window above (devices.maintenanceEndsAt/maintenanceReason, migration
-// 0025). Targeting mirrors policySites/policyDevices/policyGroups' exact
+// 0025). Targeting mirrors policyCompanies/policyDevices/policyGroups' exact
 // shape as independent parallel tables -- a different policy type with its
 // own targeting, not a reuse of Monitoring Policy's tables. No OS/Class gate
 // -- Datto's own Maintenance Policy has no such filter, narrower scope than
@@ -624,7 +624,7 @@ export const maintenancePolicies = sqliteTable('maintenance_policies', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-export const maintenancePolicySites = sqliteTable('maintenance_policy_sites', {
+export const maintenancePolicyCompanies = sqliteTable('maintenance_policy_companies', {
   policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
   companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
@@ -667,7 +667,7 @@ export const patchPolicies = sqliteTable('patch_policies', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-export const patchPolicySites = sqliteTable('patch_policy_sites', {
+export const patchPolicyCompanies = sqliteTable('patch_policy_companies', {
   policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
   companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
