@@ -27,8 +27,10 @@ import adminSettings from './routes/admin/settings';
 import adminEmailSettings from './routes/admin/email-settings';
 import adminNotificationEmails from './routes/admin/notification-emails';
 import adminPatches from './routes/admin/patches';
+import adminPatchPolicies from './routes/admin/patch-policies';
 import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
+import { dispatchDuePatchPolicies } from './lib/patchPolicies';
 
 export { SessionRelay } from './durable-objects/session-relay';
 
@@ -100,6 +102,7 @@ app.route('/v1/admin/groups', adminGroups);
 app.route('/v1/admin/dashboards', adminDashboards);
 app.route('/v1/admin/maintenance-policies', adminMaintenancePolicies);
 app.route('/v1/admin/patches', adminPatches);
+app.route('/v1/admin/patch-policies', adminPatchPolicies);
 app.route('/v1/admin/settings', adminSettings);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
@@ -115,5 +118,6 @@ export default {
     await evaluateOfflineAlerts(env.DB, env, now);
     await dispatchDueScheduledJobs(env.DB, now);
     await cancelExpiredScheduledJobs(env.DB, now);
+    await dispatchDuePatchPolicies(env.DB, now);
   },
 };

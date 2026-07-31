@@ -21,6 +21,8 @@ import PatchesPage from './pages/PatchesPage.vue';
 import PolicyFormPage from './pages/PolicyFormPage.vue';
 import MaintenancePoliciesPage from './pages/MaintenancePoliciesPage.vue';
 import MaintenancePolicyFormPage from './pages/MaintenancePolicyFormPage.vue';
+import PatchPoliciesPage from './pages/PatchPoliciesPage.vue';
+import PatchPolicyFormPage from './pages/PatchPolicyFormPage.vue';
 import GeneralSettingsPage from './pages/GeneralSettingsPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import UserFormPage from './pages/UserFormPage.vue';
@@ -73,6 +75,9 @@ const router = createRouter({
     { path: '/global/maintenance-policies/new', component: MaintenancePolicyFormPage },
     { path: '/global/maintenance-policies/:id', component: MaintenancePolicyFormPage },
     { path: '/global/patches', component: PatchesPage },
+    { path: '/global/patch-policies', component: PatchPoliciesPage },
+    { path: '/global/patch-policies/new', component: PatchPolicyFormPage },
+    { path: '/global/patch-policies/:id', component: PatchPolicyFormPage },
     { path: '/settings/general', component: GeneralSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/users', component: UsersPage, meta: { minRole: 'admin' } },
     { path: '/settings/users/new', component: UserFormPage, meta: { minRole: 'admin' } },

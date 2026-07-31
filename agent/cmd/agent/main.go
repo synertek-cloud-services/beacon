@@ -355,7 +355,8 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			}
 			if cmd.Type == "install_patches" {
 				var payload struct {
-					UpdateIDs []string `json:"update_ids"`
+					UpdateIDs  []string `json:"update_ids"`
+					AutoReboot bool     `json:"auto_reboot"`
 				}
 				status := "completed"
 				var stdout, stderr string
@@ -373,7 +374,18 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					stdout = string(summary)
 					log.Printf("install_patches finished: reboot_required=%v", res.RebootRequired)
 					if res.RebootRequired {
-						writePendingRebootMarker()
+						// auto_reboot is only ever set by a Patch Policy dispatch
+						// (worker/src/lib/patchPolicies.ts) -- the manual per-device
+						// dashboard route never sends it, so this always falls
+						// through to the interactive tray prompt for that path.
+						if payload.AutoReboot {
+							log.Printf("install_patches: auto_reboot enabled, rebooting immediately")
+							if err := exec.Command("shutdown", "/r", "/t", "0").Run(); err != nil {
+								log.Printf("install_patches: auto-reboot shutdown command failed: %v", err)
+							}
+						} else {
+							writePendingRebootMarker()
+						}
 					}
 				}
 				pendingMu.Lock()

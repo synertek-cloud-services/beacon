@@ -116,6 +116,7 @@
           <RouterLink to="/global/policies" class="sbi" :class="{ active: route.path === '/global/policies' }">Policies</RouterLink>
           <RouterLink to="/global/maintenance-policies" class="sbi" :class="{ active: route.path.startsWith('/global/maintenance-policies') }">Maintenance Policies</RouterLink>
           <RouterLink to="/global/patches" class="sbi" :class="{ active: route.path === '/global/patches' }">Patches</RouterLink>
+          <RouterLink to="/global/patch-policies" class="sbi" :class="{ active: route.path.startsWith('/global/patch-policies') }">Patch Policies</RouterLink>
         </div>
 
         <!-- AUTOMATION -->
@@ -513,6 +514,7 @@ const pageTitle = computed(() => {
   if (route.path === '/global/policies') return 'Global Policies';
   if (route.path.startsWith('/global/maintenance-policies')) return 'Maintenance Policies';
   if (route.path === '/global/patches') return 'Patches';
+  if (route.path.startsWith('/global/patch-policies')) return 'Patch Policies';
   if (route.path === '/settings/general') return 'General Settings';
   if (route.path.startsWith('/settings/users')) return 'Users';
   if (route.path === '/settings/sso') return 'Single Sign-On';
