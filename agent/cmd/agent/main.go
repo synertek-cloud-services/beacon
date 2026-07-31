@@ -339,6 +339,24 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				log.Printf("restart_agent received — exiting for SCM recovery restart")
 				os.Exit(0)
 			}
+			if cmd.Type == "uninstall_agent" {
+				// No result is ever reported back for this one, same as
+				// restart_agent above — by design, since the device
+				// disappearing from check-ins entirely *is* the proof of
+				// success. service.SelfUninstall() (not Uninstall(), which
+				// is for the separate `beacon-agent uninstall` CLI
+				// invocation) spawns a detached helper and returns
+				// immediately, specifically so this process can exit
+				// cleanly right after rather than trying to out-live its
+				// own service stop — see its doc comment for why that
+				// matters.
+				log.Printf("uninstall_agent received — self-uninstalling")
+				if err := service.SelfUninstall(); err != nil {
+					log.Printf("uninstall_agent: %v", err)
+					return
+				}
+				os.Exit(0)
+			}
 			if cmd.Type == "run_audit" {
 				select {
 				case auditTrigger <- struct{}{}:

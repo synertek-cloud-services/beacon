@@ -42,6 +42,43 @@ func Uninstall() error {
 	}
 }
 
+// SelfUninstall is called by the agent's own running process in response to
+// a remotely-dispatched uninstall_agent command -- unlike Uninstall() above
+// (invoked by a separate `beacon-agent uninstall` process), this must not
+// call systemctl stop/launchctl unload synchronously from within the very
+// process being stopped: both block until the unit actually exits, and
+// since neither this process nor Go installs a custom SIGTERM handler, the
+// OS's default SIGTERM action (immediate termination) fires the moment the
+// stop takes effect -- killing this process mid-call, before disable/remove
+// ever run. Same detached-helper fix as install_windows.go's SelfUninstall:
+// spawn an independent helper that does the real work after a short delay,
+// then let this process exit normally.
+func SelfUninstall() error {
+	var script string
+	switch runtime.GOOS {
+	case "linux":
+		script = fmt.Sprintf(
+			"sleep 2; systemctl stop beacon-agent; systemctl disable beacon-agent; rm -f %s %s; systemctl daemon-reload",
+			linuxUnitPath, linuxBinPath,
+		)
+	case "darwin":
+		script = fmt.Sprintf(
+			"sleep 2; launchctl unload %s; rm -f %s %s",
+			macPlistPath, macPlistPath, macBinPath,
+		)
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+	// .Start(), not run()'s blocking .Run() -- this must return immediately
+	// so the caller can os.Exit(0) right after, leaving the helper to run
+	// independently (a child process's lifetime isn't tied to its parent's
+	// on Linux/macOS by default, same as Windows).
+	if err := exec.Command("sh", "-c", script).Start(); err != nil {
+		return fmt.Errorf("spawn uninstall helper: %w", err)
+	}
+	return nil
+}
+
 // Reharden is a no-op on Linux/macOS -- their restart-on-exit behavior
 // (systemd's Restart=on-failure, launchd's KeepAlive) is written directly
 // into the unit/plist file at install time, not configured via a separate

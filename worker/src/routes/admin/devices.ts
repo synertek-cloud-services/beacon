@@ -181,7 +181,7 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
@@ -232,6 +232,15 @@ adminDevices.post('/:id/commands', async (c) => {
     if (!approved.length) return c.json({ error: 'none of the given update_ids are approved' }, 400);
     cmdType = 'install_patches';
     payload = { update_ids: approved.map(a => a.updateId) };
+  } else if (body.type === 'uninstall_agent') {
+    // Agent dispatches on this literal command type (agent/cmd/agent/main.go)
+    // -- service.SelfUninstall() removes the service registration and the
+    // install directory entirely. No result is ever reported back (the
+    // agent exits right after spawning its detached cleanup helper, same
+    // as restart_agent) -- the device going quiet in check-ins is the only
+    // confirmation this ever produces.
+    cmdType = 'uninstall_agent';
+    payload = {};
   } else {
     return c.json({ error: 'unknown command type' }, 400);
   }

@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -206,6 +208,67 @@ func Uninstall() error {
 
 	os.Remove(installPath())
 	fmt.Println("Beacon agent service removed.")
+	return nil
+}
+
+// SelfUninstall is called by the agent's own running SYSTEM-context process
+// in response to a remotely-dispatched uninstall_agent command -- the whole
+// reason this is a separate function from Uninstall() above, not a reuse of
+// it. Uninstall() is invoked by a *separate* `beacon-agent.exe uninstall`
+// process (a different OS process than the one being torn down), so its
+// synchronous Stop-then-Delete-then-Remove sequence is safe there. Calling
+// that same sequence from *inside* the running service would race its own
+// termination: s.Control(svc.Stop) asks SCM to deliver a stop request back
+// to this exact process's own Execute() loop (runner_windows.go), and once
+// that's actioned the process is expected to exit -- but the goroutine that
+// called Stop is a detached child of the check-in loop, not awaited by it,
+// so the whole process can be torn down before Delete()/os.Remove() below
+// ever get a chance to run. Found by reasoning through the architecture
+// during this feature's design, not hit live -- the born-from-real-pain
+// motivation was purely "there's no remote way to tear down a hardened
+// install," not a reproduced crash.
+//
+// The fix: never try to out-live your own termination. Disable recovery
+// actions first (hardenService configured SCM to restart on *any* exit,
+// including a clean one -- without disabling that, SCM would resurrect the
+// "crashed" service before cleanup finishes), spawn a small detached helper
+// that performs the actual stop+delete+remove after a short delay (long
+// enough for this process to have fully exited and released its file
+// handle on its own binary and its SCM connection), then let this process
+// exit normally. The helper runs independently of this process's lifetime
+// -- Windows doesn't tie a child process to its parent by default.
+func SelfUninstall() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("open service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
+	if err := s.SetRecoveryActionsOnNonCrashFailures(false); err != nil {
+		log.Printf("uninstall: clear recovery-on-non-crash: %v", err)
+	}
+	if err := s.SetRecoveryActions(nil, 0); err != nil {
+		log.Printf("uninstall: clear recovery actions: %v", err)
+	}
+	s.Close()
+
+	// CREATE_NO_WINDOW: SYSTEM has no interactive desktop to show a console
+	// on anyway (session 0 isolation), but harmless to set explicitly
+	// regardless -- same reasoning already documented on the tray's own
+	// CreateProcessAsUser call in usersession_windows.go.
+	helperScript := fmt.Sprintf(
+		`timeout /t 3 /nobreak >nul & sc stop %s & sc delete %s & rd /s /q "%s"`,
+		ServiceName, ServiceName, installDir,
+	)
+	cmd := exec.Command("cmd.exe", "/c", helperScript)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("spawn uninstall helper: %w", err)
+	}
 	return nil
 }
 

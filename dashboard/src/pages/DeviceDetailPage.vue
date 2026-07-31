@@ -130,6 +130,12 @@
               Maintenance Window
             </button>
             <div class="kebab-sep"></div>
+            <button class="kebab-item kebab-item-danger" :disabled="device.status !== 'approved'" @click="uninstallAgent(device.id)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M10 11v6"/><path d="M14 11v6"/>
+              </svg>
+              Uninstall Agent
+            </button>
             <button class="kebab-item kebab-item-danger" @click="remove(device.id)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
@@ -1512,6 +1518,24 @@ async function forceUpdateCheck(deviceId: string) {
   menuOpen.value = false;
   try {
     await api.devices.commands.create(deviceId, { type: 'force_update' });
+    showJobQueued();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+// Distinct from remove()/"Delete Device" below -- this only tears down the
+// agent on the remote machine itself (service + install directory); the
+// device's own row/history in Beacon is untouched, so it just goes offline
+// rather than disappearing from the dashboard. Added specifically so a
+// hardened, tamper-protected install can be torn down remotely at all --
+// previously the only way was local registry surgery + a reboot, since the
+// service's own SDDL blocks an external admin from stopping/deleting it.
+async function uninstallAgent(deviceId: string) {
+  menuOpen.value = false;
+  if (!confirm('Uninstall the Beacon agent from this device? It will stop checking in immediately and will need to be manually reinstalled to be managed again. This cannot be undone remotely.')) return;
+  try {
+    await api.devices.commands.create(deviceId, { type: 'uninstall_agent' });
     showJobQueued();
   } catch (e: any) {
     error.value = e.message;
