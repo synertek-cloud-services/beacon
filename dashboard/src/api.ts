@@ -60,11 +60,13 @@ export interface Summary {
   by_class: Record<string, number>;
   offline_by_class: Record<string, number>;
   by_av_status: Record<string, number>;
+  by_patch_severity: Record<string, number>;
 }
 
 export type DashboardWidgetType =
   | 'device_summary' | 'online_offline' | 'os_distribution' | 'class_distribution'
-  | 'antivirus_status' | 'offline_by_type' | 'alerts_by_priority' | 'recent_alerts';
+  | 'antivirus_status' | 'offline_by_type' | 'alerts_by_priority' | 'recent_alerts'
+  | 'patches_by_severity';
 
 export interface DashboardWidget {
   id: string;
