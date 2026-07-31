@@ -91,7 +91,7 @@ onMounted(async () => {
   mode.value = microsoftAvailable.value ? 'microsoft' : 'local';
 });
 
-async function complete(token: string, emergency = false) { if (emergency) api.saveEmergencyToken(token); else api.saveToken(token); await loadCurrentUser().catch(() => {}); router.push('/devices'); }
+async function complete(token: string, emergency = false) { if (emergency) api.saveEmergencyToken(token); else api.saveToken(token); window.dispatchEvent(new Event('beacon:auth-changed')); await loadCurrentUser().catch(() => {}); router.push('/'); }
 async function submitLocal() {
   if (!email.value.trim() || !password.value) return;
   loading.value = true; error.value = '';

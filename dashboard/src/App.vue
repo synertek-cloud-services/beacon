@@ -434,19 +434,34 @@ async function refreshDashboards() {
 
 let pendingTimer: ReturnType<typeof setInterval>;
 
+// Loads the sidebar's own data (companies, pending count, dashboards list).
+// Called from onMounted -- but at initial page load on /login or
+// /sso-callback, api.hasToken() is false and this is a no-op, since App.vue
+// (the persistent root shell) mounts once and never remounts across a
+// client-side login redirect. Also called in response to beacon:auth-changed
+// (dispatched by LoginPage.vue/SsoCallbackPage.vue right after saving a
+// token) -- without this second call site, a real bug: the sidebar's
+// Dashboards section stays permanently empty after logging in, only fixed
+// by a full page reload (which reruns onMounted with a token already
+// present). Found via real testing, not obvious from reading either file in
+// isolation.
+async function loadAppData() {
+  if (!api.hasToken()) return;
+  try {
+    const [tenantList, summary, dashboardList] = await Promise.all([api.tenants.list(), api.summary.get(), api.dashboards.list()]);
+    companies.value = tenantList;
+    pendingCount.value = summary.pending;
+    dashboards.value = dashboardList;
+  } catch {}
+  if (!authState.user) await loadCurrentUser().catch(() => {});
+}
+
 onMounted(async () => {
-  if (api.hasToken()) {
-    try {
-      const [tenantList, summary, dashboardList] = await Promise.all([api.tenants.list(), api.summary.get(), api.dashboards.list()]);
-      companies.value = tenantList;
-      pendingCount.value = summary.pending;
-      dashboards.value = dashboardList;
-    } catch {}
-    if (!authState.user) await loadCurrentUser().catch(() => {});
-  }
+  await loadAppData();
   pendingTimer = setInterval(refreshPending, 30_000);
   window.addEventListener('beacon:pending-changed', refreshPending);
   window.addEventListener('beacon:dashboards-changed', refreshDashboards);
+  window.addEventListener('beacon:auth-changed', loadAppData);
 });
 
 onUnmounted(() => {
@@ -454,6 +469,7 @@ onUnmounted(() => {
   clearInterval(pendingTimer);
   window.removeEventListener('beacon:pending-changed', refreshPending);
   window.removeEventListener('beacon:dashboards-changed', refreshDashboards);
+  window.removeEventListener('beacon:auth-changed', loadAppData);
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
 });
