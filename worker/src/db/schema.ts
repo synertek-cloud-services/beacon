@@ -214,7 +214,7 @@ export const policyDevices = sqliteTable('policy_devices', {
 
 export const alertState = sqliteTable('alert_state', {
   id:                 text('id').primaryKey(),
-  deviceId:           text('device_id').notNull().references(() => devices.id),
+  deviceId:           text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   policyMonitorId:    text('policy_monitor_id').notNull().references(() => policyMonitors.id),
   conditionFirstSeen: integer('condition_first_seen'),
   isAlerting:         integer('is_alerting', { mode: 'boolean' }).notNull().default(false),
@@ -231,7 +231,7 @@ export const alertState = sqliteTable('alert_state', {
 
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
-  deviceId: text('device_id').notNull().references(() => devices.id),
+  deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   tenantId: text('tenant_id').notNull().references(() => tenants.id),
   sessionType: text('session_type', { enum: ['shell', 'tcp_tunnel'] }).notNull(),
   tcpPort: integer('tcp_port'), // for tcp_tunnel
@@ -245,7 +245,7 @@ export const sessions = sqliteTable('sessions', {
 
 export const deviceAudits = sqliteTable('device_audits', {
   id:           text('id').primaryKey(),
-  deviceId:     text('device_id').notNull().references(() => devices.id),
+  deviceId:     text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   tenantId:     text('tenant_id').notNull().references(() => tenants.id),
   auditType:    text('audit_type').notNull().default('full'),
   hardware:     text('hardware'),   // JSON blob
@@ -277,9 +277,9 @@ export const patchApprovals = sqliteTable('patch_approvals', {
 
 export const deviceAuditChanges = sqliteTable('device_audit_changes', {
   id:         text('id').primaryKey(),
-  deviceId:   text('device_id').notNull().references(() => devices.id),
+  deviceId:   text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   tenantId:   text('tenant_id').notNull().references(() => tenants.id),
-  auditId:    text('audit_id').notNull().references(() => deviceAudits.id),
+  auditId:    text('audit_id').notNull().references(() => deviceAudits.id, { onDelete: 'cascade' }),
   category:   text('category').notNull(),
   changeType: text('change_type').notNull(),
   itemName:   text('item_name').notNull(),
@@ -432,7 +432,7 @@ export const ssoExchangeCodes = sqliteTable('sso_exchange_codes', {
 
 export const commands = sqliteTable('commands', {
   id:             text('id').primaryKey(),
-  deviceId:       text('device_id').notNull().references(() => devices.id),
+  deviceId:       text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   tenantId:       text('tenant_id').notNull().references(() => tenants.id),
   type:           text('type').notNull(),
   payload:        text('payload').notNull(), // JSON

@@ -139,6 +139,7 @@ async function insertJobCommands(
   jobId: string,
   devices: Array<{ id: string; tenant_id: string; os_type: string | null }>,
   resolved: { ref: ComponentRef; payload: ResolvedPayload }[],
+  runAsSystem: boolean,
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const inserts: Promise<any>[] = [];
@@ -164,6 +165,7 @@ async function insertJobCommands(
         // variables second -- an explicit input variable always wins on the
         // (extremely unlikely, given the CF_ prefix) name collision.
         variables: { ...cfVars, ...payload.variables },
+        run_as_system: runAsSystem,
       });
       const compId  = ref.type === 'library' ? ref.component_id : null;
       const compOrd = ref.order;
@@ -215,7 +217,7 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
     // Skip this tick rather than partially dispatch; it'll retry until expiry.
     if (resolved.length === 0) continue;
 
-    await insertJobCommands(db, job.id, devices, resolved);
+    await insertJobCommands(db, job.id, devices, resolved, Boolean(job.run_as_system));
   }
 }
 
@@ -459,7 +461,7 @@ adminJobs.post('/', async (c) => {
   // the cron (dispatchDueScheduledJobs) to resolve devices and dispatch
   // once scheduled_at arrives.
   if (jobType === 'quick') {
-    await insertJobCommands(c.env.DB, jobId, devices, resolved);
+    await insertJobCommands(c.env.DB, jobId, devices, resolved, body.run_as_system ?? true);
   }
 
   const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>();

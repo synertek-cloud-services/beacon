@@ -4,6 +4,7 @@ export interface DashboardSummary {
   total: number; approved: number; pending: number; revoked: number; online: number; offline: number;
   by_os: Record<string, number>; by_class: Record<string, number>;
   offline_by_class: Record<string, number>; by_av_status: Record<string, number>;
+  by_patch_severity: Record<string, number>;
 }
 
 function placeholders(values: string[]) { return values.map(() => '?').join(', '); }
@@ -45,6 +46,45 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
     offlineByClass[cls] = (offlineByClass[cls] ?? 0) + 1;
   }
 
+  // Distinct pending patches by severity across this scope's approved devices
+  // -- a lighter-weight version of GET /v1/admin/patches' own scan (which
+  // additionally merges fleet-wide approval status, not needed here): a
+  // widget glance is "how much needs attention," not the full decision
+  // workflow, which stays the dedicated Patches page's job. One batched
+  // query for each approved device's latest non-null-patches audit, rather
+  // than patches.ts's one-query-per-device loop -- both are fine at this
+  // scale, this just avoids N round-trips since the device ID set is
+  // already in hand here.
+  const byPatchSeverity: Record<string, number> = {};
+  const approvedIds = approved.map(d => d.id as string);
+  if (approvedIds.length > 0) {
+    const patchAudits = await db.prepare(`
+      SELECT da.patches FROM device_audits da
+      WHERE da.patches IS NOT NULL AND da.device_id IN (${placeholders(approvedIds)})
+        AND da.created_at = (
+          SELECT MAX(created_at) FROM device_audits da2
+          WHERE da2.device_id = da.device_id AND da2.patches IS NOT NULL
+        )
+    `).bind(...approvedIds).all<{ patches: string }>();
+    const seenUpdateIds = new Set<string>();
+    for (const row of patchAudits.results) {
+      let items: Array<{ update_id?: string; severity?: string }>;
+      try { items = JSON.parse(row.patches); } catch { continue; }
+      for (const item of items) {
+        // Dedup fleet-wide by update_id where present (same patch pending on
+        // multiple devices shouldn't multiply the count); items with no
+        // update_id yet (pre-upgrade agents) still count individually, same
+        // "needs a rescan" gap GET /v1/admin/patches already documents.
+        if (item.update_id) {
+          if (seenUpdateIds.has(item.update_id)) continue;
+          seenUpdateIds.add(item.update_id);
+        }
+        const severity = item.severity || 'Unspecified';
+        byPatchSeverity[severity] = (byPatchSeverity[severity] ?? 0) + 1;
+      }
+    }
+  }
+
   const alertScope = tenantIds?.length ? ` AND t.id IN (${placeholders(tenantIds)})` : '';
   const alerts = await db.prepare(`
     SELECT s.id, s.is_alerting, s.condition_first_seen, s.alerted_at, s.resolved_at, s.updated_at,
@@ -57,7 +97,8 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
   return {
     summary: { total: devices.length, approved: approved.length, pending: devices.filter(d => d.status === 'pending').length,
       revoked: devices.filter(d => d.status === 'revoked').length, online, offline: approved.length - online,
-      by_os: byOs, by_class: byClass, offline_by_class: offlineByClass, by_av_status: byAvStatus } satisfies DashboardSummary,
+      by_os: byOs, by_class: byClass, offline_by_class: offlineByClass, by_av_status: byAvStatus,
+      by_patch_severity: byPatchSeverity } satisfies DashboardSummary,
     alerts: alerts.results,
   };
 }

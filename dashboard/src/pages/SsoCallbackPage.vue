@@ -25,7 +25,7 @@ const route = useRoute(); const router = useRouter(); const error = ref('');
 onMounted(async () => {
   const code = route.query.xchg as string | undefined;
   if (!code) { error.value = 'Missing sign-in code.'; return; }
-  try { const { token } = await api.auth.microsoftExchange(code); api.saveToken(token); await loadCurrentUser().catch(() => {}); router.push('/devices'); }
+  try { const { token } = await api.auth.microsoftExchange(code); api.saveToken(token); window.dispatchEvent(new Event('beacon:auth-changed')); await loadCurrentUser().catch(() => {}); router.push('/'); }
   catch { error.value = 'This sign-in link has expired or was already used. Please try again.'; }
 });
 </script>

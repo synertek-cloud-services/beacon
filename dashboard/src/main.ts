@@ -37,6 +37,7 @@ import { authState, hasRole, loadCurrentUser } from './auth';
 import { loadActiveTheme } from './theme';
 import { loadBrandIdentity } from './brand';
 import type { Role } from './api';
+import 'gridstack/dist/gridstack.css';
 import './style.css';
 
 declare module 'vue-router' {

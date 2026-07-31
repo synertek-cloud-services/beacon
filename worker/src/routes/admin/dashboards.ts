@@ -8,25 +8,41 @@ const dashboards = new Hono<{ Bindings: Bindings }>();
 const WIDGET_TYPES = new Set([
   'device_summary', 'online_offline', 'os_distribution', 'class_distribution',
   'antivirus_status', 'offline_by_type', 'alerts_by_priority', 'recent_alerts',
+  'patches_by_severity',
 ]);
 const TEMPLATES: Record<string, Array<{ type: string; x: number; y: number; w: number; h: number }>> = {
   blank: [],
+  // h values sized for gridstack's cellHeight:20/margin:7 model (see
+  // DashboardPage.vue), not a straight port of the pre-gridstack CSS-Grid h
+  // values. device_summary's h=8 is the closest integer fit that doesn't
+  // compress the stat row below its real measured 102px natural height
+  // (h=7 undershoots to 98px and clips) while landing closest to the
+  // widget's 14px left/right padding once centered (h=8's total visible
+  // top/bottom gap works out to ~22px; h=9's to ~32px).
   default: [
-    { type: 'device_summary', x: 0, y: 0, w: 12, h: 7 }, { type: 'recent_alerts', x: 0, y: 7, w: 12, h: 14 },
-    { type: 'online_offline', x: 0, y: 21, w: 4, h: 8 }, { type: 'os_distribution', x: 4, y: 21, w: 4, h: 8 },
-    { type: 'class_distribution', x: 8, y: 21, w: 4, h: 8 }, { type: 'offline_by_type', x: 0, y: 29, w: 4, h: 8 },
-    { type: 'antivirus_status', x: 4, y: 29, w: 4, h: 8 }, { type: 'alerts_by_priority', x: 8, y: 29, w: 4, h: 8 },
+    { type: 'device_summary', x: 0, y: 0, w: 12, h: 8 }, { type: 'recent_alerts', x: 0, y: 8, w: 12, h: 14 },
+    { type: 'online_offline', x: 0, y: 22, w: 4, h: 10 }, { type: 'os_distribution', x: 4, y: 22, w: 4, h: 10 },
+    { type: 'class_distribution', x: 8, y: 22, w: 4, h: 10 }, { type: 'offline_by_type', x: 0, y: 32, w: 4, h: 10 },
+    { type: 'antivirus_status', x: 4, y: 32, w: 4, h: 10 }, { type: 'alerts_by_priority', x: 8, y: 32, w: 4, h: 10 },
   ],
 };
 
 async function auth(c: any, min: 'readonly' | 'technician' | 'admin' = 'readonly') {
   return requireUser(c.req.header('Authorization'), c.env, min);
 }
+// h's own cap was stale even before the gridstack resize UI existed -- the
+// seeded `default` template below already ships recent_alerts at h:14,
+// exceeding the old h<=12 cap, since template inserts never went through
+// this validation (trusted server-side data). Raised to 24 (matching the
+// dashboard's own gridstack maxH constraint) so a real resize drag that
+// lands past 12 doesn't get silently rejected by PATCH and snap back --
+// found via real browser testing, not a guess. w stays capped at 12 since
+// the grid is genuinely only 12 columns wide.
 function validLayout(value: unknown): value is { x: number; y: number; w: number; h: number } {
   if (!value || typeof value !== 'object') return false;
   const { x, y, w, h } = value as Record<string, unknown>;
   return [x, y, w, h].every(Number.isInteger) && (x as number) >= 0 && (y as number) >= 0 &&
-    (w as number) >= 1 && (w as number) <= 12 && (h as number) >= 1 && (h as number) <= 12 && (x as number) + (w as number) <= 12;
+    (w as number) >= 1 && (w as number) <= 12 && (h as number) >= 1 && (h as number) <= 24 && (x as number) + (w as number) <= 12;
 }
 function dashboardRow(row: Record<string, unknown>) {
   return { id: row.id, name: row.name, sortOrder: row.sort_order, isHome: row.is_home === 1, createdAt: row.created_at, updatedAt: row.updated_at };
