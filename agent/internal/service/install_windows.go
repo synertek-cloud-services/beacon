@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -77,84 +79,69 @@ func Install(serverURL, enrollToken string) error {
 		return fmt.Errorf("start service: %w", err)
 	}
 
-	hardenService(s)
-	hardenInstallDir()
+	setRecoveryActions(s)
 
 	fmt.Printf("Beacon agent installed and started as Windows service %q\n", ServiceName)
 	return nil
 }
 
-// hardenService sets recovery actions (restart on any exit) and locks down the
-// service SDDL so that only SYSTEM can stop or delete the service. Admins
-// retain read + start rights so they can see it in Services and start it if
-// needed, but cannot stop or uninstall it through normal channels.
-func hardenService(s *mgr.Service) {
-	// Recovery: restart after 5s, 10s, 30s; trigger even on clean exit (os.Exit(0))
-	// so the self-updater's exit is caught and the new binary is restarted by SCM.
+// setRecoveryActions configures SCM to restart the service after any exit,
+// including a clean one (os.Exit(0)) -- this is what makes self-update's
+// Windows swap (swap_windows.go's atomicSwap) actually come back up after
+// its own exit, and has nothing to do with tamper resistance.
+//
+// This used to also lock the service down via `sc sdset` (SYSTEM-only
+// stop/delete) and lock the install directory via `icacls`
+// (SYSTEM-only write), under the name hardenService/hardenInstallDir --
+// deliberately removed. That tamper-resistance design turned out to make
+// the agent nearly impossible to work with during real hardware testing: a
+// hardened service can't be stopped, deleted, or reinstalled by a local
+// Administrator at all, only by SYSTEM, and the only recovery path when
+// something needs to change is registry-level surgery
+// (`Remove-Item HKLM:\SYSTEM\CurrentControlSet\Services\BeaconAgent` +
+// reboot) or the agent's own cooperation (see uninstall_agent /
+// SelfUninstall below, itself only needed *because* of this restriction).
+// Pulled out rather than iterated on further -- worth reimplementing
+// properly later, but not by continuing to patch around it live.
+func setRecoveryActions(s *mgr.Service) {
 	actions := []mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
 	}
 	if err := s.SetRecoveryActions(actions, 86400); err != nil {
-		log.Printf("tamper: set recovery actions: %v", err)
+		log.Printf("service: set recovery actions: %v", err)
 	}
-	// Trigger recovery even when the service exits with code 0 (normal exit).
 	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
-		log.Printf("tamper: set recovery on non-crash: %v", err)
-	}
-
-	// SDDL: SYSTEM gets full control; Administrators get query+start only
-	// (no WP=Stop, no SD=Delete, no DT=Pause). This survives a reboot.
-	// D: = DACL
-	//   SY = SYSTEM:  GA (Generic All -- genuinely everything, including
-	//                 DELETE and WRITE_DAC)
-	//   BA = Admins:  CC LC RP RC            (query, start, read — no stop/delete)
-	//
-	// Real bug found via production testing (uninstall on a real device hit
-	// "Access is denied" even when escalated to SYSTEM via a scheduled
-	// task): the SYSTEM grant used to be spelled out as the specific rights
-	// CCLCSWRPWPDTLOCRRC, which -- despite the comment here previously
-	// calling it "everything" -- omits DE (SERVICE_DELETE) and WD
-	// (WRITE_DAC). Go's mgr.OpenService always requests SERVICE_ALL_ACCESS
-	// internally, which needs DELETE among other rights -- so that SDDL
-	// denied SERVICE_ALL_ACCESS to *everyone*, including SYSTEM, the moment
-	// it was successfully applied. Worse, without WD, not even a future
-	// Reharden() call (which re-runs sc sdset, itself a DACL-modifying
-	// operation) could self-heal it, since changing a DACL requires
-	// WRITE_DAC too. GA sidesteps this whole class of "manually enumerate
-	// every right and miss one" bug for the one principal (SYSTEM) that's
-	// supposed to have literally everything anyway.
-	const svcSDDL = `D:(A;;GA;;;SY)(A;;CCLCRPRC;;;BA)`
-	if out, err := exec.Command("sc.exe", "sdset", ServiceName, svcSDDL).CombinedOutput(); err != nil {
-		log.Printf("tamper: sc sdset: %v — %s", err, out)
+		log.Printf("service: set recovery on non-crash: %v", err)
 	}
 }
 
-// Reharden re-applies the tamper-resistance hardening (recovery actions,
-// SDDL lock, install-dir ACL) to an already-installed service. Unlike
-// hardenService/hardenInstallDir above, which only ever ran once from
-// Install(), this is called on every agent startup (see main.go) so
-// hardening is self-healing: a device enrolled before this feature
-// existed, or one where hardening was manually stripped, becomes
-// protected again the next time its service starts for any reason --
-// boot, manual restart, or a self-update swap -- with no separate
-// remediation step required.
+// Reharden re-applies the recovery-action configuration to an
+// already-installed service. Called on every agent startup (see main.go)
+// so a device enrolled before this existed, or one where the config was
+// manually stripped, self-heals the next time its service starts for any
+// reason -- boot, manual restart, or a self-update swap -- with no
+// separate remediation step required.
 //
 // This closes a real gap found in production: self-update's Windows swap
-// (swap_windows.go's atomicSwap) relies entirely on pre-configured SCM
-// recovery actions to restart the service after its os.Exit(0) -- on a
-// device that was never hardened, that exit was permanent, since nothing
-// was ever configured to bring the service back. The new binary would
-// sit on disk, fully updated, and never run.
+// relies entirely on pre-configured SCM recovery actions to restart the
+// service after its os.Exit(0) -- on a device that never had this set, that
+// exit was permanent, since nothing was ever configured to bring the
+// service back. The new binary would sit on disk, fully updated, and never
+// run. Kept the name Reharden rather than renaming it despite no longer
+// doing any actual hardening -- this file's tamper-resistance behavior is
+// deliberately gone (see setRecoveryActions' own comment), but this
+// function's self-healing purpose is unchanged.
 //
 // Best-effort and silent on failure to open the service (e.g. running
 // interactively before `install` has ever been run) -- there's nothing to
-// harden yet in that case, and this must never block normal agent startup.
+// configure yet in that case, and this must never block normal agent
+// startup.
 func Reharden() {
 	m, err := mgr.Connect()
 	if err != nil {
-		log.Printf("tamper: reharden: connect to service manager: %v", err)
+		log.Printf("service: reharden: connect to service manager: %v", err)
 		return
 	}
 	defer m.Disconnect()
@@ -165,23 +152,7 @@ func Reharden() {
 	}
 	defer s.Close()
 
-	hardenService(s)
-	hardenInstallDir()
-}
-
-// hardenInstallDir locks the install directory so only SYSTEM has write access.
-// Administrators retain read + execute so they can see and run the binary, but
-// cannot delete, replace, or modify it without elevated SYSTEM-level access.
-func hardenInstallDir() {
-	args := []string{
-		installDir,
-		"/inheritance:r",
-		"/grant:r", `NT AUTHORITY\SYSTEM:(OI)(CI)F`,
-		"/grant:r", `BUILTIN\Administrators:(OI)(CI)RX`,
-	}
-	if out, err := exec.Command("icacls.exe", args...).CombinedOutput(); err != nil {
-		log.Printf("tamper: icacls: %v — %s", err, out)
-	}
+	setRecoveryActions(s)
 }
 
 func Uninstall() error {
@@ -206,6 +177,95 @@ func Uninstall() error {
 
 	os.Remove(installPath())
 	fmt.Println("Beacon agent service removed.")
+	return nil
+}
+
+// SelfUninstall is called by the agent's own running SYSTEM-context process
+// in response to a remotely-dispatched uninstall_agent command -- the whole
+// reason this is a separate function from Uninstall() above, not a reuse of
+// it. Uninstall() is invoked by a *separate* `beacon-agent.exe uninstall`
+// process (a different OS process than the one being torn down), so its
+// synchronous Stop-then-Delete-then-Remove sequence is safe there. Calling
+// that same sequence from *inside* the running service would race its own
+// termination: s.Control(svc.Stop) asks SCM to deliver a stop request back
+// to this exact process's own Execute() loop (runner_windows.go), and once
+// that's actioned the process is expected to exit -- but the goroutine that
+// called Stop is a detached child of the check-in loop, not awaited by it,
+// so the whole process can be torn down before Delete()/os.Remove() below
+// ever get a chance to run. Found by reasoning through the architecture
+// during this feature's design, not hit live -- the born-from-real-pain
+// motivation was purely "there's no remote way to tear down a hardened
+// install," not a reproduced crash.
+//
+// The fix: never try to out-live your own termination. Disable recovery
+// actions first (setRecoveryActions configured SCM to restart on *any*
+// exit, including a clean one -- without disabling that, SCM would
+// resurrect the "crashed" service before cleanup finishes), spawn a small
+// detached helper
+// that performs the actual stop+delete+remove after a short delay (long
+// enough for this process to have fully exited and released its file
+// handle on its own binary and its SCM connection), then let this process
+// exit normally. The helper runs independently of this process's lifetime
+// -- Windows doesn't tie a child process to its parent by default.
+func SelfUninstall() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("open service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
+	if err := s.SetRecoveryActionsOnNonCrashFailures(false); err != nil {
+		log.Printf("uninstall: clear recovery-on-non-crash: %v", err)
+	}
+	if err := s.SetRecoveryActions(nil, 0); err != nil {
+		log.Printf("uninstall: clear recovery actions: %v", err)
+	}
+	s.Close()
+
+	// taskkill beacon-tray.exe first -- found via real testing, not
+	// anticipated in the original design: the tray runs as a *separate*
+	// process launched into the logged-in user's own session
+	// (usersession.RunAsSession), not a child of this service, so stopping
+	// the service does nothing to it. Left running, its own open handle on
+	// beacon-tray.exe blocks `rd /s /q` from removing the install
+	// directory -- confirmed live: the service and registry cleanly
+	// disappeared, but the directory was left behind with the tray still
+	// visible in the notification area. SYSTEM has sufficient privilege
+	// (SeDebugPrivilege) to kill a process in a different session; `/F`
+	// forces it since the tray has no graceful-shutdown handling to wait
+	// on. Chained with `&`, not `&&` -- must still proceed to the rest of
+	// cleanup even when no tray process exists to kill (taskkill exits
+	// non-zero in that case).
+	//
+	// `ping -n 4 127.0.0.1 >nul`, not `timeout /t 3` -- timeout.exe needs a
+	// real console input handle even with /nobreak, and this helper is
+	// spawned with CREATE_NO_WINDOW from a SYSTEM service with no console
+	// at all, so timeout can fail immediately, collapsing the intended
+	// delay to zero and racing rd /s /q against this process's own
+	// (in-progress) exit. ping's classic no-console-needed ~3-second delay
+	// (4 pings, 3 gaps) is the standard batch-scripting workaround for
+	// exactly this. Suspected after the taskkill fix alone didn't fully
+	// resolve a real leftover-directory failure -- not independently
+	// confirmed on hardware yet, flagging honestly rather than claiming
+	// certainty.
+	//
+	// CREATE_NO_WINDOW: SYSTEM has no interactive desktop to show a console
+	// on anyway (session 0 isolation), but harmless to set explicitly
+	// regardless -- same reasoning already documented on the tray's own
+	// CreateProcessAsUser call in usersession_windows.go.
+	helperScript := fmt.Sprintf(
+		`ping -n 4 127.0.0.1 >nul & taskkill /IM beacon-tray.exe /F & sc stop %s & sc delete %s & rd /s /q "%s"`,
+		ServiceName, ServiceName, installDir,
+	)
+	cmd := exec.Command("cmd.exe", "/c", helperScript)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("spawn uninstall helper: %w", err)
+	}
 	return nil
 }
 
