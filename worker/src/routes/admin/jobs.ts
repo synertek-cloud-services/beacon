@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
+import { drizzle } from 'drizzle-orm/d1';
 import type { Bindings } from '../../index';
+import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
+import { logActivity } from '../../lib/activityLog';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -218,6 +221,16 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
     if (resolved.length === 0) continue;
 
     await insertJobCommands(db, job.id, devices, resolved, Boolean(job.run_as_system));
+    // Layer-2 call -- this dispatch happens from the scheduled() cron, never
+    // a user-authenticated HTTP route, so the generic middleware can't see
+    // it. Job *creation* is a normal admin route and is already covered by
+    // Layer 1. No tenantId -- a scheduled job can target multiple sites, so
+    // it isn't unambiguously owned by one.
+    await logActivity(drizzle(db, { schema }), {
+      actorType: 'system', category: 'Job', action: 'Dispatched scheduled job',
+      entityType: 'job', entityId: job.id, method: 'CRON',
+      details: { deviceCount: devices.length },
+    });
   }
 }
 

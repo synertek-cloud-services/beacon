@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
+import { logActivity } from './activityLog';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -230,6 +231,15 @@ export async function autoApprovePatches(db: Db, now: number): Promise<void> {
       severity: patch.severity,
       updatedAt: now,
     });
+    // Layer-2 call -- runs from the scheduled() cron, never a user-authenticated
+    // HTTP route. Kept distinct from dispatchDuePatchPolicies' own call below --
+    // "a patch was auto-approved" and "a policy dispatched installs" are two
+    // separate facts an operator would want told apart.
+    await logActivity(db, {
+      actorType: 'system', category: 'Patch', action: 'Auto-approved patch',
+      entityType: 'patch', entityId: patch.updateId, method: 'CRON',
+      details: { severity: patch.severity },
+    });
   }
 }
 
@@ -276,6 +286,7 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
     const targeted = devices.filter(d =>
       deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policySiteIds, policyDeviceIds));
 
+    let dispatchedCount = 0;
     for (const device of targeted) {
       const eligible = [...fleet.values()]
         .filter(patch => patch.status === 'approved' && patch.deviceIds.includes(device.id))
@@ -291,9 +302,21 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
         status: 'queued',
         createdAt: now,
       });
+      dispatchedCount++;
     }
 
     await db.update(schema.patchPolicies).set({ lastDispatchedAt: now }).where(eq(schema.patchPolicies.id, policy.id));
+
+    // Layer-2 call, only when this policy actually dispatched to ≥1 device --
+    // a policy whose window is active but has nothing eligible right now
+    // isn't a real, log-worthy event.
+    if (dispatchedCount > 0) {
+      await logActivity(db, {
+        actorType: 'system', category: 'Patch Policy', action: 'Dispatched patch installs',
+        entityType: 'patchPolicy', entityId: policy.id, method: 'CRON',
+        details: { deviceCount: dispatchedCount },
+      });
+    }
   }
 }
 

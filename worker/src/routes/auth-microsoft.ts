@@ -6,6 +6,7 @@ import * as schema from '../db/schema';
 import { generateToken, sha256hex, bytesToBase64, toBase64Url, decryptSecret } from '../lib/crypto';
 import { highestRole, type Role } from '../lib/auth';
 import { verifyMicrosoftIdToken, fetchMemberGroups } from '../lib/oidc';
+import { logActivity } from '../lib/activityLog';
 
 const authMicrosoft = new Hono<{ Bindings: Bindings }>();
 
@@ -172,6 +173,15 @@ authMicrosoft.get('/callback', async (c) => {
     expiresAt: now + SESSION_TTL_SECONDS,
     userAgent: c.req.header('User-Agent') ?? null,
     ip: c.req.header('CF-Connecting-IP') ?? null,
+  });
+  // Layer-2 call: this is the actual "logged in via SSO" moment. Not covered
+  // by the generic middleware -- this is a GET (OAuth redirect callback), so
+  // Layer 1's mutating-method gate wouldn't fire on it even if it were in
+  // scope. POST /exchange (below) just hands over this already-issued token
+  // and is deliberately in Layer 1's skip set so it doesn't double-count.
+  await logActivity(db, {
+    actorType: 'user', actorId: user.id, actorLabel: user.email,
+    category: 'SSO', action: 'Logged in via SSO', method: 'GET', path: '/v1/auth/microsoft/callback',
   });
 
   const exchangeId = generateToken();

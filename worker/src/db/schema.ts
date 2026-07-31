@@ -275,6 +275,42 @@ export const patchApprovals = sqliteTable('patch_approvals', {
   updatedAt:    integer('updated_at').notNull(),
 });
 
+// Master Activity Log (migration 0058) -- accountability ("who did what") +
+// fleet-wide operational visibility. Written by two layers: a generic
+// middleware (worker/src/lib/activityLog.ts, wired in index.ts) that covers
+// the vast majority of user-triggered admin/auth/session/branding mutations
+// for free by keying off (method, c.req.routePath) after the handler
+// succeeds; and a handful of explicit logActivity() calls for
+// system/cron-triggered mutations that never go through a user-authenticated
+// HTTP route (alert fire/resolve, scheduled job dispatch, patch policy
+// auto-approval/dispatch) plus login/SSO events, which have no bearer token
+// to resolve an actor from. Deliberately NO FK constraints on
+// actorId/entityId/tenantId -- this table must never cascade-delete or be
+// blocked by a delete elsewhere just because it recorded something about a
+// user/entity/site that no longer exists; actorLabel is a display-time
+// snapshot for the same "survive the referenced row's deletion" reason
+// patchApprovals already established for title/severity. entityId is NOT
+// similarly snapshotted -- the Activity Log UI does a best-effort live join
+// against the current entity table for a friendly name, falling back to the
+// raw id / "(deleted)", matching how DeviceChangeLogPage/JobsPage already
+// show live-joined rather than snapshotted entity data. Pruned by
+// pruneActivityLog(), called from the scheduled() cron.
+export const activityLog = sqliteTable('activity_log', {
+  id:         text('id').primaryKey(),
+  createdAt:  integer('created_at').notNull(),
+  actorType:  text('actor_type', { enum: ['user', 'system', 'break-glass'] }).notNull(),
+  actorId:    text('actor_id'),       // users.id snapshot -- no FK, see table comment
+  actorLabel: text('actor_label'),    // email/displayName snapshot, or 'System' for cron events
+  category:   text('category').notNull(),   // 'Device' | 'Policy' | 'Job' | 'User' | 'Auth' | 'Session' | 'Patch' | 'SSO' | 'Branding' | ...
+  action:     text('action').notNull(),     // human label, e.g. "Deleted device"
+  entityType: text('entity_type'),          // 'device' | 'policy' | 'job' | ... -- no FK, see table comment
+  entityId:   text('entity_id'),
+  tenantId:   text('tenant_id'),            // only set when unambiguous (mostly device-linked events) -- no FK, see table comment
+  method:     text('method').notNull(),     // 'POST'/'PATCH'/'DELETE'/'PUT', or 'CRON' for system events
+  path:       text('path'),                 // raw request path -- debugging fallback when no lookup-table entry exists
+  details:    text('details'),              // nullable JSON, room for future enrichment
+});
+
 export const deviceAuditChanges = sqliteTable('device_audit_changes', {
   id:         text('id').primaryKey(),
   deviceId:   text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
@@ -660,4 +696,9 @@ export const hostSettings = sqliteTable('host_settings', {
   id:        integer('id').primaryKey(),
   timezone:  text('timezone').notNull().default('UTC'), // IANA name, e.g. "America/New_York"
   updatedAt: integer('updated_at').notNull(),
+  // Persisted-timestamp throttle for pruneActivityLog() (migration 0058) --
+  // mirrors userSessions.lastUsedAt's throttle shape rather than a stateless
+  // cron-tick bucket, so a missed/delayed cron tick can't silently skip a
+  // whole day's prune.
+  activityLogPrunedAt: integer('activity_log_pruned_at'),
 });

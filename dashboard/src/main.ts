@@ -18,6 +18,7 @@ import GlobalAlertsPage from './pages/GlobalAlertsPage.vue';
 import AlertDetailPage from './pages/AlertDetailPage.vue';
 import GlobalPoliciesPage from './pages/GlobalPoliciesPage.vue';
 import PatchesPage from './pages/PatchesPage.vue';
+import ActivityLogPage from './pages/ActivityLogPage.vue';
 import PolicyFormPage from './pages/PolicyFormPage.vue';
 import MaintenancePoliciesPage from './pages/MaintenancePoliciesPage.vue';
 import MaintenancePolicyFormPage from './pages/MaintenancePolicyFormPage.vue';
@@ -75,6 +76,7 @@ const router = createRouter({
     { path: '/global/maintenance-policies/new', component: MaintenancePolicyFormPage },
     { path: '/global/maintenance-policies/:id', component: MaintenancePolicyFormPage },
     { path: '/global/patches', component: PatchesPage },
+    { path: '/global/activity', component: ActivityLogPage },
     { path: '/global/patch-policies', component: PatchPoliciesPage },
     { path: '/global/patch-policies/new', component: PatchPolicyFormPage },
     { path: '/global/patch-policies/:id', component: PatchPolicyFormPage },

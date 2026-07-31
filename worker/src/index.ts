@@ -28,9 +28,11 @@ import adminEmailSettings from './routes/admin/email-settings';
 import adminNotificationEmails from './routes/admin/notification-emails';
 import adminPatches from './routes/admin/patches';
 import adminPatchPolicies from './routes/admin/patch-policies';
+import adminActivityLog from './routes/admin/activity-log';
 import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
 import { dispatchDuePatchPolicies } from './lib/patchPolicies';
+import { activityLogMiddleware, pruneActivityLog } from './lib/activityLog';
 
 export { SessionRelay } from './durable-objects/session-relay';
 
@@ -77,6 +79,16 @@ app.use('/v1/sessions', corsMiddleware);
 app.use('/v1/sessions/*', corsMiddleware);
 app.use('/v1/branding/*', corsMiddleware);
 
+// Registered before the app.route() mounts below, same ordering corsMiddleware
+// already uses for these same five prefix families -- Hono composes matched
+// layers in registration order, so this must be registered first to actually
+// wrap the route handlers. See lib/activityLog.ts for what this logs and why.
+app.use('/v1/admin/*', activityLogMiddleware);
+app.use('/v1/auth/*', activityLogMiddleware);
+app.use('/v1/sessions', activityLogMiddleware);
+app.use('/v1/sessions/*', activityLogMiddleware);
+app.use('/v1/branding/*', activityLogMiddleware);
+
 app.route('/v1/enroll', enroll);
 app.route('/v1/check-in', checkin);
 app.route('/v1/audit', auditRoute);
@@ -103,6 +115,7 @@ app.route('/v1/admin/dashboards', adminDashboards);
 app.route('/v1/admin/maintenance-policies', adminMaintenancePolicies);
 app.route('/v1/admin/patches', adminPatches);
 app.route('/v1/admin/patch-policies', adminPatchPolicies);
+app.route('/v1/admin/activity-log', adminActivityLog);
 app.route('/v1/admin/settings', adminSettings);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
@@ -119,5 +132,6 @@ export default {
     await dispatchDueScheduledJobs(env.DB, now);
     await cancelExpiredScheduledJobs(env.DB, now);
     await dispatchDuePatchPolicies(env.DB, now);
+    await pruneActivityLog(env.DB, now);
   },
 };
