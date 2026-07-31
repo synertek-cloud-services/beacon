@@ -52,7 +52,7 @@ const recentAlerts = computed(() => [...(data.value?.alerts ?? [])].slice(0, 12)
 const priorityOrder = ['critical', 'high', 'moderate', 'low'];
 const severityOrder = ['Critical', 'Important', 'Moderate', 'Low', 'Unspecified'];
 const alertBreakdown = computed(() => { const counts: Record<string, number> = {}; for (const alert of activeAlerts.value) counts[alert.priority] = (counts[alert.priority] ?? 0) + 1; return priorityOrder.filter(key => counts[key]).map(key => `${counts[key]} ${key}`).join(', ') || 'no issues detected'; });
-const colors = { primary: 'var(--color-primary)', success: 'var(--color-success)', warning: 'var(--color-warning)', danger: 'var(--color-danger)', muted: 'var(--color-text-muted)', border: 'var(--color-border-strong)' };
+const colors = { primary: 'var(--color-primary)', success: 'var(--color-success)', warning: 'var(--color-warning)', danger: 'var(--color-danger)', info: 'var(--color-info)', muted: 'var(--color-text-muted)', border: 'var(--color-border-strong)' };
 
 function chartData(type: DashboardWidgetType) {
   const summary = data.value?.summary; if (!summary) return [];
@@ -60,7 +60,12 @@ function chartData(type: DashboardWidgetType) {
   const map = type === 'os_distribution' ? summary.by_os : type === 'class_distribution' ? summary.by_class : type === 'antivirus_status' ? summary.by_av_status : type === 'offline_by_type' ? summary.offline_by_class : null;
   if (type === 'alerts_by_priority') { const count: Record<string, number> = {}; for (const alert of activeAlerts.value) count[alert.priority] = (count[alert.priority] ?? 0) + 1; return priorityOrder.filter(key => count[key]).map(key => ({ label: key, value: count[key], color: key === 'critical' ? colors.danger : key === 'high' ? '#e07830' : key === 'moderate' ? colors.warning : colors.muted })); }
   if (type === 'patches_by_severity') { const count = summary.by_patch_severity; return severityOrder.filter(key => count[key]).map(key => ({ label: key, value: count[key], color: key === 'Critical' ? colors.danger : key === 'Important' ? '#e07830' : key === 'Moderate' ? colors.warning : colors.muted })); }
-  return Object.entries(map ?? {}).map(([label, value], index) => ({ label, value, color: [colors.primary, colors.success, colors.warning, colors.danger, colors.muted][index % 5] }));
+  // warning excluded here -- confirmed it renders identical to primary in
+  // the currently active theme (#fabf46 == #fabf46, not just visually
+  // similar), which silently duplicated colors in any 3+ category chart.
+  // info swapped in instead since it's confirmed genuinely distinct from
+  // every other token in this cycle.
+  return Object.entries(map ?? {}).map(([label, value], index) => ({ label, value, color: [colors.primary, colors.success, colors.danger, colors.info, colors.muted][index % 5] }));
 }
 function chartCenter(type: DashboardWidgetType) { return type === 'online_offline' ? 'approved' : type === 'alerts_by_priority' ? 'alerts' : type === 'offline_by_type' ? 'offline' : type === 'patches_by_severity' ? 'pending' : 'devices'; }
 function formatDate(ts: number | null) { return ts ? new Date(ts * 1000).toLocaleString() : '—'; }
