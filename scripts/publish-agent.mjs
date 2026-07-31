@@ -70,7 +70,13 @@ execSync(`mkdir -p ${distDir}`);
 // of it.
 console.log('Building beacon-tray.exe (embedded into the Windows agent binary)…');
 execSync(
-  `go build -trimpath -o internal/service/embedded/beacon-tray.exe ./cmd/beacon-tray`,
+  // -H=windowsgui marks the PE as a GUI-subsystem binary, so Windows never
+  // allocates a console for it. Without this, every tray launch (service
+  // start, new login, the 60s EnsureTrayRunning resilience check) pops a
+  // real, visible, blank console window into the target user's session --
+  // confirmed on real hardware, not theoretical: systray itself never
+  // writes to a console, so the window just sits there empty until closed.
+  `go build -trimpath -ldflags="-H=windowsgui" -o internal/service/embedded/beacon-tray.exe ./cmd/beacon-tray`,
   { cwd: agentDir, env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' }, stdio: 'inherit' }
 );
 
