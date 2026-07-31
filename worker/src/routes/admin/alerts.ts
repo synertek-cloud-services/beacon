@@ -44,8 +44,8 @@ alerts.get('/', async (c) => {
       d.os_type,
       d.detected_class,
       d.override_class,
-      t.id   AS tenant_id,
-      t.name AS tenant_name,
+      t.id   AS company_id,
+      t.name AS company_name,
       pm.id             AS monitor_id,
       pm.check_type,
       pm.config,
@@ -56,7 +56,7 @@ alerts.get('/', async (c) => {
       p.scope AS policy_scope
     FROM alert_state s
     JOIN devices d          ON s.device_id          = d.id
-    JOIN tenants t          ON d.tenant_id           = t.id
+    JOIN companies t          ON d.company_id           = t.id
     JOIN policy_monitors pm ON s.policy_monitor_id   = pm.id
     JOIN policies p         ON pm.policy_id          = p.id
     ${whereClause}
@@ -71,7 +71,7 @@ alerts.get('/', async (c) => {
   if (search) {
     rows = rows.filter(r =>
       (r.hostname    as string | null)?.toLowerCase().includes(search) ||
-      (r.tenant_name as string).toLowerCase().includes(search)         ||
+      (r.company_name as string).toLowerCase().includes(search)         ||
       (r.check_type  as string).toLowerCase().includes(search)         ||
       (r.policy_name as string).toLowerCase().includes(search),
     );
@@ -100,8 +100,8 @@ alerts.get('/:id', async (c) => {
       d.os_type,
       d.detected_class,
       d.override_class,
-      t.id   AS tenant_id,
-      t.name AS tenant_name,
+      t.id   AS company_id,
+      t.name AS company_name,
       pm.id             AS monitor_id,
       pm.check_type,
       pm.config,
@@ -112,7 +112,7 @@ alerts.get('/:id', async (c) => {
       p.scope AS policy_scope
     FROM alert_state s
     JOIN devices d          ON s.device_id          = d.id
-    JOIN tenants t          ON d.tenant_id           = t.id
+    JOIN companies t          ON d.company_id           = t.id
     JOIN policy_monitors pm ON s.policy_monitor_id   = pm.id
     JOIN policies p         ON pm.policy_id          = p.id
     WHERE s.id = ?

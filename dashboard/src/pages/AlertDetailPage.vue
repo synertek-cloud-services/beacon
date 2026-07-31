@@ -57,7 +57,7 @@
           </div>
           <div class="ad-row">
             <span class="ad-label">Company</span>
-            <span class="ad-val">{{ alert.tenant_name }}</span>
+            <span class="ad-val">{{ alert.company_name }}</span>
           </div>
           <div class="ad-row">
             <span class="ad-label">Policy</span>

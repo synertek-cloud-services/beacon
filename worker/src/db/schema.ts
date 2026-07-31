@@ -1,6 +1,6 @@
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const tenants = sqliteTable('tenants', {
+export const companies = sqliteTable('companies', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   autoApproveDefault: integer('auto_approve_default', { mode: 'boolean' }).notNull().default(true),
@@ -20,12 +20,12 @@ export const tenants = sqliteTable('tenants', {
 
 export const enrollmentTokens = sqliteTable('enrollment_tokens', {
   id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  companyId: text('company_id').notNull().references(() => companies.id),
   // SHA-256 of the raw token — never store raw. High-entropy random input
   // makes SHA-256 sufficient here; bcrypt/argon2 not needed.
   tokenHash: text('token_hash').notNull().unique(),
   agentType: text('agent_type', { enum: ['standard', 'discovery_probe'] }).notNull().default('standard'),
-  // Nullable — when null, inherits tenants.auto_approve_default at enrollment time.
+  // Nullable — when null, inherits companies.auto_approve_default at enrollment time.
   autoApprove: integer('auto_approve', { mode: 'boolean' }),
   maxUses: integer('max_uses'), // null = unlimited
   useCount: integer('use_count').notNull().default(0),
@@ -37,7 +37,7 @@ export const enrollmentTokens = sqliteTable('enrollment_tokens', {
 
 export const devices = sqliteTable('devices', {
   id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  companyId: text('company_id').notNull().references(() => companies.id),
   enrollmentTokenId: text('enrollment_token_id').notNull().references(() => enrollmentTokens.id),
   agentType: text('agent_type', { enum: ['standard', 'discovery_probe'] }).notNull().default('standard'),
   deviceCredentialHash: text('device_credential_hash').notNull().unique(),
@@ -54,7 +54,7 @@ export const devices = sqliteTable('devices', {
   lastSeen: integer('last_seen'),
   inventory: text('inventory'), // JSON blob — don't normalize until queries require it
   rustdeskId: text('rustdesk_id'), // populated on first on-demand install
-  // Inherits tenants.privacy_mode_default when null. Never silently overwritten.
+  // Inherits companies.privacy_mode_default when null. Never silently overwritten.
   privacyModeOverride: integer('privacy_mode_override', { mode: 'boolean' }),
   // Manually-entered — no OS/hardware API exposes OEM warranty status, so
   // there's no agent collector for this the way there is for other System
@@ -83,9 +83,9 @@ export const agentVersions = sqliteTable('agent_versions', {
   isLatest: integer('is_latest', { mode: 'boolean' }).notNull().default(false),
 });
 
-export const tenantContacts = sqliteTable('tenant_contacts', {
+export const companyContacts = sqliteTable('company_contacts', {
   id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  companyId: text('company_id').notNull().references(() => companies.id),
   name: text('name').notNull(),
   title: text('title'),
   email: text('email'),
@@ -94,9 +94,9 @@ export const tenantContacts = sqliteTable('tenant_contacts', {
   createdAt: integer('created_at').notNull(),
 });
 
-export const tenantLocations = sqliteTable('tenant_locations', {
+export const companyLocations = sqliteTable('company_locations', {
   id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  companyId: text('company_id').notNull().references(() => companies.id),
   name: text('name').notNull(),
   isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
   street: text('street'),
@@ -107,7 +107,7 @@ export const tenantLocations = sqliteTable('tenant_locations', {
   createdAt: integer('created_at').notNull(),
 });
 
-// Global, not per-company (migration 0046 dropped tenant_id) -- the hoster's
+// Global, not per-company (migration 0046 dropped what was then tenant_id) -- the hoster's
 // own team reads alerts, not the client company being monitored.
 export const webhookEndpoints = sqliteTable('webhook_endpoints', {
   id: text('id').primaryKey(),
@@ -154,7 +154,7 @@ export const policies = sqliteTable('policies', {
   // Vestigial as of migration 0032 -- superseded by policy_sites (real
   // multi-site membership). No longer read or written; same fate as
   // components.companyId after migration 0022.
-  companyId:   text('company_id').references(() => tenants.id),
+  companyId:   text('company_id').references(() => companies.id),
   enabled:     integer('enabled', { mode: 'boolean' }).notNull().default(true),
   targetOs:    text('target_os').notNull().default('["windows","linux","macos"]'),
   targetClass: text('target_class').notNull().default('["server","workstation","laptop"]'),
@@ -200,9 +200,9 @@ export const policyGroups = sqliteTable('policy_groups', {
 // composite-PK shape.
 export const policySites = sqliteTable('policy_sites', {
   policyId:  text('policy_id').notNull().references(() => policies.id, { onDelete: 'cascade' }),
-  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
-}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+}, (t) => [primaryKey({ columns: [t.policyId, t.companyId] })]);
 
 // Individual-device targeting (migration 0032) -- see policySites above for
 // the shared OR-across-three-kinds semantics.
@@ -232,7 +232,7 @@ export const alertState = sqliteTable('alert_state', {
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
   deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
-  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  companyId: text('company_id').notNull().references(() => companies.id),
   sessionType: text('session_type', { enum: ['shell', 'tcp_tunnel'] }).notNull(),
   tcpPort: integer('tcp_port'), // for tcp_tunnel
   status: text('status', { enum: ['pending', 'active', 'closed'] }).notNull().default('pending'),
@@ -246,7 +246,7 @@ export const sessions = sqliteTable('sessions', {
 export const deviceAudits = sqliteTable('device_audits', {
   id:           text('id').primaryKey(),
   deviceId:     text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
-  tenantId:     text('tenant_id').notNull().references(() => tenants.id),
+  companyId:     text('company_id').notNull().references(() => companies.id),
   auditType:    text('audit_type').notNull().default('full'),
   hardware:     text('hardware'),   // JSON blob
   software:     text('software'),   // JSON blob
@@ -285,7 +285,7 @@ export const patchApprovals = sqliteTable('patch_approvals', {
 // HTTP route (alert fire/resolve, scheduled job dispatch, patch policy
 // auto-approval/dispatch) plus login/SSO events, which have no bearer token
 // to resolve an actor from. Deliberately NO FK constraints on
-// actorId/entityId/tenantId -- this table must never cascade-delete or be
+// actorId/entityId/companyId -- this table must never cascade-delete or be
 // blocked by a delete elsewhere just because it recorded something about a
 // user/entity/site that no longer exists; actorLabel is a display-time
 // snapshot for the same "survive the referenced row's deletion" reason
@@ -305,7 +305,7 @@ export const activityLog = sqliteTable('activity_log', {
   action:     text('action').notNull(),     // human label, e.g. "Deleted device"
   entityType: text('entity_type'),          // 'device' | 'policy' | 'job' | ... -- no FK, see table comment
   entityId:   text('entity_id'),
-  tenantId:   text('tenant_id'),            // only set when unambiguous (mostly device-linked events) -- no FK, see table comment
+  companyId:   text('company_id'),            // only set when unambiguous (mostly device-linked events) -- no FK, see table comment
   method:     text('method').notNull(),     // 'POST'/'PATCH'/'DELETE'/'PUT', or 'CRON' for system events
   path:       text('path'),                 // raw request path -- debugging fallback when no lookup-table entry exists
   details:    text('details'),              // nullable JSON, room for future enrichment
@@ -314,7 +314,7 @@ export const activityLog = sqliteTable('activity_log', {
 export const deviceAuditChanges = sqliteTable('device_audit_changes', {
   id:         text('id').primaryKey(),
   deviceId:   text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
-  tenantId:   text('tenant_id').notNull().references(() => tenants.id),
+  companyId:   text('company_id').notNull().references(() => companies.id),
   auditId:    text('audit_id').notNull().references(() => deviceAudits.id, { onDelete: 'cascade' }),
   category:   text('category').notNull(),
   changeType: text('change_type').notNull(),
@@ -339,7 +339,7 @@ export const components = sqliteTable('components', {
   // Vestigial — superseded by component_sites (0022) before this ever saw
   // real usage. No longer read or written; kept only because the physical
   // column exists and D1's SQLite doesn't make DROP COLUMN worth it here.
-  companyId:      text('company_id').references(() => tenants.id),
+  companyId:      text('company_id').references(() => companies.id),
   shell:          text('shell').notNull().default('auto'),
   script:         text('script').notNull().default(''),
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
@@ -369,7 +369,7 @@ export const componentVariables = sqliteTable('component_variables', {
 export const componentSites = sqliteTable('component_sites', {
   id:          text('id').primaryKey(),
   componentId: text('component_id').notNull().references(() => components.id, { onDelete: 'cascade' }),
-  tenantId:    text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  companyId:    text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt:   integer('created_at').notNull(),
 });
 
@@ -395,7 +395,7 @@ export const ssoProviders = sqliteTable('sso_providers', {
   id:                     text('id').primaryKey(),
   type:                   text('type', { enum: ['microsoft'] }).notNull().default('microsoft'), // 'google' reserved (v2)
   name:                   text('name').notNull(),
-  directoryId:            text('directory_id').notNull(), // Entra directory (tenant) id — NOT Beacon's own `tenants`
+  directoryId:            text('directory_id').notNull(), // Entra directory (tenant) id — NOT Beacon's own `companies`
   clientId:               text('client_id').notNull(),
   clientSecretCiphertext: text('client_secret_ciphertext').notNull(), // AES-GCM ciphertext, base64
   clientSecretNonce:      text('client_secret_nonce').notNull(),      // AES-GCM 12-byte nonce, base64
@@ -469,7 +469,7 @@ export const ssoExchangeCodes = sqliteTable('sso_exchange_codes', {
 export const commands = sqliteTable('commands', {
   id:             text('id').primaryKey(),
   deviceId:       text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
-  tenantId:       text('tenant_id').notNull().references(() => tenants.id),
+  companyId:       text('company_id').notNull().references(() => companies.id),
   type:           text('type').notNull(),
   payload:        text('payload').notNull(), // JSON
   status:         text('status', { enum: ['queued', 'sent', 'completed', 'failed'] }).notNull().default('queued'),
@@ -555,9 +555,9 @@ export const dashboards = sqliteTable('dashboards', {
 
 export const dashboardSites = sqliteTable('dashboard_sites', {
   dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
-  tenantId:    text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  companyId:    text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt:   integer('created_at').notNull(),
-}, (t) => [primaryKey({ columns: [t.dashboardId, t.tenantId] })]);
+}, (t) => [primaryKey({ columns: [t.dashboardId, t.companyId] })]);
 
 export const dashboardWidgets = sqliteTable('dashboard_widgets', {
   id:          text('id').primaryKey(),
@@ -626,9 +626,9 @@ export const maintenancePolicies = sqliteTable('maintenance_policies', {
 
 export const maintenancePolicySites = sqliteTable('maintenance_policy_sites', {
   policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
-  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
-}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+}, (t) => [primaryKey({ columns: [t.policyId, t.companyId] })]);
 
 export const maintenancePolicyDevices = sqliteTable('maintenance_policy_devices', {
   policyId:  text('policy_id').notNull().references(() => maintenancePolicies.id, { onDelete: 'cascade' }),
@@ -669,9 +669,9 @@ export const patchPolicies = sqliteTable('patch_policies', {
 
 export const patchPolicySites = sqliteTable('patch_policy_sites', {
   policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
-  tenantId:  text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  companyId:  text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
-}, (t) => [primaryKey({ columns: [t.policyId, t.tenantId] })]);
+}, (t) => [primaryKey({ columns: [t.policyId, t.companyId] })]);
 
 export const patchPolicyDevices = sqliteTable('patch_policy_devices', {
   policyId:  text('policy_id').notNull().references(() => patchPolicies.id, { onDelete: 'cascade' }),
@@ -687,7 +687,7 @@ export const patchPolicyGroups = sqliteTable('patch_policy_groups', {
 
 // Host-wide singleton settings -- currently just the Maintenance-Policy
 // scheduling timezone (Datto: Setup > Account Settings > Time Zone, one
-// value for the whole account, no per-tenant override -- confirmed against
+// value for the whole account, no per-company override -- confirmed against
 // Datto's real docs and explicitly declined by the user when floated as an
 // option). Same id=1 CHECK singleton shape as emailSettings/
 // brandingSettings/brandingIdentity. A natural home for other future

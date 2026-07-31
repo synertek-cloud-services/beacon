@@ -17,7 +17,7 @@ export interface LogActivityParams {
   action: string;
   entityType?: string | null;
   entityId?: string | null;
-  tenantId?: string | null;
+  companyId?: string | null;
   method: string;
   path?: string | null;
   details?: unknown; // JSON-stringified if present
@@ -34,7 +34,7 @@ export async function logActivity(db: Db, p: LogActivityParams): Promise<void> {
     action: p.action,
     entityType: p.entityType ?? null,
     entityId: p.entityId ?? null,
-    tenantId: p.tenantId ?? null,
+    companyId: p.companyId ?? null,
     method: p.method,
     path: p.path ?? null,
     details: p.details !== undefined ? JSON.stringify(p.details) : null,
@@ -81,7 +81,7 @@ interface PrefixDefault {
 // before the bare '/v1/auth' entry) -- order here doesn't matter, matchPrefix
 // always picks the longest matching prefix itself.
 const PREFIX_DEFAULTS: PrefixDefault[] = [
-  { prefix: '/v1/admin/tenants',             category: 'Tenant',              noun: 'site',      entityType: 'tenant' },
+  { prefix: '/v1/admin/companies',             category: 'Company',             noun: 'company',    entityType: 'company' },
   { prefix: '/v1/admin/devices',              category: 'Device',              noun: 'device',     entityType: 'device' },
   { prefix: '/v1/admin/commands',             category: 'Command',             noun: 'command',    entityType: null },
   { prefix: '/v1/admin/policies',              category: 'Policy',              noun: 'policy',     entityType: 'policy' },
@@ -124,7 +124,7 @@ function humanizeSegment(seg: string): string {
 // Fallback label for any (method, routePath) not in FINE_GRAINED below. Only
 // a POST whose trailing segment is a literal action word immediately after
 // a ":param" (e.g. '/:id/approve', '/:id/publish') gets humanized directly
-// -- a POST against a bare collection root (e.g. '/v1/admin/tenants', whose
+// -- a POST against a bare collection root (e.g. '/v1/admin/companies', whose
 // trailing segment is just the collection's own name, not an action verb)
 // is treated as a create, same as a ':id'-shaped trailing segment.
 function fallbackLabel(method: string, routePath: string, noun: string): string {
@@ -150,17 +150,17 @@ interface FineGrainedEntry {
 }
 
 const FINE_GRAINED: Record<string, FineGrainedEntry> = {
-  'POST /v1/admin/tenants':                                   { action: 'Created site', entityType: 'tenant' },
-  'PATCH /v1/admin/tenants/:id':                              { action: 'Edited site', entityType: 'tenant' },
-  'POST /v1/admin/tenants/:id/contacts':                      { action: 'Added site contact', entityType: 'tenant' },
-  'PATCH /v1/admin/tenants/:id/contacts/:contactId':          { action: 'Edited site contact', entityType: 'tenant' },
-  'DELETE /v1/admin/tenants/:id/contacts/:contactId':         { action: 'Removed site contact', entityType: 'tenant' },
-  'POST /v1/admin/tenants/:id/locations':                     { action: 'Added site location', entityType: 'tenant' },
-  'PATCH /v1/admin/tenants/:id/locations/:locationId':        { action: 'Edited site location', entityType: 'tenant' },
-  'DELETE /v1/admin/tenants/:id/locations/:locationId':       { action: 'Removed site location', entityType: 'tenant' },
-  'POST /v1/admin/tenants/:id/tokens':                        { action: 'Created enrollment token', entityType: 'tenant' },
-  'DELETE /v1/admin/tenants/:id/tokens/:tokenId':              { action: 'Revoked enrollment token', entityType: 'tenant' },
-  'DELETE /v1/admin/tenants/:id/tokens/:tokenId/permanent':   { action: 'Deleted enrollment token', entityType: 'tenant' },
+  'POST /v1/admin/companies':                                   { action: 'Created company', entityType: 'company' },
+  'PATCH /v1/admin/companies/:id':                              { action: 'Edited company', entityType: 'company' },
+  'POST /v1/admin/companies/:id/contacts':                      { action: 'Added company contact', entityType: 'company' },
+  'PATCH /v1/admin/companies/:id/contacts/:contactId':          { action: 'Edited company contact', entityType: 'company' },
+  'DELETE /v1/admin/companies/:id/contacts/:contactId':         { action: 'Removed company contact', entityType: 'company' },
+  'POST /v1/admin/companies/:id/locations':                     { action: 'Added company location', entityType: 'company' },
+  'PATCH /v1/admin/companies/:id/locations/:locationId':        { action: 'Edited company location', entityType: 'company' },
+  'DELETE /v1/admin/companies/:id/locations/:locationId':       { action: 'Removed company location', entityType: 'company' },
+  'POST /v1/admin/companies/:id/tokens':                        { action: 'Created enrollment token', entityType: 'company' },
+  'DELETE /v1/admin/companies/:id/tokens/:tokenId':              { action: 'Revoked enrollment token', entityType: 'company' },
+  'DELETE /v1/admin/companies/:id/tokens/:tokenId/permanent':   { action: 'Deleted enrollment token', entityType: 'company' },
 
   'POST /v1/admin/devices/:id/approve':                       { action: 'Approved device', entityType: 'device' },
   'POST /v1/admin/devices/:id/revoke':                        { action: 'Revoked device', entityType: 'device' },
@@ -181,7 +181,7 @@ const FINE_GRAINED: Record<string, FineGrainedEntry> = {
   'PATCH /v1/admin/policies/:id/monitors/:mid':               { action: 'Edited monitor', entityType: 'policy' },
   'DELETE /v1/admin/policies/:id/monitors/:mid':              { action: 'Removed monitor', entityType: 'policy' },
   'POST /v1/admin/policies/:id/sites':                        { action: 'Added policy site target', entityType: 'policy' },
-  'DELETE /v1/admin/policies/:id/sites/:tenantId':            { action: 'Removed policy site target', entityType: 'policy' },
+  'DELETE /v1/admin/policies/:id/sites/:companyId':            { action: 'Removed policy site target', entityType: 'policy' },
   'POST /v1/admin/policies/:id/devices':                      { action: 'Added policy device target', entityType: 'policy' },
   'DELETE /v1/admin/policies/:id/devices/:deviceId':          { action: 'Removed policy device target', entityType: 'policy' },
   'POST /v1/admin/policies/:id/groups':                       { action: 'Added policy group target', entityType: 'policy' },
@@ -291,10 +291,10 @@ export async function activityLogMiddleware(c: Context<{ Bindings: Bindings; Var
 
   const db = drizzle(c.env.DB, { schema });
 
-  let tenantId: string | null = null;
+  let companyId: string | null = null;
   if (entityType === 'device' && entityId) {
-    const row = await db.select({ tenantId: schema.devices.tenantId }).from(schema.devices).where(eq(schema.devices.id, entityId)).get();
-    tenantId = row?.tenantId ?? null;
+    const row = await db.select({ companyId: schema.devices.companyId }).from(schema.devices).where(eq(schema.devices.id, entityId)).get();
+    companyId = row?.companyId ?? null;
   }
 
   // Resolved independently of the route's own auth check -- one extra cheap
@@ -312,7 +312,7 @@ export async function activityLogMiddleware(c: Context<{ Bindings: Bindings; Var
     action,
     entityType,
     entityId,
-    tenantId,
+    companyId,
     method,
     path: c.req.path,
   });

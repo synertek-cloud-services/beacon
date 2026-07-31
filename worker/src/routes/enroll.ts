@@ -29,13 +29,13 @@ enroll.post('/', async (c) => {
   if (token.expiresAt !== null && token.expiresAt < now) return c.json({ error: 'token expired' }, 401);
   if (token.maxUses !== null && token.useCount >= token.maxUses) return c.json({ error: 'token use limit reached' }, 401);
 
-  const tenant = await db.select()
-    .from(schema.tenants)
-    .where(eq(schema.tenants.id, token.tenantId))
+  const company = await db.select()
+    .from(schema.companies)
+    .where(eq(schema.companies.id, token.companyId))
     .get();
 
-  if (!tenant || tenant.status !== 'active') {
-    return c.json({ error: 'tenant not found or inactive' }, 403);
+  if (!company || company.status !== 'active') {
+    return c.json({ error: 'company not found or inactive' }, 403);
   }
 
   let body: EnrollRequest;
@@ -49,13 +49,13 @@ enroll.post('/', async (c) => {
   const deviceCredential = generateToken();
   const deviceCredentialHash = await sha256hex(deviceCredential);
 
-  // token.auto_approve takes precedence over tenant default when set
-  const autoApprove = token.autoApprove !== null ? token.autoApprove : tenant.autoApproveDefault;
+  // token.auto_approve takes precedence over company default when set
+  const autoApprove = token.autoApprove !== null ? token.autoApprove : company.autoApproveDefault;
   const status = autoApprove ? 'approved' : 'pending';
 
   await db.insert(schema.devices).values({
     id: deviceId,
-    tenantId: token.tenantId,
+    companyId: token.companyId,
     enrollmentTokenId: token.id,
     agentType: token.agentType,
     deviceCredentialHash,
@@ -76,7 +76,7 @@ enroll.post('/', async (c) => {
 
   return c.json<EnrollResponse>({
     device_id: deviceId,
-    tenant_id: token.tenantId,
+    company_id: token.companyId,
     device_credential: deviceCredential,
     status,
   });

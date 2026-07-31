@@ -164,7 +164,7 @@
             <div class="ddev-grid">
               <div class="ddev-section">
                 <div class="ddev-section-title">System</div>
-                <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ device.tenantName ?? '—' }}</span></div>
+                <div class="ddev-row"><span class="ddev-label">Company</span><span class="text-sm">{{ device.companyName ?? '—' }}</span></div>
                 <div class="ddev-row">
                   <span class="ddev-label">Class</span>
                   <span class="text-sm">
@@ -848,7 +848,7 @@
     <RemoteShellModal
       v-if="remoteShellOpen && device"
       :device-id="device.id"
-      :tenant-id="device.tenantId"
+      :company-id="device.companyId"
       :hostname="device.hostname"
       @close="remoteShellOpen = false"
     />
@@ -1706,7 +1706,7 @@ async function openQuickJob() {
   if (libraryComponents.value.length === 0) {
     libraryLoading.value = true;
     loads.push(
-      api.components.list(device.value?.tenantId)
+      api.components.list(device.value?.companyId)
         .then(c => { libraryComponents.value = c; })
         .finally(() => { libraryLoading.value = false; })
     );

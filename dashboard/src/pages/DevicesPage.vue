@@ -18,7 +18,7 @@
 
     <div class="section-card">
       <div class="section-card-head" style="padding:8px 16px;border-top:none;border-bottom:none" v-if="activeCompany">
-        <span class="text-xs text-muted-2">Filtered by company: <strong>{{ tenants.find(t => t.id === activeCompany)?.name ?? activeCompany }}</strong></span>
+        <span class="text-xs text-muted-2">Filtered by company: <strong>{{ companies.find(t => t.id === activeCompany)?.name ?? activeCompany }}</strong></span>
       </div>
 
       <!-- Toolbar: always rendered so checking a box doesn't shift the table -->
@@ -112,7 +112,7 @@
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
               </span>
             </td>
-            <td class="text-muted-2 text-sm">{{ d.tenantName ?? '—' }}</td>
+            <td class="text-muted-2 text-sm">{{ d.companyName ?? '—' }}</td>
             <td class="text-muted-2 text-sm">{{ osShortLabel(d) }}</td>
             <td class="text-muted-2 text-sm">{{ effectiveClass(d) ?? '—' }}</td>
             <td class="mono text-xs text-muted-2">{{ d.agentVersion ?? '—' }}</td>
@@ -241,12 +241,12 @@
 <script setup lang="ts">
 import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
-import { api, type Device, type Tenant, type DeviceGroup } from '../api';
+import { api, type Device, type Company, type DeviceGroup } from '../api';
 
 const route      = useRoute();
 const router     = useRouter();
 const devices    = ref<Device[]>([]);
-const tenants    = ref<Tenant[]>([]);
+const companies    = ref<Company[]>([]);
 const loading    = ref(true);
 const error      = ref('');
 const busy       = ref<string | null>(null);
@@ -452,7 +452,7 @@ const classTabs = [
 const now = ref(Math.floor(Date.now() / 1000));
 
 const companyDevices = computed(() =>
-  activeCompany.value ? devices.value.filter(d => d.tenantId === activeCompany.value) : devices.value
+  activeCompany.value ? devices.value.filter(d => d.companyId === activeCompany.value) : devices.value
 );
 
 const visibleDevices = computed(() => {
@@ -463,7 +463,7 @@ const visibleDevices = computed(() => {
     const q = searchQuery.value;
     list = list.filter(d =>
       (d.hostname ?? '').toLowerCase().includes(q) ||
-      (d.tenantName ?? '').toLowerCase().includes(q)
+      (d.companyName ?? '').toLowerCase().includes(q)
     );
   }
   return list;
@@ -533,12 +533,12 @@ async function load() {
   loading.value = devices.value.length === 0;
   error.value = '';
   try {
-    const [devList, tenantList] = await Promise.all([
+    const [devList, companyList] = await Promise.all([
       api.devices.list(),
-      tenants.value.length ? Promise.resolve(tenants.value) : api.tenants.list(),
+      companies.value.length ? Promise.resolve(companies.value) : api.companies.list(),
     ]);
     devices.value = devList;
-    tenants.value = tenantList;
+    companies.value = companyList;
   } catch (e: any) {
     error.value = e.message;
   } finally {

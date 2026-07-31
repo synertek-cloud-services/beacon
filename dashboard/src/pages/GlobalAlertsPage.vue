@@ -116,7 +116,7 @@
               <td class="td-message">
                 <span class="msg-link">{{ alertMessage(a) }}</span>
               </td>
-              <td class="td-company">{{ a.tenant_name }}</td>
+              <td class="td-company">{{ a.company_name }}</td>
               <td class="td-hostname">
                 <router-link v-if="a.device_id" :to="'/devices/' + a.device_id" @click.stop>{{ a.hostname ?? '—' }}</router-link>
                 <template v-else>{{ a.hostname ?? '—' }}</template>
@@ -146,13 +146,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type AlertState, type Tenant } from '../api';
+import { api, type AlertState, type Company } from '../api';
 
 const route  = useRoute();
 const router = useRouter();
 
 const allAlerts    = ref<AlertState[]>([]);
-const tenants      = ref<Tenant[]>([]);
+const companies      = ref<Company[]>([]);
 const loading      = ref(true);
 const resolving    = ref(false);
 const statusFilter = ref<'active' | 'all'>('active');
@@ -167,19 +167,19 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 const companyId   = computed(() => route.query.company as string | undefined);
 const companyName = computed(() =>
-  tenants.value.find(t => t.id === companyId.value)?.name ?? companyId.value ?? ''
+  companies.value.find(t => t.id === companyId.value)?.name ?? companyId.value ?? ''
 );
 
 async function load() {
   loading.value = true;
   selected.value.clear();
   try {
-    const [alerts, tenantList] = await Promise.all([
+    const [alerts, companyList] = await Promise.all([
       api.alerts.list(statusFilter.value, searchQuery.value, companyId.value ?? ''),
-      tenants.value.length ? Promise.resolve(tenants.value) : api.tenants.list(),
+      companies.value.length ? Promise.resolve(companies.value) : api.companies.list(),
     ]);
     allAlerts.value = alerts;
-    tenants.value   = tenantList;
+    companies.value   = companyList;
   } catch {
     allAlerts.value = [];
   } finally {

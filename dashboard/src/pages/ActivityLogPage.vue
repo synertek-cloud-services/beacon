@@ -24,9 +24,9 @@
         </div>
         <div class="al-pill-group">
           <span class="al-filter-tag">Site</span>
-          <select v-model="tenantFilter" class="page-size-select">
+          <select v-model="companyFilter" class="page-size-select">
             <option value="">All</option>
-            <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
+            <option v-for="t in companies" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
         </div>
         <div class="al-pill-group">
@@ -72,7 +72,7 @@
               <td class="text-sm">{{ actorDisplay(row) }}</td>
               <td><span class="al-cat-badge">{{ row.category }}</span></td>
               <td class="td-action">{{ row.action }}</td>
-              <td class="text-xs text-muted-2">{{ tenantName(row.tenantId) }}</td>
+              <td class="text-xs text-muted-2">{{ companyName(row.companyId) }}</td>
               <td>
                 <RouterLink v-if="entityLink(row)" :to="entityLink(row)!" class="al-entity-link">
                   {{ row.entityType }} · {{ row.entityId!.slice(0, 8) }}
@@ -108,7 +108,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { api, type ActivityLogEntry, type Tenant } from '../api';
+import { api, type ActivityLogEntry, type Company } from '../api';
 
 // Mirrors worker/src/lib/activityLog.ts's PREFIX_DEFAULTS/FINE_GRAINED
 // category set -- kept as a plain sorted list here rather than fetched from
@@ -117,24 +117,24 @@ const CATEGORIES = [
   'Agent Version', 'Alert', 'Auth', 'Branding', 'Command', 'Component', 'Custom Field',
   'Dashboard', 'Device', 'Device Group', 'Email Settings', 'Job', 'Maintenance Policy',
   'Notification Email', 'Patch', 'Patch Policy', 'Policy', 'Remote Session', 'Settings',
-  'SSO', 'Tenant', 'User', 'Webhook',
+  'SSO', 'Company', 'User', 'Webhook',
 ].sort();
 
 const rows    = ref<ActivityLogEntry[]>([]);
 const total   = ref(0);
 const loading = ref(true);
-const tenants = ref<Tenant[]>([]);
+const companies = ref<Company[]>([]);
 
 const categoryFilter = ref('');
-const tenantFilter   = ref('');
+const companyFilter   = ref('');
 const dateRangeDays  = ref(30);
 const currentPage    = ref(1);
 const pageSize       = ref(50);
 
-const isDefaultFilters = computed(() => !categoryFilter.value && !tenantFilter.value && dateRangeDays.value === 30);
+const isDefaultFilters = computed(() => !categoryFilter.value && !companyFilter.value && dateRangeDays.value === 30);
 function resetFilters() {
   categoryFilter.value = '';
-  tenantFilter.value   = '';
+  companyFilter.value   = '';
   dateRangeDays.value  = 30;
 }
 
@@ -144,7 +144,7 @@ async function load() {
     const from = dateRangeDays.value === 0 ? undefined : Math.floor(Date.now() / 1000) - dateRangeDays.value * 86400;
     const res = await api.activityLog.list({
       category:  categoryFilter.value || undefined,
-      tenant_id: tenantFilter.value || undefined,
+      company_id: companyFilter.value || undefined,
       from,
       limit:  pageSize.value,
       offset: (currentPage.value - 1) * pageSize.value,
@@ -161,13 +161,13 @@ async function load() {
 
 onMounted(() => {
   load();
-  api.tenants.list().then(t => { tenants.value = t; }).catch(() => { tenants.value = []; });
+  api.companies.list().then(t => { companies.value = t; }).catch(() => { companies.value = []; });
 });
 
 // Filter changes re-query the server and reset to page 1 -- unlike every
 // other list page in this app, rows aren't pre-loaded client-side, so a
 // filter change is a real new fetch, not a computed() re-slice.
-watch([categoryFilter, tenantFilter, dateRangeDays], () => { currentPage.value = 1; load(); });
+watch([categoryFilter, companyFilter, dateRangeDays], () => { currentPage.value = 1; load(); });
 watch([currentPage, pageSize], load);
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
@@ -206,7 +206,7 @@ const ENTITY_ROUTES: Record<string, (id: string) => string> = {
   patchPolicy:        (id) => `/global/patch-policies/${id}`,
   maintenancePolicy:  (id) => `/global/maintenance-policies/${id}`,
   alert:              (id) => `/global/alerts/${id}`,
-  tenant:             (id) => `/devices?company=${id}`,
+  company:            (id) => `/devices?company=${id}`,
 };
 function entityLink(row: ActivityLogEntry): string | null {
   if (!row.entityType || !row.entityId) return null;
@@ -214,9 +214,9 @@ function entityLink(row: ActivityLogEntry): string | null {
   return fn ? fn(row.entityId) : null;
 }
 
-function tenantName(id: string | null): string {
+function companyName(id: string | null): string {
   if (!id) return '—';
-  return tenants.value.find(t => t.id === id)?.name ?? id.slice(0, 8);
+  return companies.value.find(t => t.id === id)?.name ?? id.slice(0, 8);
 }
 
 function actorDisplay(row: ActivityLogEntry): string {

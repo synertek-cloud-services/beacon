@@ -2,7 +2,7 @@
   <div>
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <!-- Tenant list -->
+    <!-- Company list -->
     <div class="section-card">
       <div class="section-card-head">
         <span class="section-card-title">Companies</span>
@@ -10,7 +10,7 @@
       </div>
 
       <div v-if="loading" class="empty"><p class="empty-sub">Loading…</p></div>
-      <div v-else-if="tenants.length === 0" class="empty">
+      <div v-else-if="companies.length === 0" class="empty">
         <div class="empty-title">No companies yet</div>
         <p class="empty-sub">Create a company to start enrolling devices.</p>
       </div>
@@ -27,9 +27,9 @@
           </tr>
         </thead>
         <tbody>
-          <template v-for="t in tenants" :key="t.id">
+          <template v-for="t in companies" :key="t.id">
             <tr
-              class="tenant-row"
+              class="company-row"
               style="cursor:pointer"
               @click="router.push({ path: '/devices', query: { company: t.id } })"
             >
@@ -89,7 +89,7 @@
                   <div v-if="expandedTab === 'contacts'">
                     <div v-if="contacts.length === 0" class="empty">
                       <div class="empty-title">No contacts</div>
-                      <p class="empty-sub">Add a contact to track who to reach for this tenant.</p>
+                      <p class="empty-sub">Add a contact to track who to reach for this company.</p>
                     </div>
                     <div v-else class="item-list">
                       <div v-for="ct in contacts" :key="ct.id" class="item-card">
@@ -115,7 +115,7 @@
                   <div v-if="expandedTab === 'locations'">
                     <div v-if="locations.length === 0" class="empty">
                       <div class="empty-title">No locations</div>
-                      <p class="empty-sub">Add an office or site location for this tenant.</p>
+                      <p class="empty-sub">Add an office or site location for this company.</p>
                     </div>
                     <div v-else class="item-list">
                       <div v-for="loc in locations" :key="loc.id" class="item-card">
@@ -154,7 +154,7 @@
                       <tbody>
                         <tr v-for="tok in tokens" :key="tok.id">
                           <td class="mono text-xs text-muted-2">{{ tok.id.slice(0, 8) }}…</td>
-                          <td class="text-sm text-muted-2">{{ tok.autoApprove === null ? 'Tenant default' : tok.autoApprove ? 'Yes' : 'No' }}</td>
+                          <td class="text-sm text-muted-2">{{ tok.autoApprove === null ? 'Company default' : tok.autoApprove ? 'Yes' : 'No' }}</td>
                           <td class="mono text-sm">{{ tok.useCount }}{{ tok.maxUses != null ? ` / ${tok.maxUses}` : '' }}</td>
                           <td class="text-sm text-muted-2">{{ tok.expiresAt ? dateLabel(tok.expiresAt) : 'Never' }}</td>
                           <td>
@@ -179,7 +179,7 @@
       </table>
     </div>
 
-    <!-- ── Create / Edit tenant modal ── -->
+    <!-- ── Create / Edit company modal ── -->
     <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
       <div class="modal modal-lg">
         <div class="modal-head">
@@ -200,7 +200,7 @@
           </div>
           <div class="field">
             <label>Notes</label>
-            <textarea v-model="form.notes" placeholder="Internal notes about this tenant…" rows="2"></textarea>
+            <textarea v-model="form.notes" placeholder="Internal notes about this company…" rows="2"></textarea>
           </div>
 
           <!-- Primary Contact — only shown on create -->
@@ -347,7 +347,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Install Beacon Agent</div>
-            <div class="text-xs text-muted-2" style="margin-top:2px">{{ installModal.tenantName }}</div>
+            <div class="text-xs text-muted-2" style="margin-top:2px">{{ installModal.companyName }}</div>
           </div>
           <button class="modal-close" @click="installModal = null" aria-label="Close">✕</button>
         </div>
@@ -453,12 +453,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type Tenant, type TenantContact, type TenantLocation, type EnrollmentToken, type Address } from '../api';
+import { api, type Company, type CompanyContact, type CompanyLocation, type EnrollmentToken, type Address } from '../api';
 import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
 const router  = useRouter();
-const tenants = ref<Tenant[]>([]);
+const companies = ref<Company[]>([]);
 const loading = ref(true);
 const error   = ref('');
 const nowSec  = Math.floor(Date.now() / 1000);
@@ -467,12 +467,12 @@ const nowSec  = Math.floor(Date.now() / 1000);
 const expandedId      = ref<string | null>(null);
 const expandedTab     = ref<'contacts' | 'locations' | 'tokens'>('contacts');
 const expandedLoading = ref(false);
-const contacts        = ref<TenantContact[]>([]);
-const locations       = ref<TenantLocation[]>([]);
+const contacts        = ref<CompanyContact[]>([]);
+const locations       = ref<CompanyLocation[]>([]);
 const tokens          = ref<EnrollmentToken[]>([]);
-const expandedTenant  = computed(() => tenants.value.find(t => t.id === expandedId.value));
+const expandedCompany  = computed(() => companies.value.find(t => t.id === expandedId.value));
 
-// Tenant create/edit form
+// Company create/edit form
 const showForm   = ref(false);
 const editingId  = ref<string | null>(null);
 const submitting = ref(false);
@@ -486,13 +486,13 @@ const blankForm = () => ({
 const form = ref(blankForm());
 
 // Contact modal
-const contactModal      = ref({ open: false, editing: null as TenantContact | null });
+const contactModal      = ref({ open: false, editing: null as CompanyContact | null });
 const contactForm       = ref({ name: '', title: '', email: '', phone: '', isPrimary: false });
 const contactError      = ref('');
 const contactSubmitting = ref(false);
 
 // Location modal
-const locationModal      = ref({ open: false, editing: null as TenantLocation | null });
+const locationModal      = ref({ open: false, editing: null as CompanyLocation | null });
 const locationForm       = ref({ name: '', isPrimary: false, address: { street: '', city: '', state: '', zip: '', country: '' } as Address });
 const locationError      = ref('');
 const locationSubmitting = ref(false);
@@ -504,7 +504,7 @@ const tokenError    = ref('');
 const tokenForm     = ref({ maxUses: null as number | null, expiresInDays: null as number | null });
 
 // Install modal
-interface InstallCtx { token: string; tenantName: string }
+interface InstallCtx { token: string; companyName: string }
 const installModal = ref<InstallCtx | null>(null);
 const installOS    = ref<'windows' | 'linux' | 'darwin'>('windows');
 const installArch  = ref<'amd64' | 'arm64'>('amd64');
@@ -535,7 +535,7 @@ const oneLiner = computed(() => {
 // ── Load ─────────────────────────────────────────────────────
 async function load() {
   try {
-    tenants.value = await api.tenants.list();
+    companies.value = await api.companies.list();
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -554,9 +554,9 @@ async function toggleExpanded(id: string) {
   tokens.value = [];
   try {
     const [c, l, t] = await Promise.all([
-      api.tenants.contacts.list(id),
-      api.tenants.locations.list(id),
-      api.tenants.tokens.list(id),
+      api.companies.contacts.list(id),
+      api.companies.locations.list(id),
+      api.companies.tokens.list(id),
     ]);
     contacts.value = c;
     locations.value = l;
@@ -566,9 +566,9 @@ async function toggleExpanded(id: string) {
   }
 }
 
-// ── Tenant CRUD ───────────────────────────────────────────────
-async function setStatus(t: Tenant, status: 'active' | 'suspended') {
-  await api.tenants.update(t.id, { status });
+// ── Company CRUD ───────────────────────────────────────────────
+async function setStatus(t: Company, status: 'active' | 'suspended') {
+  await api.companies.update(t.id, { status });
   t.status = status;
 }
 
@@ -579,7 +579,7 @@ function openCreate() {
   showForm.value = true;
 }
 
-function openEdit(t: Tenant) {
+function openEdit(t: Company) {
   editingId.value = t.id;
   form.value = {
     name: t.name,
@@ -602,17 +602,17 @@ async function submitForm() {
 
   try {
     if (editingId.value) {
-      await api.tenants.update(editingId.value, {
+      await api.companies.update(editingId.value, {
         name: form.value.name.trim(),
         auto_approve_default: form.value.autoApprove,
         privacy_mode_default: form.value.privacyMode,
         website: form.value.website || null,
         notes:   form.value.notes   || null,
       });
-      const idx = tenants.value.findIndex(t => t.id === editingId.value);
+      const idx = companies.value.findIndex(t => t.id === editingId.value);
       if (idx !== -1) {
-        tenants.value[idx] = {
-          ...tenants.value[idx],
+        companies.value[idx] = {
+          ...companies.value[idx],
           name: form.value.name.trim(),
           autoApproveDefault: form.value.autoApprove,
           privacyModeDefault: form.value.privacyMode,
@@ -621,7 +621,7 @@ async function submitForm() {
         };
       }
     } else {
-      const t = await api.tenants.create({
+      const t = await api.companies.create({
         name: form.value.name.trim(),
         auto_approve_default: form.value.autoApprove,
         privacy_mode_default: form.value.privacyMode,
@@ -631,7 +631,7 @@ async function submitForm() {
         contact_email: form.value.contactEmail || null,
         contact_phone: form.value.contactPhone || null,
       });
-      tenants.value.push(t);
+      companies.value.push(t);
     }
     showForm.value = false;
   } catch (e: any) {
@@ -648,7 +648,7 @@ function openContactCreate() {
   contactError.value = '';
 }
 
-function openContactEdit(ct: TenantContact) {
+function openContactEdit(ct: CompanyContact) {
   contactModal.value = { open: true, editing: ct };
   contactForm.value  = { name: ct.name, title: ct.title ?? '', email: ct.email ?? '', phone: ct.phone ?? '', isPrimary: ct.isPrimary };
   contactError.value = '';
@@ -667,11 +667,11 @@ async function submitContact() {
       is_primary: contactForm.value.isPrimary,
     };
     if (contactModal.value.editing) {
-      await api.tenants.contacts.update(expandedId.value!, contactModal.value.editing.id, body);
+      await api.companies.contacts.update(expandedId.value!, contactModal.value.editing.id, body);
     } else {
-      await api.tenants.contacts.create(expandedId.value!, body);
+      await api.companies.contacts.create(expandedId.value!, body);
     }
-    contacts.value = await api.tenants.contacts.list(expandedId.value!);
+    contacts.value = await api.companies.contacts.list(expandedId.value!);
     syncPrimaryContact();
     contactModal.value.open = false;
   } catch (e: any) {
@@ -683,17 +683,17 @@ async function submitContact() {
 
 async function deleteContact(contactId: string) {
   if (!expandedId.value) return;
-  await api.tenants.contacts.delete(expandedId.value, contactId);
+  await api.companies.contacts.delete(expandedId.value, contactId);
   contacts.value = contacts.value.filter(c => c.id !== contactId);
   syncPrimaryContact();
 }
 
 function syncPrimaryContact() {
-  const tenant = tenants.value.find(t => t.id === expandedId.value);
-  if (!tenant) return;
+  const company = companies.value.find(t => t.id === expandedId.value);
+  if (!company) return;
   const primary = contacts.value.find(c => c.isPrimary);
-  tenant.primaryContactName  = primary?.name  ?? null;
-  tenant.primaryContactEmail = primary?.email ?? null;
+  company.primaryContactName  = primary?.name  ?? null;
+  company.primaryContactEmail = primary?.email ?? null;
 }
 
 // ── Location CRUD ─────────────────────────────────────────────
@@ -703,7 +703,7 @@ function openLocationCreate() {
   locationError.value = '';
 }
 
-function openLocationEdit(loc: TenantLocation) {
+function openLocationEdit(loc: CompanyLocation) {
   locationModal.value = { open: true, editing: loc };
   locationForm.value  = {
     name: loc.name,
@@ -728,11 +728,11 @@ async function submitLocation() {
       country:    locationForm.value.address.country || null,
     };
     if (locationModal.value.editing) {
-      await api.tenants.locations.update(expandedId.value!, locationModal.value.editing.id, body);
+      await api.companies.locations.update(expandedId.value!, locationModal.value.editing.id, body);
     } else {
-      await api.tenants.locations.create(expandedId.value!, body);
+      await api.companies.locations.create(expandedId.value!, body);
     }
-    locations.value = await api.tenants.locations.list(expandedId.value!);
+    locations.value = await api.companies.locations.list(expandedId.value!);
     locationModal.value.open = false;
   } catch (e: any) {
     locationError.value = e.message;
@@ -743,7 +743,7 @@ async function submitLocation() {
 
 async function deleteLocation(locationId: string) {
   if (!expandedId.value) return;
-  await api.tenants.locations.delete(expandedId.value, locationId);
+  await api.companies.locations.delete(expandedId.value, locationId);
   locations.value = locations.value.filter(l => l.id !== locationId);
 }
 
@@ -753,17 +753,17 @@ async function submitToken() {
   creatingToken.value = true;
   tokenError.value = '';
   try {
-    const result = await api.tenants.tokens.create(expandedId.value, {
+    const result = await api.companies.tokens.create(expandedId.value, {
       max_uses:        tokenForm.value.maxUses || null,
       expires_in_days: tokenForm.value.expiresInDays || null,
     });
     showTokenForm.value = false;
-    installModal.value  = { token: result.raw_token, tenantName: expandedTenant.value?.name ?? '' };
+    installModal.value  = { token: result.raw_token, companyName: expandedCompany.value?.name ?? '' };
     installOS.value     = 'windows';
     installArch.value   = 'amd64';
     copiedField.value   = '';
     tokenForm.value     = { maxUses: null, expiresInDays: null };
-    tokens.value        = await api.tenants.tokens.list(expandedId.value);
+    tokens.value        = await api.companies.tokens.list(expandedId.value);
   } catch (e: any) {
     tokenError.value = e.message;
   } finally {
@@ -773,14 +773,14 @@ async function submitToken() {
 
 async function revokeToken(tokenId: string) {
   if (!expandedId.value) return;
-  await api.tenants.tokens.revoke(expandedId.value, tokenId);
+  await api.companies.tokens.revoke(expandedId.value, tokenId);
   const tok = tokens.value.find(t => t.id === tokenId);
   if (tok) tok.revokedAt = nowSec;
 }
 
 async function deleteToken(tokenId: string) {
   if (!expandedId.value) return;
-  await api.tenants.tokens.delete(expandedId.value, tokenId);
+  await api.companies.tokens.delete(expandedId.value, tokenId);
   tokens.value = tokens.value.filter(t => t.id !== tokenId);
 }
 
@@ -800,7 +800,7 @@ const phoneValid = computed(() => {
   return digits.length >= 7;
 });
 
-function addressLine(loc: TenantLocation): string {
+function addressLine(loc: CompanyLocation): string {
   const parts = [
     loc.street,
     loc.city,
@@ -819,7 +819,7 @@ onMounted(load);
 
 <style scoped>
 /* ── Inline row expansion ── */
-.tenant-row-active td {
+.company-row-active td {
   background: rgba(78,126,247,.05);
   border-bottom: none;
 }

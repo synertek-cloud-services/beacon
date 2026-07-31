@@ -352,7 +352,7 @@ The `<input>` is visually hidden (`display: none`) — the entire `<label>` is t
 
 Used when CPU threshold ≥ 95% to warn about 100% CPU reliability.
 
-**Note**: `.field-hint` is defined per-component (scoped styles), not globally — it exists independently in `PolicyFormPage.vue`, `GlobalPoliciesPage.vue`, and `TenantsPage.vue`. Adding it to a new component that doesn't already have it needs its own copy of the CSS rule (`display:block; font-size:11px; color:var(--color-text-muted); margin-top:6px;`), not just the class name — Vue scoped styles don't leak across components.
+**Note**: `.field-hint` is defined per-component (scoped styles), not globally — it exists independently in `PolicyFormPage.vue`, `GlobalPoliciesPage.vue`, and `CompaniesPage.vue`. Adding it to a new component that doesn't already have it needs its own copy of the CSS rule (`display:block; font-size:11px; color:var(--color-text-muted); margin-top:6px;`), not just the class name — Vue scoped styles don't leak across components.
 
 ## Optional-condition checkbox (checkbox toggles between a value and `null`)
 

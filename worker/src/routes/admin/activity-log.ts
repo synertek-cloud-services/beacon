@@ -29,7 +29,7 @@ adminActivityLog.get('/', async (c) => {
   const q = c.req.query();
 
   const conditions: SQL[] = [];
-  if (q.tenant_id)   conditions.push(eq(schema.activityLog.tenantId, q.tenant_id));
+  if (q.company_id)   conditions.push(eq(schema.activityLog.companyId, q.company_id));
   if (q.actor_id)    conditions.push(eq(schema.activityLog.actorId, q.actor_id));
   if (q.category)    conditions.push(eq(schema.activityLog.category, q.category));
   if (q.entity_type) conditions.push(eq(schema.activityLog.entityType, q.entity_type));

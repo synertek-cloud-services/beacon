@@ -85,7 +85,7 @@ async function listWithTargets(db: ReturnType<typeof drizzle<typeof schema>>) {
 
   return policiesList.map(p => ({
     ...p,
-    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.tenantId),
+    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.companyId),
     deviceIds: devices.filter(d => d.policyId === p.id).map(d => d.deviceId),
     groupIds:  groups.filter(g => g.policyId === p.id).map(g => g.groupId),
   }));
@@ -253,12 +253,12 @@ patchPolicies.get('/:id/sites', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(
-    `SELECT pps.tenant_id, t.name FROM patch_policy_sites pps
-     JOIN tenants t ON t.id = pps.tenant_id
+    `SELECT pps.company_id, t.name FROM patch_policy_sites pps
+     JOIN companies t ON t.id = pps.company_id
      WHERE pps.policy_id = ? ORDER BY t.name ASC`
-  ).bind(c.req.param('id')).all<{ tenant_id: string; name: string }>();
+  ).bind(c.req.param('id')).all<{ company_id: string; name: string }>();
 
-  return c.json(result.results.map(r => ({ tenantId: r.tenant_id, name: r.name })));
+  return c.json(result.results.map(r => ({ companyId: r.company_id, name: r.name })));
 });
 
 patchPolicies.post('/:id/sites', async (c) => {
@@ -267,26 +267,26 @@ patchPolicies.post('/:id/sites', async (c) => {
   const policyId = c.req.param('id');
   const now = Math.floor(Date.now() / 1000);
 
-  const body = await c.req.json<{ tenant_id?: string }>();
-  if (!body.tenant_id) return c.json({ error: 'tenant_id is required' }, 400);
+  const body = await c.req.json<{ company_id?: string }>();
+  if (!body.company_id) return c.json({ error: 'company_id is required' }, 400);
 
-  const tenant = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ?`).bind(body.tenant_id).first();
-  if (!tenant) return c.json({ error: 'site not found' }, 404);
+  const company = await c.env.DB.prepare(`SELECT id FROM companies WHERE id = ?`).bind(body.company_id).first();
+  if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO patch_policy_sites (policy_id, tenant_id, created_at) VALUES (?, ?, ?)`
-  ).bind(policyId, body.tenant_id, now).run();
+    `INSERT OR IGNORE INTO patch_policy_sites (policy_id, company_id, created_at) VALUES (?, ?, ?)`
+  ).bind(policyId, body.company_id, now).run();
 
   return c.json({ ok: true }, 201);
 });
 
-patchPolicies.delete('/:id/sites/:tenantId', async (c) => {
+patchPolicies.delete('/:id/sites/:companyId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
   await c.env.DB.prepare(
-    `DELETE FROM patch_policy_sites WHERE policy_id = ? AND tenant_id = ?`
-  ).bind(c.req.param('id'), c.req.param('tenantId')).run();
+    `DELETE FROM patch_policy_sites WHERE policy_id = ? AND company_id = ?`
+  ).bind(c.req.param('id'), c.req.param('companyId')).run();
 
   return c.json({ ok: true });
 });
@@ -297,13 +297,13 @@ patchPolicies.get('/:id/devices', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(
-    `SELECT ppd.device_id, d.hostname, t.name AS tenant_name FROM patch_policy_devices ppd
+    `SELECT ppd.device_id, d.hostname, t.name AS company_name FROM patch_policy_devices ppd
      JOIN devices d ON d.id = ppd.device_id
-     JOIN tenants t ON t.id = d.tenant_id
+     JOIN companies t ON t.id = d.company_id
      WHERE ppd.policy_id = ? ORDER BY d.hostname ASC`
-  ).bind(c.req.param('id')).all<{ device_id: string; hostname: string | null; tenant_name: string }>();
+  ).bind(c.req.param('id')).all<{ device_id: string; hostname: string | null; company_name: string }>();
 
-  return c.json(result.results.map(r => ({ deviceId: r.device_id, hostname: r.hostname, tenantName: r.tenant_name })));
+  return c.json(result.results.map(r => ({ deviceId: r.device_id, hostname: r.hostname, companyName: r.company_name })));
 });
 
 patchPolicies.post('/:id/devices', async (c) => {

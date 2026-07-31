@@ -19,7 +19,7 @@ function uid(): string {
 // technician, not admin-only.
 
 // GET / — list groups with member_count and device_ids (via group_concat,
-// same subquery convention as tenants.ts's device_count) -- deviceIds lets
+// same subquery convention as companies.ts's device_count) -- deviceIds lets
 // JobFormPage's target flyout compute an accurate deduped device count
 // across multiple selected groups without an extra request per group.
 adminGroups.get('/', async (c) => {
@@ -125,15 +125,15 @@ adminGroups.delete('/:id', async (c) => {
 adminGroups.get('/:id/members', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const result = await c.env.DB.prepare(`
-    SELECT d.id AS device_id, d.hostname, t.name AS tenant_name
+    SELECT d.id AS device_id, d.hostname, t.name AS company_name
     FROM device_group_members m
     JOIN devices d ON d.id = m.device_id
-    JOIN tenants t ON t.id = d.tenant_id
+    JOIN companies t ON t.id = d.company_id
     WHERE m.group_id = ?
     ORDER BY d.hostname ASC
-  `).bind(c.req.param('id')).all<{ device_id: string; hostname: string | null; tenant_name: string }>();
+  `).bind(c.req.param('id')).all<{ device_id: string; hostname: string | null; company_name: string }>();
 
-  return c.json(result.results.map(r => ({ deviceId: r.device_id, hostname: r.hostname, tenantName: r.tenant_name })));
+  return c.json(result.results.map(r => ({ deviceId: r.device_id, hostname: r.hostname, companyName: r.company_name })));
 });
 
 adminGroups.post('/:id/members', async (c) => {

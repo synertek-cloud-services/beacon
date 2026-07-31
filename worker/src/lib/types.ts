@@ -17,7 +17,7 @@ export interface EnrollRequest {
 
 export interface EnrollResponse {
   device_id: string;
-  tenant_id: string;
+  company_id: string;
   device_credential: string;
   status: 'pending' | 'approved';
 }
@@ -26,7 +26,7 @@ export interface EnrollResponse {
 
 export interface CheckInRequest {
   device_id: string;
-  tenant_id: string;
+  company_id: string;
   timestamp: number;
   agent_version: string;
   metrics: Metrics;

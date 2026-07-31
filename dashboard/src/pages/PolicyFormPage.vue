@@ -164,7 +164,7 @@
                 <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
                   <div class="tf-row-info" style="flex:1">
                     <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
-                    <span class="tf-row-sub">{{ d.tenantName }}</span>
+                    <span class="tf-row-sub">{{ d.companyName }}</span>
                   </div>
                   <button v-if="!isTargeted('device', d.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">Add</button>
                   <span v-else class="tf-check" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})" title="Click to remove">
@@ -524,7 +524,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type CheckType, type AlertPriority, type Tenant, type Device, type DeviceGroup } from '../api';
+import { api, type CheckType, type AlertPriority, type Company, type Device, type DeviceGroup } from '../api';
 
 const router = useRouter();
 const route  = useRoute();
@@ -536,7 +536,7 @@ const loading   = ref(false);
 const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
-const tenants   = ref<Tenant[]>([]);
+const companies   = ref<Company[]>([]);
 const devices   = ref<Device[]>([]);
 const fieldErr  = reactive({ name: '' });
 
@@ -559,7 +559,7 @@ const groups           = ref<DeviceGroup[]>([]);
 
 const flyoutSiteMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
-  return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
+  return companies.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
 
 const flyoutDeviceMatches = computed(() => {
@@ -567,7 +567,7 @@ const flyoutDeviceMatches = computed(() => {
   return devices.value.filter(d =>
     !q ||
     (d.hostname ?? '').toLowerCase().includes(q) ||
-    (d.tenantName ?? '').toLowerCase().includes(q)
+    (d.companyName ?? '').toLowerCase().includes(q)
   );
 });
 
@@ -950,17 +950,17 @@ async function doDeleteMonitor(index: number) {
 // ── Load ──
 
 onMounted(async () => {
-  try { tenants.value = await api.tenants.list(); } catch { /* ok */ }
+  try { companies.value = await api.companies.list(); } catch { /* ok */ }
   try { devices.value = await api.devices.list(); } catch { /* ok */ }
   try { groups.value  = await api.groups.list(); } catch { /* ok */ }
 
   // Arriving from a company's Policies page ("Acme" → Create Policy) --
-  // pre-seed a single Site target for that company, once tenants have
+  // pre-seed a single Site target for that company, once companies have
   // loaded (name resolution needs the fetched list above).
   if (isNew.value) {
     const companyId = route.query.company_id as string | undefined;
     if (companyId) {
-      const t = tenants.value.find(t => t.id === companyId);
+      const t = companies.value.find(t => t.id === companyId);
       if (t) targetItems.value.push({ kind: 'site', id: t.id, name: t.name });
     }
   }
@@ -979,7 +979,7 @@ onMounted(async () => {
           api.policies.groups.list(policyId.value),
         ]);
         targetItems.value = [
-          ...sites.map(s => ({ kind: 'site' as const, id: s.tenantId, name: s.name })),
+          ...sites.map(s => ({ kind: 'site' as const, id: s.companyId, name: s.name })),
           ...devs.map(d => ({ kind: 'device' as const, id: d.deviceId, hostname: d.hostname ?? d.deviceId.slice(0, 8) })),
           ...grps.map(g => ({ kind: 'group' as const, id: g.groupId, name: g.name })),
         ];

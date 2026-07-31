@@ -36,8 +36,8 @@ checkin.post('/', async (c) => {
     return c.json({ error: 'invalid request body' }, 400);
   }
 
-  if (body.device_id !== device.id || body.tenant_id !== device.tenantId) {
-    return c.json({ error: 'device_id or tenant_id mismatch' }, 403);
+  if (body.device_id !== device.id || body.company_id !== device.companyId) {
+    return c.json({ error: 'device_id or company_id mismatch' }, 403);
   }
 
   // detected_class is always recomputed from agent signals — never touches override_class

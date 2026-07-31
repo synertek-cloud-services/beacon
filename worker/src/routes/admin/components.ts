@@ -37,7 +37,7 @@ function mapRow(r: any) {
 }
 
 function mapSite(r: any) {
-  return { tenantId: r.tenant_id, name: r.name };
+  return { companyId: r.company_id, name: r.name };
 }
 
 function mapVariable(r: any) {
@@ -75,8 +75,8 @@ async function embedRelations(db: D1Database, rows: any[]) {
   }
 
   const sites = await db.prepare(
-    `SELECT cs.component_id, cs.tenant_id, t.name FROM component_sites cs
-     JOIN tenants t ON t.id = cs.tenant_id
+    `SELECT cs.component_id, cs.company_id, t.name FROM component_sites cs
+     JOIN companies t ON t.id = cs.company_id
      WHERE cs.component_id IN (${placeholders}) ORDER BY t.name ASC`
   ).bind(...ids).all<any>();
   const sitesByComponent = new Map<string, ReturnType<typeof mapSite>[]>();
@@ -127,7 +127,7 @@ adminComponents.get('/', async (c) => {
 
   const result = companyId
     ? await c.env.DB.prepare(
-        `SELECT * FROM components WHERE scope = 'global' OR id IN (SELECT component_id FROM component_sites WHERE tenant_id = ?) ORDER BY name ASC`
+        `SELECT * FROM components WHERE scope = 'global' OR id IN (SELECT component_id FROM component_sites WHERE company_id = ?) ORDER BY name ASC`
       ).bind(companyId).all<any>()
     : await c.env.DB.prepare(`SELECT * FROM components ORDER BY name ASC`).all<any>();
 
@@ -288,13 +288,13 @@ adminComponents.post('/:id/clone', async (c) => {
   }
 
   const sourceSites = await c.env.DB.prepare(
-    `SELECT tenant_id FROM component_sites WHERE component_id = ?`
+    `SELECT company_id FROM component_sites WHERE component_id = ?`
   ).bind(sourceId).all<any>();
 
   for (const s of sourceSites.results) {
     await c.env.DB.prepare(`
-      INSERT INTO component_sites (id, component_id, tenant_id, created_at) VALUES (?, ?, ?, ?)
-    `).bind(uid(), newId, s.tenant_id, now).run();
+      INSERT INTO component_sites (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)
+    `).bind(uid(), newId, s.company_id, now).run();
   }
 
   const row = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(newId).first<any>();
@@ -308,8 +308,8 @@ adminComponents.post('/:id/clone', async (c) => {
 adminComponents.get('/:id/sites', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const result = await c.env.DB.prepare(
-    `SELECT cs.tenant_id, t.name FROM component_sites cs
-     JOIN tenants t ON t.id = cs.tenant_id
+    `SELECT cs.company_id, t.name FROM component_sites cs
+     JOIN companies t ON t.id = cs.company_id
      WHERE cs.component_id = ? ORDER BY t.name ASC`
   ).bind(c.req.param('id')).all<any>();
   return c.json(result.results.map(mapSite));
@@ -323,20 +323,20 @@ adminComponents.post('/:id/sites', async (c) => {
   if (!component) return c.json({ error: 'component not found' }, 404);
   if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
 
-  const body = await c.req.json<{ tenant_id: string }>();
-  if (!body.tenant_id) return c.json({ error: 'tenant_id required' }, 400);
+  const body = await c.req.json<{ company_id: string }>();
+  if (!body.company_id) return c.json({ error: 'company_id required' }, 400);
 
-  const tenant = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ?`).bind(body.tenant_id).first<any>();
-  if (!tenant) return c.json({ error: 'site not found' }, 404);
+  const company = await c.env.DB.prepare(`SELECT id FROM companies WHERE id = ?`).bind(body.company_id).first<any>();
+  if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO component_sites (id, component_id, tenant_id, created_at) VALUES (?, ?, ?, ?)`
-  ).bind(uid(), componentId, body.tenant_id, Math.floor(Date.now() / 1000)).run();
+    `INSERT OR IGNORE INTO component_sites (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)`
+  ).bind(uid(), componentId, body.company_id, Math.floor(Date.now() / 1000)).run();
 
   return c.json({ ok: true }, 201);
 });
 
-adminComponents.delete('/:id/sites/:tenantId', async (c) => {
+adminComponents.delete('/:id/sites/:companyId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const componentId = c.req.param('id');
 
@@ -345,8 +345,8 @@ adminComponents.delete('/:id/sites/:tenantId', async (c) => {
   if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
 
   await c.env.DB.prepare(
-    `DELETE FROM component_sites WHERE component_id = ? AND tenant_id = ?`
-  ).bind(componentId, c.req.param('tenantId')).run();
+    `DELETE FROM component_sites WHERE component_id = ? AND company_id = ?`
+  ).bind(componentId, c.req.param('companyId')).run();
   return c.json({ ok: true });
 });
 

@@ -277,7 +277,7 @@
             <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
               <div class="tf-row-info" style="flex:1">
                 <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
-                <span class="tf-row-sub">{{ d.tenantName }}</span>
+                <span class="tf-row-sub">{{ d.companyName }}</span>
               </div>
               <button v-if="!isTargeted('device', d.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">Add</button>
               <span v-else class="tf-check" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})" title="Click to remove">
@@ -312,7 +312,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Component, type ComponentRef, type Tenant, type Device, type DeviceGroup } from '../api';
+import { api, type Component, type ComponentRef, type Company, type Device, type DeviceGroup } from '../api';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 
 const router = useRouter();
@@ -327,7 +327,7 @@ const formError   = ref('');
 
 const library      = ref<Component[]>([]);
 const storeLibrary = ref<Component[]>([]);
-const tenants      = ref<Tenant[]>([]);
+const companies      = ref<Company[]>([]);
 const devices      = ref<Device[]>([]);
 
 // ── Components ────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ const groups           = ref<DeviceGroup[]>([]);
 
 const flyoutSiteMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
-  return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
+  return companies.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
 
 const flyoutDeviceMatches = computed(() => {
@@ -402,7 +402,7 @@ const flyoutDeviceMatches = computed(() => {
   return devices.value.filter(d =>
     !q ||
     (d.hostname ?? '').toLowerCase().includes(q) ||
-    (d.tenantName ?? '').toLowerCase().includes(q)
+    (d.companyName ?? '').toLowerCase().includes(q)
   );
 });
 
@@ -456,7 +456,7 @@ const resolvedDeviceCount = computed<number | null>(() => {
   if (first.kind === 'all') return devices.value.length;
   if (first.kind === 'company') {
     const ids = new Set(targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id));
-    return devices.value.filter(d => ids.has(d.tenantId)).length;
+    return devices.value.filter(d => ids.has(d.companyId)).length;
   }
   if (first.kind === 'group') {
     const groupIds = new Set(targetItems.value.filter(t => t.kind === 'group').map(t => (t as any).id));
@@ -506,12 +506,12 @@ async function submit() {
   formError.value = '';
   try {
     const first = targetItems.value[0];
-    const target_type: 'all' | 'tenants' | 'devices' | 'group' =
-      first.kind === 'company' ? 'tenants' :
+    const target_type: 'all' | 'companies' | 'devices' | 'group' =
+      first.kind === 'company' ? 'companies' :
       first.kind === 'device'  ? 'devices' :
       first.kind === 'group'   ? 'group' : 'all';
     const target_ids =
-      target_type === 'tenants' ? targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id) :
+      target_type === 'companies' ? targetItems.value.filter(t => t.kind === 'company').map(t => (t as any).id) :
       target_type === 'devices' ? targetItems.value.filter(t => t.kind === 'device').map(t => (t as any).id) :
       target_type === 'group'   ? targetItems.value.filter(t => t.kind === 'group').map(t => (t as any).id) :
       [];
@@ -543,16 +543,16 @@ async function submit() {
 }
 
 onMounted(async () => {
-  const [comps, storeComps, tenantList, deviceList, groupList] = await Promise.all([
+  const [comps, storeComps, companyList, deviceList, groupList] = await Promise.all([
     api.components.list(),
     api.components.store.list(),
-    api.tenants.list(),
+    api.companies.list(),
     api.devices.list('approved'),
     api.groups.list(),
   ]);
   library.value      = comps;
   storeLibrary.value = storeComps;
-  tenants.value = tenantList;
+  companies.value = companyList;
   devices.value = deviceList;
   groups.value  = groupList;
 

@@ -11,7 +11,7 @@
     <template v-else-if="type === 'recent_alerts'">
       <div class="widget-title">{{ title || 'Recent Alerts' }} <RouterLink v-if="!editing" to="/global/alerts">View all →</RouterLink></div>
       <div class="widget-table-wrap"><table class="widget-table"><thead><tr><th>Created</th><th>Priority</th><th>Category</th><th>Message</th><th>Company</th><th>Hostname</th></tr></thead>
-        <tbody><tr v-for="alert in recentAlerts" :key="alert.id" @click="router.push('/global/alerts/' + alert.id)"><td class="mono">{{ formatDate(alert.alerted_at) }}</td><td><span class="pri-badge" :class="`pri-${alert.priority}`">{{ alert.priority }}</span></td><td>{{ categoryLabel(alert.check_type) }}</td><td>{{ alertMessage(alert) }}</td><td>{{ alert.tenant_name }}</td><td><RouterLink :to="'/devices/' + alert.device_id" @click.stop>{{ alert.hostname ?? '—' }}</RouterLink></td></tr>
+        <tbody><tr v-for="alert in recentAlerts" :key="alert.id" @click="router.push('/global/alerts/' + alert.id)"><td class="mono">{{ formatDate(alert.alerted_at) }}</td><td><span class="pri-badge" :class="`pri-${alert.priority}`">{{ alert.priority }}</span></td><td>{{ categoryLabel(alert.check_type) }}</td><td>{{ alertMessage(alert) }}</td><td>{{ alert.company_name }}</td><td><RouterLink :to="'/devices/' + alert.device_id" @click.stop>{{ alert.hostname ?? '—' }}</RouterLink></td></tr>
           <tr v-if="!recentAlerts.length"><td colspan="6" class="empty-cell">No recent alerts</td></tr></tbody></table></div>
     </template>
     <template v-else>

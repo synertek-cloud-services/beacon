@@ -89,10 +89,10 @@
             <div v-if="selectedSites.length === 0" class="pf-mon-empty">
               <p>Select which Sites to add to this Component.</p>
             </div>
-            <div v-else v-for="s in selectedSites" :key="s.tenantId" class="pf-mon-row">
+            <div v-else v-for="s in selectedSites" :key="s.companyId" class="pf-mon-row">
               <span class="pf-mon-desc">{{ s.name }}</span>
               <div class="pf-mon-actions">
-                <button class="btn-text danger" @click="removeSite(s.tenantId)">Remove</button>
+                <button class="btn-text danger" @click="removeSite(s.companyId)">Remove</button>
               </div>
             </div>
           </div>
@@ -273,7 +273,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Component, type ComponentSite, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Tenant, type CustomField } from '../api';
+import { api, type Component, type ComponentSite, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Company, type CustomField } from '../api';
 
 const router = useRouter();
 const route  = useRoute();
@@ -288,7 +288,7 @@ const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
 const isStore   = ref(false);
-const tenants   = ref<Tenant[]>([]);
+const companies   = ref<Company[]>([]);
 const customFieldsList = ref<CustomField[]>([]);
 const availableCfKeys  = computed(() => customFieldsList.value.filter(f => f.key).map(f => f.key));
 const fieldErr  = reactive({ name: '', sites: '', script: '' });
@@ -311,35 +311,35 @@ const siteFlyoutQuery = ref('');
 
 const siteFlyoutMatches = computed(() => {
   const q = siteFlyoutQuery.value.trim().toLowerCase();
-  const list = q ? tenants.value.filter(t => t.name.toLowerCase().includes(q)) : tenants.value;
+  const list = q ? companies.value.filter(t => t.name.toLowerCase().includes(q)) : companies.value;
   return list.slice(0, 50);
 });
 
-function isSiteSelected(tenantId: string): boolean {
-  return selectedSites.value.some(s => s.tenantId === tenantId);
+function isSiteSelected(companyId: string): boolean {
+  return selectedSites.value.some(s => s.companyId === companyId);
 }
 
-async function addSite(t: Tenant) {
+async function addSite(t: Company) {
   if (isSiteSelected(t.id)) return;
   if (!isNew.value && componentId.value) {
     try { await api.components.sites.add(componentId.value, t.id); }
     catch (e: any) { saveError.value = e.message; return; }
   }
-  selectedSites.value.push({ tenantId: t.id, name: t.name });
+  selectedSites.value.push({ companyId: t.id, name: t.name });
 }
 
-async function removeSite(tenantId: string) {
+async function removeSite(companyId: string) {
   if (!isNew.value && componentId.value) {
-    try { await api.components.sites.remove(componentId.value, tenantId); }
+    try { await api.components.sites.remove(componentId.value, companyId); }
     catch (e: any) { saveError.value = e.message; return; }
   }
-  selectedSites.value = selectedSites.value.filter(s => s.tenantId !== tenantId);
+  selectedSites.value = selectedSites.value.filter(s => s.companyId !== companyId);
 }
 
 async function removeAllSites() {
   if (!isNew.value && componentId.value) {
     for (const s of selectedSites.value) {
-      try { await api.components.sites.remove(componentId.value, s.tenantId); } catch { /* best-effort, continue clearing locally */ }
+      try { await api.components.sites.remove(componentId.value, s.companyId); } catch { /* best-effort, continue clearing locally */ }
     }
   }
   selectedSites.value = [];
@@ -465,7 +465,7 @@ function addPostCondition() {
 // ── Load ──
 
 onMounted(async () => {
-  try { tenants.value = await api.tenants.list(); } catch { /* ok */ }
+  try { companies.value = await api.companies.list(); } catch { /* ok */ }
   try { customFieldsList.value = await api.customFields.list(); } catch { /* ok */ }
 
   if (!isNew.value && componentId.value) {
@@ -528,7 +528,7 @@ async function save() {
         });
       }
       for (const s of selectedSites.value) {
-        await api.components.sites.add(created.id, s.tenantId);
+        await api.components.sites.add(created.id, s.companyId);
       }
     } else if (componentId.value) {
       await api.components.update(componentId.value, {
