@@ -164,10 +164,14 @@
       <div class="pf-group">
         <label class="pf-label">Execution</label>
         <div class="seg-bar">
-          <button class="seg-btn active">Run as system account</button>
-          <button class="seg-btn" disabled title="Not supported yet — the agent has no Windows user-impersonation support.">Run as a logged in user</button>
+          <button :class="['seg-btn', { active: runAsSystem }]" @click="runAsSystem = true">Run as system account</button>
+          <button :class="['seg-btn', { active: !runAsSystem }]" @click="runAsSystem = false">Run as a logged in user</button>
         </div>
-        <p class="field-hint">Running as the logged-in user isn't supported yet — every job runs under the system account.</p>
+        <p class="field-hint">
+          "Run as a logged in user" only works on Windows devices with an active console session (RDP/RDS
+          sessions and headless servers don't count). A device without a logged-in user, or a non-Windows
+          device, reports this job as failed rather than silently running as system instead.
+        </p>
       </div>
 
     </div>
@@ -470,6 +474,11 @@ const recurrence       = ref<Recurrence>('immediately');
 const scheduledAtLocal = ref('');
 const expirationChoice = ref<'none' | '3600' | '14400' | '86400'>('none');
 
+// ── Execution ─────────────────────────────────────────────────────
+// Windows-only, console-session-only in v1 -- see CLAUDE.md's Components/
+// Job System section for the full scope writeup.
+const runAsSystem = ref(true);
+
 // ── Submit ────────────────────────────────────────────────────────
 
 function validate(): string | null {
@@ -523,7 +532,7 @@ async function submit() {
       target_ids,
       scheduled_at,
       expires_at,
-      run_as_system: true,
+      run_as_system: runAsSystem.value,
     });
     router.push('/jobs');
   } catch (e: any) {

@@ -19,6 +19,56 @@ type runScriptPayload struct {
 	Script         string            `json:"script"`
 	TimeoutSeconds int               `json:"timeout_seconds"`
 	Variables      map[string]string `json:"variables,omitempty"`
+	// RunAsSystem is a pointer, not a bool: an absent JSON field (every
+	// caller that predates this option -- Quick Job, a direct single-device
+	// POST /commands) must default to true/system, matching jobs.run_as_system's
+	// own DB default. A plain bool's zero value would silently flip those
+	// callers to run-as-user instead.
+	RunAsSystem *bool `json:"run_as_system,omitempty"`
+}
+
+func (p runScriptPayload) runAsSystem() bool {
+	return p.RunAsSystem == nil || *p.RunAsSystem
+}
+
+func (p runScriptPayload) timeout() time.Duration {
+	t := time.Duration(p.TimeoutSeconds) * time.Second
+	if t <= 0 {
+		return defaultScriptTimeout
+	}
+	return t
+}
+
+// writeTempScript writes content to a fresh temp file with the extension
+// matching shell, returning its path. Shared between the SYSTEM-context path
+// (runScript) and the Windows run-as-user path (runScriptAsUser), which
+// wraps content in a redirect block before calling this.
+func writeTempScript(shell, content string) (string, error) {
+	ext := ".sh"
+	if shell == "powershell" {
+		ext = ".ps1"
+	}
+	tmp, err := os.CreateTemp("", "beacon-*"+ext)
+	if err != nil {
+		return "", err
+	}
+	defer tmp.Close()
+
+	// Windows PowerShell 5.1 has no reliable way to detect a BOM-less script's
+	// encoding and falls back to the system codepage, not UTF-8 -- any
+	// non-ASCII byte (smart quotes, em/en dashes, accented characters) gets
+	// silently misdecoded, which can corrupt string literals and break
+	// parsing entirely (a real bug hit via the seeded "Restart Agent"
+	// ComStore component's em dash). A UTF-8 BOM makes Windows PowerShell
+	// interpret the file as UTF-8 unambiguously. bash/sh scripts need no
+	// equivalent -- they're UTF-8 by default with no BOM detection quirk.
+	if shell == "powershell" {
+		content = "\ufeff" + content
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		return "", err
+	}
+	return tmp.Name(), nil
 }
 
 // Execute runs a command and returns its result. Unknown types are silently
@@ -41,40 +91,23 @@ func runScript(cmd protocol.Command) protocol.CommandResult {
 		return result
 	}
 
-	timeout := time.Duration(p.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = defaultScriptTimeout
+	// run_as_system: false hands off to the platform-specific run-as-user
+	// path (real on Windows via agent/internal/usersession, a clear-failure
+	// stub everywhere else) -- the build tags on runScriptAsUser's two
+	// implementations are the actual platform gate, not a runtime GOOS
+	// check here.
+	if !p.runAsSystem() {
+		return runScriptAsUser(cmd, p)
 	}
 
-	// Write to a temp file so multi-line scripts work without quoting issues
-	ext := ".sh"
-	if p.Shell == "powershell" {
-		ext = ".ps1"
-	}
-	tmp, err := os.CreateTemp("", "beacon-*"+ext)
+	timeout := p.timeout()
+
+	tmpPath, err := writeTempScript(p.Shell, p.Script)
 	if err != nil {
 		result.Stderr = fmt.Sprintf("temp file: %v", err)
 		return result
 	}
-	defer os.Remove(tmp.Name())
-
-	// Windows PowerShell 5.1 has no reliable way to detect a BOM-less script's
-	// encoding and falls back to the system codepage, not UTF-8 -- any
-	// non-ASCII byte (smart quotes, em/en dashes, accented characters) gets
-	// silently misdecoded, which can corrupt string literals and break
-	// parsing entirely (a real bug hit via the seeded "Restart Agent"
-	// ComStore component's em dash). A UTF-8 BOM makes Windows PowerShell
-	// interpret the file as UTF-8 unambiguously. bash/sh scripts need no
-	// equivalent -- they're UTF-8 by default with no BOM detection quirk.
-	content := p.Script
-	if p.Shell == "powershell" {
-		content = "\ufeff" + content
-	}
-	if _, err := tmp.WriteString(content); err != nil {
-		result.Stderr = fmt.Sprintf("writing script: %v", err)
-		return result
-	}
-	tmp.Close()
+	defer os.Remove(tmpPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -82,11 +115,11 @@ func runScript(cmd protocol.Command) protocol.CommandResult {
 	var shellCmd *exec.Cmd
 	switch p.Shell {
 	case "powershell":
-		shellCmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-File", tmp.Name())
+		shellCmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-File", tmpPath)
 	case "bash":
-		shellCmd = exec.CommandContext(ctx, "bash", tmp.Name())
+		shellCmd = exec.CommandContext(ctx, "bash", tmpPath)
 	default: // "sh" and anything else
-		shellCmd = exec.CommandContext(ctx, "sh", tmp.Name())
+		shellCmd = exec.CommandContext(ctx, "sh", tmpPath)
 	}
 
 	if len(p.Variables) > 0 {
