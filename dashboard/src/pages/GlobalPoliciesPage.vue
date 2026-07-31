@@ -151,7 +151,7 @@
             <label class="field-label">Target Company</label>
             <select v-model="overrideModal.companyId" class="field-input">
               <option value="">Select a company…</option>
-              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option>
+              <option v-for="t in companies" :key="t.id" :value="t.id">{{ t.name }}</option>
             </select>
           </div>
           <p class="override-hint">
@@ -179,7 +179,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Policy, type PolicyMonitor, type CheckType, type Tenant } from '../api';
+import { api, type Policy, type PolicyMonitor, type CheckType, type Company } from '../api';
 
 const route  = useRoute();
 const router = useRouter();
@@ -189,7 +189,7 @@ const loading         = ref(true);
 const loadingCompany  = ref(false);
 const globalPolicies  = ref<Policy[]>([]);
 const companyPolicies = ref<Policy[]>([]);
-const tenants         = ref<Tenant[]>([]);
+const companies         = ref<Company[]>([]);
 const expanded        = reactive<Record<string, boolean>>({});
 const selectedIds     = ref(new Set<string>());
 const companyFilter   = ref('');
@@ -205,7 +205,7 @@ const headerCbRef     = ref<HTMLInputElement | null>(null);
 const companyMode    = computed(() => !!route.query.company);
 const companyIdParam = computed(() => route.query.company as string | undefined);
 const companyName    = computed(() =>
-  companyIdParam.value ? (tenants.value.find(t => t.id === companyIdParam.value)?.name ?? companyIdParam.value) : ''
+  companyIdParam.value ? (companies.value.find(t => t.id === companyIdParam.value)?.name ?? companyIdParam.value) : ''
 );
 
 const effectivePolicies = computed(() =>
@@ -220,7 +220,7 @@ const displayedPolicies = computed(() => {
   if (!companyFilter.value.trim()) return companyPolicies.value;
   const q = companyFilter.value.trim().toLowerCase();
   return companyPolicies.value.filter(p =>
-    (p.siteIds ?? []).some(id => tenantName(id).toLowerCase().includes(q))
+    (p.siteIds ?? []).some(id => companyNameFor(id).toLowerCase().includes(q))
   );
 });
 
@@ -258,12 +258,12 @@ watch(someSelected, val => {
 async function load() {
   loading.value = true;
   try {
-    const [globals, tenantList] = await Promise.all([
+    const [globals, companyList] = await Promise.all([
       api.policies.list({ scope: 'global' }),
-      api.tenants.list(),
+      api.companies.list(),
     ]);
     globalPolicies.value = globals;
-    tenants.value        = tenantList;
+    companies.value        = companyList;
   } catch {
     globalPolicies.value = [];
   } finally {
@@ -438,14 +438,14 @@ function targetSummary(policy: Policy): string {
 function siteSummary(policy: Policy): string {
   const ids = policy.siteIds ?? [];
   if (ids.length === 0) return '—';
-  const names = ids.map(id => tenantName(id));
+  const names = ids.map(id => companyNameFor(id));
   if (names.length <= 2) return names.join(', ');
   return `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
 }
 
-function tenantName(id: string | null): string {
+function companyNameFor(id: string | null): string {
   if (!id) return '—';
-  return tenants.value.find(t => t.id === id)?.name ?? id;
+  return companies.value.find(t => t.id === id)?.name ?? id;
 }
 
 function formatDate(ts: number): string {

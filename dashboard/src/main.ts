@@ -8,7 +8,7 @@ import DashboardPage from './pages/DashboardPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import DeviceDetailPage from './pages/DeviceDetailPage.vue';
 import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
-import TenantsPage from './pages/TenantsPage.vue';
+import CompaniesPage from './pages/CompaniesPage.vue';
 import JobsPage from './pages/JobsPage.vue';
 import JobFormPage from './pages/JobFormPage.vue';
 import JobDetailPage from './pages/JobDetailPage.vue';
@@ -60,7 +60,7 @@ const router = createRouter({
     { path: '/groups', component: GroupsPage },
     { path: '/groups/new', component: GroupFormPage },
     { path: '/groups/:id', component: GroupFormPage },
-    { path: '/tenants', component: TenantsPage },
+    { path: '/companies', component: CompaniesPage },
     { path: '/jobs', component: JobsPage },
     { path: '/jobs/new', component: JobFormPage },
     { path: '/jobs/:id', component: JobDetailPage },

@@ -42,7 +42,7 @@
           </svg>
         </div>
         <div v-show="openSections.sites" class="sec-body">
-          <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
+          <RouterLink to="/companies" class="sbi" :class="{ active: route.path.startsWith('/companies') }">All Companies</RouterLink>
           <template v-if="activeClientId">
             <div class="client-row">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
@@ -180,7 +180,7 @@
       </template>
 
       <template v-if="openFlyout === 'sites'">
-        <RouterLink to="/tenants" class="sbi" :class="{ active: route.path.startsWith('/tenants') }">All Companies</RouterLink>
+        <RouterLink to="/companies" class="sbi" :class="{ active: route.path.startsWith('/companies') }">All Companies</RouterLink>
         <template v-if="activeClientId">
           <div class="client-row">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="client-icon">
@@ -299,7 +299,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Dashboard, type Tenant } from './api';
+import { api, type Dashboard, type Company } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import { brandState } from './brand';
 
@@ -322,7 +322,7 @@ const router = useRouter();
 const isLogin   = computed(() => route.path === '/login' || route.path === '/sso-callback');
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
-const companies      = ref<Tenant[]>([]);
+const companies      = ref<Company[]>([]);
 const dashboards     = ref<Dashboard[]>([]);
 const activeClientId = ref<string | null>(null);
 
@@ -407,7 +407,7 @@ const companyMatches = computed(() => {
   return companies.value.filter(c => c.name.toLowerCase().includes(q)).slice(0, 6);
 });
 
-function selectCompany(c: Tenant) {
+function selectCompany(c: Company) {
   activeClientId.value = c.id;
   searchQuery.value = '';
   showDropdown.value = false;
@@ -451,8 +451,8 @@ let pendingTimer: ReturnType<typeof setInterval>;
 async function loadAppData() {
   if (!api.hasToken()) return;
   try {
-    const [tenantList, summary, dashboardList] = await Promise.all([api.tenants.list(), api.summary.get(), api.dashboards.list()]);
-    companies.value = tenantList;
+    const [companyList, summary, dashboardList] = await Promise.all([api.companies.list(), api.summary.get(), api.dashboards.list()]);
+    companies.value = companyList;
     pendingCount.value = summary.pending;
     dashboards.value = dashboardList;
   } catch {}
@@ -509,7 +509,7 @@ const pageTitle = computed(() => {
   if (route.path === '/') return 'Dashboard';
   if (route.path.startsWith('/groups')) return 'Device Groups';
   if (route.path.startsWith('/devices')) return 'Devices';
-  if (route.path.startsWith('/tenants')) return 'Companies';
+  if (route.path.startsWith('/companies')) return 'Companies';
   if (route.path.startsWith('/components')) return 'Component Library';
   if (route.path.startsWith('/jobs')) return 'Jobs';
   if (route.path === '/global/alerts') return 'Global Alerts';

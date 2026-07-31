@@ -19,13 +19,13 @@ Data flow: agents enroll against the Worker API, then check in once a minute wit
 
 ## Features
 
-- **Device enrollment & approval** — token-based enrollment, per-tenant auto-approve or manual review
+- **Device enrollment & approval** — token-based enrollment, per-company auto-approve or manual review
 - **Policy-based monitoring** — global or per-company policies, each made of one or more monitors (disk space, CPU/memory usage, antivirus health, device online/offline, file size, ping reachability/latency/packet-loss, process state, Windows service state, software install/uninstall/version-change)
 - **Alerting** — sustained-condition debounce, auto-resolve, webhook notification
 - **Remote shell & TCP tunnel sessions** — browser-based, no agent-side listening port
 - **Scripted automation** — a reusable script/component library, dispatched as one-off or scheduled jobs across a device selection
 - **Inventory auditing** — full hardware/software/services snapshot on enrollment, every 24h, or on demand
-- **Multi-tenant** — companies, contacts, locations, per-tenant defaults
+- **Multi-company** — companies, contacts, locations, per-company defaults
 
 ## Quick start (self-hosting)
 
@@ -132,7 +132,7 @@ make build-agent-linux     # dist/agent-linux-amd64
 make build-agent-darwin    # dist/agent-darwin-arm64
 ```
 
-The agent needs the Worker's enrollment endpoint URL and a per-tenant enrollment token (create one from the dashboard's Companies page) at first run.
+The agent needs the Worker's enrollment endpoint URL and a per-company enrollment token (create one from the dashboard's Companies page) at first run.
 
 ## Database migrations
 

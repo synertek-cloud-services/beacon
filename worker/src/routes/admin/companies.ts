@@ -6,26 +6,26 @@ import * as schema from '../../db/schema';
 import { sha256hex, generateToken } from '../../lib/crypto';
 import { requireUser, type Role } from '../../lib/auth';
 
-const adminTenants = new Hono<{ Bindings: Bindings }>();
+const adminCompanies = new Hono<{ Bindings: Bindings }>();
 
 function auth(c: any, minRole: Role = 'readonly') {
   return requireUser(c.req.header('Authorization'), c.env, minRole);
 }
 
-// ── Tenants ───────────────────────────────────────────────────
+// ── Companies ───────────────────────────────────────────────────
 
-// GET / — list tenants with device counts and primary contact via subqueries
-adminTenants.get('/', async (c) => {
+// GET / — list companies with device counts and primary contact via subqueries
+adminCompanies.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(`
     SELECT
       t.id, t.name, t.auto_approve_default, t.privacy_mode_default, t.status,
       t.created_at, t.website, t.notes,
-      (SELECT count(*) FROM devices WHERE tenant_id = t.id) AS device_count,
-      (SELECT name  FROM tenant_contacts WHERE tenant_id = t.id AND is_primary = 1 LIMIT 1) AS primary_contact_name,
-      (SELECT email FROM tenant_contacts WHERE tenant_id = t.id AND is_primary = 1 LIMIT 1) AS primary_contact_email
-    FROM tenants t
+      (SELECT count(*) FROM devices WHERE company_id = t.id) AS device_count,
+      (SELECT name  FROM company_contacts WHERE company_id = t.id AND is_primary = 1 LIMIT 1) AS primary_contact_name,
+      (SELECT email FROM company_contacts WHERE company_id = t.id AND is_primary = 1 LIMIT 1) AS primary_contact_email
+    FROM companies t
     ORDER BY t.created_at ASC
   `).all<{
     id: string; name: string; auto_approve_default: number; privacy_mode_default: number;
@@ -48,8 +48,8 @@ adminTenants.get('/', async (c) => {
   })));
 });
 
-// POST / — create tenant + optional initial contact
-adminTenants.post('/', async (c) => {
+// POST / — create company + optional initial contact
+adminCompanies.post('/', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
@@ -68,7 +68,7 @@ adminTenants.post('/', async (c) => {
   if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400);
 
   const id = crypto.randomUUID();
-  await db.insert(schema.tenants).values({
+  await db.insert(schema.companies).values({
     id,
     name: body.name.trim(),
     autoApproveDefault: body.auto_approve_default ?? true,
@@ -79,9 +79,9 @@ adminTenants.post('/', async (c) => {
   });
 
   if (body.contact_name?.trim()) {
-    await db.insert(schema.tenantContacts).values({
+    await db.insert(schema.companyContacts).values({
       id: crypto.randomUUID(),
-      tenantId: id,
+      companyId: id,
       name: body.contact_name.trim(),
       email: body.contact_email || null,
       phone: body.contact_phone || null,
@@ -90,9 +90,9 @@ adminTenants.post('/', async (c) => {
     });
   }
 
-  const tenant = await db.select().from(schema.tenants).where(eq(schema.tenants.id, id)).get();
+  const company = await db.select().from(schema.companies).where(eq(schema.companies.id, id)).get();
   return c.json({
-    ...tenant,
+    ...company,
     deviceCount: 0,
     primaryContactName: body.contact_name?.trim() || null,
     primaryContactEmail: body.contact_email || null,
@@ -100,7 +100,7 @@ adminTenants.post('/', async (c) => {
 });
 
 // PATCH /:id — update company info and settings
-adminTenants.patch('/:id', async (c) => {
+adminCompanies.patch('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
@@ -113,7 +113,7 @@ adminTenants.patch('/:id', async (c) => {
     notes?: string | null;
   }>();
 
-  const updates: Partial<typeof schema.tenants.$inferInsert> = {};
+  const updates: Partial<typeof schema.companies.$inferInsert> = {};
   if (body.name !== undefined)                 updates.name = body.name.trim();
   if (body.auto_approve_default !== undefined) updates.autoApproveDefault = body.auto_approve_default;
   if (body.privacy_mode_default !== undefined) updates.privacyModeDefault = body.privacy_mode_default;
@@ -123,30 +123,30 @@ adminTenants.patch('/:id', async (c) => {
 
   if (Object.keys(updates).length === 0) return c.json({ error: 'nothing to update' }, 400);
 
-  await db.update(schema.tenants).set(updates).where(eq(schema.tenants.id, c.req.param('id')));
+  await db.update(schema.companies).set(updates).where(eq(schema.companies.id, c.req.param('id')));
   return c.json({ ok: true });
 });
 
 // ── Contacts ──────────────────────────────────────────────────
 
-adminTenants.get('/:id/contacts', async (c) => {
+adminCompanies.get('/:id/contacts', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const contacts = await db
     .select()
-    .from(schema.tenantContacts)
-    .where(eq(schema.tenantContacts.tenantId, c.req.param('id')))
+    .from(schema.companyContacts)
+    .where(eq(schema.companyContacts.companyId, c.req.param('id')))
     .all();
 
   return c.json(contacts);
 });
 
-adminTenants.post('/:id/contacts', async (c) => {
+adminCompanies.post('/:id/contacts', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
-  const tenantId = c.req.param('id');
+  const companyId = c.req.param('id');
 
   const body = await c.req.json<{
     name: string;
@@ -159,15 +159,15 @@ adminTenants.post('/:id/contacts', async (c) => {
   if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400);
 
   if (body.is_primary) {
-    await db.update(schema.tenantContacts)
+    await db.update(schema.companyContacts)
       .set({ isPrimary: false })
-      .where(eq(schema.tenantContacts.tenantId, tenantId));
+      .where(eq(schema.companyContacts.companyId, companyId));
   }
 
   const id = crypto.randomUUID();
-  await db.insert(schema.tenantContacts).values({
+  await db.insert(schema.companyContacts).values({
     id,
-    tenantId,
+    companyId,
     name: body.name.trim(),
     title: body.title || null,
     email: body.email || null,
@@ -176,14 +176,14 @@ adminTenants.post('/:id/contacts', async (c) => {
     createdAt: now,
   });
 
-  const contact = await db.select().from(schema.tenantContacts).where(eq(schema.tenantContacts.id, id)).get();
+  const contact = await db.select().from(schema.companyContacts).where(eq(schema.companyContacts.id, id)).get();
   return c.json(contact, 201);
 });
 
-adminTenants.patch('/:id/contacts/:contactId', async (c) => {
+adminCompanies.patch('/:id/contacts/:contactId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
-  const tenantId = c.req.param('id');
+  const companyId = c.req.param('id');
   const contactId = c.req.param('contactId');
 
   const body = await c.req.json<{
@@ -195,12 +195,12 @@ adminTenants.patch('/:id/contacts/:contactId', async (c) => {
   }>();
 
   if (body.is_primary) {
-    await db.update(schema.tenantContacts)
+    await db.update(schema.companyContacts)
       .set({ isPrimary: false })
-      .where(eq(schema.tenantContacts.tenantId, tenantId));
+      .where(eq(schema.companyContacts.companyId, companyId));
   }
 
-  const updates: Partial<typeof schema.tenantContacts.$inferInsert> = {};
+  const updates: Partial<typeof schema.companyContacts.$inferInsert> = {};
   if (body.name !== undefined)      updates.name     = body.name.trim();
   if ('title' in body)              updates.title    = body.title ?? null;
   if ('email' in body)              updates.email    = body.email ?? null;
@@ -209,38 +209,38 @@ adminTenants.patch('/:id/contacts/:contactId', async (c) => {
 
   if (Object.keys(updates).length === 0) return c.json({ error: 'nothing to update' }, 400);
 
-  await db.update(schema.tenantContacts).set(updates).where(eq(schema.tenantContacts.id, contactId));
+  await db.update(schema.companyContacts).set(updates).where(eq(schema.companyContacts.id, contactId));
   return c.json({ ok: true });
 });
 
-adminTenants.delete('/:id/contacts/:contactId', async (c) => {
+adminCompanies.delete('/:id/contacts/:contactId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
-  await db.delete(schema.tenantContacts).where(eq(schema.tenantContacts.id, c.req.param('contactId')));
+  await db.delete(schema.companyContacts).where(eq(schema.companyContacts.id, c.req.param('contactId')));
   return c.json({ ok: true });
 });
 
 // ── Locations ─────────────────────────────────────────────────
 
-adminTenants.get('/:id/locations', async (c) => {
+adminCompanies.get('/:id/locations', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const locations = await db
     .select()
-    .from(schema.tenantLocations)
-    .where(eq(schema.tenantLocations.tenantId, c.req.param('id')))
+    .from(schema.companyLocations)
+    .where(eq(schema.companyLocations.companyId, c.req.param('id')))
     .all();
 
   return c.json(locations);
 });
 
-adminTenants.post('/:id/locations', async (c) => {
+adminCompanies.post('/:id/locations', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
-  const tenantId = c.req.param('id');
+  const companyId = c.req.param('id');
 
   const body = await c.req.json<{
     name: string;
@@ -255,15 +255,15 @@ adminTenants.post('/:id/locations', async (c) => {
   if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400);
 
   if (body.is_primary) {
-    await db.update(schema.tenantLocations)
+    await db.update(schema.companyLocations)
       .set({ isPrimary: false })
-      .where(eq(schema.tenantLocations.tenantId, tenantId));
+      .where(eq(schema.companyLocations.companyId, companyId));
   }
 
   const id = crypto.randomUUID();
-  await db.insert(schema.tenantLocations).values({
+  await db.insert(schema.companyLocations).values({
     id,
-    tenantId,
+    companyId,
     name: body.name.trim(),
     isPrimary: body.is_primary ?? false,
     street: body.street || null,
@@ -274,14 +274,14 @@ adminTenants.post('/:id/locations', async (c) => {
     createdAt: now,
   });
 
-  const location = await db.select().from(schema.tenantLocations).where(eq(schema.tenantLocations.id, id)).get();
+  const location = await db.select().from(schema.companyLocations).where(eq(schema.companyLocations.id, id)).get();
   return c.json(location, 201);
 });
 
-adminTenants.patch('/:id/locations/:locationId', async (c) => {
+adminCompanies.patch('/:id/locations/:locationId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
-  const tenantId = c.req.param('id');
+  const companyId = c.req.param('id');
   const locationId = c.req.param('locationId');
 
   const body = await c.req.json<{
@@ -295,12 +295,12 @@ adminTenants.patch('/:id/locations/:locationId', async (c) => {
   }>();
 
   if (body.is_primary) {
-    await db.update(schema.tenantLocations)
+    await db.update(schema.companyLocations)
       .set({ isPrimary: false })
-      .where(eq(schema.tenantLocations.tenantId, tenantId));
+      .where(eq(schema.companyLocations.companyId, companyId));
   }
 
-  const updates: Partial<typeof schema.tenantLocations.$inferInsert> = {};
+  const updates: Partial<typeof schema.companyLocations.$inferInsert> = {};
   if (body.name !== undefined)       updates.name      = body.name.trim();
   if (body.is_primary !== undefined) updates.isPrimary = body.is_primary;
   if ('street'  in body)             updates.street  = body.street  ?? null;
@@ -311,44 +311,44 @@ adminTenants.patch('/:id/locations/:locationId', async (c) => {
 
   if (Object.keys(updates).length === 0) return c.json({ error: 'nothing to update' }, 400);
 
-  await db.update(schema.tenantLocations).set(updates).where(eq(schema.tenantLocations.id, locationId));
+  await db.update(schema.companyLocations).set(updates).where(eq(schema.companyLocations.id, locationId));
   return c.json({ ok: true });
 });
 
-adminTenants.delete('/:id/locations/:locationId', async (c) => {
+adminCompanies.delete('/:id/locations/:locationId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
-  await db.delete(schema.tenantLocations).where(eq(schema.tenantLocations.id, c.req.param('locationId')));
+  await db.delete(schema.companyLocations).where(eq(schema.companyLocations.id, c.req.param('locationId')));
   return c.json({ ok: true });
 });
 
 // ── Enrollment Tokens ─────────────────────────────────────────
 
-adminTenants.get('/:id/tokens', async (c) => {
+adminCompanies.get('/:id/tokens', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const tokens = await db
     .select()
     .from(schema.enrollmentTokens)
-    .where(eq(schema.enrollmentTokens.tenantId, c.req.param('id')))
+    .where(eq(schema.enrollmentTokens.companyId, c.req.param('id')))
     .all();
 
   return c.json(tokens.map(({ tokenHash: _, ...t }) => t));
 });
 
-adminTenants.post('/:id/tokens', async (c) => {
+adminCompanies.post('/:id/tokens', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
-  const tenant = await db
-    .select({ id: schema.tenants.id })
-    .from(schema.tenants)
-    .where(eq(schema.tenants.id, c.req.param('id')))
+  const company = await db
+    .select({ id: schema.companies.id })
+    .from(schema.companies)
+    .where(eq(schema.companies.id, c.req.param('id')))
     .get();
-  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  if (!company) return c.json({ error: 'company not found' }, 404);
 
   const body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null } =
     await c.req.json().catch(() => ({}));
@@ -360,7 +360,7 @@ adminTenants.post('/:id/tokens', async (c) => {
 
   await db.insert(schema.enrollmentTokens).values({
     id,
-    tenantId: c.req.param('id'),
+    companyId: c.req.param('id'),
     tokenHash,
     autoApprove: body.auto_approve ?? null,
     maxUses: body.max_uses ?? null,
@@ -372,7 +372,7 @@ adminTenants.post('/:id/tokens', async (c) => {
   return c.json({ id, raw_token: rawToken, expires_at: expiresAt, max_uses: body.max_uses ?? null }, 201);
 });
 
-adminTenants.delete('/:id/tokens/:tokenId', async (c) => {
+adminCompanies.delete('/:id/tokens/:tokenId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
@@ -385,7 +385,7 @@ adminTenants.delete('/:id/tokens/:tokenId', async (c) => {
   return c.json({ ok: true });
 });
 
-adminTenants.delete('/:id/tokens/:tokenId/permanent', async (c) => {
+adminCompanies.delete('/:id/tokens/:tokenId/permanent', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
@@ -396,4 +396,4 @@ adminTenants.delete('/:id/tokens/:tokenId/permanent', async (c) => {
   return c.json({ ok: true });
 });
 
-export default adminTenants;
+export default adminCompanies;

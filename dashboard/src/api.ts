@@ -100,7 +100,7 @@ export interface Address {
   country?: string;
 }
 
-export interface Tenant {
+export interface Company {
   id: string;
   name: string;
   autoApproveDefault: boolean;
@@ -114,9 +114,9 @@ export interface Tenant {
   primaryContactEmail: string | null;
 }
 
-export interface TenantContact {
+export interface CompanyContact {
   id: string;
-  tenantId: string;
+  companyId: string;
   name: string;
   title: string | null;
   email: string | null;
@@ -125,9 +125,9 @@ export interface TenantContact {
   createdAt: number;
 }
 
-export interface TenantLocation {
+export interface CompanyLocation {
   id: string;
-  tenantId: string;
+  companyId: string;
   name: string;
   isPrimary: boolean;
   street: string | null;
@@ -140,7 +140,7 @@ export interface TenantLocation {
 
 export interface EnrollmentToken {
   id: string;
-  tenantId: string;
+  companyId: string;
   autoApprove: boolean | null;
   maxUses: number | null;
   useCount: number;
@@ -182,7 +182,7 @@ export interface PostCondition {
 }
 
 export interface ComponentSite {
-  tenantId: string;
+  companyId: string;
   name: string;
 }
 
@@ -251,7 +251,7 @@ export interface JobDevice {
   deviceId: string;
   hostname: string | null;
   osType: string | null;
-  tenantName: string;
+  companyName: string;
   commands: JobDeviceCommand[];
 }
 
@@ -262,7 +262,7 @@ export interface JobDetail extends Job {
 export interface DeviceCommand {
   id: string;
   deviceId: string;
-  tenantId: string;
+  companyId: string;
   type: string;
   payload: string; // JSON
   status: 'queued' | 'sent' | 'completed' | 'failed';
@@ -281,14 +281,14 @@ export interface ActivityLogEntry {
   action: string;
   entityType: string | null;
   entityId: string | null;
-  tenantId: string | null;
+  companyId: string | null;
   method: string;
   path: string | null;
   details: string | null; // JSON
 }
 
 export interface ActivityLogFilters {
-  tenant_id?: string;
+  company_id?: string;
   actor_id?: string;
   category?: string;
   entity_type?: string;
@@ -344,14 +344,14 @@ export interface Policy {
 }
 
 export interface PolicySiteTarget {
-  tenantId: string;
+  companyId: string;
   name:     string;
 }
 
 export interface PolicyDeviceTarget {
   deviceId:   string;
   hostname:   string | null;
-  tenantName: string;
+  companyName: string;
 }
 
 // Maintenance Policy (v1: 'one_time'/'weekly' recurrence only — see
@@ -442,8 +442,8 @@ export interface AlertState {
   os_type:              string | null;
   detected_class:       string | null;
   override_class:       string | null;
-  tenant_id:            string;
-  tenant_name:          string;
+  company_id:            string;
+  company_name:          string;
   monitor_id:           string;
   check_type:           CheckType;
   config:               string; // JSON
@@ -511,7 +511,7 @@ export interface FleetPatch {
 export interface DeviceAudit {
   id: string
   deviceId: string
-  tenantId: string
+  companyId: string
   auditType: string
   agentVersion: string | null
   createdAt: number
@@ -525,7 +525,7 @@ export interface DeviceAudit {
 export interface AuditChange {
   id: string
   deviceId: string
-  tenantId: string
+  companyId: string
   auditId: string
   category: string
   changeType: string
@@ -617,7 +617,7 @@ export interface DeviceGroup {
 export interface DeviceGroupMember {
   deviceId: string;
   hostname: string | null;
-  tenantName: string;
+  companyName: string;
 }
 
 export interface BrandingIdentity { productName: string; logoKey: string | null; }
@@ -645,8 +645,8 @@ export interface DeviceCustomFieldValue {
 
 export interface Device {
   id: string;
-  tenantId: string;
-  tenantName: string | null;
+  companyId: string;
+  companyName: string | null;
   status: DeviceStatus;
   hostname: string | null;
   osType: string | null;
@@ -841,8 +841,8 @@ export const api = {
     },
     sites: {
       list:   (componentId: string) => request<ComponentSite[]>('GET', `/v1/admin/components/${componentId}/sites`),
-      add:    (componentId: string, tenantId: string) => request<{ ok: boolean }>('POST', `/v1/admin/components/${componentId}/sites`, { tenant_id: tenantId }),
-      remove: (componentId: string, tenantId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/sites/${tenantId}`),
+      add:    (componentId: string, companyId: string) => request<{ ok: boolean }>('POST', `/v1/admin/components/${componentId}/sites`, { company_id: companyId }),
+      remove: (componentId: string, companyId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/sites/${companyId}`),
     },
     variables: {
       list:   (componentId: string) => request<ComponentVariable[]>('GET', `/v1/admin/components/${componentId}/variables`),
@@ -892,8 +892,8 @@ export const api = {
     purge:  (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/jobs/${id}/purge`),
   },
 
-  tenants: {
-    list:   () => request<Tenant[]>('GET', '/v1/admin/tenants'),
+  companies: {
+    list:   () => request<Company[]>('GET', '/v1/admin/companies'),
     create: (body: {
       name: string;
       auto_approve_default?: boolean;
@@ -903,7 +903,7 @@ export const api = {
       contact_name?: string | null;
       contact_email?: string | null;
       contact_phone?: string | null;
-    }) => request<Tenant>('POST', '/v1/admin/tenants', body),
+    }) => request<Company>('POST', '/v1/admin/companies', body),
     update: (id: string, body: {
       name?: string;
       auto_approve_default?: boolean;
@@ -911,40 +911,40 @@ export const api = {
       status?: 'active' | 'suspended';
       website?: string | null;
       notes?: string | null;
-    }) => request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${id}`, body),
+    }) => request<{ ok: boolean }>('PATCH', `/v1/admin/companies/${id}`, body),
 
     contacts: {
-      list: (tenantId: string) =>
-        request<TenantContact[]>('GET', `/v1/admin/tenants/${tenantId}/contacts`),
-      create: (tenantId: string, body: { name: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
-        request<TenantContact>('POST', `/v1/admin/tenants/${tenantId}/contacts`, body),
-      update: (tenantId: string, contactId: string, body: { name?: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
-        request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${tenantId}/contacts/${contactId}`, body),
-      delete: (tenantId: string, contactId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/contacts/${contactId}`),
+      list: (companyId: string) =>
+        request<CompanyContact[]>('GET', `/v1/admin/companies/${companyId}/contacts`),
+      create: (companyId: string, body: { name: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
+        request<CompanyContact>('POST', `/v1/admin/companies/${companyId}/contacts`, body),
+      update: (companyId: string, contactId: string, body: { name?: string; title?: string | null; email?: string | null; phone?: string | null; is_primary?: boolean }) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/companies/${companyId}/contacts/${contactId}`, body),
+      delete: (companyId: string, contactId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/contacts/${contactId}`),
     },
 
     locations: {
-      list: (tenantId: string) =>
-        request<TenantLocation[]>('GET', `/v1/admin/tenants/${tenantId}/locations`),
-      create: (tenantId: string, body: { name: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
-        request<TenantLocation>('POST', `/v1/admin/tenants/${tenantId}/locations`, body),
-      update: (tenantId: string, locationId: string, body: { name?: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
-        request<{ ok: boolean }>('PATCH', `/v1/admin/tenants/${tenantId}/locations/${locationId}`, body),
-      delete: (tenantId: string, locationId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/locations/${locationId}`),
+      list: (companyId: string) =>
+        request<CompanyLocation[]>('GET', `/v1/admin/companies/${companyId}/locations`),
+      create: (companyId: string, body: { name: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
+        request<CompanyLocation>('POST', `/v1/admin/companies/${companyId}/locations`, body),
+      update: (companyId: string, locationId: string, body: { name?: string; is_primary?: boolean; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; country?: string | null }) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/companies/${companyId}/locations/${locationId}`, body),
+      delete: (companyId: string, locationId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/locations/${locationId}`),
     },
 
     tokens: {
-      list: (tenantId: string) =>
-        request<EnrollmentToken[]>('GET', `/v1/admin/tenants/${tenantId}/tokens`),
-      create: (tenantId: string, body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null }) =>
+      list: (companyId: string) =>
+        request<EnrollmentToken[]>('GET', `/v1/admin/companies/${companyId}/tokens`),
+      create: (companyId: string, body: { auto_approve?: boolean | null; max_uses?: number | null; expires_in_days?: number | null }) =>
         request<{ id: string; raw_token: string; expires_at: number | null; max_uses: number | null }>(
-          'POST', `/v1/admin/tenants/${tenantId}/tokens`, body),
-      revoke: (tenantId: string, tokenId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}`),
-      delete: (tenantId: string, tokenId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/tenants/${tenantId}/tokens/${tokenId}/permanent`),
+          'POST', `/v1/admin/companies/${companyId}/tokens`, body),
+      revoke: (companyId: string, tokenId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/tokens/${tokenId}`),
+      delete: (companyId: string, tokenId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/tokens/${tokenId}/permanent`),
     },
   },
 
@@ -1005,10 +1005,10 @@ export const api = {
     },
     sites: {
       list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/policies/${policyId}/sites`),
-      add:  (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/sites`, { tenant_id: tenantId }),
-      remove: (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/sites/${tenantId}`),
+      add:  (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/sites`, { company_id: companyId }),
+      remove: (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/sites/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/policies/${policyId}/devices`),
@@ -1037,10 +1037,10 @@ export const api = {
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${id}`),
     sites: {
       list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/sites`),
-      add:  (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/sites`, { tenant_id: tenantId }),
-      remove: (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/sites/${tenantId}`),
+      add:  (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/sites`, { company_id: companyId }),
+      remove: (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/sites/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/devices`),
@@ -1080,10 +1080,10 @@ export const api = {
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${id}`),
     sites: {
       list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/patch-policies/${policyId}/sites`),
-      add:  (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/patch-policies/${policyId}/sites`, { tenant_id: tenantId }),
-      remove: (policyId: string, tenantId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${policyId}/sites/${tenantId}`),
+      add:  (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/patch-policies/${policyId}/sites`, { company_id: companyId }),
+      remove: (policyId: string, companyId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${policyId}/sites/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/patch-policies/${policyId}/devices`),
@@ -1167,9 +1167,9 @@ export const api = {
     },
   },
   sessions: {
-    open: (deviceId: string, tenantId: string, sessionType: 'shell' | 'tcp_tunnel') =>
+    open: (deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel') =>
       request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
-        device_id: deviceId, tenant_id: tenantId, session_type: sessionType,
+        device_id: deviceId, company_id: companyId, session_type: sessionType,
       }),
   },
 };

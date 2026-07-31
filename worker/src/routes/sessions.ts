@@ -16,7 +16,7 @@ sessions.post('/', async (c) => {
 
   const body = await c.req.json<{
     device_id: string;
-    tenant_id: string;
+    company_id: string;
     session_type: 'shell' | 'tcp_tunnel';
     tcp_port?: number;
   }>();
@@ -28,7 +28,7 @@ sessions.post('/', async (c) => {
     .from(schema.devices)
     .where(and(
       eq(schema.devices.id, body.device_id),
-      eq(schema.devices.tenantId, body.tenant_id),
+      eq(schema.devices.companyId, body.company_id),
       eq(schema.devices.status, 'approved'),
     ))
     .get();
@@ -56,7 +56,7 @@ sessions.post('/', async (c) => {
   await db.insert(schema.sessions).values({
     id: sessionId,
     deviceId: body.device_id,
-    tenantId: body.tenant_id,
+    companyId: body.company_id,
     sessionType: body.session_type,
     tcpPort: body.tcp_port ?? null,
     createdAt: now,
@@ -67,7 +67,7 @@ sessions.post('/', async (c) => {
   await db.insert(schema.commands).values({
     id: crypto.randomUUID(),
     deviceId: body.device_id,
-    tenantId: body.tenant_id,
+    companyId: body.company_id,
     type: 'open_session',
     payload: JSON.stringify({
       session_id: sessionId,

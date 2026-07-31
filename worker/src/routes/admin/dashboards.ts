@@ -51,8 +51,8 @@ async function getDashboard(c: any, id: string) {
   return c.env.DB.prepare('SELECT * FROM dashboards WHERE id = ?').bind(id).first() as Promise<Record<string, unknown> | null>;
 }
 async function siteIds(c: any, id: string) {
-  const result = await c.env.DB.prepare('SELECT tenant_id FROM dashboard_sites WHERE dashboard_id = ? ORDER BY tenant_id').bind(id).all() as D1Result<{ tenant_id: string }>;
-  return result.results.map((row: { tenant_id: string }) => row.tenant_id);
+  const result = await c.env.DB.prepare('SELECT company_id FROM dashboard_sites WHERE dashboard_id = ? ORDER BY company_id').bind(id).all() as D1Result<{ company_id: string }>;
+  return result.results.map((row: { company_id: string }) => row.company_id);
 }
 async function dashboardDetail(c: any, id: string) {
   const dashboard = await getDashboard(c, id);
@@ -118,7 +118,7 @@ dashboards.patch('/:id', async (c) => {
   if (body.siteIds !== undefined) {
     if (!Array.isArray(body.siteIds) || body.siteIds.some(value => typeof value !== 'string')) return c.json({ error: 'siteIds must be an array of IDs' }, 400);
     statements.push(c.env.DB.prepare('DELETE FROM dashboard_sites WHERE dashboard_id = ?').bind(id));
-    for (const tenantId of [...new Set(body.siteIds)]) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, tenant_id, created_at) VALUES (?, ?, ?)').bind(id, tenantId, now));
+    for (const companyId of [...new Set(body.siteIds)]) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, companyId, now));
   }
   if (!statements.length) return c.json({ error: 'nothing to update' }, 400);
   await c.env.DB.batch(statements); return c.json(await dashboardDetail(c, id));
@@ -131,7 +131,7 @@ dashboards.post('/:id/clone', async (c) => {
   const now = Math.floor(Date.now() / 1000), id = crypto.randomUUID();
   const last = await c.env.DB.prepare('SELECT max(sort_order) AS sort_order FROM dashboards').first() as { sort_order: number | null } | null;
   const statements: D1PreparedStatement[] = [c.env.DB.prepare('INSERT INTO dashboards (id, name, sort_order, is_home, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)').bind(id, name, (last?.sort_order ?? -1) + 1, now, now)];
-  for (const siteId of source.siteIds) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, tenant_id, created_at) VALUES (?, ?, ?)').bind(id, siteId, now));
+  for (const siteId of source.siteIds) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, siteId, now));
   for (const widget of source.widgets) statements.push(c.env.DB.prepare('INSERT INTO dashboard_widgets (id, dashboard_id, type, title, config, grid_x, grid_y, grid_w, grid_h, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(crypto.randomUUID(), id, widget.type, widget.title, widget.config, widget.x, widget.y, widget.w, widget.h, widget.sortOrder, now, now));
   await c.env.DB.batch(statements); return c.json(await dashboardDetail(c, id), 201);
 });

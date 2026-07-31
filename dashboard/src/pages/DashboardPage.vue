@@ -25,12 +25,12 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { GridStack, type GridStackOptions, type GridStackWidget } from 'gridstack/dist/vue';
 import type { GridStack as GridStackCore } from 'gridstack';
-import { api, type DashboardData, type DashboardDetail, type DashboardWidgetType, type Tenant } from '../api';
+import { api, type DashboardData, type DashboardDetail, type DashboardWidgetType, type Company } from '../api';
 import { hasRole } from '../auth';
 import DashWidget from '../components/DashWidget.vue';
 
 const route = useRoute(), router = useRouter();
-const dashboard = ref<DashboardDetail | null>(null), dashboards = ref<DashboardDetail[]>([]), data = ref<DashboardData | null>(null), companies = ref<Tenant[]>([]), error = ref('');
+const dashboard = ref<DashboardDetail | null>(null), dashboards = ref<DashboardDetail[]>([]), data = ref<DashboardData | null>(null), companies = ref<Company[]>([]), error = ref('');
 const editing = ref(false), showWidgetPicker = ref(false), showSettings = ref(false);
 const settingsName = ref(''), settingsSiteIds = ref<string[]>([]), settingsHome = ref(false);
 const companyId = computed(() => typeof route.query.company === 'string' ? route.query.company : undefined);
@@ -152,7 +152,7 @@ async function deleteDashboard() { if (!dashboard.value || dashboards.value.leng
 async function loadList() { dashboards.value = await api.dashboards.list() as DashboardDetail[]; }
 async function load() { const id = route.params.id as string; if (!id) return; try { const [detail, snapshot] = await Promise.all([api.dashboards.get(id), api.dashboards.data(id, companyId.value)]); dashboard.value = detail; data.value = snapshot; error.value = ''; } catch (e: any) { error.value = e.message; } }
 let timer: ReturnType<typeof setInterval>;
-onMounted(async () => { await Promise.all([loadList(), api.tenants.list().then(value => companies.value = value)]); await load(); timer = setInterval(load, 30_000); }); onUnmounted(() => clearInterval(timer)); watch(() => [route.params.id, companyId.value], load);
+onMounted(async () => { await Promise.all([loadList(), api.companies.list().then(value => companies.value = value)]); await load(); timer = setInterval(load, 30_000); }); onUnmounted(() => clearInterval(timer)); watch(() => [route.params.id, companyId.value], load);
 </script>
 
 <style scoped>

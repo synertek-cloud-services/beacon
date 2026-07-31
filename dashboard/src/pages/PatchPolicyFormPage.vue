@@ -179,7 +179,7 @@
                 <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
                   <div class="tf-row-info" style="flex:1">
                     <span>{{ d.hostname ?? d.id.slice(0,8) }}</span>
-                    <span class="tf-row-sub">{{ d.tenantName }}</span>
+                    <span class="tf-row-sub">{{ d.companyName }}</span>
                   </div>
                   <button v-if="!isTargeted('device', d.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})">Add</button>
                   <span v-else class="tf-check" @click="toggleTarget({kind:'device',id:d.id,hostname:d.hostname??d.id.slice(0,8)})" title="Click to remove">
@@ -241,7 +241,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Tenant, type Device, type DeviceGroup, type MaintenanceRecurrenceType, type PatchSeverity } from '../api';
+import { api, type Company, type Device, type DeviceGroup, type MaintenanceRecurrenceType, type PatchSeverity } from '../api';
 import { zonedTimeToUtc, utcToZonedInputValue } from '../timezone';
 
 const router = useRouter();
@@ -254,7 +254,7 @@ const loading   = ref(false);
 const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
-const tenants   = ref<Tenant[]>([]);
+const companies   = ref<Company[]>([]);
 const devices   = ref<Device[]>([]);
 const groups    = ref<DeviceGroup[]>([]);
 const fieldErr  = reactive({ name: '', schedule: '' });
@@ -296,12 +296,12 @@ const flyoutSearch     = ref('');
 
 const flyoutSiteMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
-  return tenants.value.filter(t => !q || t.name.toLowerCase().includes(q));
+  return companies.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
 const flyoutDeviceMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
   return devices.value.filter(d =>
-    !q || (d.hostname ?? '').toLowerCase().includes(q) || (d.tenantName ?? '').toLowerCase().includes(q));
+    !q || (d.hostname ?? '').toLowerCase().includes(q) || (d.companyName ?? '').toLowerCase().includes(q));
 });
 const flyoutGroupMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
@@ -366,7 +366,7 @@ function targetLabel(t: PatchTargetItem): string {
 // ── Load ────────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
-  try { tenants.value = await api.tenants.list(); } catch { /* ok */ }
+  try { companies.value = await api.companies.list(); } catch { /* ok */ }
   try { devices.value = await api.devices.list(); } catch { /* ok */ }
   try { groups.value  = await api.groups.list(); } catch { /* ok */ }
   try { hostTimezone.value = (await api.settings.get()).timezone; } catch { /* falls back to UTC */ }
@@ -391,7 +391,7 @@ onMounted(async () => {
         api.patchPolicies.groups.list(policyId.value!),
       ]);
       targetItems.value = [
-        ...sites.map(s => ({ kind: 'site' as const, id: s.tenantId, name: s.name })),
+        ...sites.map(s => ({ kind: 'site' as const, id: s.companyId, name: s.name })),
         ...devs.map(d => ({ kind: 'device' as const, id: d.deviceId, hostname: d.hostname ?? d.deviceId.slice(0, 8) })),
         ...grps.map(g => ({ kind: 'group' as const, id: g.groupId, name: g.name })),
       ];

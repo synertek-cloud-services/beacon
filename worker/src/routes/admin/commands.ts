@@ -14,7 +14,7 @@ adminCommands.post('/', async (c) => {
 
   const body = await c.req.json<{
     device_id: string;
-    tenant_id: string;
+    company_id: string;
     type: string;
     payload: unknown;
   }>();
@@ -22,12 +22,12 @@ adminCommands.post('/', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
-  // Verify device exists and belongs to the stated tenant
+  // Verify device exists and belongs to the stated company
   const device = await db.select({ id: schema.devices.id })
     .from(schema.devices)
     .where(and(
       eq(schema.devices.id, body.device_id),
-      eq(schema.devices.tenantId, body.tenant_id),
+      eq(schema.devices.companyId, body.company_id),
       eq(schema.devices.status, 'approved'),
     ))
     .get();
@@ -38,7 +38,7 @@ adminCommands.post('/', async (c) => {
   await db.insert(schema.commands).values({
     id,
     deviceId: body.device_id,
-    tenantId: body.tenant_id,
+    companyId: body.company_id,
     type: body.type,
     payload: JSON.stringify(body.payload),
     createdAt: now,

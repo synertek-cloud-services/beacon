@@ -10,12 +10,12 @@ export interface DashboardSummary {
 function placeholders(values: string[]) { return values.map(() => '?').join(', '); }
 
 /** Builds the single data snapshot used by both the legacy summary and widgets. */
-export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
-  const scope = tenantIds?.length ? ` WHERE tenant_id IN (${placeholders(tenantIds)})` : '';
+export async function buildDashboardData(db: D1Database, companyIds?: string[]) {
+  const scope = companyIds?.length ? ` WHERE company_id IN (${placeholders(companyIds)})` : '';
   const devicesResult = await db.prepare(`
-    SELECT id, tenant_id, status, last_seen, os_type, detected_class, override_class, inventory
+    SELECT id, company_id, status, last_seen, os_type, detected_class, override_class, inventory
     FROM devices${scope}
-  `).bind(...(tenantIds?.length ? tenantIds : [])).all<Record<string, unknown>>();
+  `).bind(...(companyIds?.length ? companyIds : [])).all<Record<string, unknown>>();
   const devices = devicesResult.results;
   const now = Math.floor(Date.now() / 1000);
   const approved = devices.filter(d => d.status === 'approved');
@@ -31,13 +31,13 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
     byAvStatus[av] = (byAvStatus[av] ?? 0) + 1;
   }
 
-  const offlineScope = tenantIds?.length ? ` AND d.tenant_id IN (${placeholders(tenantIds)})` : '';
+  const offlineScope = companyIds?.length ? ` AND d.company_id IN (${placeholders(companyIds)})` : '';
   const offlineRows = await db.prepare(`
     SELECT d.detected_class, d.override_class, pm.config
     FROM alert_state s JOIN policy_monitors pm ON pm.id = s.policy_monitor_id
     JOIN devices d ON d.id = s.device_id
     WHERE pm.check_type = 'offline' AND s.is_alerting = 1${offlineScope}
-  `).bind(...(tenantIds?.length ? tenantIds : [])).all<Record<string, unknown>>();
+  `).bind(...(companyIds?.length ? companyIds : [])).all<Record<string, unknown>>();
   const offlineByClass: Record<string, number> = {};
   for (const row of offlineRows.results) {
     let direction = 'offline'; try { direction = (JSON.parse(String(row.config)) as { direction?: string }).direction ?? direction; } catch { /* default */ }
@@ -85,15 +85,15 @@ export async function buildDashboardData(db: D1Database, tenantIds?: string[]) {
     }
   }
 
-  const alertScope = tenantIds?.length ? ` AND t.id IN (${placeholders(tenantIds)})` : '';
+  const alertScope = companyIds?.length ? ` AND t.id IN (${placeholders(companyIds)})` : '';
   const alerts = await db.prepare(`
     SELECT s.id, s.is_alerting, s.condition_first_seen, s.alerted_at, s.resolved_at, s.updated_at,
-      d.id AS device_id, d.hostname, d.os_type, d.detected_class, d.override_class, t.id AS tenant_id, t.name AS tenant_name,
+      d.id AS device_id, d.hostname, d.os_type, d.detected_class, d.override_class, t.id AS company_id, t.name AS company_name,
       pm.id AS monitor_id, pm.check_type, pm.config, COALESCE(s.alert_priority, pm.alert_priority) AS priority, p.id AS policy_id, p.name AS policy_name, p.scope AS policy_scope
-    FROM alert_state s JOIN devices d ON d.id = s.device_id JOIN tenants t ON t.id = d.tenant_id
+    FROM alert_state s JOIN devices d ON d.id = s.device_id JOIN companies t ON t.id = d.company_id
     JOIN policy_monitors pm ON pm.id = s.policy_monitor_id JOIN policies p ON p.id = pm.policy_id
     WHERE s.alerted_at IS NOT NULL${alertScope} ORDER BY s.alerted_at DESC LIMIT 100
-  `).bind(...(tenantIds?.length ? tenantIds : [])).all();
+  `).bind(...(companyIds?.length ? companyIds : [])).all();
   return {
     summary: { total: devices.length, approved: approved.length, pending: devices.filter(d => d.status === 'pending').length,
       revoked: devices.filter(d => d.status === 'revoked').length, online, offline: approved.length - online,

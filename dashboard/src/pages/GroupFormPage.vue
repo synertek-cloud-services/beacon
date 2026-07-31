@@ -51,7 +51,7 @@
             <p>Select which devices belong to this group.</p>
           </div>
           <div v-else v-for="m in members" :key="m.deviceId" class="pf-mon-row">
-            <span class="pf-mon-desc"><strong>{{ m.hostname ?? m.deviceId.slice(0, 8) }}</strong> — {{ m.tenantName }}</span>
+            <span class="pf-mon-desc"><strong>{{ m.hostname ?? m.deviceId.slice(0, 8) }}</strong> — {{ m.companyName }}</span>
             <div class="pf-mon-actions">
               <button class="btn-text danger" @click="removeMember(m.deviceId)">Remove</button>
             </div>
@@ -77,7 +77,7 @@
           </div>
           <div class="sf-list">
             <div v-for="d in deviceFlyoutMatches" :key="d.id" class="sf-row" :class="{ selected: isMember(d.id) }">
-              <span>{{ d.hostname ?? d.id.slice(0, 8) }} <span class="text-xs text-muted-2">— {{ d.tenantName }}</span></span>
+              <span>{{ d.hostname ?? d.id.slice(0, 8) }} <span class="text-xs text-muted-2">— {{ d.companyName }}</span></span>
               <button v-if="isMember(d.id)" class="btn btn-primary btn-sm" @click="removeMember(d.id)">Remove</button>
               <button v-else class="btn btn-ghost btn-sm" @click="addMember(d)">Add</button>
             </div>
@@ -117,7 +117,7 @@ const deviceFlyoutQuery = ref('');
 const deviceFlyoutMatches = computed(() => {
   const q = deviceFlyoutQuery.value.trim().toLowerCase();
   const list = q
-    ? allDevices.value.filter(d => (d.hostname ?? '').toLowerCase().includes(q) || (d.tenantName ?? '').toLowerCase().includes(q))
+    ? allDevices.value.filter(d => (d.hostname ?? '').toLowerCase().includes(q) || (d.companyName ?? '').toLowerCase().includes(q))
     : allDevices.value;
   return list.slice(0, 50);
 });
@@ -132,7 +132,7 @@ async function addMember(d: Device) {
     try { await api.groups.members.add(groupId.value, d.id); }
     catch (e: any) { saveError.value = e.message; return; }
   }
-  members.value.push({ deviceId: d.id, hostname: d.hostname, tenantName: d.tenantName ?? '' });
+  members.value.push({ deviceId: d.id, hostname: d.hostname, companyName: d.companyName ?? '' });
 }
 
 async function removeMember(deviceId: string) {

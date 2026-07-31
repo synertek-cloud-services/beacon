@@ -74,7 +74,7 @@ function deviceMatchesPolicy(
   const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.tenantId) ?? false;
+  const matchesSite   = sites?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
   return matchesSite || matchesDevice || matchesGroup;
@@ -153,7 +153,7 @@ async function fetchPolicySiteIds(db: Db): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
-    out.get(r.policyId)!.add(r.tenantId);
+    out.get(r.policyId)!.add(r.companyId);
   }
   return out;
 }
@@ -603,7 +603,7 @@ async function processAlertState(
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
-        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        entityType: 'device', entityId: device.id, companyId: device.companyId,
         method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId },
       });
     }
@@ -644,7 +644,7 @@ async function processAlertState(
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
-        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        entityType: 'device', entityId: device.id, companyId: device.companyId,
         method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId: existing.id },
       });
     }
@@ -684,7 +684,7 @@ async function processAlertState(
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
-        entityType: 'device', entityId: device.id, tenantId: device.tenantId,
+        entityType: 'device', entityId: device.id, companyId: device.companyId,
         method: 'CRON', details: { policy: monitor.policy.name, priority, alertStateId: existing.id },
       });
     }
@@ -763,7 +763,7 @@ async function fireWebhooks(
     timestamp:  now,
     alert_id:   alertStateId,
     device_id:  device.id,
-    tenant_id:  device.tenantId,
+    company_id:  device.companyId,
     hostname:   device.hostname,
     check_type: monitor.checkType,
     monitor_id: monitor.id,
@@ -798,14 +798,14 @@ async function sendAlertEmails(
 ): Promise<void> {
   const db = drizzle(env.DB, { schema });
 
-  const [userRows, standaloneRows, tenant] = await Promise.all([
+  const [userRows, standaloneRows, company] = await Promise.all([
     db.select({ email: schema.users.email })
       .from(schema.users)
       .where(and(eq(schema.users.receivesAlerts, true), eq(schema.users.status, 'active'))),
     db.select({ email: schema.notificationEmails.email })
       .from(schema.notificationEmails)
       .where(eq(schema.notificationEmails.enabled, true)),
-    db.select({ name: schema.tenants.name }).from(schema.tenants).where(eq(schema.tenants.id, device.tenantId)).get(),
+    db.select({ name: schema.companies.name }).from(schema.companies).where(eq(schema.companies.id, device.companyId)).get(),
   ]);
 
   const emails = [...new Set([...userRows.map(r => r.email), ...standaloneRows.map(r => r.email)])];
@@ -814,9 +814,9 @@ async function sendAlertEmails(
   const verb = event === 'alert.triggered' ? 'triggered' : 'resolved';
   const subject = `[Beacon] Alert ${verb}: ${device.hostname ?? device.id} — ${monitor.checkType}`;
   const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
-  const tenantName = tenant?.name ?? device.tenantId;
-  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${tenantName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${priority}</p><p><a href="${link}">View alert</a></p>`;
-  const text = `Device ${device.hostname ?? device.id} (${tenantName}) — ${monitor.checkType} check ${verb}. Priority: ${priority}. ${link}`;
+  const companyName = company?.name ?? device.companyId;
+  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${companyName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${priority}</p><p><a href="${link}">View alert</a></p>`;
+  const text = `Device ${device.hostname ?? device.id} (${companyName}) — ${monitor.checkType} check ${verb}. Priority: ${priority}. ${link}`;
 
   await sendEmail(env, emails, subject, html, text);
 }

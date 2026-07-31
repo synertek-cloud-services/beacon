@@ -136,7 +136,7 @@
                   {{ dev.hostname ?? dev.deviceId.slice(0, 8) }}
                 </RouterLink>
               </td>
-              <td class="text-muted-2">{{ dev.tenantName }}</td>
+              <td class="text-muted-2">{{ dev.companyName }}</td>
               <td class="text-sm">{{ componentResultsLabel(dev) }}</td>
               <td class="text-sm text-muted-2">{{ ranOnLabel(dev) }}</td>
               <td>
@@ -288,7 +288,7 @@ const targetsLabel = computed(() => {
   if (!j) return '—';
   if (j.targetType === 'all') return 'All Devices';
   const ids = (() => { try { return JSON.parse(j.targetIds ?? '[]') as string[]; } catch { return []; } })();
-  if (j.targetType === 'tenants') return `${ids.length} site${ids.length !== 1 ? 's' : ''}`;
+  if (j.targetType === 'companies') return `${ids.length} site${ids.length !== 1 ? 's' : ''}`;
   return `${j.deviceCount} device${j.deviceCount !== 1 ? 's' : ''}`;
 });
 

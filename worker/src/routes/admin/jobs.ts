@@ -60,21 +60,21 @@ async function resolveDevices(
   db: D1Database,
   targetType: string,
   targetIds: string[],
-): Promise<Array<{ id: string; tenant_id: string; os_type: string | null }>> {
+): Promise<Array<{ id: string; company_id: string; os_type: string | null }>> {
   if (targetType === 'devices') {
     if (targetIds.length === 0) return [];
     const placeholders = targetIds.map(() => '?').join(',');
     const result = await db.prepare(
-      `SELECT id, tenant_id, os_type FROM devices WHERE id IN (${placeholders}) AND status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; tenant_id: string; os_type: string | null }>();
+      `SELECT id, company_id, os_type FROM devices WHERE id IN (${placeholders}) AND status = 'approved'`
+    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
     return result.results;
   }
-  if (targetType === 'tenants') {
+  if (targetType === 'companies') {
     if (targetIds.length === 0) return [];
     const placeholders = targetIds.map(() => '?').join(',');
     const result = await db.prepare(
-      `SELECT id, tenant_id, os_type FROM devices WHERE tenant_id IN (${placeholders}) AND status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; tenant_id: string; os_type: string | null }>();
+      `SELECT id, company_id, os_type FROM devices WHERE company_id IN (${placeholders}) AND status = 'approved'`
+    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
     return result.results;
   }
   if (targetType === 'group') {
@@ -83,17 +83,17 @@ async function resolveDevices(
     // DISTINCT since targeting multiple groups (or a device in more than one
     // targeted group) must not double-dispatch the same device.
     const result = await db.prepare(
-      `SELECT DISTINCT d.id, d.tenant_id, d.os_type
+      `SELECT DISTINCT d.id, d.company_id, d.os_type
        FROM devices d
        JOIN device_group_members m ON m.device_id = d.id
        WHERE m.group_id IN (${placeholders}) AND d.status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; tenant_id: string; os_type: string | null }>();
+    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
     return result.results;
   }
   // 'all'
   const result = await db.prepare(
-    `SELECT id, tenant_id, os_type FROM devices WHERE status = 'approved'`
-  ).all<{ id: string; tenant_id: string; os_type: string | null }>();
+    `SELECT id, company_id, os_type FROM devices WHERE status = 'approved'`
+  ).all<{ id: string; company_id: string; os_type: string | null }>();
   return result.results;
 }
 
@@ -140,7 +140,7 @@ function resolveShell(shell: string, osType: string | null): string {
 async function insertJobCommands(
   db: D1Database,
   jobId: string,
-  devices: Array<{ id: string; tenant_id: string; os_type: string | null }>,
+  devices: Array<{ id: string; company_id: string; os_type: string | null }>,
   resolved: { ref: ComponentRef; payload: ResolvedPayload }[],
   runAsSystem: boolean,
 ): Promise<void> {
@@ -175,9 +175,9 @@ async function insertJobCommands(
 
       inserts.push(
         db.prepare(`
-          INSERT INTO commands (id, device_id, tenant_id, type, payload, status, created_at, job_id, component_id, component_order)
+          INSERT INTO commands (id, device_id, company_id, type, payload, status, created_at, job_id, component_id, component_order)
           VALUES (?, ?, ?, 'run_script', ?, 'queued', ?, ?, ?, ?)
-        `).bind(cmdId, device.id, device.tenant_id, scriptPayload, now, jobId, compId, compOrd).run()
+        `).bind(cmdId, device.id, device.company_id, scriptPayload, now, jobId, compId, compOrd).run()
       );
     }
   }
@@ -224,7 +224,7 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
     // Layer-2 call -- this dispatch happens from the scheduled() cron, never
     // a user-authenticated HTTP route, so the generic middleware can't see
     // it. Job *creation* is a normal admin route and is already covered by
-    // Layer 1. No tenantId -- a scheduled job can target multiple sites, so
+    // Layer 1. No companyId -- a scheduled job can target multiple sites, so
     // it isn't unambiguously owned by one.
     await logActivity(drizzle(db, { schema }), {
       actorType: 'system', category: 'Job', action: 'Dispatched scheduled job',
@@ -343,11 +343,11 @@ adminJobs.get('/:id', async (c) => {
       c.id, c.device_id, c.component_id, c.component_order,
       c.status, c.result, c.warning, c.created_at, c.completed_at,
       d.hostname, d.os_type,
-      t.name AS tenant_name,
+      t.name AS company_name,
       comp.name AS component_name
     FROM commands c
     JOIN devices d ON d.id = c.device_id
-    JOIN tenants t ON t.id = c.tenant_id
+    JOIN companies t ON t.id = c.company_id
     LEFT JOIN components comp ON comp.id = c.component_id
     WHERE c.job_id = ?
     ORDER BY c.device_id, c.component_order ASC
@@ -355,7 +355,7 @@ adminJobs.get('/:id', async (c) => {
 
   // Group by device
   const deviceMap = new Map<string, {
-    deviceId: string; hostname: string | null; osType: string | null; tenantName: string;
+    deviceId: string; hostname: string | null; osType: string | null; companyName: string;
     commands: any[];
   }>();
 
@@ -365,7 +365,7 @@ adminJobs.get('/:id', async (c) => {
         deviceId:   row.device_id,
         hostname:   row.hostname,
         osType:     row.os_type,
-        tenantName: row.tenant_name,
+        companyName: row.company_name,
         commands:   [],
       });
     }
@@ -424,7 +424,7 @@ adminJobs.post('/', async (c) => {
   // dispatch immediately. Scheduled jobs resolve devices later, just
   // before dispatch (see dispatchDueScheduledJobs) — the device set can
   // legitimately change between now and a future scheduled_at.
-  let devices: Array<{ id: string; tenant_id: string; os_type: string | null }> = [];
+  let devices: Array<{ id: string; company_id: string; os_type: string | null }> = [];
   if (jobType === 'quick') {
     devices = await resolveDevices(c.env.DB, targetType, targetIds);
     if (devices.length === 0 && targetType === 'devices') {

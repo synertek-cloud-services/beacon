@@ -38,26 +38,26 @@ interface AuditPayload {
   patches?: PatchItem[]
 }
 interface AuditRequest {
-  device_id: string; tenant_id: string; timestamp: number
+  device_id: string; company_id: string; timestamp: number
   agent_version: string; payload: AuditPayload
 }
 
 // ── Change record builders ────────────────────────────────────────────────────
 
 interface ChangeRecord {
-  id: string; deviceId: string; tenantId: string; auditId: string
+  id: string; deviceId: string; companyId: string; auditId: string
   category: string; changeType: string; itemName: string
   field: string | null; oldValue: string | null; newValue: string | null
   detectedAt: number
 }
 
 function mkChange(
-  deviceId: string, tenantId: string, auditId: string, now: number,
+  deviceId: string, companyId: string, auditId: string, now: number,
   category: string, changeType: string, itemName: string,
   field?: string, oldValue?: string, newValue?: string,
 ): ChangeRecord {
   return {
-    id: crypto.randomUUID(), deviceId, tenantId, auditId, detectedAt: now,
+    id: crypto.randomUUID(), deviceId, companyId, auditId, detectedAt: now,
     category, changeType, itemName,
     field: field ?? null, oldValue: oldValue ?? null, newValue: newValue ?? null,
   };
@@ -65,7 +65,7 @@ function mkChange(
 
 function diffSoftware(
   prev: SoftwareItem[], curr: SoftwareItem[],
-  deviceId: string, tenantId: string, auditId: string, now: number,
+  deviceId: string, companyId: string, auditId: string, now: number,
 ): ChangeRecord[] {
   const changes: ChangeRecord[] = [];
   const prevMap = new Map(prev.map(s => [s.name.toLowerCase(), s]));
@@ -74,14 +74,14 @@ function diffSoftware(
   for (const [key, cs] of currMap) {
     const ps = prevMap.get(key);
     if (!ps) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'software', 'added', cs.name));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'software', 'added', cs.name));
     } else if (ps.version !== cs.version) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'software', 'changed', cs.name, 'version', ps.version, cs.version));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'software', 'changed', cs.name, 'version', ps.version, cs.version));
     }
   }
   for (const [key, ps] of prevMap) {
     if (!currMap.has(key)) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'software', 'removed', ps.name));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'software', 'removed', ps.name));
     }
   }
   return changes;
@@ -89,7 +89,7 @@ function diffSoftware(
 
 function diffServices(
   prev: ServiceItem[], curr: ServiceItem[],
-  deviceId: string, tenantId: string, auditId: string, now: number,
+  deviceId: string, companyId: string, auditId: string, now: number,
 ): ChangeRecord[] {
   const changes: ChangeRecord[] = [];
   const prevMap = new Map(prev.map(s => [s.name, s]));
@@ -98,14 +98,14 @@ function diffServices(
   for (const [name, cs] of currMap) {
     const ps = prevMap.get(name);
     if (!ps) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'services', 'added', name, 'status', undefined, cs.status));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'services', 'added', name, 'status', undefined, cs.status));
     } else if (ps.status !== cs.status) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'services', 'changed', name, 'status', ps.status, cs.status));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'services', 'changed', name, 'status', ps.status, cs.status));
     }
   }
   for (const [name] of prevMap) {
     if (!currMap.has(name)) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'services', 'removed', name));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'services', 'removed', name));
     }
   }
   return changes;
@@ -113,13 +113,13 @@ function diffServices(
 
 function diffHardware(
   prev: HardwareInfo, curr: HardwareInfo,
-  deviceId: string, tenantId: string, auditId: string, now: number,
+  deviceId: string, companyId: string, auditId: string, now: number,
 ): ChangeRecord[] {
   const changes: ChangeRecord[] = [];
 
   // RAM
   if (prev.ram && curr.ram && prev.ram.total_bytes !== curr.ram.total_bytes) {
-    changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'changed', 'RAM', 'total_bytes',
+    changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'changed', 'RAM', 'total_bytes',
       String(prev.ram.total_bytes), String(curr.ram.total_bytes)));
   }
 
@@ -127,25 +127,25 @@ function diffHardware(
   const prevDisks = new Map((prev.disks ?? []).map(d => [d.device, d]));
   const currDisks = new Map((curr.disks ?? []).map(d => [d.device, d]));
   for (const [dev, cd] of currDisks) {
-    if (!prevDisks.has(dev)) changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'added', `Disk ${cd.label}`));
+    if (!prevDisks.has(dev)) changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'added', `Disk ${cd.label}`));
   }
   for (const [dev, pd] of prevDisks) {
-    if (!currDisks.has(dev)) changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'removed', `Disk ${pd.label}`));
+    if (!currDisks.has(dev)) changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'removed', `Disk ${pd.label}`));
   }
 
   // Network adapters
   const prevNics = new Map((prev.network ?? []).map(n => [n.hardware_addr, n]));
   const currNics = new Map((curr.network ?? []).map(n => [n.hardware_addr, n]));
   for (const [mac, cn] of currNics) {
-    if (!prevNics.has(mac)) changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'added', `NIC ${cn.name}`));
+    if (!prevNics.has(mac)) changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'added', `NIC ${cn.name}`));
   }
   for (const [mac, pn] of prevNics) {
-    if (!currNics.has(mac)) changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'removed', `NIC ${pn.name}`));
+    if (!currNics.has(mac)) changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'removed', `NIC ${pn.name}`));
   }
 
   // BIOS version
   if (prev.bios && curr.bios && prev.bios.version !== curr.bios.version) {
-    changes.push(mkChange(deviceId, tenantId, auditId, now, 'hardware', 'changed', 'BIOS', 'version', prev.bios.version, curr.bios.version));
+    changes.push(mkChange(deviceId, companyId, auditId, now, 'hardware', 'changed', 'BIOS', 'version', prev.bios.version, curr.bios.version));
   }
 
   return changes;
@@ -153,12 +153,12 @@ function diffHardware(
 
 function diffSecurity(
   prev: SecurityInfo, curr: SecurityInfo,
-  deviceId: string, tenantId: string, auditId: string, now: number,
+  deviceId: string, companyId: string, auditId: string, now: number,
 ): ChangeRecord[] {
   const changes: ChangeRecord[] = [];
 
   if (prev.firewall_enabled !== curr.firewall_enabled) {
-    changes.push(mkChange(deviceId, tenantId, auditId, now, 'security', 'changed', 'Firewall',
+    changes.push(mkChange(deviceId, companyId, auditId, now, 'security', 'changed', 'Firewall',
       'enabled', String(prev.firewall_enabled), String(curr.firewall_enabled)));
   }
 
@@ -168,19 +168,19 @@ function diffSecurity(
   for (const [name, ca] of currAV) {
     const pa = prevAV.get(name);
     if (!pa) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'security', 'added', name));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'security', 'added', name));
     } else {
       if (pa.enabled !== ca.enabled) {
-        changes.push(mkChange(deviceId, tenantId, auditId, now, 'security', 'changed', name, 'enabled', String(pa.enabled), String(ca.enabled)));
+        changes.push(mkChange(deviceId, companyId, auditId, now, 'security', 'changed', name, 'enabled', String(pa.enabled), String(ca.enabled)));
       }
       if (pa.up_to_date !== ca.up_to_date) {
-        changes.push(mkChange(deviceId, tenantId, auditId, now, 'security', 'changed', name, 'up_to_date', String(pa.up_to_date), String(ca.up_to_date)));
+        changes.push(mkChange(deviceId, companyId, auditId, now, 'security', 'changed', name, 'up_to_date', String(pa.up_to_date), String(ca.up_to_date)));
       }
     }
   }
   for (const [name] of prevAV) {
     if (!currAV.has(name)) {
-      changes.push(mkChange(deviceId, tenantId, auditId, now, 'security', 'removed', name));
+      changes.push(mkChange(deviceId, companyId, auditId, now, 'security', 'removed', name));
     }
   }
 
@@ -212,16 +212,16 @@ audit.post('/', async (c) => {
     return c.json({ error: 'invalid request body' }, 400);
   }
 
-  if (body.device_id !== device.id || body.tenant_id !== device.tenantId) {
-    return c.json({ error: 'device_id or tenant_id mismatch' }, 403);
+  if (body.device_id !== device.id || body.company_id !== device.companyId) {
+    return c.json({ error: 'device_id or company_id mismatch' }, 403);
   }
 
-  const tenant = await db.select({ privacyModeDefault: schema.tenants.privacyModeDefault })
-    .from(schema.tenants)
-    .where(eq(schema.tenants.id, device.tenantId))
+  const company = await db.select({ privacyModeDefault: schema.companies.privacyModeDefault })
+    .from(schema.companies)
+    .where(eq(schema.companies.id, device.companyId))
     .get();
 
-  const privacyMode = device.privacyModeOverride ?? tenant?.privacyModeDefault ?? false;
+  const privacyMode = device.privacyModeOverride ?? company?.privacyModeDefault ?? false;
 
   const payload = body.payload;
   if (privacyMode) {
@@ -234,7 +234,7 @@ audit.post('/', async (c) => {
   await db.insert(schema.deviceAudits).values({
     id:           auditId,
     deviceId:     device.id,
-    tenantId:     device.tenantId,
+    companyId:     device.companyId,
     auditType:    'full',
     hardware:     payload.hardware   ? JSON.stringify(payload.hardware)  : null,
     software:     payload.software   ? JSON.stringify(payload.software)  : null,
@@ -267,14 +267,14 @@ audit.post('/', async (c) => {
     const prevSEC: SecurityInfo | null  = prevAudit.security  ? JSON.parse(prevAudit.security)  : null;
     const currSEC: SecurityInfo | null  = payload.security ?? null;
 
-    if (prevHW && currHW)   changes.push(...diffHardware(prevHW, currHW, device.id, device.tenantId, auditId, now));
+    if (prevHW && currHW)   changes.push(...diffHardware(prevHW, currHW, device.id, device.companyId, auditId, now));
     let swChanges: ChangeRecord[] = [];
     if (prevSW && currSW) {
-      swChanges = diffSoftware(prevSW, currSW, device.id, device.tenantId, auditId, now);
+      swChanges = diffSoftware(prevSW, currSW, device.id, device.companyId, auditId, now);
       changes.push(...swChanges);
     }
-    if (prevSVC && currSVC) changes.push(...diffServices(prevSVC, currSVC, device.id, device.tenantId, auditId, now));
-    if (prevSEC && currSEC) changes.push(...diffSecurity(prevSEC, currSEC, device.id, device.tenantId, auditId, now));
+    if (prevSVC && currSVC) changes.push(...diffServices(prevSVC, currSVC, device.id, device.companyId, auditId, now));
+    if (prevSEC && currSEC) changes.push(...diffSecurity(prevSEC, currSEC, device.id, device.companyId, auditId, now));
 
     for (const ch of changes) {
       await db.insert(schema.deviceAuditChanges).values(ch);

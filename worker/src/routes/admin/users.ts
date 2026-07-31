@@ -95,7 +95,7 @@ adminUsers.post('/:id/reset-password', async (c) => {
   return c.json({ ok: true });
 });
 
-// DELETE /:id — soft-disable, matching the tenants.status/devices.status suspend-don't-delete convention
+// DELETE /:id — soft-disable, matching the companies.status/devices.status suspend-don't-delete convention
 adminUsers.delete('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 

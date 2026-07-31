@@ -84,7 +84,7 @@ async function fetchPatchPolicySiteIds(db: Db): Promise<Map<string, Set<string>>
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
-    out.get(r.policyId)!.add(r.tenantId);
+    out.get(r.policyId)!.add(r.companyId);
   }
   return out;
 }
@@ -123,7 +123,7 @@ function deviceMatchesPatchPolicy(
   const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.tenantId) ?? false;
+  const matchesSite   = sites?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
   return matchesSite || matchesDevice || matchesGroup;
@@ -296,7 +296,7 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
       await db.insert(schema.commands).values({
         id: crypto.randomUUID(),
         deviceId: device.id,
-        tenantId: device.tenantId,
+        companyId: device.companyId,
         type: 'install_patches',
         payload: JSON.stringify({ update_ids: eligible, auto_reboot: policy.autoReboot }),
         status: 'queued',
@@ -330,7 +330,7 @@ export async function copyPatchPolicyTargets(DB: D1Database, sourcePolicyId: str
     db.select().from(schema.patchPolicyGroups).where(eq(schema.patchPolicyGroups.policyId, sourcePolicyId)),
   ]);
   await Promise.all([
-    ...sites.map(s => db.insert(schema.patchPolicySites).values({ policyId: newPolicyId, tenantId: s.tenantId, createdAt: now })),
+    ...sites.map(s => db.insert(schema.patchPolicySites).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
     ...devices.map(d => db.insert(schema.patchPolicyDevices).values({ policyId: newPolicyId, deviceId: d.deviceId, createdAt: now })),
     ...groups.map(g => db.insert(schema.patchPolicyGroups).values({ policyId: newPolicyId, groupId: g.groupId, createdAt: now })),
   ]);

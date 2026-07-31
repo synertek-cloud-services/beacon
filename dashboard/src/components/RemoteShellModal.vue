@@ -38,7 +38,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { api } from '../api';
 
-const props = defineProps<{ deviceId: string; tenantId: string; hostname: string | null }>();
+const props = defineProps<{ deviceId: string; companyId: string; hostname: string | null }>();
 const emit = defineEmits<{ close: [] }>();
 
 type Status = 'connecting' | 'connected' | 'closed' | 'error';
@@ -71,7 +71,7 @@ async function openSession() {
   status.value = 'connecting';
   errorMsg.value = '';
   try {
-    const { client_ws_url } = await api.sessions.open(props.deviceId, props.tenantId, 'shell');
+    const { client_ws_url } = await api.sessions.open(props.deviceId, props.companyId, 'shell');
     const socket = new WebSocket(client_ws_url);
     ws = socket;
     socket.binaryType = 'arraybuffer';

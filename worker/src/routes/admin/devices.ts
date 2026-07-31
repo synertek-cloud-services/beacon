@@ -23,15 +23,15 @@ adminDevices.get('/', async (c) => {
     ? await db.select().from(schema.devices).where(eq(schema.devices.status, statusFilter)).all()
     : await db.select().from(schema.devices).all();
 
-  const tenantIds = [...new Set(devices.map(d => d.tenantId))];
-  const tenants = tenantIds.length
-    ? await db.select({ id: schema.tenants.id, name: schema.tenants.name })
-        .from(schema.tenants)
+  const companyIds = [...new Set(devices.map(d => d.companyId))];
+  const companies = companyIds.length
+    ? await db.select({ id: schema.companies.id, name: schema.companies.name })
+        .from(schema.companies)
         .all()
     : [];
-  const tenantMap = new Map(tenants.map(t => [t.id, t.name]));
+  const companyMap = new Map(companies.map(t => [t.id, t.name]));
 
-  const rows = devices.map(d => ({ ...d, tenantName: tenantMap.get(d.tenantId) ?? null }));
+  const rows = devices.map(d => ({ ...d, companyName: companyMap.get(d.companyId) ?? null }));
 
   return c.json(rows);
 });
@@ -44,10 +44,10 @@ adminDevices.get('/:id', async (c) => {
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
   if (!device) return c.json({ error: 'not found' }, 404);
 
-  const tenant = await db.select({ name: schema.tenants.name })
-    .from(schema.tenants).where(eq(schema.tenants.id, device.tenantId)).get();
+  const company = await db.select({ name: schema.companies.name })
+    .from(schema.companies).where(eq(schema.companies.id, device.companyId)).get();
 
-  return c.json({ ...device, tenantName: tenant?.name ?? null });
+  return c.json({ ...device, companyName: company?.name ?? null });
 });
 
 // GET /v1/admin/devices/:id/effective-monitors — which policies/monitors
@@ -56,7 +56,7 @@ adminDevices.get('/:id/effective-monitors', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const db = drizzle(c.env.DB, { schema });
-  // Needs the full row — deviceMatchesPolicy reads overrideClass/detectedClass/tenantId/osType.
+  // Needs the full row — deviceMatchesPolicy reads overrideClass/detectedClass/companyId/osType.
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
   if (!device) return c.json({ error: 'not found' }, 404);
 
@@ -180,7 +180,7 @@ adminDevices.post('/:id/commands', async (c) => {
   const deviceId = c.req.param('id');
 
   const device = await db
-    .select({ id: schema.devices.id, tenantId: schema.devices.tenantId, status: schema.devices.status, osType: schema.devices.osType })
+    .select({ id: schema.devices.id, companyId: schema.devices.companyId, status: schema.devices.status, osType: schema.devices.osType })
     .from(schema.devices)
     .where(eq(schema.devices.id, deviceId))
     .get();
@@ -257,7 +257,7 @@ adminDevices.post('/:id/commands', async (c) => {
   await db.insert(schema.commands).values({
     id,
     deviceId,
-    tenantId: device.tenantId,
+    companyId: device.companyId,
     type: cmdType,
     payload: JSON.stringify(payload),
     status: 'queued',
@@ -284,7 +284,7 @@ adminDevices.get('/:id/audit/latest', async (c) => {
   return c.json({
     id:           row.id,
     deviceId:     row.deviceId,
-    tenantId:     row.tenantId,
+    companyId:     row.companyId,
     auditType:    row.auditType,
     agentVersion: row.agentVersion,
     createdAt:    row.createdAt,

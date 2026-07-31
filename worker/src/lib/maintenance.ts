@@ -89,7 +89,7 @@ async function fetchMaintenancePolicySiteIds(db: Db): Promise<Map<string, Set<st
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
-    out.get(r.policyId)!.add(r.tenantId);
+    out.get(r.policyId)!.add(r.companyId);
   }
   return out;
 }
@@ -133,7 +133,7 @@ function deviceMatchesMaintenancePolicy(
   const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.tenantId) ?? false;
+  const matchesSite   = sites?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
   return matchesSite || matchesDevice || matchesGroup;
@@ -207,7 +207,7 @@ export async function copyMaintenanceTargets(DB: D1Database, sourcePolicyId: str
     db.select().from(schema.maintenancePolicyGroups).where(eq(schema.maintenancePolicyGroups.policyId, sourcePolicyId)),
   ]);
   await Promise.all([
-    ...sites.map(s => db.insert(schema.maintenancePolicySites).values({ policyId: newPolicyId, tenantId: s.tenantId, createdAt: now })),
+    ...sites.map(s => db.insert(schema.maintenancePolicySites).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
     ...devices.map(d => db.insert(schema.maintenancePolicyDevices).values({ policyId: newPolicyId, deviceId: d.deviceId, createdAt: now })),
     ...groups.map(g => db.insert(schema.maintenancePolicyGroups).values({ policyId: newPolicyId, groupId: g.groupId, createdAt: now })),
   ]);
