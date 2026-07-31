@@ -69,14 +69,22 @@ const gridOptions = computed<GridStackOptions>(() => ({
   column: 12,
   // Not a straight port of the old CSS Grid's 8px grid-auto-rows: gridstack
   // sizes an item as h * cellHeight directly, with no equivalent of CSS
-  // Grid's row-gap being included inside a spanned item's own height (that
-  // gap-inclusion was where the old system's real per-widget height came
-  // from at such a small base unit). Found via live inspection of a
-  // widget's actual computed height coming out far too small to hold its
-  // own title + chart -- 20 is fit to land close to the old system's real
-  // pixel heights across its existing h values (7, 8, 14), not a guess.
+  // Grid's row-gap being included inside a spanned item's own height.
+  // Exact pixel parity between device_summary's centered top/bottom padding
+  // and its own 14px left/right padding is not safely achievable: it would
+  // require zero slack above the stat row's natural height, i.e. sizing the
+  // widget exactly to its content with no buffer -- any slack above zero
+  // gets halved and added on TOP of the existing 14px, not substituted for
+  // it. h:8 here is the closest fit with real (not zero) headroom against
+  // clipping if content ever renders slightly larger (different fonts,
+  // browser, zoom) -- see device_summary's h in TEMPLATES below.
   cellHeight: 20,
-  margin: 14,
+  // 7, not 14 -- gridstack gives each item its own inset on every side, so
+  // two adjacent items combine to 2x this value (14+14=28px). The old CSS
+  // Grid system's row-gap/column-gap of 14px was a single gap applied once
+  // between tracks, not doubled -- 7 here reproduces that same real 14px
+  // combined gap instead of accidentally doubling it.
+  margin: 7,
   float: false,
   staticGrid: !editing.value,
   resizable: { handles: 'se' },
@@ -129,14 +137,14 @@ onMounted(async () => { await Promise.all([loadList(), api.tenants.list().then(v
 </script>
 
 <style scoped>
-/* Every grid item already carries its own 14px top inset (gridstack's own
-   margin, applied on all 4 sides of every item independently -- confirmed
-   by inspecting the live --gs-item-margin-* values, not assumed). So the
-   *first* widget's visible top gap is already this header's margin-bottom
-   PLUS that built-in 14px inset -- setting margin-bottom to 14px (not 28px)
-   is what actually makes the total match the between-widget gap (14+14=28px
-   on each side there too), not a mismatched double-count of the same inset. */
-.dash-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; gap:16px; } h1 { margin:0; font-size:20px; }.dash-context { margin:5px 0 0; color:var(--color-text-muted); font-size:12px; }.dash-actions { display:flex; gap:8px; }.dash-loading { color:var(--color-text-muted); font-size:13px; padding:32px; text-align:center; }.dash-grid { display:block; }
+/* Every grid item already carries its own 7px top inset (gridstack's own
+   margin option, applied on all 4 sides of every item independently --
+   confirmed by inspecting the live --gs-item-margin-* values, not assumed).
+   So the *first* widget's visible top gap is already this header's
+   margin-bottom PLUS that built-in 7px inset -- setting margin-bottom to
+   7px (not 14px) is what makes the total match the real between-widget gap
+   (7+7=14px there too), not a mismatched double-count of the same inset. */
+.dash-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:7px; gap:16px; } h1 { margin:0; font-size:20px; }.dash-context { margin:5px 0 0; color:var(--color-text-muted); font-size:12px; }.dash-actions { display:flex; gap:8px; }.dash-loading { color:var(--color-text-muted); font-size:13px; padding:32px; text-align:center; }.dash-grid { display:block; }
 /* gridstack's default placeholder (rgba(0,0,0,.1)) is nearly invisible
    against this app's already-dark background -- swap for the same
    dashed-primary-color language ".add-widget" already uses elsewhere on

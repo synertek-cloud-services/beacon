@@ -12,16 +12,18 @@ const WIDGET_TYPES = new Set([
 ]);
 const TEMPLATES: Record<string, Array<{ type: string; x: number; y: number; w: number; h: number }>> = {
   blank: [],
-  // h values sized for gridstack's cellHeight:20 model (see DashboardPage.vue),
-  // not a straight port of the pre-gridstack CSS-Grid h values -- confirmed
-  // via live measurement (not guessed) that the old h=7/h=8 values clipped
-  // real content under the new sizing model, cutting off the stat row and
-  // crowding donut titles against their charts.
+  // h values sized for gridstack's cellHeight:20/margin:7 model (see
+  // DashboardPage.vue), not a straight port of the pre-gridstack CSS-Grid h
+  // values. device_summary's h=8 is the closest integer fit that doesn't
+  // compress the stat row below its real measured 102px natural height
+  // (h=7 undershoots to 98px and clips) while landing closest to the
+  // widget's 14px left/right padding once centered (h=8's total visible
+  // top/bottom gap works out to ~22px; h=9's to ~32px).
   default: [
-    { type: 'device_summary', x: 0, y: 0, w: 12, h: 9 }, { type: 'recent_alerts', x: 0, y: 9, w: 12, h: 14 },
-    { type: 'online_offline', x: 0, y: 23, w: 4, h: 10 }, { type: 'os_distribution', x: 4, y: 23, w: 4, h: 10 },
-    { type: 'class_distribution', x: 8, y: 23, w: 4, h: 10 }, { type: 'offline_by_type', x: 0, y: 33, w: 4, h: 10 },
-    { type: 'antivirus_status', x: 4, y: 33, w: 4, h: 10 }, { type: 'alerts_by_priority', x: 8, y: 33, w: 4, h: 10 },
+    { type: 'device_summary', x: 0, y: 0, w: 12, h: 8 }, { type: 'recent_alerts', x: 0, y: 8, w: 12, h: 14 },
+    { type: 'online_offline', x: 0, y: 22, w: 4, h: 10 }, { type: 'os_distribution', x: 4, y: 22, w: 4, h: 10 },
+    { type: 'class_distribution', x: 8, y: 22, w: 4, h: 10 }, { type: 'offline_by_type', x: 0, y: 32, w: 4, h: 10 },
+    { type: 'antivirus_status', x: 4, y: 32, w: 4, h: 10 }, { type: 'alerts_by_priority', x: 8, y: 32, w: 4, h: 10 },
   ],
 };
 
