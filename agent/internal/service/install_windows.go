@@ -256,12 +256,27 @@ func SelfUninstall() error {
 	}
 	s.Close()
 
+	// taskkill beacon-tray.exe first -- found via real testing, not
+	// anticipated in the original design: the tray runs as a *separate*
+	// process launched into the logged-in user's own session
+	// (usersession.RunAsSession), not a child of this service, so stopping
+	// the service does nothing to it. Left running, its own open handle on
+	// beacon-tray.exe blocks `rd /s /q` from removing the install
+	// directory -- confirmed live: the service and registry cleanly
+	// disappeared, but the directory was left behind with the tray still
+	// visible in the notification area. SYSTEM has sufficient privilege
+	// (SeDebugPrivilege) to kill a process in a different session; `/F`
+	// forces it since the tray has no graceful-shutdown handling to wait
+	// on. Chained with `&`, not `&&` -- must still proceed to the rest of
+	// cleanup even when no tray process exists to kill (taskkill exits
+	// non-zero in that case).
+	//
 	// CREATE_NO_WINDOW: SYSTEM has no interactive desktop to show a console
 	// on anyway (session 0 isolation), but harmless to set explicitly
 	// regardless -- same reasoning already documented on the tray's own
 	// CreateProcessAsUser call in usersession_windows.go.
 	helperScript := fmt.Sprintf(
-		`timeout /t 3 /nobreak >nul & sc stop %s & sc delete %s & rd /s /q "%s"`,
+		`timeout /t 3 /nobreak >nul & taskkill /IM beacon-tray.exe /F & sc stop %s & sc delete %s & rd /s /q "%s"`,
 		ServiceName, ServiceName, installDir,
 	)
 	cmd := exec.Command("cmd.exe", "/c", helperScript)
