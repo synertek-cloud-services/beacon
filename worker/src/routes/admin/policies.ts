@@ -14,7 +14,7 @@ type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software'];
 const VALID_PRIORITIES:  Priority[]  = ['critical', 'high', 'moderate', 'low'];
 
-// Fetch policies + their monitors and Targets (Sites/Devices/Groups — see
+// Fetch policies + their monitors and Targets (Companies/Devices/Groups — see
 // deviceMatchesPolicy in lib/alerts.ts for how the three are OR'd together)
 // in a handful of queries, merge in TS.
 async function listWithMonitors(
@@ -28,9 +28,9 @@ async function listWithMonitors(
   if (!policiesList.length) return [];
 
   const ids = policiesList.map(p => p.id);
-  const [monitors, sites, devices, groups] = await Promise.all([
+  const [monitors, companies, devices, groups] = await Promise.all([
     db.select().from(schema.policyMonitors).where(inArray(schema.policyMonitors.policyId, ids)),
-    db.select().from(schema.policySites).where(inArray(schema.policySites.policyId, ids)),
+    db.select().from(schema.policyCompanies).where(inArray(schema.policyCompanies.policyId, ids)),
     db.select().from(schema.policyDevices).where(inArray(schema.policyDevices.policyId, ids)),
     db.select().from(schema.policyGroups).where(inArray(schema.policyGroups.policyId, ids)),
   ]);
@@ -38,13 +38,13 @@ async function listWithMonitors(
   return policiesList.map(p => ({
     ...p,
     monitors:  monitors.filter(m => m.policyId === p.id),
-    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.companyId),
+    companyIds:   companies.filter(s => s.policyId === p.id).map(s => s.companyId),
     deviceIds: devices.filter(d => d.policyId === p.id).map(d => d.deviceId),
     groupIds:  groups.filter(g => g.policyId === p.id).map(g => g.groupId),
   }));
 }
 
-// Recomputed after every mutation of policy_sites/policy_devices/policy_groups
+// Recomputed after every mutation of policy_companies/policy_devices/policy_groups
 // — scope is derived (migration 0032), not directly user-set: 'global' when a
 // policy has zero targets across all three tables, 'company' when it has 1+.
 // Purely a display/tab-filtering convenience (GlobalPoliciesPage.vue's
@@ -52,12 +52,12 @@ async function listWithMonitors(
 // itself (deviceMatchesPolicy in lib/alerts.ts) reads the three tables
 // directly and never looks at this column.
 async function recomputePolicyScope(db: ReturnType<typeof drizzle<typeof schema>>, policyId: string): Promise<void> {
-  const [sites, devices, groups] = await Promise.all([
-    db.select().from(schema.policySites).where(eq(schema.policySites.policyId, policyId)),
+  const [companies, devices, groups] = await Promise.all([
+    db.select().from(schema.policyCompanies).where(eq(schema.policyCompanies.policyId, policyId)),
     db.select().from(schema.policyDevices).where(eq(schema.policyDevices.policyId, policyId)),
     db.select().from(schema.policyGroups).where(eq(schema.policyGroups.policyId, policyId)),
   ]);
-  const scope = (sites.length + devices.length + groups.length) === 0 ? 'global' : 'company';
+  const scope = (companies.length + devices.length + groups.length) === 0 ? 'global' : 'company';
   await db.update(schema.policies).set({ scope }).where(eq(schema.policies.id, policyId));
 }
 
@@ -95,13 +95,13 @@ policies.post('/', async (c) => {
   let targetOs    = body.target_os    ? JSON.stringify(body.target_os)    : '["windows","linux","macos"]';
   let targetClass = body.target_class ? JSON.stringify(body.target_class) : '["server","workstation","laptop"]';
 
-  // If cloning, inherit fields (including Targets — Sites/Devices/Groups)
+  // If cloning, inherit fields (including Targets — Companies/Devices/Groups)
   // from source unless overridden. New, non-cloned policies always start
   // with zero targets (scope='global') — Targets are added via the nested
   // routes below, same "create empty, then POST nested items" convention as
   // every other nested resource in this codebase.
   let sourceMonitors: (typeof schema.policyMonitors.$inferSelect)[] = [];
-  let sourceSites:    (typeof schema.policySites.$inferSelect)[]    = [];
+  let sourceCompanies:    (typeof schema.policyCompanies.$inferSelect)[]    = [];
   let sourceDevices:  (typeof schema.policyDevices.$inferSelect)[]  = [];
   let sourceGroups:   (typeof schema.policyGroups.$inferSelect)[]   = [];
   if (body.clone_from) {
@@ -114,9 +114,9 @@ policies.post('/', async (c) => {
     if (!body.target_os)    targetOs    = source.targetOs;
     if (!body.target_class) targetClass = source.targetClass;
 
-    [sourceMonitors, sourceSites, sourceDevices, sourceGroups] = await Promise.all([
+    [sourceMonitors, sourceCompanies, sourceDevices, sourceGroups] = await Promise.all([
       db.select().from(schema.policyMonitors).where(eq(schema.policyMonitors.policyId, source.id)),
-      db.select().from(schema.policySites).where(eq(schema.policySites.policyId, source.id)),
+      db.select().from(schema.policyCompanies).where(eq(schema.policyCompanies.policyId, source.id)),
       db.select().from(schema.policyDevices).where(eq(schema.policyDevices.policyId, source.id)),
       db.select().from(schema.policyGroups).where(eq(schema.policyGroups.policyId, source.id)),
     ]);
@@ -152,9 +152,9 @@ policies.post('/', async (c) => {
       })
     ));
   }
-  if (sourceSites.length) {
-    await Promise.all(sourceSites.map(s =>
-      db.insert(schema.policySites).values({ policyId: id, companyId: s.companyId, createdAt: now })));
+  if (sourceCompanies.length) {
+    await Promise.all(sourceCompanies.map(s =>
+      db.insert(schema.policyCompanies).values({ policyId: id, companyId: s.companyId, createdAt: now })));
   }
   if (sourceDevices.length) {
     await Promise.all(sourceDevices.map(d =>
@@ -164,7 +164,7 @@ policies.post('/', async (c) => {
     await Promise.all(sourceGroups.map(g =>
       db.insert(schema.policyGroups).values({ policyId: id, groupId: g.groupId, createdAt: now })));
   }
-  if (sourceSites.length || sourceDevices.length || sourceGroups.length) {
+  if (sourceCompanies.length || sourceDevices.length || sourceGroups.length) {
     await recomputePolicyScope(db, id);
   }
 
@@ -342,8 +342,8 @@ policies.delete('/:id/monitors/:mid', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Targets: Sites / Devices / Device Groups (nested, independent
-// lifecycles — mirrors components.ts's /:id/sites). All three are OR'd
+// ── Targets: Companies / Devices / Device Groups (nested, independent
+// lifecycles — mirrors components.ts's /:id/companies). All three are OR'd
 // together, not ANDed — see deviceMatchesPolicy in lib/alerts.ts. Every
 // mutation below recomputes the derived `scope` display column (see
 // recomputePolicyScope above). ─────────────────────────────────────────────
@@ -405,12 +405,12 @@ policies.delete('/:id/groups/:groupId', async (c) => {
   return c.json({ ok: true });
 });
 
-policies.get('/:id/sites', async (c) => {
+policies.get('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(
-    `SELECT ps.company_id, t.name FROM policy_sites ps
+    `SELECT ps.company_id, t.name FROM policy_companies ps
      JOIN companies t ON t.id = ps.company_id
      WHERE ps.policy_id = ? ORDER BY t.name ASC`
   ).bind(c.req.param('id')).all<{ company_id: string; name: string }>();
@@ -418,7 +418,7 @@ policies.get('/:id/sites', async (c) => {
   return c.json(result.results.map(r => ({ companyId: r.company_id, name: r.name })));
 });
 
-policies.post('/:id/sites', async (c) => {
+policies.post('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
   const policyId = c.req.param('id');
@@ -431,7 +431,7 @@ policies.post('/:id/sites', async (c) => {
   if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO policy_sites (policy_id, company_id, created_at) VALUES (?, ?, ?)`
+    `INSERT OR IGNORE INTO policy_companies (policy_id, company_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.company_id, now).run();
   await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
 
@@ -439,14 +439,14 @@ policies.post('/:id/sites', async (c) => {
   return c.json({ ok: true }, 201);
 });
 
-policies.delete('/:id/sites/:companyId', async (c) => {
+policies.delete('/:id/companies/:companyId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
   const policyId = c.req.param('id');
   const now = Math.floor(Date.now() / 1000);
 
   await c.env.DB.prepare(
-    `DELETE FROM policy_sites WHERE policy_id = ? AND company_id = ?`
+    `DELETE FROM policy_companies WHERE policy_id = ? AND company_id = ?`
   ).bind(policyId, c.req.param('companyId')).run();
   await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
 

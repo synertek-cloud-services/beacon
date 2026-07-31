@@ -250,7 +250,7 @@ async function save() {
 }
 .btn-icon:hover:not(:disabled) { background: var(--color-border); color: var(--color-text-primary); }
 
-/* ── Add Device flyout (right-side panel, mirrors ComponentFormPage's Add Site flyout) ── */
+/* ── Add Device flyout (right-side panel, mirrors ComponentFormPage's Add Company flyout) ── */
 .sf-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.45);
   z-index: 500; display: flex; align-items: stretch; justify-content: flex-end;

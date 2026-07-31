@@ -70,7 +70,7 @@ export function isMaintenanceWindowActive(policy: MaintenancePolicy, hostTimezon
   });
 }
 
-// ── Targeting (mirrors the Sites/Devices/Groups OR-list machinery in
+// ── Targeting (mirrors the Companies/Devices/Groups OR-list machinery in
 // lib/alerts.ts's deviceMatchesPolicy, minus the OS/Class gate -- Datto's
 // real Maintenance Policy has no such filter) ──────────────────────────────
 
@@ -84,8 +84,8 @@ async function fetchEnabledMaintenancePolicies(db: Db): Promise<MaintenancePolic
   return db.select().from(schema.maintenancePolicies).where(eq(schema.maintenancePolicies.enabled, true));
 }
 
-async function fetchMaintenancePolicySiteIds(db: Db): Promise<Map<string, Set<string>>> {
-  const rows = await db.select().from(schema.maintenancePolicySites);
+async function fetchMaintenancePolicyCompanyIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.maintenancePolicyCompanies);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
@@ -117,54 +117,54 @@ async function fetchMaintenancePolicyGroupIds(db: Db): Promise<Map<string, Set<s
 // Exact mirror of deviceMatchesPolicy's OR-across-three-kinds body in
 // lib/alerts.ts, minus the OS/Class gate. Duplicated rather than shared,
 // consistent with this codebase's existing per-policy-type mirroring
-// convention (see policySites' own comment: "mirrors policyGroups' exact
+// convention (see policyCompanies' own comment: "mirrors policyGroups' exact
 // composite-PK shape").
 function deviceMatchesMaintenancePolicy(
   p: MaintenancePolicy,
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
-  policySiteIds: Map<string, Set<string>>,
+  policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
 ): boolean {
-  const sites   = policySiteIds.get(p.id);
+  const companies   = policyCompanyIds.get(p.id);
   const devices = policyDeviceIds.get(p.id);
   const groups  = policyGroupIds.get(p.id);
-  const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
+  const total = (companies?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.companyId) ?? false;
+  const matchesCompany   = companies?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
-  return matchesSite || matchesDevice || matchesGroup;
+  return matchesCompany || matchesDevice || matchesGroup;
 }
 
 export interface MaintenanceContext {
   now: number;
   hostTimezone: string;
   policies: MaintenancePolicy[];
-  policySiteIds: Map<string, Set<string>>;
+  policyCompanyIds: Map<string, Set<string>>;
   policyDeviceIds: Map<string, Set<string>>;
   policyGroupIds: Map<string, Set<string>>;
   deviceGroupIds: Map<string, Set<string>>; // deviceId -> groupIds
 }
 
 // Fetch every map ONCE per invocation — same hot-path rule
-// fetchEnabledPolicyMonitors/fetchPolicySiteIds etc. already established in
+// fetchEnabledPolicyMonitors/fetchPolicyCompanyIds etc. already established in
 // lib/alerts.ts (this runs on every 60s check-in and the 2-min fleet cron).
 // Callers: isDeviceSuppressedNow below (single-device — check-in, audit) and
 // evaluateOfflineAlerts in lib/alerts.ts (fleet-wide, fetched once for ALL
 // devices before its device loop).
 export async function fetchMaintenanceContext(db: Db, deviceIds: string[], now: number): Promise<MaintenanceContext> {
-  const [hostTimezone, policies, policySiteIds, policyDeviceIds, policyGroupIds, deviceGroupIds] = await Promise.all([
+  const [hostTimezone, policies, policyCompanyIds, policyDeviceIds, policyGroupIds, deviceGroupIds] = await Promise.all([
     getHostTimezone(db),
     fetchEnabledMaintenancePolicies(db),
-    fetchMaintenancePolicySiteIds(db),
+    fetchMaintenancePolicyCompanyIds(db),
     fetchMaintenancePolicyDeviceIds(db),
     fetchMaintenancePolicyGroupIds(db),
     fetchDeviceGroupIds(db, deviceIds), // reused from lib/alerts.ts — same underlying device_group_members table
   ]);
-  return { now, hostTimezone, policies, policySiteIds, policyDeviceIds, policyGroupIds, deviceGroupIds };
+  return { now, hostTimezone, policies, policyCompanyIds, policyDeviceIds, policyGroupIds, deviceGroupIds };
 }
 
 // The single centralized suppression check, replacing the 3 previously
@@ -181,7 +181,7 @@ export function isDeviceSuppressed(device: Device, ctx: MaintenanceContext): boo
 
   const deviceGroups = ctx.deviceGroupIds.get(device.id) ?? new Set<string>();
   return ctx.policies.some(policy =>
-    deviceMatchesMaintenancePolicy(policy, device, deviceGroups, ctx.policyGroupIds, ctx.policySiteIds, ctx.policyDeviceIds)
+    deviceMatchesMaintenancePolicy(policy, device, deviceGroups, ctx.policyGroupIds, ctx.policyCompanyIds, ctx.policyDeviceIds)
     && isMaintenanceWindowActive(policy, ctx.hostTimezone, ctx.now));
 }
 
@@ -201,13 +201,13 @@ export async function isDeviceSuppressedNow(db: Db, device: Device, now: number)
 
 export async function copyMaintenanceTargets(DB: D1Database, sourcePolicyId: string, newPolicyId: string, now: number): Promise<void> {
   const db = drizzle(DB, { schema });
-  const [sites, devices, groups] = await Promise.all([
-    db.select().from(schema.maintenancePolicySites).where(eq(schema.maintenancePolicySites.policyId, sourcePolicyId)),
+  const [companies, devices, groups] = await Promise.all([
+    db.select().from(schema.maintenancePolicyCompanies).where(eq(schema.maintenancePolicyCompanies.policyId, sourcePolicyId)),
     db.select().from(schema.maintenancePolicyDevices).where(eq(schema.maintenancePolicyDevices.policyId, sourcePolicyId)),
     db.select().from(schema.maintenancePolicyGroups).where(eq(schema.maintenancePolicyGroups.policyId, sourcePolicyId)),
   ]);
   await Promise.all([
-    ...sites.map(s => db.insert(schema.maintenancePolicySites).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
+    ...companies.map(s => db.insert(schema.maintenancePolicyCompanies).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
     ...devices.map(d => db.insert(schema.maintenancePolicyDevices).values({ policyId: newPolicyId, deviceId: d.deviceId, createdAt: now })),
     ...groups.map(g => db.insert(schema.maintenancePolicyGroups).values({ policyId: newPolicyId, groupId: g.groupId, createdAt: now })),
   ]);

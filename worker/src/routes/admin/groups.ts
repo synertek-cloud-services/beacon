@@ -120,7 +120,7 @@ adminGroups.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Members (nested, independent lifecycle — mirrors component_sites) ───────
+// ── Members (nested, independent lifecycle — mirrors component_companies) ───────
 
 adminGroups.get('/:id/members', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
