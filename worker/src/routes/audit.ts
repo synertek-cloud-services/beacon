@@ -12,13 +12,25 @@ const audit = new Hono<{ Bindings: Bindings }>();
 // ── Types mirroring agent protocol ───────────────────────────────────────────
 
 interface CPUInfo    { model: string; cores: number; speed_mhz: number }
-interface RAMInfo    { total_bytes: number }
+interface RAMInfo    { total_bytes: number; installed_bytes?: number }
 interface DiskInfo   { device: string; label: string; fs_type: string; total_bytes: number; free_bytes: number }
 interface NetworkInfo { name: string; hardware_addr: string; addrs: string[] }
 interface BIOSInfo   { vendor: string; version: string; release_date: string; serial_number?: string }
+interface SystemInfo { manufacturer?: string; model?: string; motherboard_vendor?: string; motherboard_model?: string }
 interface HardwareInfo {
   cpu: CPUInfo[]; ram: RAMInfo; disks: DiskInfo[];
   network: NetworkInfo[]; bios?: BIOSInfo; last_logged_in_user?: string
+  // These fields aren't read anywhere in this file's diff logic below (only
+  // ram/disks/network/bios are), but are declared here anyway so this
+  // interface stays an accurate mirror of the real wire payload
+  // (agent/internal/protocol/types.go's HardwareInfo) -- found stale/missing
+  // during a deliberate wire-protocol audit, confirmed harmless since the
+  // hardware column is stored as this whole object stringified as-is (see
+  // below), not reconstructed field-by-field, so these already flowed
+  // through correctly even while undeclared here.
+  architecture?: string; system?: SystemInfo; display_adapters?: string[]
+  domain?: string; windows_display_version?: string; windows_installation_type?: string
+  virtualization?: string
 }
 interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
