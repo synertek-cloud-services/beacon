@@ -8,6 +8,7 @@ import { sha256hex } from '../lib/crypto';
 import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
+import { recordDiscoveredHosts, type DiscoveredHost } from '../lib/discovery';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
 
@@ -57,7 +58,10 @@ checkin.post('/', async (c) => {
   // Process results from previously issued commands
   if (body.pending_command_results?.length) {
     const ids = body.pending_command_results.map(r => r.command_id);
-    const owned = await db.select({ id: schema.commands.id, componentId: schema.commands.componentId, jobId: schema.commands.jobId })
+    const owned = await db.select({
+      id: schema.commands.id, componentId: schema.commands.componentId, jobId: schema.commands.jobId,
+      type: schema.commands.type, companyId: schema.commands.companyId,
+    })
       .from(schema.commands)
       .where(and(
         inArray(schema.commands.id, ids),
@@ -89,6 +93,19 @@ checkin.post('/', async (c) => {
           warning,
         })
         .where(eq(schema.commands.id, r.command_id));
+
+      if (ownedCmd.type === 'network_scan' && r.status === 'completed') {
+        try {
+          const scanResult = JSON.parse(r.stdout ?? '{}') as { hosts?: DiscoveredHost[] };
+          if (scanResult.hosts?.length) {
+            await recordDiscoveredHosts(db, ownedCmd.companyId, scanResult.hosts, now);
+          }
+        } catch {
+          // Malformed scan output shouldn't fail the whole check-in --
+          // the command row above already recorded raw stdout/stderr for
+          // debugging.
+        }
+      }
 
       if (ownedCmd.jobId) affectedJobIds.add(ownedCmd.jobId);
     }
