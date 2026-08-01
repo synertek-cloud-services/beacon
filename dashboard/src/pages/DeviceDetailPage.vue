@@ -1254,7 +1254,13 @@ let timer: ReturnType<typeof setInterval>;
 timer = setInterval(() => {
   now.value = Math.floor(Date.now() / 1000);
   const id = route.params.id as string | undefined;
-  if (id) loadDevice(id);
+  if (id) {
+    loadDevice(id);
+    // Command History otherwise never refreshes on its own — a queued/sent
+    // command would show a stale status indefinitely without a manual page
+    // reload, since loadDevice() above only refreshes the core device row.
+    loadDeviceCommands();
+  }
 }, 30_000);
 onUnmounted(() => {
   clearInterval(timer);
