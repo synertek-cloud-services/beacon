@@ -224,7 +224,7 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
     // Layer-2 call -- this dispatch happens from the scheduled() cron, never
     // a user-authenticated HTTP route, so the generic middleware can't see
     // it. Job *creation* is a normal admin route and is already covered by
-    // Layer 1. No companyId -- a scheduled job can target multiple sites, so
+    // Layer 1. No companyId -- a scheduled job can target multiple companies, so
     // it isn't unambiguously owned by one.
     await logActivity(drizzle(db, { schema }), {
       actorType: 'system', category: 'Job', action: 'Dispatched scheduled job',

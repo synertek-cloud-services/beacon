@@ -86,7 +86,7 @@ export interface Dashboard {
 }
 
 export interface DashboardDetail extends Dashboard {
-  siteIds: string[];
+  companyIds: string[];
   widgets: DashboardWidget[];
 }
 
@@ -181,7 +181,7 @@ export interface PostCondition {
   enabled: boolean;
 }
 
-export interface ComponentSite {
+export interface ComponentCompany {
   companyId: string;
   name: string;
 }
@@ -193,8 +193,8 @@ export interface Component {
   category: string | null; // freeform organizational tag — shown in the UI as "Group"
   type: 'script' | 'application';
   origin: 'custom' | 'store';
-  scope: 'global' | 'company'; // "Sites" scoping — 'company' means restricted to `sites` below (a real multi-site list, not a single company)
-  sites: ComponentSite[];
+  scope: 'global' | 'company'; // "Companies" scoping — 'company' means restricted to `companies` below (a real multi-company list, not a single company)
+  companies: ComponentCompany[];
   shell: string;
   script: string;
   timeoutSeconds: number;
@@ -325,10 +325,10 @@ export interface Policy {
   name:        string;
   description: string | null;
   // Derived (migration 0032), not directly user-set — 'global' when the
-  // policy has zero Targets across sites/devices/groups, 'company' when it
+  // policy has zero Targets across companies/devices/groups, 'company' when it
   // has 1+. See deviceMatchesPolicy in worker/src/lib/alerts.ts.
   scope:       'global' | 'company';
-  companyId:   string | null; // vestigial — superseded by siteIds below
+  companyId:   string | null; // vestigial — superseded by companyIds below
   enabled:     boolean;
   targetOs:    string; // JSON array
   targetClass: string; // JSON array
@@ -336,14 +336,14 @@ export interface Policy {
   updatedAt:   number;
   monitors:    PolicyMonitor[];
   // Targets (migration 0032) — a heterogeneous OR-list: a device matches if
-  // it satisfies ANY of siteIds/deviceIds/groupIds, not all. Populated by
+  // it satisfies ANY of companyIds/deviceIds/groupIds, not all. Populated by
   // the list endpoint; may be absent elsewhere.
-  siteIds?:    string[];
+  companyIds?:    string[];
   deviceIds?:  string[];
   groupIds?:   string[];
 }
 
-export interface PolicySiteTarget {
+export interface PolicyCompanyTarget {
   companyId: string;
   name:     string;
 }
@@ -355,7 +355,7 @@ export interface PolicyDeviceTarget {
 }
 
 // Maintenance Policy (v1: 'one_time'/'weekly' recurrence only — see
-// worker/src/lib/maintenance.ts). Targeting is Sites/Devices/Groups only,
+// worker/src/lib/maintenance.ts). Targeting is Companies/Devices/Groups only,
 // no OS/Class filter (matches Datto's real Maintenance Policy scope,
 // narrower than Monitoring Policy above).
 export type MaintenanceRecurrenceType = 'one_time' | 'weekly';
@@ -373,7 +373,7 @@ export interface MaintenancePolicy {
   weeklyDurationMinutes:  number | null;
   createdAt:              number;
   updatedAt:              number;
-  siteIds?:   string[];
+  companyIds?:   string[];
   deviceIds?: string[];
   groupIds?:  string[];
 }
@@ -410,7 +410,7 @@ export interface PatchPolicy {
   lastDispatchedAt:       number | null;
   createdAt:              number;
   updatedAt:              number;
-  siteIds?:   string[];
+  companyIds?:   string[];
   deviceIds?: string[];
   groupIds?:  string[];
 }
@@ -797,7 +797,7 @@ export const api = {
     get: (id: string) => request<DashboardDetail>('GET', `/v1/admin/dashboards/${id}`),
     data: (id: string, companyId?: string) => request<DashboardData>('GET', `/v1/admin/dashboards/${id}/data${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
     create: (body: { name: string; template: 'default' | 'blank' }) => request<DashboardDetail>('POST', '/v1/admin/dashboards', body),
-    update: (id: string, body: Partial<{ name: string; sortOrder: number; isHome: boolean; siteIds: string[] }>) => request<DashboardDetail>('PATCH', `/v1/admin/dashboards/${id}`, body),
+    update: (id: string, body: Partial<{ name: string; sortOrder: number; isHome: boolean; companyIds: string[] }>) => request<DashboardDetail>('PATCH', `/v1/admin/dashboards/${id}`, body),
     clone: (id: string, body?: { name?: string }) => request<DashboardDetail>('POST', `/v1/admin/dashboards/${id}/clone`, body ?? {}),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/dashboards/${id}`),
     widgets: {
@@ -839,10 +839,10 @@ export const api = {
     store: {
       list: () => request<Component[]>('GET', '/v1/admin/components/store'),
     },
-    sites: {
-      list:   (componentId: string) => request<ComponentSite[]>('GET', `/v1/admin/components/${componentId}/sites`),
-      add:    (componentId: string, companyId: string) => request<{ ok: boolean }>('POST', `/v1/admin/components/${componentId}/sites`, { company_id: companyId }),
-      remove: (componentId: string, companyId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/sites/${companyId}`),
+    companies: {
+      list:   (componentId: string) => request<ComponentCompany[]>('GET', `/v1/admin/components/${componentId}/companies`),
+      add:    (componentId: string, companyId: string) => request<{ ok: boolean }>('POST', `/v1/admin/components/${componentId}/companies`, { company_id: companyId }),
+      remove: (componentId: string, companyId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/companies/${companyId}`),
     },
     variables: {
       list:   (componentId: string) => request<ComponentVariable[]>('GET', `/v1/admin/components/${componentId}/variables`),
@@ -1003,12 +1003,12 @@ export const api = {
       remove: (policyId: string, groupId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/groups/${groupId}`),
     },
-    sites: {
-      list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/policies/${policyId}/sites`),
+    companies: {
+      list: (policyId: string) => request<PolicyCompanyTarget[]>('GET', `/v1/admin/policies/${policyId}/companies`),
       add:  (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/sites`, { company_id: companyId }),
+        request<{ ok: boolean }>('POST', `/v1/admin/policies/${policyId}/companies`, { company_id: companyId }),
       remove: (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/sites/${companyId}`),
+        request<{ ok: boolean }>('DELETE', `/v1/admin/policies/${policyId}/companies/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/policies/${policyId}/devices`),
@@ -1035,12 +1035,12 @@ export const api = {
       recurrence?:  MaintenanceRecurrenceBody;
     }) => request<{ ok: boolean }>('PATCH', `/v1/admin/maintenance-policies/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${id}`),
-    sites: {
-      list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/sites`),
+    companies: {
+      list: (policyId: string) => request<PolicyCompanyTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/companies`),
       add:  (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/sites`, { company_id: companyId }),
+        request<{ ok: boolean }>('POST', `/v1/admin/maintenance-policies/${policyId}/companies`, { company_id: companyId }),
       remove: (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/sites/${companyId}`),
+        request<{ ok: boolean }>('DELETE', `/v1/admin/maintenance-policies/${policyId}/companies/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/maintenance-policies/${policyId}/devices`),
@@ -1078,12 +1078,12 @@ export const api = {
       auto_reboot?:  boolean;
     }) => request<{ ok: boolean }>('PATCH', `/v1/admin/patch-policies/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${id}`),
-    sites: {
-      list: (policyId: string) => request<PolicySiteTarget[]>('GET', `/v1/admin/patch-policies/${policyId}/sites`),
+    companies: {
+      list: (policyId: string) => request<PolicyCompanyTarget[]>('GET', `/v1/admin/patch-policies/${policyId}/companies`),
       add:  (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('POST', `/v1/admin/patch-policies/${policyId}/sites`, { company_id: companyId }),
+        request<{ ok: boolean }>('POST', `/v1/admin/patch-policies/${policyId}/companies`, { company_id: companyId }),
       remove: (policyId: string, companyId: string) =>
-        request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${policyId}/sites/${companyId}`),
+        request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${policyId}/companies/${companyId}`),
     },
     devices: {
       list: (policyId: string) => request<PolicyDeviceTarget[]>('GET', `/v1/admin/patch-policies/${policyId}/devices`),

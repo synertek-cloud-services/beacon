@@ -12,7 +12,7 @@ type PatchPolicy = typeof schema.patchPolicies.$inferSelect;
 // Verbatim duplicate of lib/maintenance.ts's isMaintenanceWindowActive and
 // its helpers, retyped against patchPolicies -- not shared, same
 // per-policy-type mirroring convention every other policy type in this
-// codebase already follows (see maintenancePolicySites' own comment).
+// codebase already follows (see maintenancePolicyCompanies' own comment).
 
 const WEEK_MINUTES = 7 * 1440;
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -72,15 +72,15 @@ function meetsSeverityThreshold(severity: string, minSeverity: string): boolean 
   return (SEVERITY_RANK[severity] ?? 0) >= (SEVERITY_RANK[minSeverity] ?? 0);
 }
 
-// ── Targeting (exact mirror of lib/maintenance.ts's Sites/Devices/Groups
+// ── Targeting (exact mirror of lib/maintenance.ts's Companies/Devices/Groups
 // OR-list machinery, retyped -- duplicated, not shared) ────────────────────
 
 async function fetchEnabledPatchPolicies(db: Db): Promise<PatchPolicy[]> {
   return db.select().from(schema.patchPolicies).where(eq(schema.patchPolicies.enabled, true));
 }
 
-async function fetchPatchPolicySiteIds(db: Db): Promise<Map<string, Set<string>>> {
-  const rows = await db.select().from(schema.patchPolicySites);
+async function fetchPatchPolicyCompanyIds(db: Db): Promise<Map<string, Set<string>>> {
+  const rows = await db.select().from(schema.patchPolicyCompanies);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!out.has(r.policyId)) out.set(r.policyId, new Set());
@@ -114,19 +114,19 @@ function deviceMatchesPatchPolicy(
   device: Device,
   deviceGroupIds: Set<string>,
   policyGroupIds: Map<string, Set<string>>,
-  policySiteIds: Map<string, Set<string>>,
+  policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
 ): boolean {
-  const sites   = policySiteIds.get(p.id);
+  const companies   = policyCompanyIds.get(p.id);
   const devices = policyDeviceIds.get(p.id);
   const groups  = policyGroupIds.get(p.id);
-  const total = (sites?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
+  const total = (companies?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesSite   = sites?.has(device.companyId) ?? false;
+  const matchesCompany   = companies?.has(device.companyId) ?? false;
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
-  return matchesSite || matchesDevice || matchesGroup;
+  return matchesCompany || matchesDevice || matchesGroup;
 }
 
 // ── Fleet patch scan (exact two-phase pattern GET /v1/admin/patches already
@@ -273,8 +273,8 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
   });
   if (due.length === 0) return;
 
-  const [policySiteIds, policyDeviceIds, policyGroupIds, devices] = await Promise.all([
-    fetchPatchPolicySiteIds(db),
+  const [policyCompanyIds, policyDeviceIds, policyGroupIds, devices] = await Promise.all([
+    fetchPatchPolicyCompanyIds(db),
     fetchPatchPolicyDeviceIds(db),
     fetchPatchPolicyGroupIds(db),
     db.select().from(schema.devices).where(eq(schema.devices.status, 'approved')).all(),
@@ -284,7 +284,7 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
 
   for (const policy of due) {
     const targeted = devices.filter(d =>
-      deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policySiteIds, policyDeviceIds));
+      deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds));
 
     let dispatchedCount = 0;
     for (const device of targeted) {
@@ -324,13 +324,13 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
 
 export async function copyPatchPolicyTargets(DB: D1Database, sourcePolicyId: string, newPolicyId: string, now: number): Promise<void> {
   const db = drizzle(DB, { schema });
-  const [sites, devices, groups] = await Promise.all([
-    db.select().from(schema.patchPolicySites).where(eq(schema.patchPolicySites.policyId, sourcePolicyId)),
+  const [companies, devices, groups] = await Promise.all([
+    db.select().from(schema.patchPolicyCompanies).where(eq(schema.patchPolicyCompanies.policyId, sourcePolicyId)),
     db.select().from(schema.patchPolicyDevices).where(eq(schema.patchPolicyDevices.policyId, sourcePolicyId)),
     db.select().from(schema.patchPolicyGroups).where(eq(schema.patchPolicyGroups.policyId, sourcePolicyId)),
   ]);
   await Promise.all([
-    ...sites.map(s => db.insert(schema.patchPolicySites).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
+    ...companies.map(s => db.insert(schema.patchPolicyCompanies).values({ policyId: newPolicyId, companyId: s.companyId, createdAt: now })),
     ...devices.map(d => db.insert(schema.patchPolicyDevices).values({ policyId: newPolicyId, deviceId: d.deviceId, createdAt: now })),
     ...groups.map(g => db.insert(schema.patchPolicyGroups).values({ policyId: newPolicyId, groupId: g.groupId, createdAt: now })),
   ]);

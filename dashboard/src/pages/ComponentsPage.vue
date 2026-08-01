@@ -61,7 +61,7 @@
               <th>Name</th>
               <th>Group</th>
               <th>Kind</th>
-              <th>Sites</th>
+              <th>Companies</th>
               <th>Shell</th>
               <th>Timeout</th>
               <th>Updated</th>
@@ -83,10 +83,10 @@
               </td>
               <td><span :class="['kind-badge', `kind-${comp.type}`]">{{ kindLabel(comp.type) }}</span></td>
               <td>
-                <span v-if="comp.scope === 'company'" class="scope-badge scope-company" :title="comp.sites.map(s => s.name).join(', ')">
-                  {{ comp.sites.length === 1 ? comp.sites[0].name : `${comp.sites.length} Sites` }}
+                <span v-if="comp.scope === 'company'" class="scope-badge scope-company" :title="comp.companies.map(s => s.name).join(', ')">
+                  {{ comp.companies.length === 1 ? comp.companies[0].name : `${comp.companies.length} Companies` }}
                 </span>
-                <span v-else class="scope-badge scope-global">All Sites</span>
+                <span v-else class="scope-badge scope-global">All Companies</span>
               </td>
               <td class="mono text-sm">{{ shellLabel(comp.shell) }}</td>
               <td class="text-sm text-muted-2">{{ comp.timeoutSeconds }}s</td>
@@ -359,7 +359,7 @@ onMounted(load);
 .kind-script      { background: var(--color-surface-raised); color: var(--color-text-muted); }
 .kind-application { background: rgba(78,126,247,.12); color: var(--color-primary); }
 
-/* ── Scope badge (Sites) ── */
+/* ── Scope badge (Companies) ── */
 .scope-badge {
   display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
   padding: 2px 7px; border-radius: 3px; text-transform: none;

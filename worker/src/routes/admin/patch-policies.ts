@@ -77,15 +77,15 @@ async function listWithTargets(db: ReturnType<typeof drizzle<typeof schema>>) {
   if (!policiesList.length) return [];
 
   const ids = policiesList.map(p => p.id);
-  const [sites, devices, groups] = await Promise.all([
-    db.select().from(schema.patchPolicySites).where(inArray(schema.patchPolicySites.policyId, ids)),
+  const [companies, devices, groups] = await Promise.all([
+    db.select().from(schema.patchPolicyCompanies).where(inArray(schema.patchPolicyCompanies.policyId, ids)),
     db.select().from(schema.patchPolicyDevices).where(inArray(schema.patchPolicyDevices.policyId, ids)),
     db.select().from(schema.patchPolicyGroups).where(inArray(schema.patchPolicyGroups.policyId, ids)),
   ]);
 
   return policiesList.map(p => ({
     ...p,
-    siteIds:   sites.filter(s => s.policyId === p.id).map(s => s.companyId),
+    companyIds:   companies.filter(s => s.policyId === p.id).map(s => s.companyId),
     deviceIds: devices.filter(d => d.policyId === p.id).map(d => d.deviceId),
     groupIds:  groups.filter(g => g.policyId === p.id).map(g => g.groupId),
   }));
@@ -125,7 +125,7 @@ patchPolicies.post('/', async (c) => {
   let autoReboot  = body.auto_reboot ?? false;
   let recurrencePatch: Record<string, unknown> | null = null;
 
-  let sourceSites:   (typeof schema.patchPolicySites.$inferSelect)[]   = [];
+  let sourceCompanies:   (typeof schema.patchPolicyCompanies.$inferSelect)[]   = [];
   let sourceDevices: (typeof schema.patchPolicyDevices.$inferSelect)[] = [];
   let sourceGroups:  (typeof schema.patchPolicyGroups.$inferSelect)[]  = [];
 
@@ -150,8 +150,8 @@ patchPolicies.post('/', async (c) => {
       };
     }
 
-    [sourceSites, sourceDevices, sourceGroups] = await Promise.all([
-      db.select().from(schema.patchPolicySites).where(eq(schema.patchPolicySites.policyId, source.id)),
+    [sourceCompanies, sourceDevices, sourceGroups] = await Promise.all([
+      db.select().from(schema.patchPolicyCompanies).where(eq(schema.patchPolicyCompanies.policyId, source.id)),
       db.select().from(schema.patchPolicyDevices).where(eq(schema.patchPolicyDevices.policyId, source.id)),
       db.select().from(schema.patchPolicyGroups).where(eq(schema.patchPolicyGroups.policyId, source.id)),
     ]);
@@ -185,7 +185,7 @@ patchPolicies.post('/', async (c) => {
     createdAt: now, updatedAt: now,
   });
 
-  if (sourceSites.length || sourceDevices.length || sourceGroups.length) {
+  if (sourceCompanies.length || sourceDevices.length || sourceGroups.length) {
     await copyPatchPolicyTargets(c.env.DB, body.clone_from!, id, now);
   }
 
@@ -247,13 +247,13 @@ patchPolicies.delete('/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Sites ────────────────────────────────────────────────────────────────────
-patchPolicies.get('/:id/sites', async (c) => {
+// ── Companies ────────────────────────────────────────────────────────────────────
+patchPolicies.get('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
   const result = await c.env.DB.prepare(
-    `SELECT pps.company_id, t.name FROM patch_policy_sites pps
+    `SELECT pps.company_id, t.name FROM patch_policy_companies pps
      JOIN companies t ON t.id = pps.company_id
      WHERE pps.policy_id = ? ORDER BY t.name ASC`
   ).bind(c.req.param('id')).all<{ company_id: string; name: string }>();
@@ -261,7 +261,7 @@ patchPolicies.get('/:id/sites', async (c) => {
   return c.json(result.results.map(r => ({ companyId: r.company_id, name: r.name })));
 });
 
-patchPolicies.post('/:id/sites', async (c) => {
+patchPolicies.post('/:id/companies', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
   const policyId = c.req.param('id');
@@ -274,18 +274,18 @@ patchPolicies.post('/:id/sites', async (c) => {
   if (!company) return c.json({ error: 'company not found' }, 404);
 
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO patch_policy_sites (policy_id, company_id, created_at) VALUES (?, ?, ?)`
+    `INSERT OR IGNORE INTO patch_policy_companies (policy_id, company_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.company_id, now).run();
 
   return c.json({ ok: true }, 201);
 });
 
-patchPolicies.delete('/:id/sites/:companyId', async (c) => {
+patchPolicies.delete('/:id/companies/:companyId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
   await c.env.DB.prepare(
-    `DELETE FROM patch_policy_sites WHERE policy_id = ? AND company_id = ?`
+    `DELETE FROM patch_policy_companies WHERE policy_id = ? AND company_id = ?`
   ).bind(c.req.param('id'), c.req.param('companyId')).run();
 
   return c.json({ ok: true });

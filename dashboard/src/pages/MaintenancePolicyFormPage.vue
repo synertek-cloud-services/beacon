@@ -104,7 +104,7 @@
       <div class="pf-group">
         <label class="pf-label">Targets</label>
         <p class="field-hint" style="margin-top:-4px">
-          Add Sites, Devices, or Device Groups to restrict this policy — a device qualifies if it matches
+          Add Companies, Devices, or Device Groups to restrict this policy — a device qualifies if it matches
           ANY target below (not all of them). Leave empty to target every device.
         </p>
         <div style="display:flex;gap:8px;margin-top:4px">
@@ -117,7 +117,7 @@
           </div>
           <div v-else v-for="(t, i) in targetItems" :key="i" class="pf-mon-row">
             <span class="pf-mon-desc">{{ targetLabel(t) }}</span>
-            <span class="jf-kind-tag">{{ t.kind === 'site' ? 'Site' : t.kind === 'device' ? 'Device' : 'Device Group' }}</span>
+            <span class="jf-kind-tag">{{ t.kind === 'company' ? 'Company' : t.kind === 'device' ? 'Device' : 'Device Group' }}</span>
             <div class="pf-mon-actions">
               <button class="btn-text danger" @click="removeTargetItem(i)">Remove</button>
             </div>
@@ -137,26 +137,26 @@
             </div>
             <div class="tf-cat">
               <select v-model="flyoutCategory" class="pf-input" style="max-width:none">
-                <option value="sites">Sites</option>
+                <option value="companies">Companies</option>
                 <option value="devices">Devices</option>
                 <option value="groups">Device Groups</option>
               </select>
             </div>
             <div class="tf-search">
               <input v-model="flyoutSearch" class="pf-input"
-                :placeholder="flyoutCategory === 'sites' ? 'Search sites…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
+                :placeholder="flyoutCategory === 'companies' ? 'Search companies…' : flyoutCategory === 'groups' ? 'Search groups…' : 'Search devices…'"
                 style="max-width:none" />
             </div>
             <div class="tf-list">
-              <template v-if="flyoutCategory === 'sites'">
-                <div v-for="t in flyoutSiteMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('site', t.id) }">
+              <template v-if="flyoutCategory === 'companies'">
+                <div v-for="t in flyoutCompanyMatches" :key="t.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('company', t.id) }">
                   <div class="tf-row-info" style="flex:1"><span>{{ t.name }}</span></div>
-                  <button v-if="!isTargeted('site', t.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'site',id:t.id,name:t.name})">Add</button>
-                  <span v-else class="tf-check" @click="toggleTarget({kind:'site',id:t.id,name:t.name})" title="Click to remove">
+                  <button v-if="!isTargeted('company', t.id)" class="btn btn-ghost btn-sm tf-act-btn" @click="toggleTarget({kind:'company',id:t.id,name:t.name})">Add</button>
+                  <span v-else class="tf-check" @click="toggleTarget({kind:'company',id:t.id,name:t.name})" title="Click to remove">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                   </span>
                 </div>
-                <div v-if="!flyoutSiteMatches.length" class="tf-empty-msg">No sites found.</div>
+                <div v-if="!flyoutCompanyMatches.length" class="tf-empty-msg">No companies found.</div>
               </template>
               <template v-else-if="flyoutCategory === 'devices'">
                 <div v-for="d in flyoutDeviceMatches" :key="d.id" class="tf-row" :class="{ 'tf-row-selected': isTargeted('device', d.id) }">
@@ -248,21 +248,21 @@ const form = reactive({
   weeklyDurationMinutes: 0,
 });
 
-// ── Targets: Sites / Devices / Device Groups — same defer-and-batch (new) /
+// ── Targets: Companies / Devices / Device Groups — same defer-and-batch (new) /
 // hit-immediately (existing) split and heterogeneous OR-list shape as
 // PolicyFormPage.vue's Targets section (copied verbatim, no OS/Class
 // section exists here at all — Maintenance Policy has no such filter). ──
 type MaintenanceTargetItem =
-  | { kind: 'site';   id: string; name: string }
+  | { kind: 'company';   id: string; name: string }
   | { kind: 'device'; id: string; hostname: string }
   | { kind: 'group';  id: string; name: string };
 
 const targetItems      = ref<MaintenanceTargetItem[]>([]);
 const targetFlyoutOpen = ref(false);
-const flyoutCategory   = ref<'sites' | 'devices' | 'groups'>('sites');
+const flyoutCategory   = ref<'companies' | 'devices' | 'groups'>('companies');
 const flyoutSearch     = ref('');
 
-const flyoutSiteMatches = computed(() => {
+const flyoutCompanyMatches = computed(() => {
   const q = flyoutSearch.value.toLowerCase();
   return companies.value.filter(t => !q || t.name.toLowerCase().includes(q));
 });
@@ -284,7 +284,7 @@ async function toggleTarget(item: MaintenanceTargetItem) {
   if (isTargeted(item.kind, item.id)) {
     if (!isNew.value && policyId.value) {
       try {
-        if (item.kind === 'site')   await api.maintenancePolicies.sites.remove(policyId.value, item.id);
+        if (item.kind === 'company')   await api.maintenancePolicies.companies.remove(policyId.value, item.id);
         if (item.kind === 'device') await api.maintenancePolicies.devices.remove(policyId.value, item.id);
         if (item.kind === 'group')  await api.maintenancePolicies.groups.remove(policyId.value, item.id);
       } catch (e: any) { saveError.value = e.message; return; }
@@ -295,7 +295,7 @@ async function toggleTarget(item: MaintenanceTargetItem) {
 
   if (!isNew.value && policyId.value) {
     try {
-      if (item.kind === 'site')   await api.maintenancePolicies.sites.add(policyId.value, item.id);
+      if (item.kind === 'company')   await api.maintenancePolicies.companies.add(policyId.value, item.id);
       if (item.kind === 'device') await api.maintenancePolicies.devices.add(policyId.value, item.id);
       if (item.kind === 'group')  await api.maintenancePolicies.groups.add(policyId.value, item.id);
     } catch (e: any) { saveError.value = e.message; return; }
@@ -316,7 +316,7 @@ async function removeAllTargets() {
   if (!isNew.value && policyId.value) {
     for (const t of targetItems.value) {
       try {
-        if (t.kind === 'site')   await api.maintenancePolicies.sites.remove(policyId.value, t.id);
+        if (t.kind === 'company')   await api.maintenancePolicies.companies.remove(policyId.value, t.id);
         if (t.kind === 'device') await api.maintenancePolicies.devices.remove(policyId.value, t.id);
         if (t.kind === 'group')  await api.maintenancePolicies.groups.remove(policyId.value, t.id);
       } catch { /* best-effort, continue clearing locally */ }
@@ -326,7 +326,7 @@ async function removeAllTargets() {
 }
 
 function targetLabel(t: MaintenanceTargetItem): string {
-  if (t.kind === 'site')   return t.name;
+  if (t.kind === 'company')   return t.name;
   if (t.kind === 'device') return t.hostname;
   return t.name;
 }
@@ -353,13 +353,13 @@ onMounted(async () => {
     if (!policy) { loadError.value = 'Policy not found.'; return; }
 
     try {
-      const [sites, devs, grps] = await Promise.all([
-        api.maintenancePolicies.sites.list(policyId.value!),
+      const [companies, devs, grps] = await Promise.all([
+        api.maintenancePolicies.companies.list(policyId.value!),
         api.maintenancePolicies.devices.list(policyId.value!),
         api.maintenancePolicies.groups.list(policyId.value!),
       ]);
       targetItems.value = [
-        ...sites.map(s => ({ kind: 'site' as const, id: s.companyId, name: s.name })),
+        ...companies.map(s => ({ kind: 'company' as const, id: s.companyId, name: s.name })),
         ...devs.map(d => ({ kind: 'device' as const, id: d.deviceId, hostname: d.hostname ?? d.deviceId.slice(0, 8) })),
         ...grps.map(g => ({ kind: 'group' as const, id: g.groupId, name: g.name })),
       ];
@@ -442,7 +442,7 @@ async function save() {
         recurrence: buildRecurrenceBody(),
       });
       for (const t of targetItems.value) {
-        if (t.kind === 'site')   await api.maintenancePolicies.sites.add(policy.id, t.id);
+        if (t.kind === 'company')   await api.maintenancePolicies.companies.add(policy.id, t.id);
         if (t.kind === 'device') await api.maintenancePolicies.devices.add(policy.id, t.id);
         if (t.kind === 'group')  await api.maintenancePolicies.groups.add(policy.id, t.id);
       }

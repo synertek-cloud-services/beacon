@@ -115,7 +115,7 @@
                   <div v-if="expandedTab === 'locations'">
                     <div v-if="locations.length === 0" class="empty">
                       <div class="empty-title">No locations</div>
-                      <p class="empty-sub">Add an office or site location for this company.</p>
+                      <p class="empty-sub">Add a location for this company.</p>
                     </div>
                     <div v-else class="item-list">
                       <div v-for="loc in locations" :key="loc.id" class="item-card">

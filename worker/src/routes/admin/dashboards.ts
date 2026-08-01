@@ -50,18 +50,18 @@ function dashboardRow(row: Record<string, unknown>) {
 async function getDashboard(c: any, id: string) {
   return c.env.DB.prepare('SELECT * FROM dashboards WHERE id = ?').bind(id).first() as Promise<Record<string, unknown> | null>;
 }
-async function siteIds(c: any, id: string) {
-  const result = await c.env.DB.prepare('SELECT company_id FROM dashboard_sites WHERE dashboard_id = ? ORDER BY company_id').bind(id).all() as D1Result<{ company_id: string }>;
+async function companyIds(c: any, id: string) {
+  const result = await c.env.DB.prepare('SELECT company_id FROM dashboard_companies WHERE dashboard_id = ? ORDER BY company_id').bind(id).all() as D1Result<{ company_id: string }>;
   return result.results.map((row: { company_id: string }) => row.company_id);
 }
 async function dashboardDetail(c: any, id: string) {
   const dashboard = await getDashboard(c, id);
   if (!dashboard) return null;
-  const [sites, widgets] = await Promise.all([
-    siteIds(c, id),
+  const [companies, widgets] = await Promise.all([
+    companyIds(c, id),
     c.env.DB.prepare('SELECT * FROM dashboard_widgets WHERE dashboard_id = ? ORDER BY sort_order, grid_y, grid_x').bind(id).all() as Promise<D1Result<Record<string, unknown>>>,
   ]);
-  return { ...dashboardRow(dashboard), siteIds: sites, widgets: widgets.results.map(w => ({
+  return { ...dashboardRow(dashboard), companyIds: companies, widgets: widgets.results.map(w => ({
     id: w.id, type: w.type, title: w.title, config: w.config, x: w.grid_x, y: w.grid_y, w: w.grid_w, h: w.grid_h, sortOrder: w.sort_order,
   })) };
 }
@@ -100,7 +100,7 @@ dashboards.get('/:id', async (c) => {
 dashboards.get('/:id/data', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const id = c.req.param('id'); if (!(await getDashboard(c, id))) return c.json({ error: 'not found' }, 404);
-  const savedScope = await siteIds(c, id);
+  const savedScope = await companyIds(c, id);
   const companyId = c.req.query('company_id');
   // An explicit company context deliberately overrides the saved scope, matching
   // the rest of Beacon's company-context navigation.
@@ -110,15 +110,15 @@ dashboards.get('/:id/data', async (c) => {
 dashboards.patch('/:id', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const id = c.req.param('id'); if (!(await getDashboard(c, id))) return c.json({ error: 'not found' }, 404);
-  const body = await c.req.json<{ name?: string; sortOrder?: number; isHome?: boolean; siteIds?: string[] }>();
+  const body = await c.req.json<{ name?: string; sortOrder?: number; isHome?: boolean; companyIds?: string[] }>();
   const now = Math.floor(Date.now() / 1000); const statements: D1PreparedStatement[] = [];
   if (body.name !== undefined) { if (!body.name.trim()) return c.json({ error: 'name is required' }, 400); statements.push(c.env.DB.prepare('UPDATE dashboards SET name = ?, updated_at = ? WHERE id = ?').bind(body.name.trim(), now, id)); }
   if (body.sortOrder !== undefined) { if (!Number.isInteger(body.sortOrder)) return c.json({ error: 'sortOrder must be an integer' }, 400); statements.push(c.env.DB.prepare('UPDATE dashboards SET sort_order = ?, updated_at = ? WHERE id = ?').bind(body.sortOrder, now, id)); }
   if (body.isHome) { statements.push(c.env.DB.prepare('UPDATE dashboards SET is_home = 0 WHERE is_home = 1'), c.env.DB.prepare('UPDATE dashboards SET is_home = 1, updated_at = ? WHERE id = ?').bind(now, id)); }
-  if (body.siteIds !== undefined) {
-    if (!Array.isArray(body.siteIds) || body.siteIds.some(value => typeof value !== 'string')) return c.json({ error: 'siteIds must be an array of IDs' }, 400);
-    statements.push(c.env.DB.prepare('DELETE FROM dashboard_sites WHERE dashboard_id = ?').bind(id));
-    for (const companyId of [...new Set(body.siteIds)]) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, companyId, now));
+  if (body.companyIds !== undefined) {
+    if (!Array.isArray(body.companyIds) || body.companyIds.some(value => typeof value !== 'string')) return c.json({ error: 'companyIds must be an array of IDs' }, 400);
+    statements.push(c.env.DB.prepare('DELETE FROM dashboard_companies WHERE dashboard_id = ?').bind(id));
+    for (const companyId of [...new Set(body.companyIds)]) statements.push(c.env.DB.prepare('INSERT INTO dashboard_companies (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, companyId, now));
   }
   if (!statements.length) return c.json({ error: 'nothing to update' }, 400);
   await c.env.DB.batch(statements); return c.json(await dashboardDetail(c, id));
@@ -131,7 +131,7 @@ dashboards.post('/:id/clone', async (c) => {
   const now = Math.floor(Date.now() / 1000), id = crypto.randomUUID();
   const last = await c.env.DB.prepare('SELECT max(sort_order) AS sort_order FROM dashboards').first() as { sort_order: number | null } | null;
   const statements: D1PreparedStatement[] = [c.env.DB.prepare('INSERT INTO dashboards (id, name, sort_order, is_home, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)').bind(id, name, (last?.sort_order ?? -1) + 1, now, now)];
-  for (const siteId of source.siteIds) statements.push(c.env.DB.prepare('INSERT INTO dashboard_sites (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, siteId, now));
+  for (const companyId of source.companyIds) statements.push(c.env.DB.prepare('INSERT INTO dashboard_companies (dashboard_id, company_id, created_at) VALUES (?, ?, ?)').bind(id, companyId, now));
   for (const widget of source.widgets) statements.push(c.env.DB.prepare('INSERT INTO dashboard_widgets (id, dashboard_id, type, title, config, grid_x, grid_y, grid_w, grid_h, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(crypto.randomUUID(), id, widget.type, widget.title, widget.config, widget.x, widget.y, widget.w, widget.h, widget.sortOrder, now, now));
   await c.env.DB.batch(statements); return c.json(await dashboardDetail(c, id), 201);
 });
