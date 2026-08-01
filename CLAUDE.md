@@ -163,7 +163,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
    dashboard. Self-hosters using the manual README flow still run migrations
    before their Worker deployment.
 
-Latest migration: `0057` (`patch_policies`/`patch_policy_{companies,devices,groups}` — auto-approval + scheduled install windows, see Patch Management below; renumbered from `0054` to `0057` on merge, since `0054`-`0056` were taken by unrelated work merged first — see "Database" migration-renumbering note above). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
+Latest migration: `0063` (`manage_windows_update` — Patch Policy's opt-in takeover of Windows' own Automatic Updates, see Patch Management below). Don't narrate migration history here — each migration's rationale already lives in the feature section that owns it. Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered by name in a feature section.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
