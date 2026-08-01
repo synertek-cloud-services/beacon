@@ -40,6 +40,8 @@ With Company Variables landed, picked back up at Network Discovery itself — sc
 
 **9. Agent v0.2.14 published** — covers both the `force_update` check-in-nudge fix and Network Discovery's `network_scan` command, neither of which had reached any released build before this. User ran `scripts/publish-agent.mjs 0.2.14` directly (holds `BEACON_SIGNING_KEY`, never shared with the assistant). Independently re-verified per CLAUDE.md's own stated practice, not just trusting the script's internal check: all 5 platform binaries present on the GitHub release, `GET /v1/agent/version` correctly reports `0.2.14` as latest, `GET /v1/agent/download` returns a real `200` for windows/amd64, linux/amd64, and darwin/arm64 — and, going one step further than prior sessions' spot-checks, downloaded the linux/amd64 binary and ran `agent/tools/verify` against it with the real returned `signature_hex`, confirming the Ed25519 signature is cryptographically valid against the pinned public key. This is the one thing a wrong/corrupted signing key would still let every other step silently report success on.
 
+**10. Wire-protocol audit, closing out item 6's incident** — a deliberate, non-reactive line-by-line comparison of `worker/src/lib/types.ts` and `worker/src/routes/audit.ts`'s local types against `agent/internal/protocol/types.go`. Every core wire contract (enroll, check-in, all four assign-measure-report check types, commands, `agent-update.ts`, the remote-session protocol including the shell resize control frame, `install_patches`, and this session's own new `network_scan`) matched exactly — no other incident waiting to happen. One real drift found, confirmed harmless: `audit.ts`'s local `HardwareInfo`/`RAMInfo` interfaces were missing 8 fields the Go agent actually sends (`architecture`, `system`, `display_adapters`, `domain`, `windows_display_version`, `windows_installation_type`, `virtualization`, `installed_bytes`). Not an active bug — that code stores the whole parsed hardware object as-is (`JSON.stringify`), not reconstructed field-by-field, so the data already flowed through correctly (the dashboard's own separate, complete type is what actually reads it back out), and no diff-logic anywhere touches the missing fields either. Fixed anyway, pushed directly to `main` (a type-only, zero-runtime-behavior addition) — before a future refactor of that file's diff logic could start relying on the stale interface and actually drop the fields for real.
+
 ### Key technical decisions
 
 | Decision | Rationale |
@@ -56,8 +58,8 @@ With Company Variables landed, picked back up at Network Discovery itself — sc
 
 ### Next logical steps
 
-1. **Audit for any other lingering wire-protocol assumptions** — this session's incident was caught fast because the user's own machine went offline within the hour, but a similar mismatch in a less-immediately-visible field (e.g. something only read during an audit or a rarely-hit command type) could sit unnoticed far longer. Worth a deliberate one-time audit of `worker/src/lib/types.ts` line-by-line against `agent/internal/protocol/types.go`, beyond the reactive fix already done here.
-2. **Real-fleet validation of agent v0.2.14** — released and independently re-verified (see below), but no confirmation yet that any real deployed device has actually picked it up via self-update and is running `network_scan`/the `force_update` nudge fix correctly.
+1. **Real-fleet validation of agent v0.2.14** — released and independently re-verified (see item 9 above), but no confirmation yet that any real deployed device has actually picked it up via self-update and is running `network_scan`/the `force_update` nudge fix correctly.
+2. **The uncommitted `agent/internal/service/embedded/beacon-tray.exe` rebuild** — a leftover working-tree change from the v0.2.14 publish run, still uncommitted as of this session's end. Worth committing (or confirming it's already captured some other way) so it doesn't get lost.
 
 ---
 
