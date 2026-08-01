@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -19,10 +20,11 @@ import (
 var trayBinary []byte
 
 var (
-	trayMu       sync.Mutex
-	agentVer     string
-	trayPIDs     = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
-	loggedActive = -1                  // last logged count of active sessions; -1 = never logged yet
+	trayMu          sync.Mutex
+	agentVer        string
+	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
+	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
+	killOrphansOnce sync.Once
 )
 
 // SetAgentVersion records the running agent's version string for the tray
@@ -51,6 +53,29 @@ func SetAgentVersion(v string) {
 // session-change hook itself (a latency optimization on top of the tick,
 // not a replacement for it).
 func EnsureTrayRunning() {
+	// Runs exactly once per process lifetime, regardless of which of the
+	// three call sites gets here first. trayPIDs is in-memory-only and
+	// always starts empty on a fresh process -- but a tray launched by a
+	// *previous* agent process (self-update swapping the binary, or a
+	// restart_agent-triggered service restart) is a separate, detached
+	// process tied to its own session, not a child of the service, so it
+	// keeps running right through both of those events. Without this,
+	// reconciliation below has no way to know that tray already exists and
+	// launches a second one alongside it -- confirmed as the real cause of a
+	// real duplicate-tray-icon bug seen on two machines this session, both
+	// after a self-update and after a manual "Restart Agent" from the
+	// dashboard. Killing every beacon-tray.exe instance once, right before
+	// this process's first reconciliation pass, guarantees a clean slate;
+	// the normal per-session launch logic just below relaunches exactly one
+	// per active session and starts tracking it correctly in trayPIDs from
+	// that point on -- a momentary icon blip, not a lasting duplicate.
+	killOrphansOnce.Do(func() {
+		// Same "ignore the error, 'no matching process' isn't a real
+		// failure" convention already established by Uninstall()'s own
+		// taskkill call in install_windows.go.
+		exec.Command("taskkill", "/IM", "beacon-tray.exe", "/F").Run()
+	})
+
 	active, err := usersession.ActiveSessions()
 	if err != nil {
 		log.Printf("service: tray: enumerate active sessions: %v", err)
