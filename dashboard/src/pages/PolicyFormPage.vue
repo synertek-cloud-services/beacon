@@ -252,8 +252,8 @@
             <div v-if="monPanel.form.checkType === 'offline'" class="mf-field">
               <label class="mf-label">Alert when device</label>
               <div class="seg-bar">
-                <button :class="['seg-btn', { active: monPanel.form.offlineDirection === 'offline' }]" @click="monPanel.form.offlineDirection = 'offline'">Goes Offline</button>
-                <button :class="['seg-btn', { active: monPanel.form.offlineDirection === 'online' }]" @click="monPanel.form.offlineDirection = 'online'">Comes Online</button>
+                <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.offlineDirection === 'offline' }]" @click="monPanel.form.offlineDirection = 'offline'">Goes Offline</button>
+                <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.offlineDirection === 'online' }]" @click="monPanel.form.offlineDirection = 'online'">Comes Online</button>
               </div>
               <template v-if="monPanel.form.offlineDirection === 'offline'">
                 <label class="mf-label" style="margin-top:12px">Alert after offline for</label>
@@ -268,8 +268,8 @@
             <div v-if="monPanel.form.checkType === 'disk_space'" class="mf-field">
               <label class="mf-label">Drive</label>
               <div class="seg-bar">
-                <button :class="['seg-btn', { active: monPanel.form.diskDrive === 'any' }]" @click="monPanel.form.diskDrive = 'any'">Any Drive</button>
-                <button :class="['seg-btn', { active: monPanel.form.diskDrive !== 'any' }]" @click="monPanel.form.diskDrive = (monPanel.form.diskDrive === 'any' ? '' : monPanel.form.diskDrive)">Specific Drive</button>
+                <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.diskDrive === 'any' }]" @click="monPanel.form.diskDrive = 'any'">Any Drive</button>
+                <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.diskDrive !== 'any' }]" @click="monPanel.form.diskDrive = (monPanel.form.diskDrive === 'any' ? '' : monPanel.form.diskDrive)">Specific Drive</button>
               </div>
               <input v-if="monPanel.form.diskDrive !== 'any'" v-model="monPanel.form.diskDrive" type="text"
                 placeholder="e.g. C:\ or /data" class="mf-input" style="margin-top:8px"/>
@@ -331,8 +331,8 @@
               <label class="mf-label" style="margin-top:12px">Size is</label>
               <div class="mf-row">
                 <div class="seg-bar">
-                  <button :class="['seg-btn', { active: monPanel.form.fileSizeMode === 'below' }]" @click="monPanel.form.fileSizeMode = 'below'">Below</button>
-                  <button :class="['seg-btn', { active: monPanel.form.fileSizeMode === 'over' }]" @click="monPanel.form.fileSizeMode = 'over'">Over</button>
+                  <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.fileSizeMode === 'below' }]" @click="monPanel.form.fileSizeMode = 'below'">Below</button>
+                  <button :class="['seg-btn', 'seg-primary', { active: monPanel.form.fileSizeMode === 'over' }]" @click="monPanel.form.fileSizeMode = 'over'">Over</button>
                 </div>
                 <input v-model.number="monPanel.form.fileSizeThresholdMb" type="number" min="1" class="mf-input" style="max-width:90px"/>
                 <span class="mf-unit">MB</span>

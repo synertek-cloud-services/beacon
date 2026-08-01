@@ -33,7 +33,7 @@
         <p class="field-hint" style="margin-top:-4px">One active provider at a time. Fill in every field for the provider you're configuring — a partial credential update isn't supported.</p>
 
         <div class="seg-bar">
-          <button v-for="p in providerTypes" :key="p" :class="['seg-btn', { active: emailForm.provider === p }]" @click="emailForm.provider = p">{{ providerLabel(p) }}</button>
+          <button v-for="p in providerTypes" :key="p" :class="['seg-btn', 'seg-primary', { active: emailForm.provider === p }]" @click="emailForm.provider = p">{{ providerLabel(p) }}</button>
         </div>
 
         <template v-if="emailForm.provider === 'ses'">
@@ -50,8 +50,8 @@
           <div class="pf-field-row">
             <label class="pf-sublabel">Region</label>
             <div class="seg-bar">
-              <button :class="['seg-btn', { active: emailForm.mailgun.region === 'us' }]" @click="emailForm.mailgun.region = 'us'">US</button>
-              <button :class="['seg-btn', { active: emailForm.mailgun.region === 'eu' }]" @click="emailForm.mailgun.region = 'eu'">EU</button>
+              <button :class="['seg-btn', 'seg-primary', { active: emailForm.mailgun.region === 'us' }]" @click="emailForm.mailgun.region = 'us'">US</button>
+              <button :class="['seg-btn', 'seg-primary', { active: emailForm.mailgun.region === 'eu' }]" @click="emailForm.mailgun.region = 'eu'">EU</button>
             </div>
           </div>
         </template>

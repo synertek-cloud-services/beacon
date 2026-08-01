@@ -37,9 +37,9 @@
       <div class="pf-group">
         <label class="pf-label">Role</label>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: form.role === 'admin' }]" @click="form.role = 'admin'">Admin</button>
-          <button :class="['seg-btn', { active: form.role === 'technician' }]" @click="form.role = 'technician'">Technician</button>
-          <button :class="['seg-btn', { active: form.role === 'readonly' }]" @click="form.role = 'readonly'">Read-only</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.role === 'admin' }]" @click="form.role = 'admin'">Admin</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.role === 'technician' }]" @click="form.role = 'technician'">Technician</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.role === 'readonly' }]" @click="form.role = 'readonly'">Read-only</button>
         </div>
       </div>
 
