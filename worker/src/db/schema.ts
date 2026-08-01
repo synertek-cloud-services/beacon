@@ -523,6 +523,34 @@ export const companyVariables = sqliteTable('company_variables', {
   updatedAt:        integer('updated_at').notNull(),
 });
 
+// Network Discovery (v1: live-host sweep) -- a designated always-on "probe"
+// device per company periodically ping-sweeps a configured CIDR range and
+// reports live hosts back. See worker/src/lib/discovery.ts.
+export const networkDiscoveryConfigs = sqliteTable('network_discovery_configs', {
+  id:                  text('id').primaryKey(),
+  companyId:           text('company_id').notNull().unique().references(() => companies.id, { onDelete: 'cascade' }),
+  probeDeviceId:       text('probe_device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  enabled:             integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  cidrRanges:          text('cidr_ranges').notNull(), // JSON string[]
+  scanIntervalMinutes: integer('scan_interval_minutes').notNull().default(360),
+  lastScannedAt:       integer('last_scanned_at'),
+  createdAt:           integer('created_at').notNull(),
+  updatedAt:           integer('updated_at').notNull(),
+});
+
+// Keyed by (company_id, ip_address), not MAC -- see migration 0062's comment.
+export const discoveredDevices = sqliteTable('discovered_devices', {
+  id:           text('id').primaryKey(),
+  companyId:    text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  ipAddress:    text('ip_address').notNull(),
+  macAddress:   text('mac_address'),
+  hostname:     text('hostname'),
+  firstSeenAt:  integer('first_seen_at').notNull(),
+  lastSeenAt:   integer('last_seen_at').notNull(),
+  timesSeen:    integer('times_seen').notNull().default(1),
+  dismissed:    integer('dismissed', { mode: 'boolean' }).notNull().default(false),
+});
+
 // Device Groups -- static, manually-curated device collections (Datto's
 // "Groups", not the dynamic "Filter" half of that system). Used to target
 // both Jobs (resolveDevices in jobs.ts) and Policies (policyGroups below).

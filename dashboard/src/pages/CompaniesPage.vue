@@ -80,6 +80,10 @@
                     Variables
                     <span v-if="!expandedLoading" class="tab-pill">{{ variables.length }}</span>
                   </button>
+                  <button :class="['expand-tab', expandedTab === 'discovery' ? 'active' : '']" @click.stop="expandedTab = 'discovery'">
+                    Discovery
+                    <span v-if="!expandedLoading" class="tab-pill">{{ discoveredDevices.length }}</span>
+                  </button>
                   <div style="flex:1"></div>
                   <button v-if="expandedTab === 'contacts'"  class="btn btn-primary btn-sm" @click.stop="openContactCreate">+ Add Contact</button>
                   <button v-if="expandedTab === 'locations'" class="btn btn-primary btn-sm" @click.stop="openLocationCreate">+ Add Location</button>
@@ -200,6 +204,95 @@
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- Discovery -->
+                  <div v-if="expandedTab === 'discovery'" class="discovery-panel">
+                    <div class="discovery-config">
+                      <div class="form-section-label">Scan Configuration</div>
+                      <div class="form-row-2" style="margin-bottom:12px">
+                        <div class="field">
+                          <label>Probe Device <span class="required">*</span></label>
+                          <select v-model="discoveryForm.probeDeviceId">
+                            <option value="">Select a device…</option>
+                            <option v-for="d in eligibleProbeDevices" :key="d.id" :value="d.id">{{ d.hostname || d.id.slice(0, 8) }}</option>
+                          </select>
+                          <div class="text-xs text-muted-2" style="margin-top:2px">Must be an approved server or always-on workstation — laptops can't be a probe.</div>
+                        </div>
+                        <div class="field">
+                          <label>Scan Interval</label>
+                          <select v-model.number="discoveryForm.scanIntervalMinutes">
+                            <option :value="60">Every 1 hour</option>
+                            <option :value="360">Every 6 hours</option>
+                            <option :value="720">Every 12 hours</option>
+                            <option :value="1440">Every 24 hours</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="field" style="margin-bottom:12px">
+                        <label>CIDR Ranges <span class="required">*</span></label>
+                        <div v-for="(_, i) in discoveryForm.cidrRanges" :key="i" class="cidr-row">
+                          <input v-model="discoveryForm.cidrRanges[i]" placeholder="192.168.1.0/24" />
+                          <button v-if="discoveryForm.cidrRanges.length > 1" class="btn btn-ghost btn-sm" @click="discoveryForm.cidrRanges.splice(i, 1)">Remove</button>
+                        </div>
+                        <button class="btn btn-ghost btn-sm" style="margin-top:6px" @click="discoveryForm.cidrRanges.push('')">+ Add Range</button>
+                      </div>
+                      <label class="toggle-row" style="margin-bottom:12px">
+                        <input type="checkbox" v-model="discoveryForm.enabled" />
+                        <span class="text-sm">Enabled</span>
+                      </label>
+                      <div v-if="discoveryError" class="error-banner" style="margin-bottom:12px">{{ discoveryError }}</div>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <button class="btn btn-primary btn-sm" :disabled="discoverySubmitting" @click="submitDiscoveryConfig">
+                          {{ discoverySubmitting ? 'Saving…' : 'Save' }}
+                        </button>
+                        <button class="btn btn-ghost btn-sm" :disabled="!discoveryConfig || scanningNow" @click="scanNow">
+                          {{ scanningNow ? 'Queuing…' : 'Scan Now' }}
+                        </button>
+                        <span v-if="discoveryConfig?.lastScannedAt" class="text-xs text-muted-2">
+                          Last scanned {{ dateLabel(discoveryConfig.lastScannedAt) }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div class="form-section-label" style="margin-top:20px">
+                      Discovered Devices
+                      <label class="toggle-row" style="float:right;font-weight:400">
+                        <input type="checkbox" v-model="hideDismissed" />
+                        <span class="text-xs">Hide dismissed</span>
+                      </label>
+                    </div>
+                    <div v-if="visibleDiscoveredDevices.length === 0" class="empty">
+                      <div class="empty-title">No devices discovered yet</div>
+                      <p class="empty-sub">Devices found by a scan will appear here.</p>
+                    </div>
+                    <table v-else class="inner-table">
+                      <thead>
+                        <tr>
+                          <th>IP</th>
+                          <th>MAC</th>
+                          <th>Hostname</th>
+                          <th>First Seen</th>
+                          <th>Last Seen</th>
+                          <th>Times Seen</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="dd in visibleDiscoveredDevices" :key="dd.id" :class="{ 'dd-dismissed': dd.dismissed }">
+                          <td class="mono text-sm">{{ dd.ipAddress }}</td>
+                          <td class="mono text-xs text-muted-2">{{ dd.macAddress ?? '—' }}</td>
+                          <td class="text-sm">{{ dd.hostname ?? '—' }}</td>
+                          <td class="text-sm text-muted-2">{{ dateLabel(dd.firstSeenAt) }}</td>
+                          <td class="text-sm text-muted-2">{{ dateLabel(dd.lastSeenAt) }}</td>
+                          <td class="mono text-sm">{{ dd.timesSeen }}</td>
+                          <td>
+                            <button class="btn btn-ghost btn-sm" @click.stop="toggleDismissed(dd)">{{ dd.dismissed ? 'Un-dismiss' : 'Dismiss' }}</button>
+                            <button class="btn btn-danger btn-sm" @click.stop="deleteDiscoveredDevice(dd.id)">Delete</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
 
                 </template>
@@ -533,7 +626,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type Company, type CompanyContact, type CompanyLocation, type CompanyVariable, type EnrollmentToken, type Address } from '../api';
+import { api, type Company, type CompanyContact, type CompanyLocation, type CompanyVariable, type EnrollmentToken, type Address, type Device, type NetworkDiscoveryConfig, type DiscoveredDevice } from '../api';
 import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
@@ -545,13 +638,23 @@ const nowSec  = Math.floor(Date.now() / 1000);
 
 // Expanded panel
 const expandedId      = ref<string | null>(null);
-const expandedTab     = ref<'contacts' | 'locations' | 'tokens' | 'variables'>('contacts');
+const expandedTab     = ref<'contacts' | 'locations' | 'tokens' | 'variables' | 'discovery'>('contacts');
 const expandedLoading = ref(false);
 const contacts        = ref<CompanyContact[]>([]);
 const locations       = ref<CompanyLocation[]>([]);
 const tokens          = ref<EnrollmentToken[]>([]);
 const variables       = ref<CompanyVariable[]>([]);
+const discoveryConfig     = ref<NetworkDiscoveryConfig | null>(null);
+const discoveredDevices   = ref<DiscoveredDevice[]>([]);
+const companyDevices      = ref<Device[]>([]);
 const expandedCompany  = computed(() => companies.value.find(t => t.id === expandedId.value));
+
+const eligibleProbeDevices = computed(() => companyDevices.value.filter(d =>
+  d.status === 'approved' && (d.overrideClass ?? d.detectedClass) !== 'laptop'));
+
+const hideDismissed = ref(true);
+const visibleDiscoveredDevices = computed(() =>
+  hideDismissed.value ? discoveredDevices.value.filter(d => !d.dismissed) : discoveredDevices.value);
 
 // Company create/edit form
 const showForm   = ref(false);
@@ -583,6 +686,12 @@ const variableModal      = ref({ open: false, editing: null as CompanyVariable |
 const variableForm       = ref({ key: '', isSecret: false, value: '', description: '' });
 const variableError      = ref('');
 const variableSubmitting = ref(false);
+
+// Discovery config form
+const discoveryForm       = ref({ probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true });
+const discoveryError      = ref('');
+const discoverySubmitting = ref(false);
+const scanningNow         = ref(false);
 
 // Token create
 const showTokenForm = ref(false);
@@ -640,17 +749,27 @@ async function toggleExpanded(id: string) {
   locations.value = [];
   tokens.value = [];
   variables.value = [];
+  discoveryConfig.value = null;
+  discoveredDevices.value = [];
+  companyDevices.value = [];
   try {
-    const [c, l, t, v] = await Promise.all([
+    const [c, l, t, v, dc, dd, allDevices] = await Promise.all([
       api.companies.contacts.list(id),
       api.companies.locations.list(id),
       api.companies.tokens.list(id),
       api.companies.variables.list(id),
+      api.companies.discovery.get(id),
+      api.companies.discoveredDevices.list(id),
+      api.devices.list('approved'),
     ]);
     contacts.value = c;
     locations.value = l;
     tokens.value = t;
     variables.value = v;
+    discoveryConfig.value = dc;
+    discoveredDevices.value = dd;
+    companyDevices.value = allDevices.filter(d => d.companyId === id);
+    resetDiscoveryForm();
   } finally {
     expandedLoading.value = false;
   }
@@ -885,6 +1004,61 @@ async function deleteVariable(varId: string) {
   if (!expandedId.value) return;
   await api.companies.variables.delete(expandedId.value, varId);
   variables.value = variables.value.filter(v => v.id !== varId);
+}
+
+// ── Network Discovery ─────────────────────────────────────────
+function resetDiscoveryForm() {
+  const cfg = discoveryConfig.value;
+  discoveryForm.value = cfg
+    ? { probeDeviceId: cfg.probeDeviceId, cidrRanges: [...cfg.cidrRanges], scanIntervalMinutes: cfg.scanIntervalMinutes, enabled: cfg.enabled }
+    : { probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true };
+  discoveryError.value = '';
+}
+
+async function submitDiscoveryConfig() {
+  if (!expandedId.value) return;
+  const ranges = discoveryForm.value.cidrRanges.map(r => r.trim()).filter(Boolean);
+  if (!discoveryForm.value.probeDeviceId) { discoveryError.value = 'Select a probe device'; return; }
+  if (ranges.length === 0) { discoveryError.value = 'At least one CIDR range is required'; return; }
+
+  discoverySubmitting.value = true;
+  discoveryError.value = '';
+  try {
+    discoveryConfig.value = await api.companies.discovery.save(expandedId.value, {
+      probe_device_id: discoveryForm.value.probeDeviceId,
+      cidr_ranges: ranges,
+      scan_interval_minutes: discoveryForm.value.scanIntervalMinutes,
+      enabled: discoveryForm.value.enabled,
+    });
+    resetDiscoveryForm();
+  } catch (e: any) {
+    discoveryError.value = e.message;
+  } finally {
+    discoverySubmitting.value = false;
+  }
+}
+
+async function scanNow() {
+  if (!expandedId.value || !discoveryConfig.value) return;
+  scanningNow.value = true;
+  try {
+    await api.companies.discovery.scanNow(expandedId.value);
+    discoveryConfig.value.lastScannedAt = Math.floor(Date.now() / 1000);
+  } finally {
+    scanningNow.value = false;
+  }
+}
+
+async function toggleDismissed(dd: DiscoveredDevice) {
+  if (!expandedId.value) return;
+  await api.companies.discoveredDevices.update(expandedId.value, dd.id, { dismissed: !dd.dismissed });
+  dd.dismissed = !dd.dismissed;
+}
+
+async function deleteDiscoveredDevice(deviceId: string) {
+  if (!expandedId.value) return;
+  await api.companies.discoveredDevices.delete(expandedId.value, deviceId);
+  discoveredDevices.value = discoveredDevices.value.filter(d => d.id !== deviceId);
 }
 
 // ── Token CRUD ────────────────────────────────────────────────
@@ -1158,4 +1332,11 @@ code { font-family: var(--mono); font-size: 11px; background: var(--color-surfac
   cursor: pointer; transition: background .1s, color .1s;
 }
 .oneliner-copy:hover { background: rgba(255,255,255,.12); color: var(--color-text-primary); }
+
+.discovery-panel { padding: 2px 0; }
+.discovery-config { max-width: 620px; }
+.cidr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cidr-row:first-of-type { margin-top: 6px; }
+.cidr-row input { flex: 1; }
+.dd-dismissed { opacity: .5; }
 </style>

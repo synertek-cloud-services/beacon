@@ -14,6 +14,7 @@ import (
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/audit"
 	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
+	"github.com/synertek-cloud-services/beacon/agent/internal/discovery"
 	"github.com/synertek-cloud-services/beacon/agent/internal/executor"
 	"github.com/synertek-cloud-services/beacon/agent/internal/filesize"
 	"github.com/synertek-cloud-services/beacon/agent/internal/inventory"
@@ -407,6 +408,40 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 							writePendingRebootMarker()
 						}
 					}
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if cmd.Type == "network_scan" {
+				var payload struct {
+					CIDRRanges []string `json:"cidr_ranges"`
+				}
+				status := "completed"
+				var stdout, stderr string
+				if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("invalid payload: %v", err)
+				} else {
+					log.Printf("network_scan received: %d range(s)", len(payload.CIDRRanges))
+					res := discovery.Scan(payload.CIDRRanges)
+					if res.Error != "" {
+						status = "failed"
+						stderr = res.Error
+					}
+					summary, _ := json.Marshal(res)
+					stdout = string(summary)
+					log.Printf("network_scan finished: %d host(s) found", len(res.Hosts))
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{

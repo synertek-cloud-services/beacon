@@ -152,6 +152,30 @@ export interface CompanyVariable {
   updatedAt: number;
 }
 
+export interface NetworkDiscoveryConfig {
+  id: string;
+  companyId: string;
+  probeDeviceId: string;
+  enabled: boolean;
+  cidrRanges: string[];
+  scanIntervalMinutes: number;
+  lastScannedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DiscoveredDevice {
+  id: string;
+  companyId: string;
+  ipAddress: string;
+  macAddress: string | null;
+  hostname: string | null;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  timesSeen: number;
+  dismissed: boolean;
+}
+
 export interface EnrollmentToken {
   id: string;
   companyId: string;
@@ -958,6 +982,24 @@ export const api = {
         request<CompanyVariable>('PATCH', `/v1/admin/companies/${companyId}/variables/${varId}`, body),
       delete: (companyId: string, varId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/variables/${varId}`),
+    },
+
+    discovery: {
+      get: (companyId: string) =>
+        request<NetworkDiscoveryConfig | null>('GET', `/v1/admin/companies/${companyId}/discovery`),
+      save: (companyId: string, body: { probe_device_id: string; cidr_ranges: string[]; scan_interval_minutes?: number; enabled?: boolean }) =>
+        request<NetworkDiscoveryConfig>('POST', `/v1/admin/companies/${companyId}/discovery`, body),
+      scanNow: (companyId: string) =>
+        request<{ ok: boolean }>('POST', `/v1/admin/companies/${companyId}/discovery/scan-now`),
+    },
+
+    discoveredDevices: {
+      list: (companyId: string) =>
+        request<DiscoveredDevice[]>('GET', `/v1/admin/companies/${companyId}/discovered-devices`),
+      update: (companyId: string, deviceId: string, body: { dismissed: boolean }) =>
+        request<{ ok: boolean }>('PATCH', `/v1/admin/companies/${companyId}/discovered-devices/${deviceId}`, body),
+      delete: (companyId: string, deviceId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/discovered-devices/${deviceId}`),
     },
 
     tokens: {
