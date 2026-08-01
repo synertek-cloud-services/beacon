@@ -59,7 +59,6 @@ With Company Variables landed, picked back up at Network Discovery itself — sc
 ### Next logical steps
 
 1. **Real-fleet validation of agent v0.2.14** — released and independently re-verified (see item 9 above), but no confirmation yet that any real deployed device has actually picked it up via self-update and is running `network_scan`/the `force_update` nudge fix correctly.
-2. **The uncommitted `agent/internal/service/embedded/beacon-tray.exe` rebuild** — a leftover working-tree change from the v0.2.14 publish run, still uncommitted as of this session's end. Worth committing (or confirming it's already captured some other way) so it doesn't get lost.
 
 ---
 
