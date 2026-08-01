@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"runtime"
 	"text/template"
+
+	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 )
 
 const (
@@ -57,14 +59,19 @@ func SelfUninstall() error {
 	var script string
 	switch runtime.GOOS {
 	case "linux":
+		// credential.Dir()'s rm -rf also removes agent.log (setupLogging
+		// writes it into the same directory as credential.json on every
+		// platform, not just Windows) -- neither was ever removed by any
+		// uninstall path before, which left a stale credential behind for a
+		// later reinstall to silently reuse instead of enrolling fresh.
 		script = fmt.Sprintf(
-			"sleep 2; systemctl stop beacon-agent; systemctl disable beacon-agent; rm -f %s %s; systemctl daemon-reload",
-			linuxUnitPath, linuxBinPath,
+			"sleep 2; systemctl stop beacon-agent; systemctl disable beacon-agent; rm -f %s %s; rm -rf %s; systemctl daemon-reload",
+			linuxUnitPath, linuxBinPath, credential.Dir(),
 		)
 	case "darwin":
 		script = fmt.Sprintf(
-			"sleep 2; launchctl unload %s; rm -f %s %s",
-			macPlistPath, macPlistPath, macBinPath,
+			"sleep 2; launchctl unload %s; rm -f %s %s; rm -rf %s",
+			macPlistPath, macPlistPath, macBinPath, credential.Dir(),
 		)
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
@@ -141,6 +148,9 @@ func uninstallLinux() error {
 	os.Remove(linuxUnitPath)
 	run("systemctl", "daemon-reload")
 	os.Remove(linuxBinPath)
+	// See SelfUninstall's Linux branch comment -- credential.json/agent.log
+	// were never removed by any uninstall path before this.
+	os.RemoveAll(credential.Dir())
 	fmt.Println("Beacon agent removed.")
 	return nil
 }
@@ -196,6 +206,9 @@ func uninstallDarwin() error {
 	run("launchctl", "unload", macPlistPath)
 	os.Remove(macPlistPath)
 	os.Remove(macBinPath)
+	// See SelfUninstall's Darwin branch comment -- credential.json/agent.log
+	// were never removed by any uninstall path before this.
+	os.RemoveAll(credential.Dir())
 	fmt.Println("Beacon agent removed.")
 	return nil
 }

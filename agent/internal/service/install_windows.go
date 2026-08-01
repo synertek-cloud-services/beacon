@@ -15,6 +15,8 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 )
 
 const (
@@ -175,7 +177,37 @@ func Uninstall() error {
 		return fmt.Errorf("delete service: %w", err)
 	}
 
-	os.Remove(installPath())
+	// beacon-tray.exe runs as a separate process in the logged-in user's own
+	// session (usersession.RunAsSession), not a child of this service --
+	// stopping the service does nothing to it. Left running, its own open
+	// handle on beacon-tray.exe would block removing the install directory
+	// below, the same real issue SelfUninstall already had to work around
+	// (see its own doc comment). This function runs as a separate CLI
+	// invocation, not the service tearing itself down, so it can just kill
+	// the tray directly and synchronously here -- no detached helper needed
+	// the way SelfUninstall's self-referential-termination problem requires.
+	// Error ignored: "no matching process found" isn't a real failure.
+	exec.Command("taskkill", "/IM", "beacon-tray.exe", "/F").Run()
+
+	// Remove the whole install directory, not just the one exe -- the
+	// previous os.Remove(installPath()) left beacon-tray.exe and any other
+	// extracted files behind. Best-effort like the exe removal it replaces
+	// (never checked that error either) -- the service being stopped and
+	// deleted above is the real uninstall; leftover files being briefly
+	// locked by something else shouldn't fail the whole command.
+	if err := os.RemoveAll(installDir); err != nil {
+		log.Printf("uninstall: remove install dir: %v", err)
+	}
+
+	// credential.json and agent.log live in a completely separate location
+	// from installDir (see credential.Dir()'s own doc comment) -- neither
+	// uninstall path removed this before, which left a stale credential
+	// behind for a later reinstall to silently reuse instead of enrolling
+	// fresh as a new device. Best-effort, same reasoning as installDir above.
+	if err := os.RemoveAll(credential.Dir()); err != nil {
+		log.Printf("uninstall: remove credential dir: %v", err)
+	}
+
 	fmt.Println("Beacon agent service removed.")
 	return nil
 }
@@ -257,9 +289,17 @@ func SelfUninstall() error {
 	// on anyway (session 0 isolation), but harmless to set explicitly
 	// regardless -- same reasoning already documented on the tray's own
 	// CreateProcessAsUser call in usersession_windows.go.
+	// The final rd /s /q also removes credential.Dir() (ProgramData\Beacon --
+	// credential.json/agent.log), a completely separate location from
+	// installDir that neither uninstall path removed before. Left in place,
+	// a later reinstall's service start finds the old credential.json,
+	// loads it successfully, and never re-enrolls at all -- silently
+	// reusing a stale device identity instead of registering fresh. Found
+	// via a real leftover install from an old test cycle causing exactly
+	// this on a later reinstall.
 	helperScript := fmt.Sprintf(
-		`ping -n 4 127.0.0.1 >nul & taskkill /IM beacon-tray.exe /F & sc stop %s & sc delete %s & rd /s /q "%s"`,
-		ServiceName, ServiceName, installDir,
+		`ping -n 4 127.0.0.1 >nul & taskkill /IM beacon-tray.exe /F & sc stop %s & sc delete %s & rd /s /q "%s" & rd /s /q "%s"`,
+		ServiceName, ServiceName, installDir, credential.Dir(),
 	)
 	cmd := exec.Command("cmd.exe", "/c", helperScript)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
