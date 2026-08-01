@@ -444,6 +444,7 @@ export interface PatchPolicy {
   weeklyStartMinute:      number | null;
   weeklyDurationMinutes:  number | null;
   minSeverity:            PatchSeverity | null; // null = no auto-approval rule
+  targetClass:            string; // JSON array — 'server'|'workstation'|'laptop', no OS dimension (Windows-only feature)
   autoReboot:             boolean;
   manageWindowsUpdate:    boolean;
   lastDispatchedAt:       number | null;
@@ -1136,6 +1137,7 @@ export const api = {
       enabled?:      boolean;
       recurrence?:   MaintenanceRecurrenceBody;
       min_severity?: PatchSeverity | null;
+      target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
       clone_from?:   string;
@@ -1146,6 +1148,7 @@ export const api = {
       enabled?:      boolean;
       recurrence?:   MaintenanceRecurrenceBody;
       min_severity?: PatchSeverity | null;
+      target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
     }) => request<{ ok: boolean }>('PATCH', `/v1/admin/patch-policies/${id}`, body),
