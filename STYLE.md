@@ -212,22 +212,28 @@ Used for Scope (Global/Company) and Enabled/Disabled selectors:
 
 **Critical**: `.seg-bar` must have `align-self: flex-start` when inside a flex column container, otherwise it stretches full width.
 
-Primary variant for the active state: add `.seg-primary` to the button — gives it `--color-primary` background instead of surface white.
+**`.seg-primary` is not optional decoration — without it, the active state is nearly invisible and reads as *unselected*.** `.seg-btn.active` alone sets `background: var(--color-surface)` (`#141720`), but a `.seg-btn`'s resting background is `var(--color-surface-raised)` (`#1c1f2e`) — *lighter*. So a plain `.active` state renders **darker** than the unselected sibling next to it, inverting the visual hierarchy a reader expects (selected should pop, not recede). This is a real bug that shipped at least twice (Patch/Maintenance Policy's Schedule picker, Job's Schedule/Execution pickers, Device Change Log's category filter) before being caught from a screenshot and swept across the whole dashboard. Two rules, not one:
+- **Yes/No or Enabled/Disabled toggle** (one side is the "consequential" one worth drawing the eye to, e.g. Auto Reboot, Manage Windows Update): `.seg-primary` on the affirmative/enabled side **only**. The other side (Disabled) stays plain-active on purpose — it's the safe default, not something that needs to visually shout.
+- **Neutral peer-mode picker** (neither option is more consequential — One-time/Weekly, Immediately/Scheduled, system-account/logged-in-user, a role picker, a provider picker, a `v-for`'d filter bar): `.seg-primary` on **every** button, so whichever one is currently active gets the real blue highlight. Leaving it off entirely (the actual bug) makes every option in the group look permanently unselected.
 
-**Also used for >2 options**: `DeviceChangeLogPage.vue`'s category filter (All/Software/Hardware/Services/Security, 5 buttons) confirms this isn't just a binary toggle — works the same way for any small fixed set of mutually-exclusive filter values, `v-for`'d over an options array instead of two hardcoded buttons.
-
-**Disabled option, with a reason shown below** — `JobFormPage.vue`'s Execution section ("Run as system account" / "Run as a logged in user") uses this when one option is a real, known capability gap rather than a value the user just can't currently pick:
 ```html
-<div class="seg-bar">
-  <button class="seg-btn active">Run as system account</button>
-  <button class="seg-btn" disabled title="Not supported yet — the agent has no Windows user-impersonation support.">Run as a logged in user</button>
-</div>
-<p class="field-hint">Running as the logged-in user isn't supported yet — every job runs under the system account.</p>
+<!-- Yes/No: one side gets seg-primary -->
+<button :class="['seg-btn', { active: !form.enabled }]" @click="form.enabled = false">Disabled</button>
+<button :class="['seg-btn', 'seg-primary', { active: form.enabled }]" @click="form.enabled = true">Enabled</button>
+
+<!-- Neutral peer picker: seg-primary on both -->
+<button :class="['seg-btn', 'seg-primary', { active: form.recurrenceType === 'one_time' }]" @click="form.recurrenceType = 'one_time'">One-time</button>
+<button :class="['seg-btn', 'seg-primary', { active: form.recurrenceType === 'weekly' }]" @click="form.recurrenceType = 'weekly'">Weekly</button>
 ```
+
+**Check the component's own `<style scoped>` block actually defines `.seg-btn.seg-primary.active { background: var(--color-primary); color: #fff; }`** before assuming the class alone does anything — this CSS is duplicated per-component (not global, per this codebase's convention), and at least two files (`JobFormPage.vue`, `DeviceChangeLogPage.vue`) had the class used in markup with zero matching rule in their own styles, a silent no-op.
+
+**Also used for >2 options**: `DeviceChangeLogPage.vue`'s category filter (All/Software/Hardware/Services/Security, 5 buttons, `v-for`'d over an options array) and `NotificationSettingsPage.vue`'s email-provider picker confirm this isn't just a binary toggle — same neutral-peer-picker rule applies, `seg-primary` on every generated button.
+
+`JobFormPage.vue`'s Execution section ("Run as system account" / "Run as a logged in user") **is a real, working, non-disabled control** — the "run as a logged in user" capability shipped (see Components/Job System's own section); if you're looking for the disabled-with-reason pattern this used to demonstrate, that convention (shown-but-disabled with a `field-hint` restating why) is still valid for a genuine unbuilt-capability gap, just no longer demonstrated by this specific control:
 ```css
 .seg-btn:disabled { opacity: .4; cursor: not-allowed; }
 ```
-Deliberately **shown-but-disabled**, not omitted from the control entirely — the greyed-out option itself communicates "this exists in the reference and is a real gap," which a missing button wouldn't. Pair it with a `field-hint` below the bar restating why, since a `title` tooltip alone is easy to miss. Contrast with Notification-style features (email on job completion) that have **zero** UI presence at all — use the disabled-option treatment specifically when the control's shape itself (e.g. two mutually-exclusive execution contexts) is worth preserving as documentation of the gap; omit entirely when there's no natural "slot" for the missing feature to sit in.
 
 ## Modals
 
