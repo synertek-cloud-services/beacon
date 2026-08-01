@@ -273,35 +273,47 @@ func SelfUninstall() error {
 	// cleanup even when no tray process exists to kill (taskkill exits
 	// non-zero in that case).
 	//
-	// `ping -n 4 127.0.0.1 >nul`, not `timeout /t 3` -- timeout.exe needs a
-	// real console input handle even with /nobreak, and this helper is
-	// spawned with CREATE_NO_WINDOW from a SYSTEM service with no console
-	// at all, so timeout can fail immediately, collapsing the intended
-	// delay to zero and racing rd /s /q against this process's own
-	// (in-progress) exit. ping's classic no-console-needed ~3-second delay
-	// (4 pings, 3 gaps) is the standard batch-scripting workaround for
-	// exactly this. Suspected after the taskkill fix alone didn't fully
-	// resolve a real leftover-directory failure -- not independently
-	// confirmed on hardware yet, flagging honestly rather than claiming
-	// certainty.
-	//
+	// A fixed delay (`ping -n 4 127.0.0.1 >nul`, ~3s, replacing an earlier
+	// `timeout /t 3` that failed outright with no console to attach to) was
+	// tried here first, guessing that 3s was "long enough" for this process
+	// to have exited and released its own locks (its own loaded image at
+	// installDir\beacon-agent.exe, and its own open log file inside
+	// credential.Dir() via setupLogging) before `rd /s /q` ran against
+	// either directory. Real-hardware testing showed it wasn't: `rd /s /q`
+	// aborts its *entire* recursive delete the moment it hits one locked
+	// file rather than skipping it and continuing (unlike Explorer's
+	// delete), which is why a real test left both directories completely
+	// untouched -- not just the one locked file within each, everything.
+	// Replaced the guessed fixed delay with an active wait on the actual
+	// condition that matters: PowerShell's Wait-Process polls for this
+	// process's own PID to actually exit (bounded by -Timeout so a stuck
+	// wait can't hang the helper forever), then a short grace period for
+	// the OS to finish releasing handles, before ever touching either
+	// directory. Remove-Item (not rd /s /q) is also more forgiving of a
+	// single still-locked file within a tree, and -ErrorAction Stop +
+	// try/catch here lets each removal's real error get logged to
+	// %SystemRoot%\Temp\beacon-uninstall.log -- a location outside both
+	// directories being removed, so it survives to be inspected even if a
+	// removal fails again.
+	pid := os.Getpid()
+	helperScript := fmt.Sprintf(`
+$log = 'C:\Windows\Temp\beacon-uninstall.log'
+"$(Get-Date -Format o) waiting on parent pid %d" | Out-File -FilePath $log -Append
+Wait-Process -Id %d -Timeout 30 -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+taskkill /IM beacon-tray.exe /F 2>&1 | Out-File -FilePath $log -Append
+sc.exe stop %s 2>&1 | Out-File -FilePath $log -Append
+sc.exe delete %s 2>&1 | Out-File -FilePath $log -Append
+try { Remove-Item -LiteralPath '%s' -Recurse -Force -ErrorAction Stop; "removed install dir OK" | Out-File -FilePath $log -Append } catch { "install dir removal failed: $_" | Out-File -FilePath $log -Append }
+try { Remove-Item -LiteralPath '%s' -Recurse -Force -ErrorAction Stop; "removed credential dir OK" | Out-File -FilePath $log -Append } catch { "credential dir removal failed: $_" | Out-File -FilePath $log -Append }
+`,
+		pid, pid, ServiceName, ServiceName, installDir, credential.Dir(),
+	)
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", helperScript)
 	// CREATE_NO_WINDOW: SYSTEM has no interactive desktop to show a console
 	// on anyway (session 0 isolation), but harmless to set explicitly
 	// regardless -- same reasoning already documented on the tray's own
 	// CreateProcessAsUser call in usersession_windows.go.
-	// The final rd /s /q also removes credential.Dir() (ProgramData\Beacon --
-	// credential.json/agent.log), a completely separate location from
-	// installDir that neither uninstall path removed before. Left in place,
-	// a later reinstall's service start finds the old credential.json,
-	// loads it successfully, and never re-enrolls at all -- silently
-	// reusing a stale device identity instead of registering fresh. Found
-	// via a real leftover install from an old test cycle causing exactly
-	// this on a later reinstall.
-	helperScript := fmt.Sprintf(
-		`ping -n 4 127.0.0.1 >nul & taskkill /IM beacon-tray.exe /F & sc stop %s & sc delete %s & rd /s /q "%s" & rd /s /q "%s"`,
-		ServiceName, ServiceName, installDir, credential.Dir(),
-	)
-	cmd := exec.Command("cmd.exe", "/c", helperScript)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("spawn uninstall helper: %w", err)
