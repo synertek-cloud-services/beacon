@@ -115,6 +115,7 @@ patchPolicies.post('/', async (c) => {
     recurrence?: RecurrenceBody;
     min_severity?: Severity | null;
     auto_reboot?: boolean;
+    manage_windows_update?: boolean;
     clone_from?: string;
   }>();
 
@@ -123,6 +124,7 @@ patchPolicies.post('/', async (c) => {
   let enabled     = body.enabled ?? true;
   let minSeverity: Severity | null = null;
   let autoReboot  = body.auto_reboot ?? false;
+  let manageWindowsUpdate = body.manage_windows_update ?? false;
   let recurrencePatch: Record<string, unknown> | null = null;
 
   let sourceCompanies:   (typeof schema.patchPolicyCompanies.$inferSelect)[]   = [];
@@ -139,6 +141,7 @@ patchPolicies.post('/', async (c) => {
     if (body.enabled === undefined) enabled = source.enabled;
     if (body.min_severity === undefined) minSeverity = source.minSeverity as Severity | null;
     if (body.auto_reboot === undefined) autoReboot = source.autoReboot;
+    if (body.manage_windows_update === undefined) manageWindowsUpdate = source.manageWindowsUpdate;
     if (!body.recurrence) {
       recurrencePatch = {
         recurrenceType: source.recurrenceType,
@@ -181,7 +184,7 @@ patchPolicies.post('/', async (c) => {
     weeklyDays: recurrencePatch.weeklyDays as string | null,
     weeklyStartMinute: recurrencePatch.weeklyStartMinute as number | null,
     weeklyDurationMinutes: recurrencePatch.weeklyDurationMinutes as number | null,
-    minSeverity, autoReboot,
+    minSeverity, autoReboot, manageWindowsUpdate,
     createdAt: now, updatedAt: now,
   });
 
@@ -210,6 +213,7 @@ patchPolicies.patch('/:id', async (c) => {
     recurrence?: RecurrenceBody;
     min_severity?: Severity | null;
     auto_reboot?: boolean;
+    manage_windows_update?: boolean;
   }>();
 
   const patch: Record<string, unknown> = { updatedAt: now };
@@ -217,6 +221,7 @@ patchPolicies.patch('/:id', async (c) => {
   if (body.description !== undefined) patch.description = body.description;
   if (body.enabled     !== undefined) patch.enabled     = body.enabled;
   if (body.auto_reboot  !== undefined) patch.autoReboot  = body.auto_reboot;
+  if (body.manage_windows_update !== undefined) patch.manageWindowsUpdate = body.manage_windows_update;
   if (body.min_severity !== undefined) {
     const validated = validateMinSeverity(body.min_severity);
     if ('error' in validated) return c.json({ error: validated.error }, 400);

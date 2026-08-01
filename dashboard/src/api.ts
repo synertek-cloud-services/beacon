@@ -445,6 +445,7 @@ export interface PatchPolicy {
   weeklyDurationMinutes:  number | null;
   minSeverity:            PatchSeverity | null; // null = no auto-approval rule
   autoReboot:             boolean;
+  manageWindowsUpdate:    boolean;
   lastDispatchedAt:       number | null;
   createdAt:              number;
   updatedAt:              number;
@@ -700,6 +701,8 @@ export interface Device {
   externalIp: string | null;
   maintenanceEndsAt: number | null;
   maintenanceReason: string | null;
+  windowsUpdateManaged: boolean | null;
+  windowsUpdateManagedAt: number | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -1134,6 +1137,7 @@ export const api = {
       recurrence?:   MaintenanceRecurrenceBody;
       min_severity?: PatchSeverity | null;
       auto_reboot?:  boolean;
+      manage_windows_update?: boolean;
       clone_from?:   string;
     }) => request<PatchPolicy>('POST', '/v1/admin/patch-policies', body),
     update: (id: string, body: {
@@ -1143,6 +1147,7 @@ export const api = {
       recurrence?:   MaintenanceRecurrenceBody;
       min_severity?: PatchSeverity | null;
       auto_reboot?:  boolean;
+      manage_windows_update?: boolean;
     }) => request<{ ok: boolean }>('PATCH', `/v1/admin/patch-policies/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${id}`),
     companies: {

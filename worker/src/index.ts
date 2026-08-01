@@ -33,6 +33,7 @@ import branding from './routes/branding';
 import { evaluateOfflineAlerts } from './lib/alerts';
 import { dispatchDuePatchPolicies } from './lib/patchPolicies';
 import { dispatchDueDiscoveryScans } from './lib/discovery';
+import { syncWindowsUpdateManagement } from './lib/windowsUpdateManagement';
 import { activityLogMiddleware, pruneActivityLog } from './lib/activityLog';
 
 export { SessionRelay } from './durable-objects/session-relay';
@@ -133,6 +134,7 @@ export default {
     await dispatchDueScheduledJobs(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
     await cancelExpiredScheduledJobs(env.DB, now);
     await dispatchDuePatchPolicies(env.DB, now);
+    await syncWindowsUpdateManagement(env.DB, now);
     await dispatchDueDiscoveryScans(env.DB, now);
     await pruneActivityLog(env.DB, now);
   },

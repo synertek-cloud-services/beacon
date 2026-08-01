@@ -60,7 +60,7 @@ checkin.post('/', async (c) => {
     const ids = body.pending_command_results.map(r => r.command_id);
     const owned = await db.select({
       id: schema.commands.id, componentId: schema.commands.componentId, jobId: schema.commands.jobId,
-      type: schema.commands.type, companyId: schema.commands.companyId,
+      type: schema.commands.type, companyId: schema.commands.companyId, payload: schema.commands.payload,
     })
       .from(schema.commands)
       .where(and(
@@ -104,6 +104,37 @@ checkin.post('/', async (c) => {
           // Malformed scan output shouldn't fail the whole check-in --
           // the command row above already recorded raw stdout/stderr for
           // debugging.
+        }
+      }
+
+      if (ownedCmd.type === 'manage_windows_update' && r.status === 'completed') {
+        try {
+          const applyResult = JSON.parse(r.stdout ?? '{}') as {
+            applied?: boolean; prior_no_auto_update?: number | null; prior_au_options?: number | null;
+          };
+          const action = (JSON.parse(ownedCmd.payload) as { action?: string }).action;
+
+          if (action === 'manage' && applyResult.applied) {
+            await db.update(schema.devices).set({
+              windowsUpdateManaged: true,
+              windowsUpdatePriorState: JSON.stringify({
+                no_auto_update: applyResult.prior_no_auto_update ?? null,
+                au_options: applyResult.prior_au_options ?? null,
+              }),
+              windowsUpdateManagedAt: now,
+            }).where(eq(schema.devices.id, device.id));
+          } else if (action === 'revert' && applyResult.applied) {
+            await db.update(schema.devices).set({
+              windowsUpdateManaged: false,
+              windowsUpdatePriorState: null,
+              windowsUpdateManagedAt: null,
+            }).where(eq(schema.devices.id, device.id));
+          }
+        } catch {
+          // Malformed/failed result shouldn't fail the whole check-in --
+          // the command row above already recorded raw stdout/stderr, and
+          // syncWindowsUpdateManagement will simply retry next cron tick
+          // since devices.windowsUpdateManaged won't have changed.
         }
       }
 
