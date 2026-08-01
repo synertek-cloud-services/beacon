@@ -113,6 +113,17 @@ export async function fetchPatchPolicyGroupIds(db: Db): Promise<Map<string, Set<
   return out;
 }
 
+// Company-wide blanket veto -- exported for the same "fetch once per
+// invocation, never per device" reason every other fetch* helper here is.
+// windowsUpdateManagement.ts reuses this too, so a company opted out of
+// Patch Policy coverage is automatically opted out of AU takeover as well,
+// with no extra code needed there.
+export async function fetchExcludedCompanyIds(db: Db): Promise<Set<string>> {
+  const rows = await db.select({ id: schema.companies.id })
+    .from(schema.companies).where(eq(schema.companies.patchManagementExcluded, true));
+  return new Set(rows.map(r => r.id));
+}
+
 export function deviceMatchesPatchPolicy(
   p: PatchPolicy,
   device: Device,
@@ -120,7 +131,16 @@ export function deviceMatchesPatchPolicy(
   policyGroupIds: Map<string, Set<string>>,
   policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
+  excludedCompanyIds: Set<string>,
 ): boolean {
+  // Company-wide veto short-circuits everything else -- a company opted
+  // out of patch management entirely (e.g. it manages Windows Update via
+  // its own WSUS) shouldn't be pulled back in by an unrestricted global
+  // policy, an explicit device-level target, or anything else. No
+  // per-policy override of this -- see the migration's own comment for why
+  // this is a blanket flag, not a per-policy exclusion list.
+  if (excludedCompanyIds.has(device.companyId)) return false;
+
   // Class check is ANDed with the OR-list below, same relationship
   // policies.targetClass has with its own Companies/Devices/Groups OR-list
   // (see alerts.ts's deviceMatchesPolicy) -- a device must be in-class AND
@@ -286,10 +306,11 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
   });
   if (due.length === 0) return;
 
-  const [policyCompanyIds, policyDeviceIds, policyGroupIds, devices] = await Promise.all([
+  const [policyCompanyIds, policyDeviceIds, policyGroupIds, excludedCompanyIds, devices] = await Promise.all([
     fetchPatchPolicyCompanyIds(db),
     fetchPatchPolicyDeviceIds(db),
     fetchPatchPolicyGroupIds(db),
+    fetchExcludedCompanyIds(db),
     db.select().from(schema.devices).where(eq(schema.devices.status, 'approved')).all(),
   ]);
   const deviceGroupIds = await fetchDeviceGroupIds(db, devices.map(d => d.id));
@@ -297,7 +318,7 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
 
   for (const policy of due) {
     const targeted = devices.filter(d =>
-      deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds));
+      deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds, excludedCompanyIds));
 
     let dispatchedCount = 0;
     for (const device of targeted) {

@@ -4,7 +4,7 @@ import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 import {
   fetchEnabledPatchPolicies, fetchPatchPolicyCompanyIds, fetchPatchPolicyDeviceIds,
-  fetchPatchPolicyGroupIds, deviceMatchesPatchPolicy,
+  fetchPatchPolicyGroupIds, fetchExcludedCompanyIds, deviceMatchesPatchPolicy,
 } from './patchPolicies';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -41,16 +41,17 @@ export async function syncWindowsUpdateManagement(DB: D1Database, now: number): 
   // is active right now -- gating on window-active would defeat the whole
   // point of pre-emptively disabling Windows' own auto-update ahead of a
   // scheduled window that hasn't opened yet.
-  const [policyCompanyIds, policyDeviceIds, policyGroupIds, deviceGroupIds] = await Promise.all([
+  const [policyCompanyIds, policyDeviceIds, policyGroupIds, excludedCompanyIds, deviceGroupIds] = await Promise.all([
     fetchPatchPolicyCompanyIds(db),
     fetchPatchPolicyDeviceIds(db),
     fetchPatchPolicyGroupIds(db),
+    fetchExcludedCompanyIds(db),
     fetchDeviceGroupIds(db, devices.map(d => d.id)),
   ]);
 
   const hasCoverage = (device: Device): boolean =>
     managing.some(p => deviceMatchesPatchPolicy(
-      p, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds));
+      p, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds, excludedCompanyIds));
 
   // Skip a device with an already-outstanding (not yet terminal) command --
   // same guard Jobs already uses to avoid piling up redundant dispatches on
