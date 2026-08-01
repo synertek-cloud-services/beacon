@@ -72,6 +72,16 @@ function validateMinSeverity(v: unknown): { ok: true; value: Severity | null } |
   return { ok: true, value: v as Severity };
 }
 
+// Same JSON-array-in-TEXT convention and valid-value set as policies.targetClass.
+const VALID_CLASSES = ['server', 'workstation', 'laptop'];
+
+function validateTargetClass(v: unknown): { ok: true; value: string } | { error: string } {
+  if (!Array.isArray(v) || v.some(c => typeof c !== 'string' || !VALID_CLASSES.includes(c))) {
+    return { error: `target_class must be an array of: ${VALID_CLASSES.join(', ')}` };
+  }
+  return { ok: true, value: JSON.stringify([...new Set(v)]) };
+}
+
 async function listWithTargets(db: ReturnType<typeof drizzle<typeof schema>>) {
   const policiesList = await db.select().from(schema.patchPolicies);
   if (!policiesList.length) return [];
@@ -114,6 +124,7 @@ patchPolicies.post('/', async (c) => {
     enabled?: boolean;
     recurrence?: RecurrenceBody;
     min_severity?: Severity | null;
+    target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
     clone_from?: string;
@@ -123,6 +134,7 @@ patchPolicies.post('/', async (c) => {
   let description = body.description ?? null;
   let enabled     = body.enabled ?? true;
   let minSeverity: Severity | null = null;
+  let targetClass = '["server","workstation","laptop"]';
   let autoReboot  = body.auto_reboot ?? false;
   let manageWindowsUpdate = body.manage_windows_update ?? false;
   let recurrencePatch: Record<string, unknown> | null = null;
@@ -140,6 +152,7 @@ patchPolicies.post('/', async (c) => {
     if (!body.description) description = source.description;
     if (body.enabled === undefined) enabled = source.enabled;
     if (body.min_severity === undefined) minSeverity = source.minSeverity as Severity | null;
+    if (body.target_class === undefined) targetClass = source.targetClass;
     if (body.auto_reboot === undefined) autoReboot = source.autoReboot;
     if (body.manage_windows_update === undefined) manageWindowsUpdate = source.manageWindowsUpdate;
     if (!body.recurrence) {
@@ -168,6 +181,12 @@ patchPolicies.post('/', async (c) => {
     minSeverity = validated.value;
   }
 
+  if (body.target_class !== undefined) {
+    const validated = validateTargetClass(body.target_class);
+    if ('error' in validated) return c.json({ error: validated.error }, 400);
+    targetClass = validated.value;
+  }
+
   if (!recurrencePatch) {
     if (!body.recurrence) return c.json({ error: 'recurrence is required' }, 400);
     const validated = validateRecurrence(body.recurrence);
@@ -184,7 +203,7 @@ patchPolicies.post('/', async (c) => {
     weeklyDays: recurrencePatch.weeklyDays as string | null,
     weeklyStartMinute: recurrencePatch.weeklyStartMinute as number | null,
     weeklyDurationMinutes: recurrencePatch.weeklyDurationMinutes as number | null,
-    minSeverity, autoReboot, manageWindowsUpdate,
+    minSeverity, targetClass, autoReboot, manageWindowsUpdate,
     createdAt: now, updatedAt: now,
   });
 
@@ -212,6 +231,7 @@ patchPolicies.patch('/:id', async (c) => {
     enabled?: boolean;
     recurrence?: RecurrenceBody;
     min_severity?: Severity | null;
+    target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
   }>();
@@ -226,6 +246,11 @@ patchPolicies.patch('/:id', async (c) => {
     const validated = validateMinSeverity(body.min_severity);
     if ('error' in validated) return c.json({ error: validated.error }, 400);
     patch.minSeverity = validated.value;
+  }
+  if (body.target_class !== undefined) {
+    const validated = validateTargetClass(body.target_class);
+    if ('error' in validated) return c.json({ error: validated.error }, 400);
+    patch.targetClass = validated.value;
   }
   if (body.recurrence  !== undefined) {
     const validated = validateRecurrence(body.recurrence);

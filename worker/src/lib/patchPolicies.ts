@@ -121,6 +121,15 @@ export function deviceMatchesPatchPolicy(
   policyCompanyIds: Map<string, Set<string>>,
   policyDeviceIds: Map<string, Set<string>>,
 ): boolean {
+  // Class check is ANDed with the OR-list below, same relationship
+  // policies.targetClass has with its own Companies/Devices/Groups OR-list
+  // (see alerts.ts's deviceMatchesPolicy) -- a device must be in-class AND
+  // match at least one target (or targeting is empty/unrestricted).
+  const targetClass = JSON.parse(p.targetClass) as string[];
+  const devClass = device.overrideClass ?? device.detectedClass;
+  const classOk = targetClass.length === 0 || (devClass ? targetClass.includes(devClass) : false);
+  if (!classOk) return false;
+
   const companies   = policyCompanyIds.get(p.id);
   const devices = policyDeviceIds.get(p.id);
   const groups  = policyGroupIds.get(p.id);

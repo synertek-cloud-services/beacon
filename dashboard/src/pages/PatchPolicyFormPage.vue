@@ -117,6 +117,24 @@
         <span v-if="fieldErr.schedule" class="pf-err">{{ fieldErr.schedule }}</span>
       </div>
 
+      <!-- Class -->
+      <div class="pf-group">
+        <label class="pf-label">Class</label>
+        <p class="field-hint" style="margin-top:-4px">
+          Restrict this policy to matching device classes — ANDed with Targets below (a device must be an
+          in-class match AND satisfy Targets, if any). No Operating System filter — Patch Management only
+          ever runs against Windows devices.
+        </p>
+        <div class="pf-target-sec">
+          <div class="pill-group">
+            <label v-for="cls in classOptions" :key="cls.value" :class="['pill-opt', { active: form.targetClass.includes(cls.value) }]">
+              <input type="checkbox" :value="cls.value" v-model="form.targetClass" class="pill-cb" />
+              {{ cls.label }}
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Targets -->
       <div class="pf-group">
         <label class="pf-label">Targets</label>
@@ -280,11 +298,16 @@ const weekdayOptions = [
   { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
 ];
 
+// No OS row (unlike PolicyFormPage's OS & Class) -- Patch Management only
+// ever runs against Windows devices, so an OS filter here would be inert.
+const classOptions = [{ value: 'server', label: 'Server' }, { value: 'workstation', label: 'Workstation' }, { value: 'laptop', label: 'Laptop' }];
+
 const form = reactive({
   name: '',
   description: '',
   enabled: true,
   minSeverity: null as PatchSeverity | null,
+  targetClass: ['server', 'workstation', 'laptop'] as string[],
   autoReboot: false,
   manageWindowsUpdate: false,
   recurrenceType: 'one_time' as MaintenanceRecurrenceType,
@@ -417,6 +440,7 @@ onMounted(async () => {
     form.description = policy.description ?? '';
     form.enabled     = policy.enabled;
     form.minSeverity = policy.minSeverity;
+    form.targetClass = JSON.parse(policy.targetClass) as string[];
     form.autoReboot  = policy.autoReboot;
     form.manageWindowsUpdate = policy.manageWindowsUpdate;
     form.recurrenceType = policy.recurrenceType;
@@ -492,6 +516,7 @@ async function save() {
         enabled: form.enabled,
         recurrence: buildRecurrenceBody(),
         min_severity: form.minSeverity,
+        target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,
       });
@@ -507,6 +532,7 @@ async function save() {
         enabled: form.enabled,
         recurrence: buildRecurrenceBody(),
         min_severity: form.minSeverity,
+        target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,
       });

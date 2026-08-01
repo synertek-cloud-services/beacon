@@ -716,6 +716,11 @@ export const patchPolicies = sqliteTable('patch_policies', {
   weeklyStartMinute:     integer('weekly_start_minute'),
   weeklyDurationMinutes: integer('weekly_duration_minutes'),
   minSeverity:       text('min_severity', { enum: ['Critical', 'Important', 'Moderate', 'Low'] }),
+  // Device Class targeting only (no OS dimension -- Patch Management is
+  // Windows-only already, so an OS filter here would never do anything).
+  // Same JSON-array-in-TEXT convention and "all classes" default as
+  // policies.targetClass, ANDed with the Company/Device/Group OR-list below.
+  targetClass:       text('target_class').notNull().default('["server","workstation","laptop"]'),
   autoReboot:        integer('auto_reboot', { mode: 'boolean' }).notNull().default(false),
   // Opt-in takeover of Windows' own separate Automatic Updates behavior --
   // see worker/src/lib/windowsUpdateManagement.ts. Default false: an

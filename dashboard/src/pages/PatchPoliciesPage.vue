@@ -119,14 +119,25 @@ async function togglePolicy(policy: PatchPolicy) {
   } catch { /* leave as-is on failure */ }
 }
 
+// '' when unrestricted (all 3 classes) -- same "empty = default, don't
+// clutter the summary" convention GlobalPoliciesPage.vue's own OS/Class
+// summary uses.
+function classSummary(p: PatchPolicy): string {
+  let cls: string[] = [];
+  try { cls = JSON.parse(p.targetClass) as string[]; } catch { /* leave empty */ }
+  if (cls.length === 0 || cls.length === 3) return '';
+  return cls.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(' / ');
+}
+
 function targetSummary(p: PatchPolicy): string {
   const companies = p.companyIds?.length ?? 0, devices = p.deviceIds?.length ?? 0, groups = p.groupIds?.length ?? 0;
-  if (companies + devices + groups === 0) return 'All devices';
   const parts: string[] = [];
   if (companies) parts.push(`${companies} compan${companies === 1 ? 'y' : 'ies'}`);
   if (devices) parts.push(`${devices} device${devices === 1 ? '' : 's'}`);
   if (groups)  parts.push(`${groups} group${groups === 1 ? '' : 's'}`);
-  return parts.join(', ');
+  const base = parts.length === 0 ? 'All devices' : parts.join(', ');
+  const cls = classSummary(p);
+  return cls ? `${cls} · ${base}` : base;
 }
 
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
