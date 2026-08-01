@@ -959,6 +959,7 @@ Established over 6 check types added this session — each one touches the same 
 Features explicitly considered and deferred — not rejected, just not now. Standing placeholder until a real kanban-style board exists to track these properly; add new entries here in the meantime rather than letting a deferred decision live only in PROJECT_LOG.md's dated session narrative, where it'll scroll out of easy reach.
 
 - **Per-monitor "Additional Recipients"** (Datto RMM's ad hoc one-off email addresses typed directly into a single monitor's alert config, bypassing the global recipient list) — considered while designing the per-monitor `notify_email`/`notify_webhook` toggles (see Alert Notifications), deferred in favor of just the on/off toggle against the existing global recipient list. Revisit if someone needs a monitor-specific recipient the global list can't cover.
+- **Dedicated per-Company page** (a `/companies/:id` route with its own settings link, Datto RMM-style — as opposed to `CompaniesPage.vue`'s current inline expand-row for Contacts/Locations/Tokens/Variables) — considered once Company Variables gave the expand-row a 4th tab, deferred since the current pattern still holds up fine at present scale. Revisit if something starts *linking into* company-scoped context from elsewhere (the way Network Discovery, once built, might want a durable per-company settings destination) rather than only reaching it via the Companies list's own "Manage" button.
 
 ## Commit rules
 
