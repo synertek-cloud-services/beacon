@@ -69,9 +69,19 @@ function windowDurationSeconds(policy: PatchPolicy): number {
 // Definition Updates deliberately excluded -- already filtered client-side
 // in agent/internal/audit/patches.go before a patch is ever stored, so it'd
 // never appear here anyway.
+//
+// Trimmed to just these two (a wider 7-classification list shipped
+// initially, then cut back) -- confirmed via further research that
+// Critical Updates, Feature Packs, Service Packs, Tools, and plain
+// "Updates" are all effectively obsolete on any Windows 10 1903+ / current
+// Server device: Microsoft stopped populating Critical Updates in 1903,
+// consolidating almost everything into Security Updates instead, and
+// Feature Packs/Service Packs predate the Windows-as-a-service model
+// entirely. Keeping dead options in the checklist is pure noise, not
+// forward-compatible completeness -- narrower is more honest about what
+// actually shows up on real fleet data.
 export const AUTO_APPROVE_CLASSIFICATIONS = [
-  'Security Updates', 'Critical Updates', 'Update Rollups',
-  'Feature Packs', 'Service Packs', 'Tools', 'Updates',
+  'Security Updates', 'Update Rollups',
 ] as const;
 
 // ── Targeting (exact mirror of lib/maintenance.ts's Companies/Devices/Groups

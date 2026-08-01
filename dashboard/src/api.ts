@@ -434,9 +434,13 @@ export interface MaintenanceRecurrenceBody {
 // cron (unlike Maintenance Policy's passive suppression-gate model). Same
 // recurrence shape as MaintenancePolicy, duplicated not shared — see
 // worker/src/lib/patchPolicies.ts.
+// Trimmed to these two -- Critical Updates/Feature Packs/Service Packs/
+// Tools/plain "Updates" are all effectively obsolete on modern Windows
+// (Microsoft stopped populating Critical Updates in 10 1903, consolidating
+// into Security Updates instead), so keeping them was noise, not
+// future-proofing. See worker/src/lib/patchPolicies.ts's own comment.
 export const AUTO_APPROVE_CLASSIFICATIONS = [
-  'Security Updates', 'Critical Updates', 'Update Rollups',
-  'Feature Packs', 'Service Packs', 'Tools', 'Updates',
+  'Security Updates', 'Update Rollups',
 ] as const;
 
 export interface PatchPolicy {
