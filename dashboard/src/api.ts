@@ -105,6 +105,10 @@ export interface Company {
   name: string;
   autoApproveDefault: boolean;
   privacyModeDefault: boolean;
+  // Blanket opt-out from Patch Policy coverage (and Windows Update
+  // Management takeover) -- for a company managing Windows Update its own
+  // way (WSUS, etc.). See CLAUDE.md's Patch Management section.
+  patchManagementExcluded: boolean;
   status: 'active' | 'suspended';
   createdAt: number;
   deviceCount: number;
@@ -940,6 +944,7 @@ export const api = {
       name: string;
       auto_approve_default?: boolean;
       privacy_mode_default?: boolean;
+      patch_management_excluded?: boolean;
       website?: string | null;
       notes?: string | null;
       contact_name?: string | null;
@@ -950,6 +955,7 @@ export const api = {
       name?: string;
       auto_approve_default?: boolean;
       privacy_mode_default?: boolean;
+      patch_management_excluded?: boolean;
       status?: 'active' | 'suspended';
       website?: string | null;
       notes?: string | null;

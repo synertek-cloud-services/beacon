@@ -5,6 +5,12 @@ export const companies = sqliteTable('companies', {
   name: text('name').notNull(),
   autoApproveDefault: integer('auto_approve_default', { mode: 'boolean' }).notNull().default(true),
   privacyModeDefault: integer('privacy_mode_default', { mode: 'boolean' }).notNull().default(false),
+  // Blanket opt-out from Patch Policy coverage (and Windows Update
+  // Management takeover, which shares the same coverage check) -- for a
+  // company managing Windows Update its own way (WSUS, etc.) that
+  // shouldn't have Beacon's patch policies forced onto it just because an
+  // unrestricted global policy targets every device by default.
+  patchManagementExcluded: integer('patch_management_excluded', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ['active', 'suspended'] }).notNull().default('active'),
   createdAt: integer('created_at').notNull(),
   // Contact

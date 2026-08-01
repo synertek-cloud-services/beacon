@@ -13,6 +13,7 @@
         <span class="row-count-label">Policies <span class="row-count-badge">{{ policies.length }}</span></span>
         <div class="toolbar-sep"></div>
         <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size !== 1" @click="editSelected">Edit</button>
+        <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="openOverrideModal">Override</button>
         <button class="btn btn-ghost btn-xs" :disabled="selectedIds.size === 0" @click="bulkDelete">Delete</button>
       </div>
 
@@ -61,18 +62,55 @@
         </table>
       </div>
     </div>
+
+    <!-- ── OVERRIDE MODAL ── -->
+    <Teleport to="body">
+    <div v-if="overrideModal.open" class="modal-backdrop" @click.self="overrideModal.open = false">
+      <div class="modal" style="max-width:380px">
+        <div class="modal-header">
+          <span class="modal-title">Create Company Override</span>
+          <button class="btn-icon" @click="overrideModal.open = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label class="field-label">Target Company</label>
+            <select v-model="overrideModal.companyId" class="field-input">
+              <option value="">Select a company…</option>
+              <option v-for="t in companyList" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </div>
+          <p class="override-hint">
+            Creates a company-scoped copy of the {{ selectedIds.size }} selected {{ selectedIds.size === 1 ? 'policy' : 'policies' }},
+            including its Class restriction and schedule. Customize without affecting the original.
+          </p>
+          <div v-if="overrideModal.error" class="error-msg">{{ overrideModal.error }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost btn-sm" @click="overrideModal.open = false">Cancel</button>
+          <button class="btn btn-primary btn-sm"
+            :disabled="!overrideModal.companyId || overrideModal.saving"
+            @click="doOverride">
+            {{ overrideModal.saving ? 'Creating…' : 'Create Override' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type PatchPolicy } from '../api';
+import { api, type PatchPolicy, type Company } from '../api';
 
 const router = useRouter();
 
 const loading    = ref(false);
 const policies   = ref<PatchPolicy[]>([]);
+const companyList = ref<Company[]>([]);
 const selectedIds = ref(new Set<string>());
 
 const allSelected = computed(() =>
@@ -83,6 +121,8 @@ async function load() {
   try { policies.value = await api.patchPolicies.list(); }
   catch { policies.value = []; }
   finally { loading.value = false; }
+  try { companyList.value = await api.companies.list(); }
+  catch { companyList.value = []; }
 }
 
 function toggleSelect(id: string) {
@@ -98,6 +138,45 @@ function toggleSelectAll() {
 function editSelected() {
   if (selectedIds.value.size !== 1) return;
   router.push('/global/patch-policies/' + [...selectedIds.value][0]);
+}
+
+// ── Override modal (clone selected policies into a company-scoped copy) ──
+// Same pattern as GlobalPoliciesPage.vue's own Override, adapted to this
+// page's flat (no global/company tab) shape — no restriction on which
+// policies can be overridden, since Patch Policy has no derived scope
+// column to key a "global only" guard off of the way regular Policies do.
+const overrideModal = reactive({ open: false, companyId: '', saving: false, error: '' });
+
+function openOverrideModal() {
+  overrideModal.companyId = '';
+  overrideModal.error     = '';
+  overrideModal.open      = true;
+}
+
+async function doOverride() {
+  if (!overrideModal.companyId) return;
+  overrideModal.saving = true;
+  overrideModal.error  = '';
+  try {
+    const ids = [...selectedIds.value];
+    await Promise.all(
+      ids.map(async id => {
+        const src    = policies.value.find(p => p.id === id);
+        const policy = await api.patchPolicies.create({
+          name:       (src?.name ?? 'Policy') + ' (Override)',
+          clone_from: id,
+        });
+        await api.patchPolicies.companies.add(policy.id, overrideModal.companyId);
+      })
+    );
+    await load();
+    overrideModal.open = false;
+    selectedIds.value  = new Set();
+  } catch (e: unknown) {
+    overrideModal.error = e instanceof Error ? e.message : 'Failed to create overrides.';
+  } finally {
+    overrideModal.saving = false;
+  }
 }
 
 async function bulkDelete() {
@@ -239,4 +318,48 @@ onMounted(load);
   transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3);
 }
 .toggle-btn.enabled .toggle-thumb { left: 14px; }
+
+/* Override modal -- duplicated from GlobalPoliciesPage.vue per this
+   codebase's established per-component CSS duplication convention. */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;
+  width: 440px; max-width: 95vw; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--color-border); flex-shrink: 0;
+}
+.modal-title { flex: 1; font-weight: 600; font-size: 14px; }
+.btn-icon {
+  background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 4px;
+  display: flex; align-items: center; border-radius: 4px; transition: background .1s, color .1s;
+}
+.btn-icon:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
+.modal-body {
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto; overflow-x: hidden;
+}
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px 16px; border-top: 1px solid var(--color-border); flex-shrink: 0;
+}
+.override-hint { font-size: 12px; color: var(--color-text-muted); margin: 0; line-height: 1.5; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label {
+  font-size: 11px; font-weight: 600; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.field-input {
+  padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px;
+  background: var(--color-surface-raised); color: var(--color-text-primary); font-size: 13px; font-family: var(--font);
+  outline: none; transition: border-color .12s; width: 100%; box-sizing: border-box;
+}
+.field-input:focus { border-color: var(--color-primary); }
+.field-input option { background: var(--color-surface); }
+.error-msg { color: #e04040; font-size: 12px; }
 </style>

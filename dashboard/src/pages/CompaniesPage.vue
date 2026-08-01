@@ -34,7 +34,10 @@
               @click="router.push({ path: '/devices', query: { company: t.id } })"
             >
               <td>
-                <div style="font-weight:500;font-size:13px">{{ t.name }}</div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-weight:500;font-size:13px">{{ t.name }}</span>
+                  <span v-if="t.patchManagementExcluded" class="badge badge-revoked" title="Excluded from Patch Policies">No Patch Mgmt</span>
+                </div>
                 <div v-if="t.website" class="text-xs text-muted-2">{{ t.website }}</div>
               </td>
               <td>
@@ -373,6 +376,13 @@
                 <span class="text-xs text-muted-2" style="display:block">Limits inventory collection to basic device info only</span>
               </span>
             </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="form.patchManagementExcluded" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Exclude from Patch Policies</span>
+                <span class="text-xs text-muted-2" style="display:block">This company's devices never receive any Patch Policy install or Windows Update Management takeover, even from an unrestricted global policy — for companies managing Windows Update their own way (e.g. WSUS)</span>
+              </span>
+            </label>
           </div>
 
           <div v-if="formError" class="error-banner" style="margin-top:14px">{{ formError }}</div>
@@ -665,7 +675,7 @@ const formError  = ref('');
 const blankForm = () => ({
   name: '', website: '', notes: '',
   contactName: '', contactEmail: '', contactPhone: '',
-  autoApprove: true, privacyMode: false,
+  autoApprove: true, privacyMode: false, patchManagementExcluded: false,
 });
 const form = ref(blankForm());
 
@@ -799,6 +809,7 @@ function openEdit(t: Company) {
     contactPhone: '',
     autoApprove: t.autoApproveDefault,
     privacyMode: t.privacyModeDefault,
+    patchManagementExcluded: t.patchManagementExcluded,
   };
   formError.value = '';
   showForm.value = true;
@@ -815,6 +826,7 @@ async function submitForm() {
         name: form.value.name.trim(),
         auto_approve_default: form.value.autoApprove,
         privacy_mode_default: form.value.privacyMode,
+        patch_management_excluded: form.value.patchManagementExcluded,
         website: form.value.website || null,
         notes:   form.value.notes   || null,
       });
@@ -825,6 +837,7 @@ async function submitForm() {
           name: form.value.name.trim(),
           autoApproveDefault: form.value.autoApprove,
           privacyModeDefault: form.value.privacyMode,
+          patchManagementExcluded: form.value.patchManagementExcluded,
           website: form.value.website || null,
           notes:   form.value.notes   || null,
         };
@@ -834,6 +847,7 @@ async function submitForm() {
         name: form.value.name.trim(),
         auto_approve_default: form.value.autoApprove,
         privacy_mode_default: form.value.privacyMode,
+        patch_management_excluded: form.value.patchManagementExcluded,
         website: form.value.website || null,
         notes:   form.value.notes   || null,
         contact_name:  form.value.contactName  || null,
