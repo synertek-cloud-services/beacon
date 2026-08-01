@@ -4,6 +4,7 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { logActivity } from '../../lib/activityLog';
+import { decryptSecret } from '../../lib/crypto';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -128,6 +129,46 @@ async function fetchCustomFieldVars(
   return out;
 }
 
+// Bulk-fetches every targeted company's Variables/Secrets (both kinds),
+// decrypting secrets once here rather than per-device, and keys the result
+// by company_id — a company variable applies identically to every device
+// under that company, unlike Custom Fields' per-device values, so this
+// needs no device-level join at all. Same "fetch once per invocation, never
+// per device" rule as fetchCustomFieldVars and the policy-targeting helpers
+// in alerts.ts.
+async function fetchCompanyVariables(
+  db: D1Database,
+  configEncryptionKey: string,
+  companyIds: string[],
+): Promise<Map<string, Record<string, string>>> {
+  const out = new Map<string, Record<string, string>>();
+  const uniqueIds = [...new Set(companyIds)];
+  if (uniqueIds.length === 0) return out;
+
+  const placeholders = uniqueIds.map(() => '?').join(',');
+  const rows = await db.prepare(
+    `SELECT company_id, key, is_secret, value, value_ciphertext, value_nonce
+     FROM company_variables WHERE company_id IN (${placeholders})`
+  ).bind(...uniqueIds).all<{
+    company_id: string; key: string; is_secret: number;
+    value: string | null; value_ciphertext: string | null; value_nonce: string | null;
+  }>();
+
+  for (const row of rows.results) {
+    let value: string | null;
+    if (row.is_secret) {
+      if (!row.value_ciphertext || !row.value_nonce) continue;
+      value = await decryptSecret(row.value_ciphertext, row.value_nonce, configEncryptionKey);
+    } else {
+      value = row.value;
+    }
+    if (value === null) continue;
+    if (!out.has(row.company_id)) out.set(row.company_id, {});
+    out.get(row.company_id)![`CV_${row.key}`] = value;
+  }
+  return out;
+}
+
 // ── Helper: resolve shell for 'auto' ─────────────────────────
 
 function resolveShell(shell: string, osType: string | null): string {
@@ -139,6 +180,7 @@ function resolveShell(shell: string, osType: string | null): string {
 
 async function insertJobCommands(
   db: D1Database,
+  configEncryptionKey: string,
   jobId: string,
   devices: Array<{ id: string; company_id: string; os_type: string | null }>,
   resolved: { ref: ComponentRef; payload: ResolvedPayload }[],
@@ -147,6 +189,7 @@ async function insertJobCommands(
   const now = Math.floor(Date.now() / 1000);
   const inserts: Promise<any>[] = [];
   const cfVarsByDevice = await fetchCustomFieldVars(db, devices.map(d => d.id));
+  const cvVarsByCompany = await fetchCompanyVariables(db, configEncryptionKey, devices.map(d => d.company_id));
 
   for (const device of devices) {
     // Skip components whose target_os doesn't match this device's OS
@@ -156,6 +199,7 @@ async function insertJobCommands(
     if (compatible.length === 0) continue;
 
     const cfVars = cfVarsByDevice.get(device.id) ?? {};
+    const cvVars = cvVarsByCompany.get(device.company_id) ?? {};
 
     for (const { ref, payload } of compatible) {
       const shell  = resolveShell(payload.shell, device.os_type);
@@ -164,10 +208,11 @@ async function insertJobCommands(
         shell,
         script: payload.script,
         timeout_seconds: payload.timeout_seconds,
-        // Custom-field-derived vars first, component's own declared
-        // variables second -- an explicit input variable always wins on the
-        // (extremely unlikely, given the CF_ prefix) name collision.
-        variables: { ...cfVars, ...payload.variables },
+        // Company-variable-derived vars first, then custom-field-derived
+        // vars, then the component's own declared variables -- an explicit
+        // input variable always wins on the (extremely unlikely, given the
+        // CV_/CF_ prefixes) name collision.
+        variables: { ...cvVars, ...cfVars, ...payload.variables },
         run_as_system: runAsSystem,
       });
       const compId  = ref.type === 'library' ? ref.component_id : null;
@@ -194,7 +239,7 @@ async function insertJobCommands(
 // 'active' and retried on the next cron tick until it either resolves
 // devices or expires (see cancelExpiredScheduledJobs below).
 
-export async function dispatchDueScheduledJobs(db: D1Database, now: number): Promise<void> {
+export async function dispatchDueScheduledJobs(db: D1Database, configEncryptionKey: string, now: number): Promise<void> {
   const due = await db.prepare(`
     SELECT j.* FROM jobs j
     WHERE j.type = 'scheduled' AND j.status = 'active'
@@ -220,7 +265,7 @@ export async function dispatchDueScheduledJobs(db: D1Database, now: number): Pro
     // Skip this tick rather than partially dispatch; it'll retry until expiry.
     if (resolved.length === 0) continue;
 
-    await insertJobCommands(db, job.id, devices, resolved, Boolean(job.run_as_system));
+    await insertJobCommands(db, configEncryptionKey, job.id, devices, resolved, Boolean(job.run_as_system));
     // Layer-2 call -- this dispatch happens from the scheduled() cron, never
     // a user-authenticated HTTP route, so the generic middleware can't see
     // it. Job *creation* is a normal admin route and is already covered by
@@ -474,7 +519,7 @@ adminJobs.post('/', async (c) => {
   // the cron (dispatchDueScheduledJobs) to resolve devices and dispatch
   // once scheduled_at arrives.
   if (jobType === 'quick') {
-    await insertJobCommands(c.env.DB, jobId, devices, resolved, body.run_as_system ?? true);
+    await insertJobCommands(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, jobId, devices, resolved, body.run_as_system ?? true);
   }
 
   const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>();

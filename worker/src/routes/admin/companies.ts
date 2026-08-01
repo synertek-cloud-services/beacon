@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { sha256hex, generateToken } from '../../lib/crypto';
+import { sha256hex, generateToken, encryptSecret } from '../../lib/crypto';
 import { requireUser, type Role } from '../../lib/auth';
 
 const adminCompanies = new Hono<{ Bindings: Bindings }>();
@@ -393,6 +393,132 @@ adminCompanies.delete('/:id/tokens/:tokenId/permanent', async (c) => {
     .delete(schema.enrollmentTokens)
     .where(eq(schema.enrollmentTokens.id, c.req.param('tokenId')));
 
+  return c.json({ ok: true });
+});
+
+// ── Variables ─────────────────────────────────────────────────
+// Per-company key/value config, referenceable from component scripts as
+// CV_<KEY> (resolved per-device at job dispatch time — see jobs.ts's
+// fetchCompanyVariables). Two kinds: plain variables (cleartext, always
+// returned) and secrets (AES-GCM encrypted, never returned in plaintext by
+// any read endpoint — same "secret never returned, blank input means keep
+// existing" contract sso_providers/email_settings already established).
+
+const VARIABLE_KEY_RE = /^[A-Z_][A-Z0-9_]*$/;
+
+function normalizeVariableKey(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+// Shapes a row for API responses — never includes valueCiphertext/valueNonce,
+// and a secret's value is reported only as hasValue, never the plaintext.
+function shapeVariable(row: typeof schema.companyVariables.$inferSelect) {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    key: row.key,
+    isSecret: row.isSecret,
+    value: row.isSecret ? undefined : row.value,
+    hasValue: row.isSecret ? row.valueCiphertext !== null : row.value !== null,
+    description: row.description,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+adminCompanies.get('/:id/variables', async (c) => {
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  const rows = await db
+    .select()
+    .from(schema.companyVariables)
+    .where(eq(schema.companyVariables.companyId, c.req.param('id')))
+    .all();
+
+  return c.json(rows.map(shapeVariable));
+});
+
+adminCompanies.post('/:id/variables', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const now = Math.floor(Date.now() / 1000);
+  const companyId = c.req.param('id');
+
+  const body = await c.req.json<{
+    key: string;
+    is_secret?: boolean;
+    value?: string | null;
+    description?: string | null;
+  }>();
+
+  const key = normalizeVariableKey(body.key ?? '');
+  if (!VARIABLE_KEY_RE.test(key)) {
+    return c.json({ error: 'key must be a valid identifier (A-Z, 0-9, underscore, not starting with a digit)' }, 400);
+  }
+  const dup = await db.select({ id: schema.companyVariables.id }).from(schema.companyVariables)
+    .where(and(eq(schema.companyVariables.companyId, companyId), eq(schema.companyVariables.key, key))).get();
+  if (dup) return c.json({ error: `a variable with key "${key}" already exists for this company` }, 409);
+
+  const isSecret = body.is_secret ?? false;
+  if (isSecret && !body.value) return c.json({ error: 'value is required for a new secret' }, 400);
+
+  const id = crypto.randomUUID();
+  const values: typeof schema.companyVariables.$inferInsert = {
+    id, companyId, key, isSecret, description: body.description || null,
+    value: null, valueCiphertext: null, valueNonce: null,
+    createdAt: now, updatedAt: now,
+  };
+  if (isSecret) {
+    const { ciphertext, nonce } = await encryptSecret(body.value!, c.env.CONFIG_ENCRYPTION_KEY);
+    values.valueCiphertext = ciphertext;
+    values.valueNonce = nonce;
+  } else {
+    values.value = body.value ?? null;
+  }
+
+  await db.insert(schema.companyVariables).values(values);
+  const row = await db.select().from(schema.companyVariables).where(eq(schema.companyVariables.id, id)).get();
+  return c.json(shapeVariable(row!), 201);
+});
+
+adminCompanies.patch('/:id/variables/:varId', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const now = Math.floor(Date.now() / 1000);
+  const varId = c.req.param('varId');
+
+  const existing = await db.select().from(schema.companyVariables).where(eq(schema.companyVariables.id, varId)).get();
+  if (!existing) return c.json({ error: 'not found' }, 404);
+
+  const body = await c.req.json<{ value?: string | null; description?: string | null }>();
+  const updates: Partial<typeof schema.companyVariables.$inferInsert> = { updatedAt: now };
+
+  if ('description' in body) updates.description = body.description || null;
+
+  // Blank/omitted value means "keep existing" — same convention as
+  // sso_providers/email_settings, since a secret's plaintext is never sent
+  // back to the client to prefill a form with in the first place.
+  if (body.value) {
+    if (existing.isSecret) {
+      const { ciphertext, nonce } = await encryptSecret(body.value, c.env.CONFIG_ENCRYPTION_KEY);
+      updates.valueCiphertext = ciphertext;
+      updates.valueNonce = nonce;
+    } else {
+      updates.value = body.value;
+    }
+  }
+
+  await db.update(schema.companyVariables).set(updates).where(eq(schema.companyVariables.id, varId));
+  const row = await db.select().from(schema.companyVariables).where(eq(schema.companyVariables.id, varId)).get();
+  return c.json(shapeVariable(row!));
+});
+
+adminCompanies.delete('/:id/variables/:varId', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  await db.delete(schema.companyVariables).where(eq(schema.companyVariables.id, c.req.param('varId')));
   return c.json({ ok: true });
 });
 

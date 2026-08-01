@@ -76,10 +76,15 @@
                     Tokens
                     <span v-if="!expandedLoading" class="tab-pill">{{ tokens.length }}</span>
                   </button>
+                  <button :class="['expand-tab', expandedTab === 'variables' ? 'active' : '']" @click.stop="expandedTab = 'variables'">
+                    Variables
+                    <span v-if="!expandedLoading" class="tab-pill">{{ variables.length }}</span>
+                  </button>
                   <div style="flex:1"></div>
                   <button v-if="expandedTab === 'contacts'"  class="btn btn-primary btn-sm" @click.stop="openContactCreate">+ Add Contact</button>
                   <button v-if="expandedTab === 'locations'" class="btn btn-primary btn-sm" @click.stop="openLocationCreate">+ Add Location</button>
                   <button v-if="expandedTab === 'tokens'"    class="btn btn-primary btn-sm" @click.stop="showTokenForm = true">+ New Token</button>
+                  <button v-if="expandedTab === 'variables'" class="btn btn-primary btn-sm" @click.stop="openVariableCreate">+ Add Variable</button>
                 </div>
 
                 <div v-if="expandedLoading" class="empty"><p class="empty-sub">Loading…</p></div>
@@ -169,6 +174,32 @@
                         </tr>
                       </tbody>
                     </table>
+                  </div>
+
+                  <!-- Variables -->
+                  <div v-if="expandedTab === 'variables'">
+                    <div v-if="variables.length === 0" class="empty">
+                      <div class="empty-title">No variables</div>
+                      <p class="empty-sub">Add a variable or secret to reference from component scripts as <code>CV_&lt;KEY&gt;</code>.</p>
+                    </div>
+                    <div v-else class="item-list">
+                      <div v-for="v in variables" :key="v.id" class="item-card">
+                        <div class="item-info">
+                          <div class="item-name">
+                            <code>CV_{{ v.key }}</code>
+                            <span v-if="v.isSecret" class="badge-accent-sm">Secret</span>
+                          </div>
+                          <div class="text-xs text-muted-2">
+                            {{ v.isSecret ? (v.hasValue ? '••••••••  (configured)' : 'Not set') : (v.value || '—') }}
+                          </div>
+                          <div v-if="v.description" class="text-xs text-muted-2">{{ v.description }}</div>
+                        </div>
+                        <div class="item-actions">
+                          <button class="btn btn-ghost btn-sm" @click.stop="openVariableEdit(v)">Edit</button>
+                          <button class="btn btn-danger btn-sm" @click.stop="deleteVariable(v.id)">Delete</button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                 </template>
@@ -341,6 +372,55 @@
       </div>
     </div>
 
+    <!-- ── Variable modal ── -->
+    <div v-if="variableModal.open" class="modal-backdrop" @click.self="variableModal.open = false">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="modal-title">{{ variableModal.editing ? 'Edit Variable' : 'Add Variable' }}</span>
+        </div>
+        <div class="modal-body">
+          <div class="form-row-2" style="margin-bottom:4px">
+            <div class="field">
+              <label>Key <span class="required">*</span></label>
+              <input
+                v-model="variableForm.key"
+                placeholder="AV_LICENSE_KEY"
+                autofocus
+                :disabled="!!variableModal.editing"
+                @input="variableForm.key = variableForm.key.toUpperCase().replace(/[^A-Z0-9_]/g, '_')"
+              />
+              <div class="text-xs text-muted-2" style="margin-top:2px">Referenced in scripts as <code>CV_{{ variableForm.key || 'KEY' }}</code></div>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end;padding-bottom:3px">
+              <label class="toggle-row">
+                <input type="checkbox" v-model="variableForm.isSecret" :disabled="!!variableModal.editing" />
+                <span class="text-sm">Secret (encrypted, hidden after saving)</span>
+              </label>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>Value <span v-if="!variableModal.editing" class="required">*</span></label>
+            <input
+              v-model="variableForm.value"
+              :type="variableForm.isSecret ? 'password' : 'text'"
+              :placeholder="variableModal.editing ? 'Leave blank to keep the current value' : ''"
+            />
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>Description</label>
+            <input v-model="variableForm.description" placeholder="Optional note about what this is used for" />
+          </div>
+          <div v-if="variableError" class="error-banner" style="margin-top:12px">{{ variableError }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="variableModal.open = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="variableSubmitting" @click="submitVariable">
+            {{ variableSubmitting ? 'Saving…' : (variableModal.editing ? 'Save Changes' : 'Add Variable') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Install modal ── -->
     <div v-if="installModal" class="modal-backdrop">
       <div class="modal modal-install">
@@ -453,7 +533,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type Company, type CompanyContact, type CompanyLocation, type EnrollmentToken, type Address } from '../api';
+import { api, type Company, type CompanyContact, type CompanyLocation, type CompanyVariable, type EnrollmentToken, type Address } from '../api';
 import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
@@ -465,11 +545,12 @@ const nowSec  = Math.floor(Date.now() / 1000);
 
 // Expanded panel
 const expandedId      = ref<string | null>(null);
-const expandedTab     = ref<'contacts' | 'locations' | 'tokens'>('contacts');
+const expandedTab     = ref<'contacts' | 'locations' | 'tokens' | 'variables'>('contacts');
 const expandedLoading = ref(false);
 const contacts        = ref<CompanyContact[]>([]);
 const locations       = ref<CompanyLocation[]>([]);
 const tokens          = ref<EnrollmentToken[]>([]);
+const variables       = ref<CompanyVariable[]>([]);
 const expandedCompany  = computed(() => companies.value.find(t => t.id === expandedId.value));
 
 // Company create/edit form
@@ -496,6 +577,12 @@ const locationModal      = ref({ open: false, editing: null as CompanyLocation |
 const locationForm       = ref({ name: '', isPrimary: false, address: { street: '', city: '', state: '', zip: '', country: '' } as Address });
 const locationError      = ref('');
 const locationSubmitting = ref(false);
+
+// Variable modal
+const variableModal      = ref({ open: false, editing: null as CompanyVariable | null });
+const variableForm       = ref({ key: '', isSecret: false, value: '', description: '' });
+const variableError      = ref('');
+const variableSubmitting = ref(false);
 
 // Token create
 const showTokenForm = ref(false);
@@ -552,15 +639,18 @@ async function toggleExpanded(id: string) {
   contacts.value = [];
   locations.value = [];
   tokens.value = [];
+  variables.value = [];
   try {
-    const [c, l, t] = await Promise.all([
+    const [c, l, t, v] = await Promise.all([
       api.companies.contacts.list(id),
       api.companies.locations.list(id),
       api.companies.tokens.list(id),
+      api.companies.variables.list(id),
     ]);
     contacts.value = c;
     locations.value = l;
     tokens.value = t;
+    variables.value = v;
   } finally {
     expandedLoading.value = false;
   }
@@ -745,6 +835,56 @@ async function deleteLocation(locationId: string) {
   if (!expandedId.value) return;
   await api.companies.locations.delete(expandedId.value, locationId);
   locations.value = locations.value.filter(l => l.id !== locationId);
+}
+
+// ── Variable CRUD ─────────────────────────────────────────────
+function openVariableCreate() {
+  variableModal.value = { open: true, editing: null };
+  variableForm.value  = { key: '', isSecret: false, value: '', description: '' };
+  variableError.value = '';
+}
+
+function openVariableEdit(v: CompanyVariable) {
+  variableModal.value = { open: true, editing: v };
+  variableForm.value  = { key: v.key, isSecret: v.isSecret, value: '', description: v.description ?? '' };
+  variableError.value = '';
+}
+
+async function submitVariable() {
+  if (!expandedId.value) return;
+  if (!variableModal.value.editing) {
+    if (!variableForm.value.key.trim()) { variableError.value = 'Key is required'; return; }
+    if (!variableForm.value.value.trim()) { variableError.value = 'Value is required'; return; }
+  }
+  variableSubmitting.value = true;
+  variableError.value = '';
+  try {
+    if (variableModal.value.editing) {
+      await api.companies.variables.update(expandedId.value, variableModal.value.editing.id, {
+        value:       variableForm.value.value || undefined,
+        description: variableForm.value.description || null,
+      });
+    } else {
+      await api.companies.variables.create(expandedId.value, {
+        key:         variableForm.value.key.trim(),
+        is_secret:   variableForm.value.isSecret,
+        value:       variableForm.value.value,
+        description: variableForm.value.description || null,
+      });
+    }
+    variables.value = await api.companies.variables.list(expandedId.value);
+    variableModal.value.open = false;
+  } catch (e: any) {
+    variableError.value = e.message;
+  } finally {
+    variableSubmitting.value = false;
+  }
+}
+
+async function deleteVariable(varId: string) {
+  if (!expandedId.value) return;
+  await api.companies.variables.delete(expandedId.value, varId);
+  variables.value = variables.value.filter(v => v.id !== varId);
 }
 
 // ── Token CRUD ────────────────────────────────────────────────
