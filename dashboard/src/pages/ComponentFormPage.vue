@@ -153,6 +153,9 @@
         <p v-if="availableCfKeys.length" class="field-hint">
           Available custom fields (resolved per-device at dispatch time): <span class="mono">{{ availableCfKeys.map(k => `CF_${k}`).join(', ') }}</span>
         </p>
+        <p class="field-hint">
+          Company Variables/Secrets are also available as <span class="mono">CV_&lt;KEY&gt;</span>, resolved per-target-company at dispatch time — see each company's Variables tab on the Companies page.
+        </p>
       </div>
 
       <!-- Timeout -->

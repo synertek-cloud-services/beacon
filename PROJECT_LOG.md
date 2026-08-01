@@ -1,6 +1,6 @@
 # Beacon — Project Log
 
-## Session: 2026-07-31 / 2026-08-01 — Command History, Activity Log, Tenant→Company terminology rename, production wire-protocol incident
+## Session: 2026-07-31 / 2026-08-01 — Command History, Activity Log, Tenant→Company terminology rename, production wire-protocol incident, Company Variables/Secrets
 
 ### What was completed
 
@@ -30,6 +30,10 @@ PR #47 was based on the still-open PR #46's branch rather than `main`. #46 merge
 
 `worker/src/lib/types.ts`'s `CheckInRequest`/`EnrollResponse` (and `audit.ts`'s local `AuditRequest`) mirror the Go agent's wire-protocol structs (`agent/internal/protocol/types.go`) and were explicitly supposed to be out of scope for the rename — but the bulk rename swept their `company_id`/`tenant_id` field name anyway, since nothing distinguished "internal DB naming" from "wire contract with a Go binary that update on its own schedule" at review time. The moment the renamed worker deployed (as part of landing PR #48), every already-enrolled agent's check-in/audit/enroll requests started failing with a 403 `device_id or company_id mismatch`, since the agent still sends `tenant_id` on the wire and the worker now expected `company_id`. Caught within the hour when the user's own machine stopped showing online. Fixed by reverting just the three wire-facing JSON field names back to `tenant_id` (agent needs no changes; internal DB/schema naming stays `company_id` throughout) and deploying directly via `wrangler deploy` before the fix was even committed, given the severity — committed and pushed to `main` immediately after, once production was confirmed healthy via `wrangler tail` and a direct D1 query showing `last_seen` advancing again. Audited every other JSON tag in the Go protocol file against the worker to confirm no other wire field was affected — none were.
 
+**7. Company Variables/Secrets built (migration 0061)**
+
+Once the rename detour and its cleanup were done, picked back up at the actual feature the terminology work was in service of. Two kinds — plain Variables (cleartext) and Secrets (AES-GCM encrypted via `CONFIG_ENCRYPTION_KEY`, write-only after saving, never returned in plaintext by any read endpoint) — matching the Cloudflare Workers vars/secrets model the user referenced directly. `company_variables` table, `CV_<KEY>` script-reference prefix (distinct from Custom Fields' `CF_<KEY>`). Resolved at job dispatch time in `insertJobCommands` via a new `fetchCompanyVariables()` — bulk-fetches and decrypts once per company (not per-device, unlike Custom Fields, since a company variable's value doesn't vary by device), threaded a new `configEncryptionKey` parameter through `insertJobCommands`/`dispatchDueScheduledJobs` and both call sites (the quick-job route, `index.ts`'s `scheduled()` handler). Dashboard: a 4th "Variables" tab on `CompaniesPage.vue`'s existing per-company expand-row (alongside Contacts/Locations/Tokens), same list/modal pattern. Verified end-to-end via `wrangler dev` + Playwright: created a plain variable and a secret, confirmed the secret's plaintext never appears in any API response, dispatched a real job and inspected the resulting `commands.payload` directly in D1 to confirm both `CV_SUPPORT_URL` and the decrypted `CV_AV_LICENSE_KEY` resolved correctly, and confirmed edit (blank value = keep existing) and delete both work.
+
 ### Key technical decisions
 
 | Decision | Rationale |
@@ -39,13 +43,14 @@ PR #47 was based on the still-open PR #46's branch rather than `main`. #46 merge
 | Tenant→Company rename split into two PRs, second stacked on the first | The core schema/API rename and the *_sites targeting-table rename were different-sized, separately-reviewable changes; stacking (rather than waiting for #46 to merge first) let work continue without blocking. |
 | `vue-tsc -b`, not `--noEmit`, is the only trustworthy dashboard type-check | `dashboard/tsconfig.json` is solution-style (`"files": []` + `references`); `--noEmit` alone silently checks zero files and reports false success — confirmed via deliberate error injection, now documented in CLAUDE.md. |
 | Wire-protocol field names pinned independently of internal DB naming | The Go agent updates on its own schedule (self-update, or never, for an offline/manually-managed fleet) — a wire contract can't be renamed in lockstep with a same-day worker deploy the way a same-repo TS/SQL rename can. |
+| Company Variables resolved once per company, not per device | Unlike Custom Fields (genuinely per-device values), a Company Variable's value is identical for every device under that company — fetching per-device would be pure waste. |
+| Company Variable secrets never returned in plaintext by any read endpoint | Same contract already established for `sso_providers`/`email_settings` — sidesteps needing to reason about which roles should see a decrypted secret, since the answer is "none, via the API." |
 
 ### Next logical steps
 
-1. **Company Variables/Secrets** — the actual feature the terminology cleanup was in service of (per-Company key/value secrets, Cloudflare-Workers-variables-style, referenceable from component scripts alongside the existing `CF_<KEY>` custom fields). Not yet built.
-2. **Network Discovery** — scoped in detail this session (scheduled credentialed subnet scan, always-on devices only) but blocked on Company Variables existing first.
-3. **Publish an agent release covering the `force_update` check-in-nudge fix** — code-complete since item 1 above but not yet in any released agent build.
-4. **Audit for any other lingering wire-protocol assumptions** — this session's incident was caught fast because the user's own machine went offline within the hour, but a similar mismatch in a less-immediately-visible field (e.g. something only read during an audit or a rarely-hit command type) could sit unnoticed far longer. Worth a deliberate one-time audit of `worker/src/lib/types.ts` line-by-line against `agent/internal/protocol/types.go`, beyond the reactive fix already done here.
+1. **Network Discovery** — scoped in detail this session (scheduled credentialed subnet scan, always-on devices only); its prerequisite (Company Variables/Secrets) is now built, so this is unblocked.
+2. **Publish an agent release covering the `force_update` check-in-nudge fix** — code-complete but not yet in any released agent build.
+3. **Audit for any other lingering wire-protocol assumptions** — this session's incident was caught fast because the user's own machine went offline within the hour, but a similar mismatch in a less-immediately-visible field (e.g. something only read during an audit or a rarely-hit command type) could sit unnoticed far longer. Worth a deliberate one-time audit of `worker/src/lib/types.ts` line-by-line against `agent/internal/protocol/types.go`, beyond the reactive fix already done here.
 
 ---
 

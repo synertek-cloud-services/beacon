@@ -129,7 +129,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
     const now = Math.floor(Date.now() / 1000);
     await evaluateOfflineAlerts(env.DB, env, now);
-    await dispatchDueScheduledJobs(env.DB, now);
+    await dispatchDueScheduledJobs(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
     await cancelExpiredScheduledJobs(env.DB, now);
     await dispatchDuePatchPolicies(env.DB, now);
     await pruneActivityLog(env.DB, now);

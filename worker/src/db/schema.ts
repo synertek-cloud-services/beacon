@@ -505,6 +505,24 @@ export const deviceCustomFieldValues = sqliteTable('device_custom_field_values',
   updatedAt: integer('updated_at').notNull(),
 }, (t) => [primaryKey({ columns: [t.deviceId, t.fieldId] })]);
 
+// Per-Company key/value config, referenceable from component scripts as
+// CV_<KEY> (see worker/src/routes/admin/jobs.ts's fetchCompanyVariables).
+// Two kinds: plain variables (value, cleartext) and secrets (valueCiphertext/
+// valueNonce, AES-GCM via CONFIG_ENCRYPTION_KEY -- same pattern as
+// sso_providers/email_settings, never returned in plaintext once saved).
+export const companyVariables = sqliteTable('company_variables', {
+  id:               text('id').primaryKey(),
+  companyId:        text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  key:              text('key').notNull(),
+  isSecret:         integer('is_secret', { mode: 'boolean' }).notNull().default(false),
+  value:            text('value'),
+  valueCiphertext:  text('value_ciphertext'),
+  valueNonce:       text('value_nonce'),
+  description:      text('description'),
+  createdAt:        integer('created_at').notNull(),
+  updatedAt:        integer('updated_at').notNull(),
+});
+
 // Device Groups -- static, manually-curated device collections (Datto's
 // "Groups", not the dynamic "Filter" half of that system). Used to target
 // both Jobs (resolveDevices in jobs.ts) and Policies (policyGroups below).

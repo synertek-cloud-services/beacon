@@ -138,6 +138,20 @@ export interface CompanyLocation {
   createdAt: number;
 }
 
+export interface CompanyVariable {
+  id: string;
+  companyId: string;
+  key: string;
+  isSecret: boolean;
+  // Plain-variable value, present only when !isSecret — a secret's plaintext
+  // is never returned by the API once saved.
+  value?: string | null;
+  hasValue: boolean;
+  description: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface EnrollmentToken {
   id: string;
   companyId: string;
@@ -933,6 +947,17 @@ export const api = {
         request<{ ok: boolean }>('PATCH', `/v1/admin/companies/${companyId}/locations/${locationId}`, body),
       delete: (companyId: string, locationId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/locations/${locationId}`),
+    },
+
+    variables: {
+      list: (companyId: string) =>
+        request<CompanyVariable[]>('GET', `/v1/admin/companies/${companyId}/variables`),
+      create: (companyId: string, body: { key: string; is_secret?: boolean; value?: string | null; description?: string | null }) =>
+        request<CompanyVariable>('POST', `/v1/admin/companies/${companyId}/variables`, body),
+      update: (companyId: string, varId: string, body: { value?: string | null; description?: string | null }) =>
+        request<CompanyVariable>('PATCH', `/v1/admin/companies/${companyId}/variables/${varId}`, body),
+      delete: (companyId: string, varId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/companies/${companyId}/variables/${varId}`),
     },
 
     tokens: {

@@ -516,6 +516,27 @@ A component's script can reference a device's custom field value directly, with 
 - `ComponentFormPage.vue` fetches the field list once on mount and shows a small discoverability hint under the Script textarea (`Available custom fields: CF_ASSET_TAG, CF_SITE_CONTACT`, only fields with a non-empty `key`) — matches the existing placeholder hint's own "Reference variables as..." text. No autocomplete/insertion, purely informational.
 - **State-declaration-order gotcha**: the `customFields`/`customFieldsLoading`/`customFieldSaving` refs must be declared *before* `onIdChange` and the router `watch(..., { immediate: true })` that calls it — that watch fires synchronously during `<script setup>` execution, so any ref it reads must already be initialized textually above it. Declaring them near the bottom of the file (next to unrelated code, e.g. the Warranty-field logic) throws a TDZ `Cannot access '<name>' before initialization` on every page load — a real bug hit once, invisible to `vue-tsc` since it's a runtime evaluation-order issue, not a type error. Fixed by keeping all section-state refs grouped together above `onIdChange`, alongside `auditData`/`deviceAlerts`/`effectiveMonitors`.
 
+## Company Variables / Secrets
+
+Per-Company key/value config, referenceable from component scripts as `CV_<KEY>` — Cloudflare-Workers-variables/-secrets-style (also matches GitHub Actions' variables/secrets split), the feature that originally motivated the Tenant→Company terminology rename (see Terminology note above). Distinct from Custom Fields: Custom Fields are per-device values on a global set of field definitions; Company Variables are per-company, with no cross-company definition sharing at all — the same `key` can independently exist (with different values) on multiple companies.
+
+### Scope decisions (confirmed via AskUserQuestion before implementation)
+- **Company-level only, no Location-level override** — confirmed early in the terminology discussion that prompted this feature ("we don't need location level variables, they still fall under the company").
+- **Two kinds, not one** — plain **Variables** (cleartext, always visible/editable) and **Secrets** (AES-GCM encrypted via `CONFIG_ENCRYPTION_KEY`, write-only after saving) — matching the Cloudflare Workers vars/secrets model the user referenced directly, rather than treating every value as sensitive by default.
+- **`CV_<KEY>` prefix** — distinct from Custom Fields' `CF_<KEY>` and `component_variables`, no collision risk.
+
+### Table
+`company_variables` (migration `0061`) — `id`, `company_id` FK `ON DELETE CASCADE`, `key`, `is_secret`, `value` (cleartext, only when `!is_secret`), `value_ciphertext`/`value_nonce` (only when `is_secret` — same `encryptSecret`/`decryptSecret` AES-GCM helper `sso_providers`/`email_settings` already use), `description`, timestamps. `UNIQUE(company_id, key)`. A secret's plaintext is **never** returned by any read endpoint once saved — API responses report `hasValue: boolean` in its place, same "secret never returned, blank input means keep existing" contract as SSO/email provider config.
+
+### Resolution at job dispatch (`worker/src/routes/admin/jobs.ts`)
+`fetchCompanyVariables()` bulk-fetches every targeted company's variables in one query (`WHERE company_id IN (...)`, keyed by `company_id`) and decrypts every secret once here — not per-device, since a company variable's value is identical for every device under that company, unlike Custom Fields' genuinely per-device values. Called from `insertJobCommands` (the one shared dispatch primitive both `dispatchDueScheduledJobs` and the quick-job `POST /` handler already call — same place `fetchCustomFieldVars` already hooks in), merged into each device's `variables` map as `{...cvVars, ...cfVars, ...payload.variables}` — a component's own declared variable always wins on the (extremely unlikely, given the `CV_`/`CF_` prefixes) literal collision. `insertJobCommands`/`dispatchDueScheduledJobs` both gained a `configEncryptionKey` parameter for this (threaded from `c.env.CONFIG_ENCRYPTION_KEY` / `env.CONFIG_ENCRYPTION_KEY` at both call sites, including `index.ts`'s `scheduled()` handler) — no agent-side change needed, this is purely a worker-side merge before serializing the payload, same shape as the `CF_<KEY>` merge it sits alongside.
+
+### Worker
+`worker/src/routes/admin/companies.ts` gained nested `/:id/variables` (`GET`/`POST`/`PATCH /:id`/`DELETE /:id`) — same role tier as Contacts/Locations/Tokens on this file (`technician` mutate, `readonly` view; Company Variables are per-company operational data referenced by jobs, not global Settings-area config like Custom Field *definitions*/SSO). Key format validated server-side (`^[A-Z_][A-Z0-9_]*$`, same regex as Custom Fields). `PATCH` never accepts a `key` change (delete + recreate instead — no rename-guard precedent needed here since nothing else references a Company Variable by database id, only by the `CV_<KEY>` string baked into a script).
+
+### Dashboard
+`CompaniesPage.vue`'s existing per-company expand-row (Contacts/Locations/Tokens tabs) gained a 4th **Variables** tab, same list/modal shape as Contacts. Add/Edit modal: Key (disabled once created — uppercased/sanitized as-you-type on create), a Secret toggle (disabled once created — a variable can't change kind after the fact), Value (`type="password"` when secret, placeholder says "Leave blank to keep the current value" when editing), Description. List row shows `CV_<KEY>` + a "Secret" badge when applicable; secret rows show `•••••••• (configured)`/`Not set`, never the plaintext. `ComponentFormPage.vue` gained a short discoverability note near the existing Custom Fields hint under the Script textarea — deliberately doesn't enumerate actual keys the way the Custom Fields hint does, since a component can be scoped to multiple companies with different Variable sets, unlike Custom Fields' single global definition list.
+
 ## Device Groups
 
 Beacon's equivalent of Datto RMM's "Groups" — a static, manually-curated, named collection of individual devices, usable to target both Jobs and Monitoring Policies. Researched directly against Datto's real Filters/Groups spec (rmm.datto.com) this session: Datto actually has two distinct mechanisms — **Filters** (dynamic, criteria-based, auto-updating membership across ~85 possible attributes) and **Groups** (static, manually-curated). Beacon builds only the Groups half.
@@ -663,6 +684,8 @@ POST /v1/audit                               Agent inventory audit snapshot
 
 GET  /v1/admin/summary                       Device counts by status/OS/class
 GET  /v1/admin/companies                       List companies
+GET/POST  /v1/admin/companies/:id/variables          Company Variables/Secrets CRUD (readonly view, technician mutate)
+PATCH/DELETE /v1/admin/companies/:id/variables/:varId
 GET  /v1/admin/devices                       List devices (filterable)
 PATCH  /v1/admin/devices/:id                 Edit manually-entered device metadata (currently: warranty_expires_at only)
 POST /v1/admin/devices/:id/commands          Queue a command (run_script, reboot, run_audit, restart_agent, force_update, install_patches, uninstall_agent)
@@ -936,6 +959,7 @@ Established over 6 check types added this session — each one touches the same 
 Features explicitly considered and deferred — not rejected, just not now. Standing placeholder until a real kanban-style board exists to track these properly; add new entries here in the meantime rather than letting a deferred decision live only in PROJECT_LOG.md's dated session narrative, where it'll scroll out of easy reach.
 
 - **Per-monitor "Additional Recipients"** (Datto RMM's ad hoc one-off email addresses typed directly into a single monitor's alert config, bypassing the global recipient list) — considered while designing the per-monitor `notify_email`/`notify_webhook` toggles (see Alert Notifications), deferred in favor of just the on/off toggle against the existing global recipient list. Revisit if someone needs a monitor-specific recipient the global list can't cover.
+- **Dedicated per-Company page** (a `/companies/:id` route with its own settings link, Datto RMM-style — as opposed to `CompaniesPage.vue`'s current inline expand-row for Contacts/Locations/Tokens/Variables) — considered once Company Variables gave the expand-row a 4th tab, deferred since the current pattern still holds up fine at present scale. Revisit if something starts *linking into* company-scoped context from elsewhere (the way Network Discovery, once built, might want a durable per-company settings destination) rather than only reaching it via the Companies list's own "Manage" button.
 
 ## Commit rules
 
