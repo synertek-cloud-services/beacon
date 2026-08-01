@@ -4,13 +4,11 @@ import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
-import { copyPatchPolicyTargets } from '../../lib/patchPolicies';
+import { copyPatchPolicyTargets, AUTO_APPROVE_CLASSIFICATIONS } from '../../lib/patchPolicies';
 
 const patchPolicies = new Hono<{ Bindings: Bindings }>();
 
 type RecurrenceType = 'one_time' | 'weekly';
-type Severity = 'Critical' | 'Important' | 'Moderate' | 'Low';
-const VALID_SEVERITIES: Severity[] = ['Critical', 'Important', 'Moderate', 'Low'];
 
 interface RecurrenceBody {
   type: RecurrenceType;
@@ -64,12 +62,11 @@ function validateRecurrence(r: RecurrenceBody): { patch: Record<string, unknown>
   };
 }
 
-function validateMinSeverity(v: unknown): { ok: true; value: Severity | null } | { error: string } {
-  if (v === null || v === undefined) return { ok: true, value: null };
-  if (typeof v !== 'string' || !VALID_SEVERITIES.includes(v as Severity)) {
-    return { error: `min_severity must be one of ${VALID_SEVERITIES.join(', ')}, or null` };
+function validateAutoApproveClassifications(v: unknown): { ok: true; value: string } | { error: string } {
+  if (!Array.isArray(v) || v.some(c => typeof c !== 'string' || !AUTO_APPROVE_CLASSIFICATIONS.includes(c as typeof AUTO_APPROVE_CLASSIFICATIONS[number]))) {
+    return { error: `auto_approve_classifications must be an array of: ${AUTO_APPROVE_CLASSIFICATIONS.join(', ')}` };
   }
-  return { ok: true, value: v as Severity };
+  return { ok: true, value: JSON.stringify([...new Set(v)]) };
 }
 
 // Same JSON-array-in-TEXT convention and valid-value set as policies.targetClass.
@@ -123,7 +120,7 @@ patchPolicies.post('/', async (c) => {
     description?: string | null;
     enabled?: boolean;
     recurrence?: RecurrenceBody;
-    min_severity?: Severity | null;
+    auto_approve_classifications?: string[];
     target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
@@ -133,7 +130,7 @@ patchPolicies.post('/', async (c) => {
   let name        = body.name ?? '';
   let description = body.description ?? null;
   let enabled     = body.enabled ?? true;
-  let minSeverity: Severity | null = null;
+  let autoApproveClassifications = '[]';
   let targetClass = '["server","workstation","laptop"]';
   let autoReboot  = body.auto_reboot ?? false;
   let manageWindowsUpdate = body.manage_windows_update ?? false;
@@ -151,7 +148,7 @@ patchPolicies.post('/', async (c) => {
     if (!body.name)        name        = source.name;
     if (!body.description) description = source.description;
     if (body.enabled === undefined) enabled = source.enabled;
-    if (body.min_severity === undefined) minSeverity = source.minSeverity as Severity | null;
+    if (body.auto_approve_classifications === undefined) autoApproveClassifications = source.autoApproveClassifications;
     if (body.target_class === undefined) targetClass = source.targetClass;
     if (body.auto_reboot === undefined) autoReboot = source.autoReboot;
     if (body.manage_windows_update === undefined) manageWindowsUpdate = source.manageWindowsUpdate;
@@ -175,10 +172,10 @@ patchPolicies.post('/', async (c) => {
 
   if (!name) return c.json({ error: 'name is required' }, 400);
 
-  if (body.min_severity !== undefined) {
-    const validated = validateMinSeverity(body.min_severity);
+  if (body.auto_approve_classifications !== undefined) {
+    const validated = validateAutoApproveClassifications(body.auto_approve_classifications);
     if ('error' in validated) return c.json({ error: validated.error }, 400);
-    minSeverity = validated.value;
+    autoApproveClassifications = validated.value;
   }
 
   if (body.target_class !== undefined) {
@@ -203,7 +200,7 @@ patchPolicies.post('/', async (c) => {
     weeklyDays: recurrencePatch.weeklyDays as string | null,
     weeklyStartMinute: recurrencePatch.weeklyStartMinute as number | null,
     weeklyDurationMinutes: recurrencePatch.weeklyDurationMinutes as number | null,
-    minSeverity, targetClass, autoReboot, manageWindowsUpdate,
+    autoApproveClassifications, targetClass, autoReboot, manageWindowsUpdate,
     createdAt: now, updatedAt: now,
   });
 
@@ -230,7 +227,7 @@ patchPolicies.patch('/:id', async (c) => {
     description?: string | null;
     enabled?: boolean;
     recurrence?: RecurrenceBody;
-    min_severity?: Severity | null;
+    auto_approve_classifications?: string[];
     target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
@@ -242,10 +239,10 @@ patchPolicies.patch('/:id', async (c) => {
   if (body.enabled     !== undefined) patch.enabled     = body.enabled;
   if (body.auto_reboot  !== undefined) patch.autoReboot  = body.auto_reboot;
   if (body.manage_windows_update !== undefined) patch.manageWindowsUpdate = body.manage_windows_update;
-  if (body.min_severity !== undefined) {
-    const validated = validateMinSeverity(body.min_severity);
+  if (body.auto_approve_classifications !== undefined) {
+    const validated = validateAutoApproveClassifications(body.auto_approve_classifications);
     if ('error' in validated) return c.json({ error: validated.error }, 400);
-    patch.minSeverity = validated.value;
+    patch.autoApproveClassifications = validated.value;
   }
   if (body.target_class !== undefined) {
     const validated = validateTargetClass(body.target_class);

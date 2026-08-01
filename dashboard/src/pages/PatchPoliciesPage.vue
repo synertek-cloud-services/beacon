@@ -30,7 +30,7 @@
               <th class="col-name">Name</th>
               <th class="col-targets">Targets</th>
               <th class="col-schedule">Schedule</th>
-              <th class="col-severity">Auto-Approve</th>
+              <th class="col-autoapprove">Auto-Approve</th>
               <th class="col-reboot">Auto Reboot</th>
               <th class="col-enabled">Enabled</th>
             </tr>
@@ -50,7 +50,7 @@
               </td>
               <td class="col-targets">{{ targetSummary(policy) }}</td>
               <td class="col-schedule">{{ scheduleSummary(policy) }}</td>
-              <td class="col-severity">{{ policy.minSeverity ?? 'Off' }}</td>
+              <td class="col-autoapprove">{{ autoApproveSummary(policy) }}</td>
               <td class="col-reboot">{{ policy.autoReboot ? 'On' : 'Off' }}</td>
               <td class="col-enabled" @click.stop>
                 <button :class="['toggle-btn', { enabled: policy.enabled }]" @click="togglePolicy(policy)">
@@ -208,6 +208,14 @@ function classSummary(p: PatchPolicy): string {
   return cls.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(' / ');
 }
 
+function autoApproveSummary(p: PatchPolicy): string {
+  let cls: string[] = [];
+  try { cls = JSON.parse(p.autoApproveClassifications) as string[]; } catch { /* leave empty */ }
+  if (cls.length === 0) return 'Off';
+  if (cls.length <= 2) return cls.join(', ');
+  return `${cls.length} classifications`;
+}
+
 function targetSummary(p: PatchPolicy): string {
   const companies = p.companyIds?.length ?? 0, devices = p.deviceIds?.length ?? 0, groups = p.groupIds?.length ?? 0;
   const parts: string[] = [];
@@ -290,7 +298,7 @@ onMounted(load);
 .col-name     { min-width: 180px; }
 .col-targets  { width: 160px; }
 .col-schedule { width: 240px; }
-.col-severity { width: 110px; }
+.col-autoapprove { width: 140px; }
 .col-reboot   { width: 100px; }
 .col-enabled  { width: 80px; text-align: center !important; }
 

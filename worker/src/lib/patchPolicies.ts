@@ -62,15 +62,17 @@ function windowDurationSeconds(policy: PatchPolicy): number {
   return (minutes ?? 0) * 60;
 }
 
-// ── Severity ranking ────────────────────────────────────────────────────────
-// severity is free text throughout (WUA/MSRC-sourced, not a DB enum) -- this
-// is the one place an order is imposed on it, matching the vocabulary the
-// dashboard's own severity badges already use.
-const SEVERITY_RANK: Record<string, number> = { Critical: 4, Important: 3, Moderate: 2, Low: 1 };
-
-function meetsSeverityThreshold(severity: string, minSeverity: string): boolean {
-  return (SEVERITY_RANK[severity] ?? 0) >= (SEVERITY_RANK[minSeverity] ?? 0);
-}
+// ── Auto-Approval classifications ───────────────────────────────────────────
+// Windows Update's real organizing taxonomy (confirmed against Microsoft's
+// own WSUS Classification GUID docs), not an MSRC severity scale -- severity
+// is only meaningfully populated for Security-Updates-classified patches.
+// Definition Updates deliberately excluded -- already filtered client-side
+// in agent/internal/audit/patches.go before a patch is ever stored, so it'd
+// never appear here anyway.
+export const AUTO_APPROVE_CLASSIFICATIONS = [
+  'Security Updates', 'Critical Updates', 'Update Rollups',
+  'Feature Packs', 'Service Packs', 'Tools', 'Updates',
+] as const;
 
 // ── Targeting (exact mirror of lib/maintenance.ts's Companies/Devices/Groups
 // OR-list machinery, retyped -- duplicated, not shared) ────────────────────
@@ -178,6 +180,7 @@ interface AuditPatchItem {
 export interface FleetPatchState {
   updateId: string;
   severity: string;
+  categories: string[];
   deviceIds: string[]; // devices with this update currently pending
   status: 'pending' | 'approved' | 'ignored';
 }
@@ -205,7 +208,7 @@ export async function scanFleetPatches(db: Db, devices: { id: string }[]): Promi
       if (!item.update_id) continue; // pre-upgrade agent -- needs a rescan, same as GET /v1/admin/patches
       let entry = byUpdateId.get(item.update_id);
       if (!entry) {
-        entry = { updateId: item.update_id, severity: item.severity, deviceIds: [], status: 'pending' };
+        entry = { updateId: item.update_id, severity: item.severity, categories: item.categories ?? [], deviceIds: [], status: 'pending' };
         byUpdateId.set(item.update_id, entry);
       }
       entry.deviceIds.push(device.id);
@@ -225,14 +228,16 @@ export async function scanFleetPatches(db: Db, devices: { id: string }[]): Promi
 
 // ── Auto-approval ────────────────────────────────────────────────────────
 // Fleet-wide, same as manual approval (patch_approvals has no per-device
-// concept) -- a policy's min_severity threshold, met by a patch anywhere in
+// concept) -- a policy's classification set, matched by a patch anywhere in
 // the fleet, approves it globally, reusing the exact upsert shape
 // PATCH /v1/admin/patches/:updateId already uses. The policy's own
 // targeting only controls which devices receive the resulting *install*
 // (see dispatchDuePatchPolicies), not which patches get approved.
 export async function autoApprovePatches(db: Db, now: number): Promise<void> {
   const policies = await fetchEnabledPatchPolicies(db);
-  const rules = policies.filter(p => p.minSeverity != null);
+  const rules = policies
+    .map(p => ({ policy: p, classifications: JSON.parse(p.autoApproveClassifications) as string[] }))
+    .filter(r => r.classifications.length > 0);
   if (rules.length === 0) return;
 
   const devices = await db.select({ id: schema.devices.id })
@@ -243,7 +248,7 @@ export async function autoApprovePatches(db: Db, now: number): Promise<void> {
 
   for (const patch of fleet.values()) {
     if (patch.status !== 'pending') continue;
-    const meetsAnyRule = rules.some(p => meetsSeverityThreshold(patch.severity, p.minSeverity!));
+    const meetsAnyRule = rules.some(r => patch.categories.some(c => r.classifications.includes(c)));
     if (!meetsAnyRule) continue;
 
     // Check-then-insert, not an ON CONFLICT upsert -- matches the
@@ -271,7 +276,7 @@ export async function autoApprovePatches(db: Db, now: number): Promise<void> {
     await logActivity(db, {
       actorType: 'system', category: 'Patch', action: 'Auto-approved patch',
       entityType: 'patch', entityId: patch.updateId, method: 'CRON',
-      details: { severity: patch.severity },
+      details: { severity: patch.severity, categories: patch.categories },
     });
   }
 }

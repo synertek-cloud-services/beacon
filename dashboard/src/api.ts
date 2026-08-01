@@ -429,12 +429,15 @@ export interface MaintenanceRecurrenceBody {
   weekly_duration_minutes?:   number;
 }
 
-// Patch Policy — severity-threshold auto-approval plus a recurring
-// scheduled install window, dispatched actively by the 2-minute cron
-// (unlike Maintenance Policy's passive suppression-gate model). Same
+// Patch Policy — Windows Update Classification-based auto-approval plus a
+// recurring scheduled install window, dispatched actively by the 2-minute
+// cron (unlike Maintenance Policy's passive suppression-gate model). Same
 // recurrence shape as MaintenancePolicy, duplicated not shared — see
 // worker/src/lib/patchPolicies.ts.
-export type PatchSeverity = 'Critical' | 'Important' | 'Moderate' | 'Low';
+export const AUTO_APPROVE_CLASSIFICATIONS = [
+  'Security Updates', 'Critical Updates', 'Update Rollups',
+  'Feature Packs', 'Service Packs', 'Tools', 'Updates',
+] as const;
 
 export interface PatchPolicy {
   id:                     string;
@@ -447,7 +450,7 @@ export interface PatchPolicy {
   weeklyDays:             string | null; // JSON int[], 0=Sun..6=Sat
   weeklyStartMinute:      number | null;
   weeklyDurationMinutes:  number | null;
-  minSeverity:            PatchSeverity | null; // null = no auto-approval rule
+  autoApproveClassifications: string; // JSON array — Windows Update Classification names; [] = no auto-approval rule
   targetClass:            string; // JSON array — 'server'|'workstation'|'laptop', no OS dimension (Windows-only feature)
   autoReboot:             boolean;
   manageWindowsUpdate:    boolean;
@@ -1142,7 +1145,7 @@ export const api = {
       description?:  string | null;
       enabled?:      boolean;
       recurrence?:   MaintenanceRecurrenceBody;
-      min_severity?: PatchSeverity | null;
+      auto_approve_classifications?: string[];
       target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
@@ -1153,7 +1156,7 @@ export const api = {
       description?:  string | null;
       enabled?:      boolean;
       recurrence?:   MaintenanceRecurrenceBody;
-      min_severity?: PatchSeverity | null;
+      auto_approve_classifications?: string[];
       target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
