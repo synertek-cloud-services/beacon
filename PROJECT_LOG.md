@@ -46,7 +46,6 @@ PR #47 was based on the still-open PR #46's branch rather than `main`. #46 merge
 2. **Network Discovery** — scoped in detail this session (scheduled credentialed subnet scan, always-on devices only) but blocked on Company Variables existing first.
 3. **Publish an agent release covering the `force_update` check-in-nudge fix** — code-complete since item 1 above but not yet in any released agent build.
 4. **Audit for any other lingering wire-protocol assumptions** — this session's incident was caught fast because the user's own machine went offline within the hour, but a similar mismatch in a less-immediately-visible field (e.g. something only read during an audit or a rarely-hit command type) could sit unnoticed far longer. Worth a deliberate one-time audit of `worker/src/lib/types.ts` line-by-line against `agent/internal/protocol/types.go`, beyond the reactive fix already done here.
-5. **ADMIN_SECRET rotation** — still outstanding from an earlier session (exposed in a 2026-07-14 transcript), unrelated to this session's work but not yet actioned.
 
 ---
 
