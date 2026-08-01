@@ -468,6 +468,15 @@
                 since {{ absDate(device.windowsUpdateManagedAt) }}
               </span>
             </div>
+            <div class="ddev-row" style="padding:0 20px 12px">
+              <span class="ddev-label">Microsoft Update</span>
+              <span :class="device.microsoftUpdateManaged ? 'inv-badge-ok' : 'inv-badge-muted'">
+                {{ device.microsoftUpdateManaged ? 'Managed by Beacon' : 'Not managed' }}
+              </span>
+              <span v-if="device.microsoftUpdateManaged && device.microsoftUpdateManagedAt" class="text-xs text-muted-2" style="margin-left:8px">
+                since {{ absDate(device.microsoftUpdateManagedAt) }}
+              </span>
+            </div>
             <div class="inv-tab-body">
               <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
               <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">
@@ -484,6 +493,7 @@
                       <span class="sw-name text-sm" style="max-width:360px">{{ p.title }}</span>
                       <span class="sw-ver mono text-xs text-muted-2">{{ p.kb_article_ids?.length ? p.kb_article_ids.map(k => 'KB' + k).join(', ') : '—' }}</span>
                       <span :class="patchSeverityBadge(p.severity)">{{ p.severity }}</span>
+                      <span v-if="p.type === 'driver'" class="badge badge-pending">Driver</span>
                       <span v-if="p.categories?.length" class="sw-pub text-xs text-muted-2">{{ p.categories.join(', ') }}</span>
                       <span v-if="p.update_id && patchApprovalMap[p.update_id]" class="inv-badge-muted" style="text-transform:capitalize">{{ patchApprovalMap[p.update_id] }}</span>
                     </div>

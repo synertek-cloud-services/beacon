@@ -19,6 +19,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/executor"
 	"github.com/synertek-cloud-services/beacon/agent/internal/filesize"
 	"github.com/synertek-cloud-services/beacon/agent/internal/inventory"
+	"github.com/synertek-cloud-services/beacon/agent/internal/muconfig"
 	"github.com/synertek-cloud-services/beacon/agent/internal/pingutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/procutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
@@ -524,6 +525,47 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					summary, _ := json.Marshal(res)
 					stdout = string(summary)
 					log.Printf("manage_windows_update finished: applied=%v", res.Applied)
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if cmd.Type == "manage_microsoft_update" {
+				var payload struct {
+					Action     string `json:"action"`
+					PriorState *struct {
+						WasRegistered *bool `json:"was_registered"`
+					} `json:"prior_state"`
+				}
+				status := "completed"
+				var stdout, stderr string
+				if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("invalid payload: %v", err)
+				} else {
+					var priorRegistered *bool
+					if payload.PriorState != nil {
+						priorRegistered = payload.PriorState.WasRegistered
+					}
+					log.Printf("manage_microsoft_update received: action=%s", payload.Action)
+					res := muconfig.Apply(payload.Action, priorRegistered)
+					if res.Error != "" {
+						status = "failed"
+						stderr = res.Error
+					}
+					summary, _ := json.Marshal(res)
+					stdout = string(summary)
+					log.Printf("manage_microsoft_update finished: applied=%v", res.Applied)
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{

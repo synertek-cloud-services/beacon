@@ -19,6 +19,7 @@ interface PatchItem {
   categories: string[];
   size_bytes?: number;
   is_downloaded: boolean;
+  type?: string; // 'software'|'driver' -- absent on pre-upgrade agents
 }
 
 interface FleetPatch {
@@ -27,6 +28,7 @@ interface FleetPatch {
   kbArticleIds: string[];
   severity: string;
   categories: string[];
+  type: string; // 'software'|'driver'
   deviceIds: string[];
   status: 'pending' | 'approved' | 'ignored';
 }
@@ -81,6 +83,7 @@ adminPatches.get('/', async (c) => {
           kbArticleIds: item.kb_article_ids ?? [],
           severity: item.severity,
           categories: item.categories ?? [],
+          type: item.type ?? 'software',
           deviceIds: [],
           status: 'pending',
         };

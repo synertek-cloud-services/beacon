@@ -27,9 +27,18 @@ func collectPatches() ([]protocol.PatchItem, error) {
 // Uses the native Microsoft.Update.Session COM object (backed by wuapi.dll,
 // shipped with every Windows install since XP/Server 2003) -- no
 // PSWindowsUpdate module or other external dependency needed, and searching
-// (not installing) requires no admin rights. Type='Software' deliberately
-// excludes driver updates -- noisy, not what "patch management" means to an
-// admin; easy to widen later.
+// (not installing) requires no admin rights. Scans both Software and Driver
+// update types (no Type filter in the search criteria at all) -- driver
+// updates were originally excluded here entirely as "noisy," an
+// unconfirmed scoping call from an earlier session, corrected in a later
+// one: the agent now always scans+reports both, tagging each item's own
+// Type (Software|Driver); whether a device's *worker*-stored audit actually
+// keeps driver-type items is a separate, opt-in Patch Policy decision (see
+// worker/src/routes/audit.ts's deviceHasDriverVisibility filtering) --
+// deliberately not gated here in agent code, since the agent has no way to
+// know per-device Patch Policy coverage at scan time without either
+// extending the check-in wire protocol or building new persisted local
+// config, both avoided in favor of a worker-side storage-time filter.
 //
 // Two gotchas that don't show up in this package's other WMI-based
 // collectors: the COM collections (Updates/KBArticleIDs/Categories) don't
@@ -54,16 +63,18 @@ const patchesPS = `$ErrorActionPreference = 'Stop'
 try {
 	$session  = New-Object -ComObject Microsoft.Update.Session
 	$searcher = $session.CreateUpdateSearcher()
-	$result   = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'")
+	$result   = $searcher.Search("IsInstalled=0 and IsHidden=0")
 	$updates = @()
 	foreach ($u in $result.Updates) {
 		$cats = @(); foreach ($c in $u.Categories) { $cats += $c.Name }
 		if ($cats -contains 'Definition Updates') { continue }
 		$kbs = @(); foreach ($kb in $u.KBArticleIDs) { $kbs += $kb }
+		$typeName = if ($u.Type -eq 2) { 'Driver' } else { 'Software' }
 		$updates += [PSCustomObject]@{
 			UpdateID = $u.Identity.UpdateID
 			Title = $u.Title; KBArticleIDs = $kbs; MsrcSeverity = $u.MsrcSeverity
 			Categories = $cats; SizeBytes = $u.MaxDownloadSize; IsDownloaded = $u.IsDownloaded
+			Type = $typeName
 		}
 	}
 	[PSCustomObject]@{ Updates = $updates; Error = $null } | ConvertTo-Json -Compress -Depth 6
@@ -91,6 +102,12 @@ func collectPatchesWindows() ([]protocol.PatchItem, error) {
 			Categories   []string `json:"Categories"`
 			SizeBytes    float64  `json:"SizeBytes"`
 			IsDownloaded bool     `json:"IsDownloaded"`
+			// "Software" or "Driver" -- WUA's own IUpdate.Type property is a
+			// raw UpdateType enum integer (utSoftware=1, utDriver=2), not a
+			// string, so the PS script above converts it to a friendly name
+			// itself before this even reaches Go, matching how
+			// Categories/MsrcSeverity are already friendly strings.
+			Type string `json:"Type"`
 		} `json:"Updates"`
 		Error string `json:"Error"`
 	}
@@ -112,6 +129,14 @@ func collectPatchesWindows() ([]protocol.PatchItem, error) {
 		if sev == "" {
 			sev = "Unspecified"
 		}
+		// Lowercase on the wire ('software'/'driver') -- matches this
+		// field's own worker-side comparisons (worker/src/routes/audit.ts's
+		// p.type === 'driver' filter), unlike Categories/Severity which stay
+		// in WUA's own Title Case since they're shown to users as-is.
+		patchType := "software"
+		if u.Type == "Driver" {
+			patchType = "driver"
+		}
 		result = append(result, protocol.PatchItem{
 			UpdateID:     u.UpdateID,
 			Title:        strings.TrimSpace(u.Title),
@@ -120,6 +145,7 @@ func collectPatchesWindows() ([]protocol.PatchItem, error) {
 			Categories:   u.Categories,
 			SizeBytes:    uint64(u.SizeBytes),
 			IsDownloaded: u.IsDownloaded,
+			Type:         patchType,
 		})
 	}
 	return result, nil

@@ -138,6 +138,34 @@ checkin.post('/', async (c) => {
         }
       }
 
+      if (ownedCmd.type === 'manage_microsoft_update' && r.status === 'completed') {
+        try {
+          const applyResult = JSON.parse(r.stdout ?? '{}') as {
+            applied?: boolean; prior_registered?: boolean | null;
+          };
+          const action = (JSON.parse(ownedCmd.payload) as { action?: string }).action;
+
+          if (action === 'manage' && applyResult.applied) {
+            await db.update(schema.devices).set({
+              microsoftUpdateManaged: true,
+              microsoftUpdatePriorState: JSON.stringify({
+                was_registered: applyResult.prior_registered ?? false,
+              }),
+              microsoftUpdateManagedAt: now,
+            }).where(eq(schema.devices.id, device.id));
+          } else if (action === 'revert' && applyResult.applied) {
+            await db.update(schema.devices).set({
+              microsoftUpdateManaged: false,
+              microsoftUpdatePriorState: null,
+              microsoftUpdateManagedAt: null,
+            }).where(eq(schema.devices.id, device.id));
+          }
+        } catch {
+          // Same "swallow, let the next cron tick retry" reasoning as
+          // manage_windows_update above.
+        }
+      }
+
       if (ownedCmd.jobId) affectedJobIds.add(ownedCmd.jobId);
     }
 

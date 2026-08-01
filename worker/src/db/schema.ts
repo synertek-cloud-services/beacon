@@ -83,6 +83,15 @@ export const devices = sqliteTable('devices', {
   windowsUpdateManaged: integer('windows_update_managed', { mode: 'boolean' }),
   windowsUpdatePriorState: text('windows_update_prior_state'),
   windowsUpdateManagedAt: integer('windows_update_managed_at'),
+  // Microsoft Update (Office & other MS products) service-registration
+  // takeover, driven by an opted-in Patch Policy (see
+  // worker/src/lib/microsoftUpdateManagement.ts) -- independent of the
+  // Windows Update Management fields above, same 1:1 shape.
+  // microsoftUpdatePriorState is a small JSON snapshot ({was_registered})
+  // from immediately before Beacon's first takeover.
+  microsoftUpdateManaged: integer('microsoft_update_managed', { mode: 'boolean' }),
+  microsoftUpdatePriorState: text('microsoft_update_prior_state'),
+  microsoftUpdateManagedAt: integer('microsoft_update_managed_at'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });
@@ -739,6 +748,17 @@ export const patchPolicies = sqliteTable('patch_policies', {
   // see worker/src/lib/windowsUpdateManagement.ts. Default false: an
   // existing policy's behavior never changes retroactively.
   manageWindowsUpdate: integer('manage_windows_update', { mode: 'boolean' }).notNull().default(false),
+  // Visibility + manual-approval only -- never eligible for Auto-Approval
+  // (confirmed via AskUserQuestion; a bad driver can break hardware/boot
+  // in a way a bad software patch usually can't). Gates whether the
+  // worker keeps driver-type items when storing this device's audit (see
+  // worker/src/routes/audit.ts) -- the agent scans+reports drivers
+  // unconditionally now, this is a storage-time filter, not an
+  // agent-side one.
+  includeDrivers: integer('include_drivers', { mode: 'boolean' }).notNull().default(false),
+  // Independent of manageWindowsUpdate -- see worker/src/lib/
+  // microsoftUpdateManagement.ts. Default false: no retroactive flip.
+  manageMicrosoftUpdate: integer('manage_microsoft_update', { mode: 'boolean' }).notNull().default(false),
   lastDispatchedAt:  integer('last_dispatched_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),

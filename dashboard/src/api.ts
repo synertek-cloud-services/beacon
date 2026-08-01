@@ -458,6 +458,12 @@ export interface PatchPolicy {
   targetClass:            string; // JSON array — 'server'|'workstation'|'laptop', no OS dimension (Windows-only feature)
   autoReboot:             boolean;
   manageWindowsUpdate:    boolean;
+  // Visibility + manual-approval only -- never auto-approved (see
+  // autoApproveClassifications, which never includes drivers).
+  includeDrivers:         boolean;
+  // Independent of manageWindowsUpdate -- registers/unregisters the
+  // separate Microsoft Update service (Office & other MS products).
+  manageMicrosoftUpdate:  boolean;
   lastDispatchedAt:       number | null;
   createdAt:              number;
   updatedAt:              number;
@@ -545,6 +551,7 @@ export interface PatchItem {
   categories: string[]
   size_bytes?: number
   is_downloaded: boolean
+  type: string // 'software'|'driver'
 }
 
 // A distinct Windows Update currently pending somewhere in the fleet, merged
@@ -555,6 +562,7 @@ export interface FleetPatch {
   kbArticleIds: string[]
   severity: string
   categories: string[]
+  type: string // 'software'|'driver'
   deviceIds: string[]
   status: 'pending' | 'approved' | 'ignored'
 }
@@ -715,6 +723,8 @@ export interface Device {
   maintenanceReason: string | null;
   windowsUpdateManaged: boolean | null;
   windowsUpdateManagedAt: number | null;
+  microsoftUpdateManaged: boolean | null;
+  microsoftUpdateManagedAt: number | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -1153,6 +1163,8 @@ export const api = {
       target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
+      include_drivers?: boolean;
+      manage_microsoft_update?: boolean;
       clone_from?:   string;
     }) => request<PatchPolicy>('POST', '/v1/admin/patch-policies', body),
     update: (id: string, body: {
@@ -1164,6 +1176,8 @@ export const api = {
       target_class?: string[];
       auto_reboot?:  boolean;
       manage_windows_update?: boolean;
+      include_drivers?: boolean;
+      manage_microsoft_update?: boolean;
     }) => request<{ ok: boolean }>('PATCH', `/v1/admin/patch-policies/${id}`, body),
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/patch-policies/${id}`),
     companies: {
