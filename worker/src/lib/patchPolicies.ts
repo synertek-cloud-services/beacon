@@ -75,11 +75,15 @@ function meetsSeverityThreshold(severity: string, minSeverity: string): boolean 
 // ── Targeting (exact mirror of lib/maintenance.ts's Companies/Devices/Groups
 // OR-list machinery, retyped -- duplicated, not shared) ────────────────────
 
-async function fetchEnabledPatchPolicies(db: Db): Promise<PatchPolicy[]> {
+// Exported: reused by windowsUpdateManagement.ts for its own coverage check
+// (does an enabled, opted-in policy target this device at all), which needs
+// the exact same targeting machinery but evaluated independent of window-
+// active state.
+export async function fetchEnabledPatchPolicies(db: Db): Promise<PatchPolicy[]> {
   return db.select().from(schema.patchPolicies).where(eq(schema.patchPolicies.enabled, true));
 }
 
-async function fetchPatchPolicyCompanyIds(db: Db): Promise<Map<string, Set<string>>> {
+export async function fetchPatchPolicyCompanyIds(db: Db): Promise<Map<string, Set<string>>> {
   const rows = await db.select().from(schema.patchPolicyCompanies);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
@@ -89,7 +93,7 @@ async function fetchPatchPolicyCompanyIds(db: Db): Promise<Map<string, Set<strin
   return out;
 }
 
-async function fetchPatchPolicyDeviceIds(db: Db): Promise<Map<string, Set<string>>> {
+export async function fetchPatchPolicyDeviceIds(db: Db): Promise<Map<string, Set<string>>> {
   const rows = await db.select().from(schema.patchPolicyDevices);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
@@ -99,7 +103,7 @@ async function fetchPatchPolicyDeviceIds(db: Db): Promise<Map<string, Set<string
   return out;
 }
 
-async function fetchPatchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>>> {
+export async function fetchPatchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>>> {
   const rows = await db.select().from(schema.patchPolicyGroups);
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
@@ -109,7 +113,7 @@ async function fetchPatchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>
   return out;
 }
 
-function deviceMatchesPatchPolicy(
+export function deviceMatchesPatchPolicy(
   p: PatchPolicy,
   device: Device,
   deviceGroupIds: Set<string>,

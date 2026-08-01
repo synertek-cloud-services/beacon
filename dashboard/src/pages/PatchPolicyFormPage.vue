@@ -223,6 +223,21 @@
         </div>
       </div>
 
+      <!-- Manage Windows Update -->
+      <div class="pf-group">
+        <label class="pf-label">Manage Windows' own Automatic Updates</label>
+        <p class="field-hint" style="margin-top:-4px">
+          When enabled, a device covered by this policy has Windows' own separate Automatic Updates
+          disabled — so it can't install an update this policy hasn't approved, or reboot outside this
+          policy's own install window. Reverted automatically the moment a device stops being covered
+          by any policy with this enabled (policy disabled/deleted, retargeted, or this toggle turned off).
+        </p>
+        <div class="seg-bar">
+          <button :class="['seg-btn', { active: !form.manageWindowsUpdate }]" @click="form.manageWindowsUpdate = false">Disabled</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.manageWindowsUpdate }]" @click="form.manageWindowsUpdate = true">Enabled</button>
+        </div>
+      </div>
+
       <!-- Enabled -->
       <div class="pf-group">
         <label class="pf-label">Enabled</label>
@@ -271,6 +286,7 @@ const form = reactive({
   enabled: true,
   minSeverity: null as PatchSeverity | null,
   autoReboot: false,
+  manageWindowsUpdate: false,
   recurrenceType: 'one_time' as MaintenanceRecurrenceType,
   oneTimeLocal: '',
   oneTimeDurationHours: 1,
@@ -402,6 +418,7 @@ onMounted(async () => {
     form.enabled     = policy.enabled;
     form.minSeverity = policy.minSeverity;
     form.autoReboot  = policy.autoReboot;
+    form.manageWindowsUpdate = policy.manageWindowsUpdate;
     form.recurrenceType = policy.recurrenceType;
 
     if (policy.recurrenceType === 'one_time') {
@@ -476,6 +493,7 @@ async function save() {
         recurrence: buildRecurrenceBody(),
         min_severity: form.minSeverity,
         auto_reboot: form.autoReboot,
+        manage_windows_update: form.manageWindowsUpdate,
       });
       for (const t of targetItems.value) {
         if (t.kind === 'company')   await api.patchPolicies.companies.add(policy.id, t.id);
@@ -490,6 +508,7 @@ async function save() {
         recurrence: buildRecurrenceBody(),
         min_severity: form.minSeverity,
         auto_reboot: form.autoReboot,
+        manage_windows_update: form.manageWindowsUpdate,
       });
     }
     router.push('/global/patch-policies');

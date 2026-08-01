@@ -459,6 +459,15 @@
           <!-- ── Patches (audit, Windows-only) ── -->
           <section :id="'ddev-sec-patches'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Patches</h2>
+            <div class="ddev-row" style="padding:0 20px 12px">
+              <span class="ddev-label">Windows Update</span>
+              <span :class="device.windowsUpdateManaged ? 'inv-badge-ok' : 'inv-badge-muted'">
+                {{ device.windowsUpdateManaged ? 'Managed by Beacon' : 'Not managed' }}
+              </span>
+              <span v-if="device.windowsUpdateManaged && device.windowsUpdateManagedAt" class="text-xs text-muted-2" style="margin-left:8px">
+                since {{ absDate(device.windowsUpdateManagedAt) }}
+              </span>
+            </div>
             <div class="inv-tab-body">
               <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
               <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">

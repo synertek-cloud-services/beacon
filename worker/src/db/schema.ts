@@ -68,6 +68,15 @@ export const devices = sqliteTable('devices', {
   // or is manually ended.
   maintenanceEndsAt: integer('maintenance_ends_at'),
   maintenanceReason: text('maintenance_reason'),
+  // Windows' own Automatic Updates takeover state, driven by an opted-in
+  // Patch Policy (see worker/src/lib/windowsUpdateManagement.ts). NULL =
+  // never evaluated (non-Windows, or not yet covered by a qualifying
+  // policy). windowsUpdatePriorState is a JSON snapshot of the AU registry
+  // values from immediately before Beacon's first takeover, used to revert
+  // to the device's real prior configuration rather than a guessed default.
+  windowsUpdateManaged: integer('windows_update_managed', { mode: 'boolean' }),
+  windowsUpdatePriorState: text('windows_update_prior_state'),
+  windowsUpdateManagedAt: integer('windows_update_managed_at'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });
@@ -708,6 +717,10 @@ export const patchPolicies = sqliteTable('patch_policies', {
   weeklyDurationMinutes: integer('weekly_duration_minutes'),
   minSeverity:       text('min_severity', { enum: ['Critical', 'Important', 'Moderate', 'Low'] }),
   autoReboot:        integer('auto_reboot', { mode: 'boolean' }).notNull().default(false),
+  // Opt-in takeover of Windows' own separate Automatic Updates behavior --
+  // see worker/src/lib/windowsUpdateManagement.ts. Default false: an
+  // existing policy's behavior never changes retroactively.
+  manageWindowsUpdate: integer('manage_windows_update', { mode: 'boolean' }).notNull().default(false),
   lastDispatchedAt:  integer('last_dispatched_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),

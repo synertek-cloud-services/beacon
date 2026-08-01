@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/synertek-cloud-services/beacon/agent/internal/auconfig"
 	"github.com/synertek-cloud-services/beacon/agent/internal/audit"
 	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 	"github.com/synertek-cloud-services/beacon/agent/internal/discovery"
@@ -48,7 +49,7 @@ var (
 	// triggerCheckin lets command goroutines wake the main loop early so
 	// results are reported on the next check-in rather than waiting the
 	// full 60-second interval. Buffered so senders never block.
-	triggerCheckin         = make(chan struct{}, 1)
+	triggerCheckin = make(chan struct{}, 1)
 )
 
 func main() {
@@ -73,7 +74,7 @@ func main() {
 		}
 	}
 
-	serverURL   := flag.String("server-url", "", "Beacon worker URL (required)")
+	serverURL := flag.String("server-url", "", "Beacon worker URL (required)")
 	enrollToken := flag.String("enroll-token", "", "Enrollment token (required on first run)")
 	flag.Parse()
 
@@ -173,7 +174,7 @@ func setupLogging(credDir string) {
 
 func runInstall() {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	serverURL   := fs.String("server-url", "", "Beacon worker URL (required)")
+	serverURL := fs.String("server-url", "", "Beacon worker URL (required)")
 	enrollToken := fs.String("enroll-token", "", "Enrollment token (required)")
 	fs.Parse(os.Args[2:])
 
@@ -442,6 +443,49 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					summary, _ := json.Marshal(res)
 					stdout = string(summary)
 					log.Printf("network_scan finished: %d host(s) found", len(res.Hosts))
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if cmd.Type == "manage_windows_update" {
+				var payload struct {
+					Action     string `json:"action"`
+					PriorState *struct {
+						NoAutoUpdate *int `json:"no_auto_update"`
+						AUOptions    *int `json:"au_options"`
+					} `json:"prior_state"`
+				}
+				status := "completed"
+				var stdout, stderr string
+				if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("invalid payload: %v", err)
+				} else {
+					var priorNoAutoUpdate, priorAUOptions *int
+					if payload.PriorState != nil {
+						priorNoAutoUpdate = payload.PriorState.NoAutoUpdate
+						priorAUOptions = payload.PriorState.AUOptions
+					}
+					log.Printf("manage_windows_update received: action=%s", payload.Action)
+					res := auconfig.Apply(payload.Action, priorNoAutoUpdate, priorAUOptions)
+					if res.Error != "" {
+						status = "failed"
+						stderr = res.Error
+					}
+					summary, _ := json.Marshal(res)
+					stdout = string(summary)
+					log.Printf("manage_windows_update finished: applied=%v", res.Applied)
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{
