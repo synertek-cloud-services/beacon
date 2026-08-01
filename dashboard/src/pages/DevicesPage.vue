@@ -121,6 +121,7 @@
             <td>
               <div class="actions" @click.stop>
                 <button v-if="d.status === 'pending'"  class="btn btn-primary btn-sm" :disabled="busy === d.id" @click="approve(d.id)">Approve</button>
+                <button v-if="d.status === 'pending'"  class="btn btn-danger btn-sm"  :disabled="busy === d.id" @click="decline(d.id)">Decline</button>
                 <button v-if="d.status === 'approved'" class="btn btn-danger btn-sm"  :disabled="busy === d.id" @click="revoke(d.id)">Revoke</button>
                 <button v-if="d.status === 'revoked'"  class="btn btn-ghost btn-sm"   :disabled="busy === d.id" @click="approve(d.id)">Re-approve</button>
               </div>
@@ -563,6 +564,21 @@ async function revoke(id: string) {
     await api.devices.revoke(id);
     const d = devices.value.find(x => x.id === id);
     if (d) d.status = 'revoked';
+    notifyPendingChanged();
+  } catch (e: any) { error.value = e.message; }
+  finally { busy.value = null; }
+}
+
+// Declining a pending device is a plain delete -- it was never approved, so
+// there's no history/monitoring data attached yet, unlike deleting an
+// already-approved device. No confirm() dialog, matching this codebase's
+// existing "Delete Device" action on DeviceDetailPage.vue, which also has
+// none.
+async function decline(id: string) {
+  busy.value = id;
+  try {
+    await api.devices.delete(id);
+    devices.value = devices.value.filter(x => x.id !== id);
     notifyPendingChanged();
   } catch (e: any) { error.value = e.message; }
   finally { busy.value = null; }
