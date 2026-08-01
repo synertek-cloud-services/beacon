@@ -158,37 +158,56 @@ func main() {
 }
 
 // setupLogging appends log output to <credDir>/agent.log in addition to
-// stderr. Best-effort: if the directory/file still can't be opened after
-// retrying (e.g. this is the very first run before enrollment has ever
-// created credDir on some platform), logging just stays on stderr and
-// nothing else changes.
+// stderr. Best-effort: if MkdirAll itself fails (e.g. this is the very
+// first run before enrollment has ever created credDir on some platform),
+// logging just stays on stderr and nothing else changes.
 //
-// Retries briefly on open failure -- a real production device was found
-// checking in and executing commands correctly for days with a completely
-// silent agent.log, root-caused to exactly one un-retried OpenFile call
-// losing a transient sharing-mode race at service startup (most likely an
-// AV/EDR scan of the freshly-created file). Since a Windows service has no
-// console for the stderr fallback to reach anyone, that single lost race
-// silently blacked out logging for the entire remaining life of the
-// process -- the whole reason this function exists in the first place.
+// Root-caused live against a real production device: checking in and
+// executing commands correctly for days with a completely silent agent.log,
+// traced to a single un-retried OpenFile call losing a sharing-mode race at
+// service startup (most likely an AV/EDR scan of the freshly-created/
+// freshly-swapped file). Since a Windows service has no console for the
+// stderr fallback to reach anyone, that one lost race silently blacked out
+// logging for the entire remaining life of the process -- the whole reason
+// this function exists in the first place.
+//
+// A first fix used a short bounded retry (5 attempts, 2.5s total) -- proven
+// insufficient by the very next real restart of that same device: the
+// process came back up as a confirmed-different PID running the fix, yet
+// agent.log still never got a single new line, while a manual file-open
+// test moments later succeeded immediately (the lock had since cleared).
+// The startup contention window can outlast a few hundred ms, apparently
+// by a wide margin right after a binary swap/restart when AV activity is
+// heaviest -- so instead of a bounded synchronous retry that can still
+// lose, the first attempt happens synchronously (covers the common
+// zero-delay case, doesn't hold up main() at all when it just works), and
+// on failure a background goroutine keeps retrying every 5s, indefinitely,
+// until it succeeds -- log.SetOutput is safe to call concurrently with
+// other log.Printf calls (the stdlib Logger's own mutex covers it), so
+// logging recovers automatically whenever the file becomes available
+// rather than staying silently blacked out for the rest of the process's
+// life.
 func setupLogging(credDir string) {
 	if err := os.MkdirAll(credDir, 0o755); err != nil {
 		return
 	}
 	logPath := filepath.Join(credDir, "agent.log")
-	var f *os.File
-	var err error
-	for attempt := 0; attempt < 5; attempt++ {
-		f, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err == nil {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if err != nil {
+	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
 		return
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				continue
+			}
+			log.SetOutput(io.MultiWriter(os.Stderr, f))
+			log.Printf("agent.log opened (delayed -- initial attempt lost a startup sharing-mode race)")
+			return
+		}
+	}()
 }
 
 func runInstall() {
