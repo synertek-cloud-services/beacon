@@ -42,17 +42,18 @@
       <div class="pf-group">
         <label class="pf-label">Auto-Approval</label>
         <p class="field-hint" style="margin-top:-4px">
-          Automatically approves any pending patch at or above this severity, fleet-wide — approval is never
-          scoped to this policy's targets, only the resulting install is. Leave off to only install patches
-          approved manually on the Patches page.
+          Automatically approves any pending patch in a checked Windows Update classification, fleet-wide —
+          approval is never scoped to this policy's targets, only the resulting install is. Leave everything
+          unchecked to only install patches approved manually on the Patches page.
         </p>
-        <select v-model="form.minSeverity" class="pf-input" style="max-width:220px">
-          <option :value="null">Off — manual approval only</option>
-          <option value="Low">Low and above</option>
-          <option value="Moderate">Moderate and above</option>
-          <option value="Important">Important and above</option>
-          <option value="Critical">Critical only</option>
-        </select>
+        <div class="pf-target-sec">
+          <div class="pill-group">
+            <label v-for="c in autoApproveOptions" :key="c" :class="['pill-opt', { active: form.autoApproveClassifications.includes(c) }]">
+              <input type="checkbox" :value="c" v-model="form.autoApproveClassifications" class="pill-cb" />
+              {{ c }}
+            </label>
+          </div>
+        </div>
       </div>
 
       <!-- Schedule -->
@@ -274,7 +275,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { api, type Company, type Device, type DeviceGroup, type MaintenanceRecurrenceType, type PatchSeverity } from '../api';
+import { api, AUTO_APPROVE_CLASSIFICATIONS, type Company, type Device, type DeviceGroup, type MaintenanceRecurrenceType } from '../api';
 import { zonedTimeToUtc, utcToZonedInputValue } from '../timezone';
 
 const router = useRouter();
@@ -293,6 +294,8 @@ const groups    = ref<DeviceGroup[]>([]);
 const fieldErr  = reactive({ name: '', schedule: '' });
 const hostTimezone = ref('UTC');
 
+const autoApproveOptions = AUTO_APPROVE_CLASSIFICATIONS;
+
 const weekdayOptions = [
   { value: 0, label: 'Sun' }, { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
   { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
@@ -306,7 +309,7 @@ const form = reactive({
   name: '',
   description: '',
   enabled: true,
-  minSeverity: null as PatchSeverity | null,
+  autoApproveClassifications: [] as string[],
   targetClass: ['server', 'workstation', 'laptop'] as string[],
   autoReboot: false,
   manageWindowsUpdate: false,
@@ -439,7 +442,7 @@ onMounted(async () => {
     form.name        = policy.name;
     form.description = policy.description ?? '';
     form.enabled     = policy.enabled;
-    form.minSeverity = policy.minSeverity;
+    form.autoApproveClassifications = JSON.parse(policy.autoApproveClassifications) as string[];
     form.targetClass = JSON.parse(policy.targetClass) as string[];
     form.autoReboot  = policy.autoReboot;
     form.manageWindowsUpdate = policy.manageWindowsUpdate;
@@ -515,7 +518,7 @@ async function save() {
         description: form.description || null,
         enabled: form.enabled,
         recurrence: buildRecurrenceBody(),
-        min_severity: form.minSeverity,
+        auto_approve_classifications: form.autoApproveClassifications,
         target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,
@@ -531,7 +534,7 @@ async function save() {
         description: form.description || null,
         enabled: form.enabled,
         recurrence: buildRecurrenceBody(),
-        min_severity: form.minSeverity,
+        auto_approve_classifications: form.autoApproveClassifications,
         target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,

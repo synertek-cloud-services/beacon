@@ -721,7 +721,14 @@ export const patchPolicies = sqliteTable('patch_policies', {
   weeklyDays:            text('weekly_days'),
   weeklyStartMinute:     integer('weekly_start_minute'),
   weeklyDurationMinutes: integer('weekly_duration_minutes'),
-  minSeverity:       text('min_severity', { enum: ['Critical', 'Important', 'Moderate', 'Low'] }),
+  // Windows Update's own Classification taxonomy (Critical Updates,
+  // Security Updates, Update Rollups, Feature Packs, Service Packs, Tools,
+  // Updates), not an MSRC severity threshold -- severity is only
+  // meaningfully populated for Security-Updates-classified patches, so a
+  // severity-only gate could never auto-approve anything else. Empty array
+  // = auto-approval off, same "explicit opt-in" semantics the old
+  // min_severity:null had.
+  autoApproveClassifications: text('auto_approve_classifications').notNull().default('[]'),
   // Device Class targeting only (no OS dimension -- Patch Management is
   // Windows-only already, so an OS filter here would never do anything).
   // Same JSON-array-in-TEXT convention and "all classes" default as
