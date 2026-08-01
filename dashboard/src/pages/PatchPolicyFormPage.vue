@@ -257,6 +257,34 @@
         </div>
       </div>
 
+      <!-- Manage Microsoft Update -->
+      <div class="pf-group">
+        <label class="pf-label">Manage Microsoft Update</label>
+        <p class="field-hint" style="margin-top:-4px">
+          When enabled, a device covered by this policy has the separate "Microsoft Update" service
+          registered — so Windows Update also searches for Office and other Microsoft product updates,
+          not just OS updates. Independent of the Windows Update Management toggle above; reverted the
+          same way once coverage is lost.
+        </p>
+        <div class="seg-bar">
+          <button :class="['seg-btn', { active: !form.manageMicrosoftUpdate }]" @click="form.manageMicrosoftUpdate = false">Disabled</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.manageMicrosoftUpdate }]" @click="form.manageMicrosoftUpdate = true">Enabled</button>
+        </div>
+      </div>
+
+      <!-- Drivers -->
+      <div class="pf-group">
+        <label class="pf-label">Drivers</label>
+        <p class="field-hint" style="margin-top:-4px">
+          Driver updates are visible and manually approvable when checked, same as any other patch —
+          they're never eligible for Auto-Approval above regardless of this setting.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-primary)">
+          <input type="checkbox" v-model="form.includeDrivers" style="accent-color:var(--color-primary)" />
+          Include Driver Updates
+        </label>
+      </div>
+
       <!-- Enabled -->
       <div class="pf-group">
         <label class="pf-label">Enabled</label>
@@ -313,6 +341,8 @@ const form = reactive({
   targetClass: ['server', 'workstation', 'laptop'] as string[],
   autoReboot: false,
   manageWindowsUpdate: false,
+  manageMicrosoftUpdate: false,
+  includeDrivers: false,
   recurrenceType: 'one_time' as MaintenanceRecurrenceType,
   oneTimeLocal: '',
   oneTimeDurationHours: 1,
@@ -446,6 +476,8 @@ onMounted(async () => {
     form.targetClass = JSON.parse(policy.targetClass) as string[];
     form.autoReboot  = policy.autoReboot;
     form.manageWindowsUpdate = policy.manageWindowsUpdate;
+    form.manageMicrosoftUpdate = policy.manageMicrosoftUpdate;
+    form.includeDrivers = policy.includeDrivers;
     form.recurrenceType = policy.recurrenceType;
 
     if (policy.recurrenceType === 'one_time') {
@@ -522,6 +554,8 @@ async function save() {
         target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,
+        manage_microsoft_update: form.manageMicrosoftUpdate,
+        include_drivers: form.includeDrivers,
       });
       for (const t of targetItems.value) {
         if (t.kind === 'company')   await api.patchPolicies.companies.add(policy.id, t.id);
@@ -538,6 +572,8 @@ async function save() {
         target_class: form.targetClass,
         auto_reboot: form.autoReboot,
         manage_windows_update: form.manageWindowsUpdate,
+        manage_microsoft_update: form.manageMicrosoftUpdate,
+        include_drivers: form.includeDrivers,
       });
     }
     router.push('/global/patch-policies');

@@ -6,6 +6,7 @@ import * as schema from '../db/schema';
 import { sha256hex } from '../lib/crypto';
 import { evaluateSoftwareAlerts } from '../lib/alerts';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
+import { deviceHasDriverVisibility } from '../lib/patchPolicies';
 
 const audit = new Hono<{ Bindings: Bindings }>();
 
@@ -41,6 +42,7 @@ interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
 interface PatchItem {
   update_id?: string; title: string; kb_article_ids: string[]; severity: string
   categories: string[]; size_bytes?: number; is_downloaded: boolean
+  type?: string // 'software'|'driver' -- absent on pre-upgrade agents (treated as software)
 }
 interface AuditPayload {
   hardware?: HardwareInfo
@@ -241,6 +243,19 @@ audit.post('/', async (c) => {
   if (privacyMode) {
     payload.software = undefined;
     payload.services = undefined;
+  }
+
+  // Drivers opt-in: the agent scans+reports drivers unconditionally (see
+  // agent/internal/audit/patches.go) -- this is a storage-time filter, same
+  // precedent as the privacy-mode stripping just above, not an agent-side
+  // gate. Only bother checking coverage if the audit actually contains any
+  // driver-type items, since that's the common case (most patches are
+  // software) and coverage costs a handful of queries.
+  if (payload.patches?.some(p => p.type === 'driver')) {
+    const driversVisible = await deviceHasDriverVisibility(db, device);
+    if (!driversVisible) {
+      payload.patches = payload.patches.filter(p => p.type !== 'driver');
+    }
   }
 
   const auditId = crypto.randomUUID();

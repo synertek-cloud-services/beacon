@@ -55,7 +55,10 @@
           </thead>
           <tbody>
             <tr v-for="p in filteredRows" :key="p.updateId">
-              <td class="td-message">{{ p.title }}</td>
+              <td class="td-message">
+                {{ p.title }}
+                <span v-if="p.type === 'driver'" class="badge badge-pending" style="margin-left:6px">Driver</span>
+              </td>
               <td class="mono">{{ p.kbArticleIds.length ? p.kbArticleIds.map(k => 'KB' + k).join(', ') : '—' }}</td>
               <td><span :class="severityBadge(p.severity)">{{ p.severity }}</span></td>
               <td class="td-category">{{ p.categories.join(', ') || '—' }}</td>

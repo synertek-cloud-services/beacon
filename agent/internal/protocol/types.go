@@ -295,6 +295,7 @@ type PatchItem struct {
 	Categories   []string `json:"categories"`
 	SizeBytes    uint64   `json:"size_bytes,omitempty"`
 	IsDownloaded bool     `json:"is_downloaded"`
+	Type         string   `json:"type"` // "software"|"driver"
 }
 
 type AuditResponse struct {

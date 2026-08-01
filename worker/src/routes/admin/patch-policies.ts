@@ -124,6 +124,8 @@ patchPolicies.post('/', async (c) => {
     target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
+    include_drivers?: boolean;
+    manage_microsoft_update?: boolean;
     clone_from?: string;
   }>();
 
@@ -134,6 +136,8 @@ patchPolicies.post('/', async (c) => {
   let targetClass = '["server","workstation","laptop"]';
   let autoReboot  = body.auto_reboot ?? false;
   let manageWindowsUpdate = body.manage_windows_update ?? false;
+  let includeDrivers = body.include_drivers ?? false;
+  let manageMicrosoftUpdate = body.manage_microsoft_update ?? false;
   let recurrencePatch: Record<string, unknown> | null = null;
 
   let sourceCompanies:   (typeof schema.patchPolicyCompanies.$inferSelect)[]   = [];
@@ -152,6 +156,8 @@ patchPolicies.post('/', async (c) => {
     if (body.target_class === undefined) targetClass = source.targetClass;
     if (body.auto_reboot === undefined) autoReboot = source.autoReboot;
     if (body.manage_windows_update === undefined) manageWindowsUpdate = source.manageWindowsUpdate;
+    if (body.include_drivers === undefined) includeDrivers = source.includeDrivers;
+    if (body.manage_microsoft_update === undefined) manageMicrosoftUpdate = source.manageMicrosoftUpdate;
     if (!body.recurrence) {
       recurrencePatch = {
         recurrenceType: source.recurrenceType,
@@ -201,6 +207,7 @@ patchPolicies.post('/', async (c) => {
     weeklyStartMinute: recurrencePatch.weeklyStartMinute as number | null,
     weeklyDurationMinutes: recurrencePatch.weeklyDurationMinutes as number | null,
     autoApproveClassifications, targetClass, autoReboot, manageWindowsUpdate,
+    includeDrivers, manageMicrosoftUpdate,
     createdAt: now, updatedAt: now,
   });
 
@@ -231,6 +238,8 @@ patchPolicies.patch('/:id', async (c) => {
     target_class?: string[];
     auto_reboot?: boolean;
     manage_windows_update?: boolean;
+    include_drivers?: boolean;
+    manage_microsoft_update?: boolean;
   }>();
 
   const patch: Record<string, unknown> = { updatedAt: now };
@@ -239,6 +248,8 @@ patchPolicies.patch('/:id', async (c) => {
   if (body.enabled     !== undefined) patch.enabled     = body.enabled;
   if (body.auto_reboot  !== undefined) patch.autoReboot  = body.auto_reboot;
   if (body.manage_windows_update !== undefined) patch.manageWindowsUpdate = body.manage_windows_update;
+  if (body.include_drivers !== undefined) patch.includeDrivers = body.include_drivers;
+  if (body.manage_microsoft_update !== undefined) patch.manageMicrosoftUpdate = body.manage_microsoft_update;
   if (body.auto_approve_classifications !== undefined) {
     const validated = validateAutoApproveClassifications(body.auto_approve_classifications);
     if ('error' in validated) return c.json({ error: validated.error }, 400);

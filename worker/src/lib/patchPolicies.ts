@@ -174,6 +174,30 @@ export function deviceMatchesPatchPolicy(
   return matchesCompany || matchesDevice || matchesGroup;
 }
 
+// Single-device coverage check for whether driver-type patches should be
+// kept when storing this device's audit -- called from audit.ts's ingest
+// handler (one device at a time), unlike the bulk per-tick helpers above.
+// Cheap enough at self-hosted scale to run per-audit (same reasoning
+// "full-table scan is fine at this scale" already used elsewhere in this
+// codebase) rather than threading a new field through the check-in wire
+// protocol or building agent-side persisted config for it.
+export async function deviceHasDriverVisibility(db: Db, device: Device): Promise<boolean> {
+  const policies = await fetchEnabledPatchPolicies(db);
+  const managing = policies.filter(p => p.includeDrivers);
+  if (managing.length === 0) return false;
+
+  const [policyCompanyIds, policyDeviceIds, policyGroupIds, excludedCompanyIds, deviceGroupIds] = await Promise.all([
+    fetchPatchPolicyCompanyIds(db),
+    fetchPatchPolicyDeviceIds(db),
+    fetchPatchPolicyGroupIds(db),
+    fetchExcludedCompanyIds(db),
+    fetchDeviceGroupIds(db, [device.id]),
+  ]);
+
+  return managing.some(p => deviceMatchesPatchPolicy(
+    p, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds, excludedCompanyIds));
+}
+
 // ── Fleet patch scan (exact two-phase pattern GET /v1/admin/patches already
 // uses: scan every approved device's latest audit, group by update_id, then
 // overlay patch_approvals) -- shared here since both auto-approval and
@@ -185,12 +209,14 @@ interface AuditPatchItem {
   kb_article_ids: string[];
   severity: string;
   categories: string[];
+  type?: string; // 'software'|'driver' -- absent on pre-upgrade agents
 }
 
 export interface FleetPatchState {
   updateId: string;
   severity: string;
   categories: string[];
+  type: string; // 'software'|'driver'; defaults to 'software' for pre-upgrade agent data
   deviceIds: string[]; // devices with this update currently pending
   status: 'pending' | 'approved' | 'ignored';
 }
@@ -218,7 +244,7 @@ export async function scanFleetPatches(db: Db, devices: { id: string }[]): Promi
       if (!item.update_id) continue; // pre-upgrade agent -- needs a rescan, same as GET /v1/admin/patches
       let entry = byUpdateId.get(item.update_id);
       if (!entry) {
-        entry = { updateId: item.update_id, severity: item.severity, categories: item.categories ?? [], deviceIds: [], status: 'pending' };
+        entry = { updateId: item.update_id, severity: item.severity, categories: item.categories ?? [], type: item.type ?? 'software', deviceIds: [], status: 'pending' };
         byUpdateId.set(item.update_id, entry);
       }
       entry.deviceIds.push(device.id);
@@ -258,6 +284,15 @@ export async function autoApprovePatches(db: Db, now: number): Promise<void> {
 
   for (const patch of fleet.values()) {
     if (patch.status !== 'pending') continue;
+    // Drivers are never auto-approved, full stop -- Category and Type are
+    // independent WUA properties, so a driver update's own categories could
+    // in principle still overlap a policy's classification list (e.g. some
+    // driver happens to carry a "Security Updates" category) without this
+    // explicit check. Confirmed via AskUserQuestion: drivers stay
+    // manual-approval-only regardless of any Auto-Approval setting, since a
+    // bad driver can break hardware/boot in a way a bad software patch
+    // usually can't.
+    if (patch.type === 'driver') continue;
     const meetsAnyRule = rules.some(r => patch.categories.some(c => r.classifications.includes(c)));
     if (!meetsAnyRule) continue;
 
