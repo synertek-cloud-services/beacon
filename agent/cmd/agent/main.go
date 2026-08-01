@@ -158,14 +158,33 @@ func main() {
 }
 
 // setupLogging appends log output to <credDir>/agent.log in addition to
-// stderr. Best-effort: if the directory/file can't be created (e.g. this
-// is the very first run before enrollment has ever created credDir on some
-// platform), logging just stays on stderr and nothing else changes.
+// stderr. Best-effort: if the directory/file still can't be opened after
+// retrying (e.g. this is the very first run before enrollment has ever
+// created credDir on some platform), logging just stays on stderr and
+// nothing else changes.
+//
+// Retries briefly on open failure -- a real production device was found
+// checking in and executing commands correctly for days with a completely
+// silent agent.log, root-caused to exactly one un-retried OpenFile call
+// losing a transient sharing-mode race at service startup (most likely an
+// AV/EDR scan of the freshly-created file). Since a Windows service has no
+// console for the stderr fallback to reach anyone, that single lost race
+// silently blacked out logging for the entire remaining life of the
+// process -- the whole reason this function exists in the first place.
 func setupLogging(credDir string) {
 	if err := os.MkdirAll(credDir, 0o755); err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(credDir, "agent.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(credDir, "agent.log")
+	var f *os.File
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		f, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		return
 	}
