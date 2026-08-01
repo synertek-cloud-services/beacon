@@ -17,7 +17,14 @@ export interface EnrollRequest {
 
 export interface EnrollResponse {
   device_id: string;
-  company_id: string;
+  // Wire field name intentionally stays `tenant_id` — this mirrors the Go
+  // agent's protocol struct (agent/internal/protocol/types.go), which was
+  // deliberately not touched by the Company rename. Renaming this broke
+  // enroll/check-in/audit for every already-deployed agent in production
+  // (mismatched wire field vs. the agent's own `tenant_id` JSON tag) until
+  // reverted here. Internal DB/schema naming stays `companyId` throughout;
+  // only this wire contract is pinned to the old name.
+  tenant_id: string;
   device_credential: string;
   status: 'pending' | 'approved';
 }
@@ -26,7 +33,8 @@ export interface EnrollResponse {
 
 export interface CheckInRequest {
   device_id: string;
-  company_id: string;
+  // See EnrollResponse's tenant_id comment above — same wire-compat pin.
+  tenant_id: string;
   timestamp: number;
   agent_version: string;
   metrics: Metrics;

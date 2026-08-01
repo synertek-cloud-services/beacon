@@ -76,7 +76,7 @@ enroll.post('/', async (c) => {
 
   return c.json<EnrollResponse>({
     device_id: deviceId,
-    company_id: token.companyId,
+    tenant_id: token.companyId,
     device_credential: deviceCredential,
     status,
   });
