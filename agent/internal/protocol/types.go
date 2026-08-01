@@ -167,7 +167,20 @@ type AuditPayload struct {
 	Software []SoftwareItem `json:"software,omitempty"`
 	Services []ServiceItem  `json:"services,omitempty"`
 	Security *SecurityInfo  `json:"security,omitempty"`
-	Patches  []PatchItem    `json:"patches,omitempty"`
+	// Deliberately no omitempty -- encoding/json's omitempty treats any
+	// zero-length slice as empty regardless of nil-ness, which collapsed a
+	// real, successfully-scanned "zero pending patches" result (a non-nil
+	// empty slice from collectPatches' success path) into the exact same
+	// omitted-field wire shape as "never collected" (nil, from a collection
+	// error or a non-Windows device) -- both landed as `patches: null` on
+	// the dashboard, indistinguishable from an actually-up-to-date device.
+	// Root-caused live: WUA search on a real production device found and
+	// correctly filtered its one pending item (a Defender Definition
+	// Update) down to zero real patches with no error at all, yet the
+	// stored audit still showed null. Without omitempty, a nil slice still
+	// serializes as explicit `null` (collection semantics unchanged) while
+	// a non-nil empty slice now serializes as `[]` (a real answer).
+	Patches []PatchItem `json:"patches"`
 }
 
 type HardwareInfo struct {
