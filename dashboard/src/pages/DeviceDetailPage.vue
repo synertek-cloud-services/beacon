@@ -1186,13 +1186,28 @@ async function onIdChange(id: string | undefined) {
 
   await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadDeviceCommands(), loadCustomFields(device.value.id), patchApprovalsPromise]);
 
-  // Deep-link support: jump to whatever ?section= names (or Summary/top for
-  // a plain device switch that doesn't carry one), now that everything's
+  // Deep-link support: jump to whatever ?section= names, now that everything's
   // rendered. A rAF is a safe, dependency-free way to wait one paint before
-  // measuring scrollIntoView's target.
-  const target = (route.query.section as string | undefined) ?? 'summary';
-  activeSection.value = target;
-  requestAnimationFrame(() => scrollNow(target, false));
+  // measuring scrollIntoView's target. A plain device switch with no ?section=
+  // resets to the true top of the page (scrollTop 0) instead -- Summary is
+  // the first section, but it sits below the identity header + action
+  // toolbar (Remote Session/Shell/Quick Job/kebab), so scrollIntoView-ing its
+  // heading to the viewport's top scrolled *past* that toolbar on every
+  // single device click, a real reported annoyance (it's exactly what you
+  // need immediately, e.g. the kebab menu). Explicit scrollTop reset (not a
+  // no-op) still matters for a device-to-device switch via a plain link
+  // (e.g. GlobalAlertsPage's hostname link) while scrolled deep into the
+  // previous device's page -- `.page` is the app-wide persistent scroll
+  // container and this component instance is reused across such switches,
+  // so without this the new device would silently open already scrolled to
+  // wherever the last one happened to be.
+  const explicitSection = route.query.section as string | undefined;
+  activeSection.value = explicitSection ?? 'summary';
+  if (explicitSection) {
+    requestAnimationFrame(() => scrollNow(explicitSection, false));
+  } else {
+    requestAnimationFrame(() => { document.querySelector('.page')?.scrollTo({ top: 0 }); });
+  }
 
   // Section elements persist across a device switch (same v-if, same static
   // template — Vue patches in place rather than recreating them), so the
