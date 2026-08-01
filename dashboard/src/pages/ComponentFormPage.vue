@@ -44,8 +44,8 @@
       <div class="pf-group">
         <label class="pf-label">Kind</label>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: form.type === 'script' }]" @click="form.type = 'script'">Script</button>
-          <button :class="['seg-btn', { active: form.type === 'application' }]" @click="form.type = 'application'">Application</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.type === 'script' }]" @click="form.type = 'script'">Script</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.type === 'application' }]" @click="form.type = 'application'">Application</button>
         </div>
         <p v-if="form.type === 'application'" class="field-hint">
           Applications run identically to Scripts today — file/installer attachments aren't wired up yet.
@@ -77,8 +77,8 @@
       <div class="pf-group">
         <label class="pf-label">Companies</label>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: form.scope === 'global' }]" @click="form.scope = 'global'">All Companies</button>
-          <button :class="['seg-btn', { active: form.scope === 'company' }]" @click="form.scope = 'company'">Selected Companies</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.scope === 'global' }]" @click="form.scope = 'global'">All Companies</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.scope === 'company' }]" @click="form.scope = 'company'">Selected Companies</button>
         </div>
         <template v-if="form.scope === 'company'">
           <div style="display:flex;gap:8px;margin-top:4px">
@@ -602,6 +602,7 @@ async function save() {
 .seg-btn { padding: 7px 18px; font-size: 13px; font-weight: 500; font-family: var(--font); background: var(--color-surface-raised); color: var(--color-text-subtle); border: none; cursor: pointer; transition: background .12s, color .12s; }
 .seg-btn + .seg-btn { border-left: 1px solid var(--color-border-strong); }
 .seg-btn.active { background: var(--color-surface); color: var(--color-text-primary); }
+.seg-btn.seg-primary.active { background: var(--color-primary); color: #fff; }
 
 /* ── Company search ── */
 .pf-company-wrap { position: relative; max-width: 340px; }
