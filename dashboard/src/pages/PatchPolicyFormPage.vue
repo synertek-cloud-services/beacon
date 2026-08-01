@@ -64,8 +64,8 @@
           (<RouterLink to="/settings/general" class="pf-crumb-link">Settings &gt; General</RouterLink>).
         </p>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: form.recurrenceType === 'one_time' }]" @click="form.recurrenceType = 'one_time'">One-time</button>
-          <button :class="['seg-btn', { active: form.recurrenceType === 'weekly' }]" @click="form.recurrenceType = 'weekly'">Weekly</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.recurrenceType === 'one_time' }]" @click="form.recurrenceType = 'one_time'">One-time</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.recurrenceType === 'weekly' }]" @click="form.recurrenceType = 'weekly'">Weekly</button>
         </div>
 
         <template v-if="form.recurrenceType === 'one_time'">

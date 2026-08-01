@@ -28,7 +28,7 @@
           <div class="seg-bar">
             <button
               v-for="t in tabOptions" :key="t.value"
-              :class="['seg-btn', { active: activeTab === t.value }]"
+              :class="['seg-btn', 'seg-primary', { active: activeTab === t.value }]"
               @click="activeTab = t.value"
             >{{ t.label }}</button>
           </div>
@@ -243,6 +243,7 @@ function absDate(ts: number) {
 }
 .seg-btn + .seg-btn { border-left: 1px solid var(--color-border-strong); }
 .seg-btn.active { background: var(--color-surface); color: var(--color-text-primary); }
+.seg-btn.seg-primary.active { background: var(--color-primary); color: #fff; }
 
 /* ── Filter bar ── */
 .filter-label { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }

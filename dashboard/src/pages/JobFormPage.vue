@@ -137,8 +137,8 @@
         <label class="pf-label">Schedule</label>
         <p class="field-hint">By default, offline devices queue until they come online or the job expires — we run this job as soon as possible after the configured start time.</p>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: recurrence === 'immediately' }]" @click="recurrence = 'immediately'">Immediately</button>
-          <button :class="['seg-btn', { active: recurrence === 'scheduled' }]" @click="recurrence = 'scheduled'">At a scheduled time</button>
+          <button :class="['seg-btn', 'seg-primary', { active: recurrence === 'immediately' }]" @click="recurrence = 'immediately'">Immediately</button>
+          <button :class="['seg-btn', 'seg-primary', { active: recurrence === 'scheduled' }]" @click="recurrence = 'scheduled'">At a scheduled time</button>
         </div>
 
         <template v-if="recurrence === 'scheduled'">
@@ -164,8 +164,8 @@
       <div class="pf-group">
         <label class="pf-label">Execution</label>
         <div class="seg-bar">
-          <button :class="['seg-btn', { active: runAsSystem }]" @click="runAsSystem = true">Run as system account</button>
-          <button :class="['seg-btn', { active: !runAsSystem }]" @click="runAsSystem = false">Run as a logged in user</button>
+          <button :class="['seg-btn', 'seg-primary', { active: runAsSystem }]" @click="runAsSystem = true">Run as system account</button>
+          <button :class="['seg-btn', 'seg-primary', { active: !runAsSystem }]" @click="runAsSystem = false">Run as a logged in user</button>
         </div>
         <p class="field-hint">
           "Run as a logged in user" only works on Windows devices with an active console session (RDP/RDS
@@ -609,6 +609,7 @@ onMounted(async () => {
 .seg-btn { padding: 7px 18px; font-size: 13px; font-weight: 500; font-family: var(--font); background: var(--color-surface-raised); color: var(--color-text-subtle); border: none; cursor: pointer; transition: background .12s, color .12s; }
 .seg-btn + .seg-btn { border-left: 1px solid var(--color-border-strong); }
 .seg-btn.active { background: var(--color-surface); color: var(--color-text-primary); }
+.seg-btn.seg-primary.active { background: var(--color-primary); color: #fff; }
 .seg-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* Component / target table */
