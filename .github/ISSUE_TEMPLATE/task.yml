@@ -1,0 +1,59 @@
+name: Engineering task
+description: Track scoped maintenance, infrastructure, documentation, or technical work
+title: "[Task]: "
+labels:
+  - "type: maintenance"
+  - "needs: triage"
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: State the concrete outcome this task should produce.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain why the work is needed and identify relevant contracts or constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List what is included and any important exclusions.
+      placeholder: |
+        Included:
+        - ...
+
+        Not included:
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Provide observable, testable completion criteria.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Identify the checks or end-to-end behavior that should be verified.
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies or blockers
+      description: Link related issues, pull requests, releases, or external dependencies.

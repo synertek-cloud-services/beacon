@@ -1,0 +1,116 @@
+name: Bug report
+description: Report reproducible behavior that is not working as expected
+title: "[Bug]: "
+labels:
+  - "type: bug"
+  - "needs: triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Beacon. Do not include credentials, device tokens, signing keys, personal data, or other secrets in this report or its logs.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the problem and its operational impact.
+      placeholder: What happened, and who or what is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Go to ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What happened instead? Include exact error text where useful.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Agent
+        - Worker / API
+        - Dashboard
+        - Database / migrations
+        - Authentication / security
+        - Remote sessions
+        - Jobs / components
+        - Policies / alerts
+        - Release / infrastructure
+        - Unknown or multiple areas
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Self-hosted production
+        - Local development
+        - Other / unknown
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Agent version, release tag, commit SHA, or approximate deployment date.
+      placeholder: v0.2.19, commit abc1234, or unknown
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Relevant agent OS, browser, architecture, or runtime details.
+      placeholder: Windows 11 x64 agent; Firefox 141; Cloudflare Worker
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove secrets, tokens, personal data, organization names, hostnames, and other sensitive information before attaching evidence.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include regressions, workarounds, frequency, or other useful details.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for a duplicate.
+          required: true
+        - label: I removed secrets and sensitive customer or device data.
+          required: true
+        - label: This is not a security vulnerability. I will use the private reporting process in SECURITY.md for vulnerabilities.
+          required: true
