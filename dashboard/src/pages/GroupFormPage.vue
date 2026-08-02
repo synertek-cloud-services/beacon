@@ -102,7 +102,10 @@ const route  = useRoute();
 const groupId = computed(() => route.params.id as string | undefined);
 const isNew   = computed(() => !groupId.value);
 
-const loading   = ref(false);
+// Starts true when editing an existing group, so the form never renders
+// with blank/default values before real data arrives -- see onMounted's own
+// comment for the bug this fixes.
+const loading   = ref(!isNew.value);
 const loadError = ref('');
 const saving    = ref(false);
 const saveError = ref('');
@@ -155,11 +158,16 @@ async function removeAllMembers() {
   members.value = [];
 }
 
+// Real bug, found from a user report on a sibling form (PatchPolicyFormPage.vue):
+// `loading` used to start `false`, so on an edit page the form rendered once
+// with blank/default values before flipping to "Loading…" -- a visible
+// blank-then-flicker sequence. Fixed by starting `loading` true for the edit
+// case (see its own ref declaration).
 onMounted(async () => {
   try { allDevices.value = await api.devices.list(); } catch { /* ok */ }
 
   if (!isNew.value && groupId.value) {
-    loading.value = true;
+    // loading is already true from its own ref init -- no need to set it again.
     try {
       const g = await api.groups.get(groupId.value);
       form.name = g.name;

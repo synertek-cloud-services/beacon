@@ -316,7 +316,10 @@ const route  = useRoute();
 const policyId = computed(() => route.params.id as string | undefined);
 const isNew    = computed(() => !policyId.value);
 
-const loading   = ref(false);
+// Starts true when editing an existing policy, so the form never renders
+// with blank/default values before real data arrives -- see onMounted's own
+// comment for the bug this fixes.
+const loading   = ref(!isNew.value);
 const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
@@ -465,11 +468,24 @@ function targetLabel(t: PatchTargetItem): string {
 
 // ── Load ────────────────────────────────────────────────────────────────────
 
+// Real bug, found from a user report: `loading` used to start `false` and
+// these four calls ran sequentially (await one after another), so on an
+// edit page the form rendered once with blank/default values (loading
+// still false during all four awaits), then flipped to "Loading…" only
+// once the code below reached `loading.value = true`, then flipped back
+// once the real policy data arrived -- a visible blank-then-flicker
+// sequence. Fixed by starting `loading` true for the edit case (see its
+// own ref declaration) and running these four in parallel, matching this
+// codebase's own established "API calls in parallel" convention (CLAUDE.md)
+// rather than four sequential round-trips.
 onMounted(async () => {
-  try { companies.value = await api.companies.list(); } catch { /* ok */ }
-  try { devices.value = await api.devices.list(); } catch { /* ok */ }
-  try { groups.value  = await api.groups.list(); } catch { /* ok */ }
-  try { hostTimezone.value = (await api.settings.get()).timezone; } catch { /* falls back to UTC */ }
+  const [companiesRes, devicesRes, groupsRes, settingsRes] = await Promise.allSettled([
+    api.companies.list(), api.devices.list(), api.groups.list(), api.settings.get(),
+  ]);
+  if (companiesRes.status === 'fulfilled') companies.value = companiesRes.value;
+  if (devicesRes.status === 'fulfilled')   devices.value   = devicesRes.value;
+  if (groupsRes.status === 'fulfilled')    groups.value    = groupsRes.value;
+  if (settingsRes.status === 'fulfilled')  hostTimezone.value = settingsRes.value.timezone;
 
   if (isNew.value) {
     // Sensible default for a brand-new policy: today, at the current
@@ -478,7 +494,8 @@ onMounted(async () => {
     return;
   }
 
-  loading.value = true;
+  // loading is already true from its own ref init (edit case) -- no need to
+  // set it again here.
   try {
     const all    = await api.patchPolicies.list();
     const policy = all.find(p => p.id === policyId.value);

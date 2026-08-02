@@ -991,6 +991,34 @@ function toggleExpand(id: string) {
 const [devices, companies] = await Promise.all([api.devices.list(), api.companies.list()]);
 ```
 
+### `loading` ref must start `true` on an edit page, not `false`
+
+Real bug, found from a user report (a visible "blank policy for half a second, then flickers, then the real options show" on `PatchPolicyFormPage.vue`), then found to be copy-pasted across all five full-page edit forms (`PatchPolicyFormPage.vue`, `PolicyFormPage.vue`, `MaintenancePolicyFormPage.vue`, `ComponentFormPage.vue`, `GroupFormPage.vue`). Each declared `const loading = ref(false)`, then ran a few preliminary `onMounted` fetches (companies/devices/groups/timezone — data the form's own flyouts need, not the record being edited) sequentially with individual `try {} catch {}` blocks, and only set `loading.value = true` *after* those finished, right before fetching the actual record. Since Vue renders once synchronously before `onMounted`'s async body starts making progress, `loading` was still `false` during that entire preliminary-fetch window — the form rendered with blank/default values first, then flipped to "Loading…" once `loading.value = true` was finally reached, then flipped back once the real record arrived. Three renders, two of them visible flickers, for what should be one.
+
+Fixed two ways, together:
+```typescript
+// 1. Initialize loading from isNew, not a bare false, so an edit page never
+//    gets that first blank-form render at all.
+const loading = ref(!isNew.value);
+```
+```typescript
+// 2. Parallelize the preliminary fetches (they don't depend on each other)
+//    instead of sequential awaits, shortening the loading window itself.
+onMounted(async () => {
+  const [companiesRes, devicesRes, groupsRes] = await Promise.allSettled([
+    api.companies.list(), api.devices.list(), api.groups.list(),
+  ]);
+  if (companiesRes.status === 'fulfilled') companies.value = companiesRes.value;
+  if (devicesRes.status === 'fulfilled')   devices.value   = devicesRes.value;
+  if (groupsRes.status === 'fulfilled')    groups.value    = groupsRes.value;
+  // ...then the real record fetch, gated on !isNew.value as before -- no
+  // need to set loading.value = true again, it's already true from init.
+});
+```
+`Promise.allSettled` (not `Promise.all`) to preserve each fetch's original independent "swallow failure, leave the array empty" behavior — a single failed preliminary fetch (e.g. Groups) shouldn't block the others from populating.
+
+Verified live with Playwright against a real local `wrangler dev`, not just reasoned through: intercepted the relevant API calls with an artificial 400ms delay (to reproduce the user's real-world latency window) and sampled the DOM every 100ms through the whole load. The old code showed the bug exactly as described — empty-valued Name input for ~1.3s, then "Loading…" for ~400ms, then the real value — confirming both the root cause and that this test methodology actually detects it (a real control, not just a clean run). The fixed code showed only "Loading…" throughout, transitioning directly to the fully-populated form with zero blank frames.
+
 ### Scroll-spy nav (one-page-with-anchor-nav, e.g. DeviceDetailPage)
 `IntersectionObserver` with a thin top-of-viewport detection band, rooted at `.page` (the app's real scroll container, not `window` — see STYLE.md):
 ```typescript
