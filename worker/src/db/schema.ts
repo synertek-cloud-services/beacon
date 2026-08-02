@@ -92,6 +92,12 @@ export const devices = sqliteTable('devices', {
   microsoftUpdateManaged: integer('microsoft_update_managed', { mode: 'boolean' }),
   microsoftUpdatePriorState: text('microsoft_update_prior_state'),
   microsoftUpdateManagedAt: integer('microsoft_update_managed_at'),
+  // Whether this device has the Hyper-V role/feature installed (a
+  // virtualization host, not a guest). NULL = never evaluated (non-Windows,
+  // or not yet audited). Drives Patch Policy's automatic exclusion of
+  // Hyper-V hosts from a policy's Server-class/company sweep -- see
+  // worker/src/lib/patchPolicies.ts's deviceMatchesPatchPolicy.
+  isHyperVHost: integer('is_hyper_v_host', { mode: 'boolean' }),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

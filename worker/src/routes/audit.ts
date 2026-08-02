@@ -50,6 +50,11 @@ interface AuditPayload {
   services?: ServiceItem[]
   security?: SecurityInfo
   patches?: PatchItem[]
+  // Whether this device has the Hyper-V role/feature installed (a
+  // virtualization host). Absent on non-Windows or a collection failure —
+  // distinct from a confirmed false, so devices.isHyperVHost is only ever
+  // updated when this key is actually present.
+  hypervisor_host?: boolean
 }
 interface AuditRequest {
   // tenant_id, not company_id — this is the wire field, pinned to match the
@@ -273,6 +278,17 @@ audit.post('/', async (c) => {
     agentVersion: body.agent_version,
     createdAt:    now,
   });
+
+  // Hyper-V host status is a real devices column (feeds Patch Policy's
+  // targeting logic, not just JSON-blob audit history), not part of the
+  // deviceAudits insert above -- only touched when the agent actually sent
+  // an answer, so a non-Windows device or a transient collection failure
+  // never overwrites a previously-known value with a false negative.
+  if (payload.hypervisor_host !== undefined) {
+    await db.update(schema.devices)
+      .set({ isHyperVHost: payload.hypervisor_host })
+      .where(eq(schema.devices.id, device.id));
+  }
 
   // Load previous audit for delta computation
   const prevAudit = await db.select()

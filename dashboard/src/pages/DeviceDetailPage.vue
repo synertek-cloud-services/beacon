@@ -477,6 +477,15 @@
                 since {{ absDate(device.microsoftUpdateManagedAt) }}
               </span>
             </div>
+            <div v-if="device.isHyperVHost != null" class="ddev-row" style="padding:0 20px 12px">
+              <span class="ddev-label">Hyper-V Host</span>
+              <span :class="device.isHyperVHost ? 'inv-badge-warn' : 'inv-badge-muted'">
+                {{ device.isHyperVHost ? 'Yes' : 'No' }}
+              </span>
+              <span v-if="device.isHyperVHost" class="text-xs text-muted-2" style="margin-left:8px">
+                excluded from automatic Server-class Patch Policy targeting — target it explicitly by device or group to patch it
+              </span>
+            </div>
             <div class="inv-tab-body">
               <div v-if="auditLoading" class="inv-empty">Loading inventory…</div>
               <div v-else-if="!auditData" class="inv-empty" style="padding:12px 20px">

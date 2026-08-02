@@ -1,0 +1,13 @@
+-- Whether this device has the Hyper-V role/feature installed (a
+-- virtualization host, not a guest -- devices.inventory's own
+-- Virtualization field already covers the guest-side case). NULL = never
+-- evaluated (non-Windows, or not yet audited), distinct from a confirmed
+-- 0/false -- same nullable convention as windows_update_managed.
+--
+-- Feeds Patch Policy's automatic exclusion of Hyper-V hosts from a
+-- policy's Server-class/company sweep (worker/src/lib/patchPolicies.ts's
+-- deviceMatchesPatchPolicy) -- no opt-out toggle; the only way to include
+-- a Hyper-V host is a policy that explicitly Device- or Group-targets it,
+-- which bypasses the exclusion entirely. See CLAUDE.md's Patch Management
+-- section for the scope decision (confirmed via AskUserQuestion).
+ALTER TABLE devices ADD COLUMN is_hyper_v_host INTEGER;
