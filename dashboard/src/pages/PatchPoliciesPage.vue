@@ -296,7 +296,7 @@ onMounted(load);
 }
 .col-check    { width: 40px; padding-left: 14px !important; }
 .col-name     { min-width: 180px; }
-.col-targets  { width: 160px; }
+.col-targets  { min-width: 160px; white-space: nowrap; }
 .col-schedule { width: 240px; }
 .col-autoapprove { width: 140px; }
 .col-reboot   { width: 100px; }
