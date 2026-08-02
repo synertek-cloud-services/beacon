@@ -719,11 +719,17 @@
             <div v-else v-for="comp in filteredLib" :key="comp.id" class="qj-row">
               <svg class="qj-row-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--color-text-subtle)"><rect x="2" y="7" width="20" height="14" rx="2"/><rect x="6" y="3" width="4" height="4" rx="1"/><rect x="14" y="3" width="4" height="4" rx="1"/></svg>
               <div class="qj-row-info">
-                <span class="qj-row-name">{{ comp.name }}</span>
+                <div class="qj-row-name-line">
+                  <span class="qj-row-name">{{ comp.name }}</span>
+                  <span v-if="comp.requiresAdmin" class="admin-badge" title="Only an admin can run this in a Job">Admin Only</span>
+                </div>
                 <span v-if="comp.description" class="qj-row-desc">{{ comp.description }}</span>
                 <span v-else class="qj-row-desc">{{ shellLabel(comp.shell) }}</span>
               </div>
-              <button class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
+              <span v-if="comp.requiresAdmin && !isAdmin" class="qj-locked" title="Only an admin can select this component">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+              </span>
+              <button v-else class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
             </div>
           </div>
         </template>
@@ -739,11 +745,17 @@
             <div v-else v-for="comp in filteredStore" :key="comp.id" class="qj-row">
               <svg class="qj-row-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" color="var(--color-text-subtle)"><rect x="2" y="7" width="20" height="14" rx="2"/><rect x="6" y="3" width="4" height="4" rx="1"/><rect x="14" y="3" width="4" height="4" rx="1"/></svg>
               <div class="qj-row-info">
-                <span class="qj-row-name">{{ comp.name }}</span>
+                <div class="qj-row-name-line">
+                  <span class="qj-row-name">{{ comp.name }}</span>
+                  <span v-if="comp.requiresAdmin" class="admin-badge" title="Only an admin can run this in a Job">Admin Only</span>
+                </div>
                 <span v-if="comp.description" class="qj-row-desc">{{ comp.description }}</span>
                 <span v-else class="qj-row-desc">{{ shellLabel(comp.shell) }}</span>
               </div>
-              <button class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
+              <span v-if="comp.requiresAdmin && !isAdmin" class="qj-locked" title="Only an admin can select this component">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+              </span>
+              <button v-else class="btn btn-ghost btn-sm qj-select-btn" @click="selectForConfirm(comp)">Select</button>
             </div>
           </div>
         </template>
@@ -887,6 +899,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue, type DeviceCommand } from '../api';
+import { hasRole } from '../auth';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 import RemoteShellModal from '../components/RemoteShellModal.vue';
 
@@ -1070,7 +1083,13 @@ const quickJobBusy  = ref(false);
 const quickJobVariableValues = ref<Record<string, string>>({});
 const quickJobVarPrompt = ref<{ validate: () => string | null } | null>(null);
 
+const isAdmin = computed(() => hasRole('admin'));
+
 function selectForConfirm(comp: Component) {
+  // Defense in depth -- the Select button is already hidden for a
+  // non-admin on an admin-only component; the real gate is server-side
+  // (POST /v1/admin/jobs, which Quick Job dispatches through).
+  if (comp.requiresAdmin && !isAdmin.value) return;
   selectedComponent.value = comp;
   quickJobVariableValues.value = {};
   quickJobError.value = '';
@@ -2018,9 +2037,16 @@ function shellLabel(shell: string): string {
 .qj-row:last-child { border-bottom: none; }
 .qj-row-icon { flex-shrink: 0; }
 .qj-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.qj-row-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qj-row-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.qj-row-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .qj-row-desc { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qj-select-btn { flex-shrink: 0; }
+.qj-locked { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0; }
+.admin-badge {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
+  background: rgba(240,168,64,.14); color: var(--color-warning);
+}
 .qj-script-body { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; }
 .qj-script-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
 /* Quick Job confirm modal */

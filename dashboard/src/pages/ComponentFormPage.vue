@@ -54,6 +54,23 @@
         </p>
       </div>
 
+      <!-- Requires Admin to Run -->
+      <div class="pf-group">
+        <label class="pf-label">Requires Admin to Run</label>
+        <p class="field-hint" style="margin-top:-4px">
+          When enabled, only an admin can include this component in a Job (Quick Job included) — a
+          technician can still see it in the library, but creating a Job with it is blocked. Use for
+          anything destructive enough that it shouldn't run without an admin's direct involvement.
+        </p>
+        <div v-if="isAdmin" class="seg-bar">
+          <button :class="['seg-btn', { active: !form.requiresAdmin }]" @click="form.requiresAdmin = false">Disabled</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.requiresAdmin }]" @click="form.requiresAdmin = true">Enabled</button>
+        </div>
+        <p v-else class="text-sm" :style="{ color: form.requiresAdmin ? 'var(--color-warning)' : 'var(--color-text-muted)' }">
+          {{ form.requiresAdmin ? 'Enabled — only an admin can change this' : 'Disabled' }}
+        </p>
+      </div>
+
       <!-- Group -->
       <div class="pf-group">
         <label class="pf-label">Group</label>
@@ -277,6 +294,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type Component, type ComponentCompany, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Company, type CustomField } from '../api';
+import { hasRole } from '../auth';
 
 const router = useRouter();
 const route  = useRoute();
@@ -303,7 +321,9 @@ const form = reactive({
   name: '', description: '', category: '', type: 'script' as 'script' | 'application',
   scope: 'global' as 'global' | 'company',
   shell: 'auto', script: '', timeoutSeconds: 300, targetOs: '' as string,
+  requiresAdmin: false,
 });
+const isAdmin = computed(() => hasRole('admin'));
 
 const postConditions = ref<PostCondition[]>([]);
 const variables       = ref<ComponentVariable[]>([]);
@@ -487,6 +507,7 @@ onMounted(async () => {
       form.script          = comp.script;
       form.timeoutSeconds = comp.timeoutSeconds;
       form.targetOs        = comp.targetOs ?? '';
+      form.requiresAdmin   = comp.requiresAdmin;
       postConditions.value = comp.postConditions.map(pc => ({ ...pc }));
       variables.value       = comp.variables.map(v => ({ ...v }));
       selectedCompanies.value   = comp.companies.map(s => ({ ...s }));
@@ -537,6 +558,7 @@ async function save() {
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
         target_os:       form.targetOs || null,
+        ...(isAdmin.value ? { requires_admin: form.requiresAdmin } : {}),
       });
       for (const v of variables.value) {
         await api.components.variables.create(created.id, {
@@ -560,6 +582,7 @@ async function save() {
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
         target_os:       form.targetOs || null,
+        ...(isAdmin.value ? { requires_admin: form.requiresAdmin } : {}),
       });
     }
     router.push('/components');

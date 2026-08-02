@@ -74,7 +74,10 @@
                 <input type="checkbox" :checked="!!selected[comp.id]" @change="toggleSelect(comp.id)" />
               </td>
               <td>
-                <div class="comp-name">{{ comp.name }}</div>
+                <div class="comp-name">
+                  {{ comp.name }}
+                  <span v-if="comp.requiresAdmin" class="admin-badge" title="Only an admin can run this in a Job">Admin Only</span>
+                </div>
                 <div v-if="comp.description" class="text-xs text-muted-2" style="margin-top:2px">{{ comp.description }}</div>
               </td>
               <td>
@@ -122,7 +125,10 @@
           <tbody>
             <tr v-for="comp in storeComponents" :key="comp.id">
               <td>
-                <div class="comp-name">{{ comp.name }}</div>
+                <div class="comp-name">
+                  {{ comp.name }}
+                  <span v-if="comp.requiresAdmin" class="admin-badge" title="Only an admin can run this in a Job">Admin Only</span>
+                </div>
                 <div v-if="comp.description" class="text-xs text-muted-2" style="margin-top:2px">{{ comp.description }}</div>
               </td>
               <td>
@@ -358,6 +364,13 @@ onMounted(load);
 }
 .kind-script      { background: var(--color-surface-raised); color: var(--color-text-muted); }
 .kind-application { background: rgba(78,126,247,.12); color: var(--color-primary); }
+
+/* ── Requires-admin badge ── */
+.admin-badge {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px; margin-left: 6px;
+  background: rgba(240,168,64,.14); color: var(--color-warning); vertical-align: middle;
+}
 
 /* ── Scope badge (Companies) ── */
 .scope-badge {
