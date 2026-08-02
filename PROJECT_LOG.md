@@ -2,6 +2,27 @@
 
 ## Session: 2026-07-31 / 2026-08-01 — Command History, Activity Log, Tenant→Company terminology rename, production wire-protocol incident, Company Variables/Secrets, Network Discovery
 
+### What was completed (latest burst: tray blank-icon root cause + fix)
+
+User confirmed the tray-icon-rendering gap live: rebooted Nebuchadnezzar and saw the same blank reserved slot in the notification area again, closing out any doubt this was a one-off. Root-caused (not guessed) by reading `fyne.io/systray` v1.12.2's actual Windows source directly and Microsoft's own "The Taskbar" docs: `beacon-tray.exe` launches at `WTS_SESSION_LOGON`, which races explorer.exe's own taskbar/notification-area window creation — `Shell_NotifyIcon(NIM_ADD)` can silently reserve a slot without rendering it if explorer's taskbar isn't fully up yet. The systray library's existing `TaskbarCreated`-broadcast handler is Microsoft's own documented answer for exactly this class of app ("services that are already running when the Shell launches"), but it's a one-shot broadcast — it only helps if this process's message window is already pumping at the single instant explorer sends it, and there's no evidence of that being guaranteed.
+
+Fixed with a `periodicIconRefresh()` goroutine in `agent/cmd/beacon-tray/main.go` — re-issues `systray.SetIcon()` every 30s, indefinitely, matching the file's existing `pollPendingReboot()` ticker convention. Confirmed from the library's own source that `SetIcon` always calls `NIM_MODIFY` (never `NIM_ADD`), so repeated calls can't create a duplicate icon, and that it hashes the (unchanging) embedded icon bytes to a stable temp-file path, so no temp-file leak from calling it every 30s forever. Deliberately an indefinite self-heal, not a one-shot delayed retry with a guessed wait — this codebase has been burned more than once by guessed fixed delays around Windows timing races (`SelfUninstall`'s `timeout`/`ping` saga).
+
+**Not yet released or verified on real hardware** — needs a `publish-agent.mjs` run (rebuilds the embedded tray binary), then a real reboot to confirm the blank slot actually self-heals within 30s. User has `CDNX-LT-001` available for this and has a technician-role account for the assistant to drive dashboard/API testing directly.
+
+### Key technical decisions (this burst)
+
+| Decision | Rationale |
+|---|---|
+| Periodic `SetIcon()` re-assertion every 30s, forever, rather than a one-shot delayed retry after a guessed startup wait | The real race window's duration is unknown and machine-dependent (boot-time load, AV scanning, etc.) — a fixed guessed delay is exactly the anti-pattern that already cost real time on `SelfUninstall`'s `timeout`/`ping` bug. An indefinite cheap re-assertion self-heals regardless of how long the race actually lasts, with no need to detect that the blank-slot state ever occurred. |
+| Confirmed `SetIcon` is `NIM_MODIFY` (not `NIM_ADD`) and its temp-file path is content-hashed before relying on calling it repeatedly | Would have been a real risk (duplicate icons, or a leaking temp file per call) if guessed wrong — verified directly against the library's actual source rather than assumed from the public API shape alone. |
+
+### Next logical steps
+
+1. **Release + real-hardware verification of the tray blank-icon fix** — needs `publish-agent.mjs` (holds `BEACON_SIGNING_KEY`, user-only) to reach any device via self-update, then a real reboot of Nebuchadnezzar or `CDNX-LT-001` to confirm the self-heal actually works within 30s of a blank slot appearing.
+
+---
+
 ### What was completed (latest burst: setupLogging root-cause, Patch Policy Class/Company-exclusion/Classification-Auto-Approval/Drivers/Microsoft-Update, dashboard seg-bar CSS bug)
 
 This burst split across two real calendar days — "last night" (items 1–3 below) and "today" (items 4–9) — the user corrected an initial mis-summary that conflated them; kept split here for an accurate timeline.
