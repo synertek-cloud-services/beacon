@@ -60,7 +60,7 @@ Verified live against local `wrangler dev` with a **real technician session**, n
 
 Agent v0.2.19 is published and independently verified (item 7 above) — every item below now just needs real hardware, not a release, to close out:
 
-1. **Real-hardware verification of the tray blank-icon self-heal** — reboot Nebuchadnezzar or CDNX-LT-001, confirm a blank icon (if one appears) resolves within 30s.
+1. **Real-hardware verification of the tray blank-icon self-heal, partially done** — a real reboot of Nebuchadnezzar reproduced the blank slot on the pre-0.2.19 agent, and a force-update onto v0.2.19 (full binary swap + process restart) showed the icon rendering correctly afterward. Encouraging but not conclusive proof of the specific self-heal mechanism, since a fresh tray launch not hitting the (intermittent) race at all would look identical. Still needed: catch a blank icon on an *already-running* v0.2.19 tray and confirm it clears within ~30s with no further restart/update.
 2. **Real-hardware verification of Hyper-V host detection** — the `vmms`-service-presence check has only been verified by reasoning/research, never against a real Hyper-V host or a real Windows client with the Hyper-V feature enabled.
 3. **Real-hardware verification of `setupLogging`'s indefinite-retry fix (PR #58)** and **Drivers/Microsoft Update scanning (PR #65)** — both merged in the prior session, both now actually reachable via self-update for the first time as of v0.2.19, neither confirmed live yet.
 
