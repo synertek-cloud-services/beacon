@@ -348,6 +348,27 @@ Fixed by wrapping `.pf-topbar` and any load/save status banner in a `.pf-sticky-
 
 Applied to every full-page form with a single top-level Save action: `PolicyFormPage.vue`, `PatchPolicyFormPage.vue`, `MaintenancePolicyFormPage.vue`, `ComponentFormPage.vue`, `JobFormPage.vue`, `GroupFormPage.vue`, `UserFormPage.vue`, `GeneralSettingsPage.vue`. **Not** applied to settings pages with several independent per-section save actions (`SsoSettingsPage.vue`, `NotificationSettingsPage.vue`, `CustomFieldsSettingsPage.vue`, `BrandingSettingsPage.vue`) or the one read-only browse page reusing this shell (`DeviceChangeLogPage.vue`) — neither has the "one Save button, unreachable on a long scroll" problem this fixes. If a future page in either of those categories grows a single dominant save action, revisit.
 
+**Inline field-validation errors need their own `scrollIntoView`, the sticky bar doesn't cover them.** Found via a real Playwright pass on the fix above: several forms validate required fields client-side *before* the API call (`fieldErr.name`/`.schedule`/`.companies`/`.script`, an early `return` in `save()` that never touches `saveError`) — clicking Save while scrolled past that field gave zero visible feedback, since the inline `<span class="pf-err">` sits next to the field itself, not in the sticky bar. Fix: give the field's `.pf-group` a template ref and scroll to it the moment its `fieldErr` is set:
+
+```html
+<div class="pf-group" ref="nameGroupEl">
+  <label class="pf-label">Name</label>
+  <input v-model="form.name" class="pf-input" />
+  <span v-if="fieldErr.name" class="pf-err">{{ fieldErr.name }}</span>
+</div>
+```
+```typescript
+const nameGroupEl = ref<HTMLElement | null>(null);
+// ...
+if (!form.name.trim()) {
+  fieldErr.name = 'Name is required.';
+  nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return;
+}
+```
+
+Applied everywhere `fieldErr`-style inline validation exists: `PatchPolicyFormPage.vue`, `PolicyFormPage.vue`, `ComponentFormPage.vue`, `GroupFormPage.vue`, `MaintenancePolicyFormPage.vue`. `JobFormPage.vue`/`UserFormPage.vue` route their own required-field checks straight through `saveError` instead (already inside the sticky bar), so they needed no change.
+
 ### Variables / Post-conditions editor (inline add-form, not a drawer)
 
 A lighter-weight sibling of the Add Monitor right-side drawer below — used in `ComponentFormPage.vue` for a component's input variables. The list itself reuses the monitor-list chrome (`.pf-monitors`/`.pf-mon-empty`/`.pf-mon-row`/`.pf-mon-actions`/`.pf-mon-add` — same classes as PolicyFormPage's monitor list, copied per-component), but instead of opening a full drawer, "Add Variable"/"Edit" opens a small inline sub-form directly below the list:
