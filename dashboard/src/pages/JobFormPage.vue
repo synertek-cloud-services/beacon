@@ -206,10 +206,16 @@
               <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             </div>
             <div class="cf-row-info">
-              <span class="cf-row-name">{{ c.name }}</span>
+              <div class="cf-row-name-line">
+                <span class="cf-row-name">{{ c.name }}</span>
+                <span v-if="c.requiresAdmin" class="admin-badge" title="Only an admin can run this in a Job">Admin Only</span>
+              </div>
               <span v-if="c.description" class="cf-row-desc">{{ c.description }}</span>
             </div>
-            <button v-if="!orderedIds.includes(c.id)" class="btn btn-ghost btn-sm cf-add-btn" @click="addComponent(c)">Add</button>
+            <span v-if="c.requiresAdmin && !isAdmin" class="cf-locked" title="Only an admin can add this component">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            </span>
+            <button v-else-if="!orderedIds.includes(c.id)" class="btn btn-ghost btn-sm cf-add-btn" @click="addComponent(c)">Add</button>
             <span v-else class="cf-check" @click="removeAt(orderedIds.indexOf(c.id))" title="Click to remove">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             </span>
@@ -314,6 +320,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type Component, type ComponentRef, type Company, type Device, type DeviceGroup } from '../api';
+import { hasRole } from '../auth';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 
 const router = useRouter();
@@ -366,7 +373,13 @@ function openCompFlyout() {
   compFlyoutTab.value   = 'library';
   compFlyoutOpen.value  = true;
 }
+const isAdmin = computed(() => hasRole('admin'));
+
 function addComponent(c: Component) {
+  // Defense in depth -- the Add button is already hidden for a non-admin on
+  // an admin-only component, but the real gate is server-side
+  // (POST /v1/admin/jobs rejects it regardless).
+  if (c.requiresAdmin && !isAdmin.value) return;
   if (!orderedIds.value.includes(c.id)) orderedIds.value.push(c.id);
 }
 function removeAt(idx: number) { orderedIds.value.splice(idx, 1); }
@@ -736,10 +749,17 @@ onMounted(async () => {
 .cf-row:hover { background: var(--color-surface-raised); }
 .cf-row-icon { width: 28px; height: 28px; border-radius: 5px; background: var(--color-surface-raised); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-subtle); flex-shrink: 0; }
 .cf-row-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.cf-row-name { font-size: 13px; color: var(--color-text-primary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-row-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cf-row-name { font-size: 13px; color: var(--color-text-primary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cf-row-desc { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cf-row-added { background: rgba(78,126,247,.07); border-left: 2px solid var(--color-primary); }
 .cf-row-added .cf-row-icon { border-color: rgba(78,126,247,.4); color: var(--color-primary); }
+.admin-badge {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
+  background: rgba(240,168,64,.14); color: var(--color-warning);
+}
+.cf-locked { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0; }
 .cf-add-btn { flex-shrink: 0; }
 .cf-check { width: 28px; display: flex; align-items: center; justify-content: center; color: var(--color-success); flex-shrink: 0; cursor: pointer; }
 </style>

@@ -243,6 +243,9 @@ export interface Component {
   postConditions: PostCondition[];
   targetOs: string | null; // null = all platforms; 'windows'|'linux'|'darwin' = OS-specific
   variables: ComponentVariable[];
+  // Only an admin may include this component in a Job (Quick Job included)
+  // or change this flag itself — see CLAUDE.md's Components/Job System.
+  requiresAdmin: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -888,6 +891,7 @@ export const api = {
       timeout_seconds?: number;
       post_conditions?: PostCondition[];
       target_os?: string | null;
+      requires_admin?: boolean;
     })                            => request<Component>('POST', '/v1/admin/components', body),
     update: (id: string, body: Partial<{
       name: string;
@@ -900,6 +904,7 @@ export const api = {
       timeout_seconds: number;
       post_conditions: PostCondition[];
       target_os: string | null;
+      requires_admin: boolean;
     }>)                           => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${id}`, body),
     delete: (id: string)          => request<{ ok: boolean }>('DELETE', `/v1/admin/components/${id}`),
     clone:  (id: string, name?: string) => request<Component>('POST', `/v1/admin/components/${id}/clone`, { name }),

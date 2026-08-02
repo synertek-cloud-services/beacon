@@ -375,6 +375,12 @@ export const components = sqliteTable('components', {
   timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   postConditions: text('post_conditions').notNull().default('[]'), // JSON PostCondition[]
   targetOs:       text('target_os'), // null = all platforms; 'windows'|'linux'|'darwin' = OS-specific
+  // Only an admin may run a Job (Quick Job included) that includes this
+  // component, and only an admin may set/clear this flag itself (enforced
+  // in worker/src/routes/admin/components.ts) -- otherwise a technician
+  // could just un-flag a component to bypass the restriction. See
+  // CLAUDE.md's Components/Job System section.
+  requiresAdmin:  integer('requires_admin', { mode: 'boolean' }).notNull().default(false),
   createdAt:      integer('created_at').notNull(),
   updatedAt:      integer('updated_at').notNull(),
 });

@@ -833,6 +833,39 @@ If you're ever tempted to reuse `.cat-badge` for a new "real" categorical field 
 
 **Same collision risk resurfaced with the Device Groups feature** (a later session) — since `components.category` is already user-facing labeled "Group" on `ComponentsPage.vue`, the new device-collection feature is called **"Device Groups"** everywhere in copy/labels, never bare "Groups": the sidebar link, the target-flyout category option, the `JobFormPage.vue` target-row tag (`Device Group`, not `Group`), page titles. If you're adding UI copy for the Device Groups feature and are tempted to shorten it to just "Groups," don't — same reason as above.
 
+## "Admin Only" badge + lock icon (visible-but-blocked pattern)
+
+Established for Components' "Requires Admin to Run" flag (`ComponentsPage.vue`, `JobFormPage.vue`'s Add Component flyout, `DeviceDetailPage.vue`'s Quick Job library/store tabs) — the general shape for "a technician should see this exists, just not be able to act on it," as opposed to hiding it outright:
+
+```css
+.admin-badge {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
+  background: rgba(240,168,64,.14); color: var(--color-warning);
+}
+```
+Placed as a flex sibling to the name text, never nested inside a `white-space:nowrap; text-overflow:ellipsis` name span — nesting it there risks the badge itself getting silently clipped by the ellipsis on a long name. Wrap name + badge in their own small flex row instead:
+```html
+<div class="row-name-line">
+  <span class="row-name">{{ item.name }}</span>
+  <span v-if="item.requiresAdmin" class="admin-badge">Admin Only</span>
+</div>
+```
+```css
+.row-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+```
+
+In a picker row (Add Component flyout, Quick Job tabs) where the row also has an Add/Select action button, swap that button for a small lock icon (28px square, matching the button's own footprint) when the current user can't act on it — reuse whatever icon-button width convention the row's normal action already uses (e.g. `.cf-check`/`.qj-select-btn`'s own sizing), don't introduce a new width:
+
+```html
+<span v-if="item.requiresAdmin && !isAdmin" class="row-locked" title="Only an admin can select this">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+</span>
+<button v-else class="btn btn-ghost btn-sm" @click="select(item)">Select</button>
+```
+`isAdmin` is a `computed(() => hasRole('admin'))` local to the component, imported from `../auth`. This client-side swap is convenience only — the real gate is always server-side (same defense-in-depth convention as every other consequential action in this codebase); a blocked action's own handler function should still early-return defensively even though the button that would trigger it is already hidden.
+
 ## Add Company flyout (multi-select, stays open across picks)
 
 Used in `ComponentFormPage.vue`'s Companies section — and now, unmodified, in two more places: `GroupFormPage.vue` (picking devices for a Device Group) and `PolicyFormPage.vue` (picking Device Groups to target a policy). Same `.sf-*` class names duplicated per-component each time (this codebase's established convention), same behavior. Treat this as the default answer for "let the user pick several of X for this record" — don't invent a new multi-select UI. **Not** a single-select combobox (that was the first, wrong attempt when this pattern was originally built, corrected once shown the real reference) — a right-side panel that stays open while the user adds/removes several items, each row toggling in place. Originally called the "Add Site flyout" — renamed alongside the rest of the Tenant→Company terminology pass (the underlying `*_sites` tables/route paths and the `.sf-*`/`.tf-*` CSS class *prefixes* were deliberately left as-is in that first pass, then renamed in a dedicated follow-on; this doc reflects the current, fully-renamed state):

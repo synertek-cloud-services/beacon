@@ -1,0 +1,12 @@
+-- Per-component "requires admin to run" gate -- a plain technician can
+-- create/edit/run any component today (see CLAUDE.md's Components/Job
+-- System section); this lets an admin flag a specific, potentially
+-- destructive component so only an admin can include it in a Job (Quick
+-- Job included, since it dispatches through the same POST /v1/admin/jobs
+-- route). Distinct from the earlier, declined "Component access Levels"
+-- idea (Datto's Basic->Super visibility tiers, redundant with Beacon's
+-- 3-role RBAC) -- this is about execution risk, not visibility, and only
+-- an admin may set or clear the flag itself (enforced in
+-- worker/src/routes/admin/components.ts), or a technician could just
+-- un-flag a component to bypass the restriction they're subject to.
+ALTER TABLE components ADD COLUMN requires_admin INTEGER NOT NULL DEFAULT 0;

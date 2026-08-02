@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
-import { requireUser, type Role } from '../../lib/auth';
+import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import { logActivity } from '../../lib/activityLog';
 import { decryptSecret } from '../../lib/crypto';
 
@@ -460,6 +460,24 @@ adminJobs.post('/', async (c) => {
 
   if (!body.name?.trim())                     return c.json({ error: 'name required' }, 400);
   if (!body.components || body.components.length === 0) return c.json({ error: 'components required' }, 400);
+
+  // A Job (Quick Job included -- DeviceDetailPage.vue's Quick Job modal
+  // dispatches through this exact route) that includes a component flagged
+  // requires_admin can only be created by an admin. Checked before any
+  // further work -- a technician-created Job referencing a flagged
+  // component should never reach device resolution or command insertion.
+  const libraryComponentIds = body.components
+    .filter((r): r is Extract<ComponentRef, { type: 'library' }> => r.type === 'library')
+    .map(r => r.component_id);
+  if (libraryComponentIds.length > 0 && !roleAtLeast(user.role, 'admin')) {
+    const placeholders = libraryComponentIds.map(() => '?').join(',');
+    const flagged = await c.env.DB.prepare(
+      `SELECT name FROM components WHERE id IN (${placeholders}) AND requires_admin = 1`
+    ).bind(...libraryComponentIds).all<{ name: string }>();
+    if (flagged.results.length > 0) {
+      return c.json({ error: `admin role required to run: ${flagged.results.map(r => r.name).join(', ')}` }, 403);
+    }
+  }
 
   const jobType   = body.type ?? 'quick';
   const targetType = body.target_type ?? 'devices';

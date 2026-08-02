@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../../index';
-import { requireUser, type Role } from '../../lib/auth';
+import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import type { PostCondition } from '../../lib/postConditions';
 
 const adminComponents = new Hono<{ Bindings: Bindings }>();
@@ -31,6 +31,7 @@ function mapRow(r: any) {
     timeoutSeconds: r.timeout_seconds,
     postConditions: JSON.parse(r.post_conditions || '[]') as PostCondition[],
     targetOs:       r.target_os ?? null,
+    requiresAdmin:  Boolean(r.requires_admin),
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
   };
@@ -148,7 +149,8 @@ adminComponents.get('/:id', async (c) => {
 // POST / — create component (always origin='custom' — store rows only come
 // from the seed migration or /:id/clone)
 adminComponents.post('/', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const user = await auth(c, 'technician');
+  if (!user) return c.json({ error: 'unauthorized' }, 401);
   const body = await c.req.json<{
     name: string;
     description?: string | null;
@@ -160,17 +162,25 @@ adminComponents.post('/', async (c) => {
     timeout_seconds?: number;
     post_conditions?: PostCondition[];
     target_os?: string | null;
+    requires_admin?: boolean;
   }>();
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
   if (!body.script?.trim()) return c.json({ error: 'script required' }, 400);
   const scope = body.scope ?? 'global';
 
+  // Only an admin may create a component already flagged as requiring
+  // admin -- otherwise a technician could set it themselves and it would
+  // mean nothing. Unflagged (the default) needs no elevated role.
+  if (body.requires_admin === true && !roleAtLeast(user.role, 'admin')) {
+    return c.json({ error: 'admin role required to flag a component as requiring admin' }, 403);
+  }
+
   const id  = uid();
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, requires_admin, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id,
     body.name.trim(),
@@ -183,6 +193,7 @@ adminComponents.post('/', async (c) => {
     body.timeout_seconds ?? 300,
     JSON.stringify(body.post_conditions ?? []),
     body.target_os ?? null,
+    body.requires_admin ?? false,
     now, now,
   ).run();
 
@@ -196,7 +207,8 @@ adminComponents.post('/', async (c) => {
 
 // PATCH /:id — update component
 adminComponents.patch('/:id', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const user = await auth(c, 'technician');
+  if (!user) return c.json({ error: 'unauthorized' }, 401);
   const id   = c.req.param('id');
   const body = await c.req.json<Partial<{
     name: string;
@@ -209,11 +221,19 @@ adminComponents.patch('/:id', async (c) => {
     timeout_seconds: number;
     post_conditions: PostCondition[];
     target_os: string | null;
+    requires_admin: boolean;
   }>>();
 
-  const row = await c.env.DB.prepare(`SELECT id, origin FROM components WHERE id = ?`).bind(id).first<any>();
+  const row = await c.env.DB.prepare(`SELECT id, origin, requires_admin FROM components WHERE id = ?`).bind(id).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+
+  // Only an admin may change requires_admin, in either direction -- a
+  // technician un-flagging a component they're not supposed to run would
+  // defeat the whole point. Editing every other field stays technician-level.
+  if (body.requires_admin !== undefined && body.requires_admin !== Boolean(row.requires_admin) && !roleAtLeast(user.role, 'admin')) {
+    return c.json({ error: 'admin role required to change requires_admin' }, 403);
+  }
 
   const sets: string[] = ['updated_at = ?'];
   const vals: any[] = [Math.floor(Date.now() / 1000)];
@@ -228,6 +248,7 @@ adminComponents.patch('/:id', async (c) => {
   if (body.timeout_seconds !== undefined) { sets.push('timeout_seconds = ?'); vals.push(body.timeout_seconds); }
   if (body.post_conditions !== undefined) { sets.push('post_conditions = ?'); vals.push(JSON.stringify(body.post_conditions)); }
   if (body.target_os       !== undefined) { sets.push('target_os = ?');       vals.push(body.target_os); }
+  if (body.requires_admin  !== undefined) { sets.push('requires_admin = ?');  vals.push(body.requires_admin); }
 
   vals.push(id);
   await c.env.DB.prepare(`UPDATE components SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
@@ -266,13 +287,17 @@ adminComponents.post('/:id/clone', async (c) => {
   const now   = Math.floor(Date.now() / 1000);
   const name  = body.name?.trim() || `${source.name} (Copy)`;
 
+  // requires_admin carries over as-is -- no bypass risk, since the clone
+  // ends up equally restricted, not un-flagged; a technician cloning a
+  // flagged component still can't run the result any more than the source.
   await c.env.DB.prepare(`
-    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO components (id, name, description, category, type, origin, scope, shell, script, timeout_seconds, post_conditions, target_os, requires_admin, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     newId, name, source.description, source.category, source.type,
     source.scope,
     source.shell, source.script, source.timeout_seconds, source.post_conditions, source.target_os ?? null,
+    source.requires_admin,
     now, now,
   ).run();
 
