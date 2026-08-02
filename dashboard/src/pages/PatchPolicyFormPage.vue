@@ -29,7 +29,7 @@
     <div v-else class="pf-body">
 
       <!-- Name -->
-      <div class="pf-group">
+      <div class="pf-group" ref="nameGroupEl">
         <label class="pf-label">Name</label>
         <input v-model="form.name" class="pf-input" placeholder="Enter a name" />
         <span v-if="fieldErr.name" class="pf-err">{{ fieldErr.name }}</span>
@@ -60,7 +60,7 @@
       </div>
 
       <!-- Schedule -->
-      <div class="pf-group">
+      <div class="pf-group" ref="scheduleGroupEl">
         <label class="pf-label">Schedule</label>
         <p class="field-hint" style="margin-top:-4px">
           Times below are in the host time zone: <strong>{{ hostTimezone }}</strong>
@@ -321,6 +321,8 @@ const companies   = ref<Company[]>([]);
 const devices   = ref<Device[]>([]);
 const groups    = ref<DeviceGroup[]>([]);
 const fieldErr  = reactive({ name: '', schedule: '' });
+const nameGroupEl     = ref<HTMLElement | null>(null);
+const scheduleGroupEl = ref<HTMLElement | null>(null);
 const hostTimezone = ref('UTC');
 
 const autoApproveOptions = AUTO_APPROVE_CLASSIFICATIONS;
@@ -546,9 +548,17 @@ async function save() {
   fieldErr.schedule = '';
   saveError.value   = '';
 
-  if (!form.name.trim()) { fieldErr.name = 'Name is required.'; return; }
+  if (!form.name.trim()) {
+    fieldErr.name = 'Name is required.';
+    nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   const scheduleErr = validateSchedule();
-  if (scheduleErr) { fieldErr.schedule = scheduleErr; return; }
+  if (scheduleErr) {
+    fieldErr.schedule = scheduleErr;
+    scheduleGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   saving.value = true;
   try {

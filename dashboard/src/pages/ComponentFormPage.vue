@@ -30,7 +30,7 @@
     <div v-else class="pf-body">
 
       <!-- Name -->
-      <div class="pf-group">
+      <div class="pf-group" ref="nameGroupEl">
         <label class="pf-label">Name</label>
         <input v-model="form.name" class="pf-input" placeholder="Enter a name" />
         <span v-if="fieldErr.name" class="pf-err">{{ fieldErr.name }}</span>
@@ -76,7 +76,7 @@
       </div>
 
       <!-- Companies scope -->
-      <div class="pf-group">
+      <div class="pf-group" ref="companiesGroupEl">
         <label class="pf-label">Companies</label>
         <div class="seg-bar">
           <button :class="['seg-btn', 'seg-primary', { active: form.scope === 'global' }]" @click="form.scope = 'global'">All Companies</button>
@@ -142,7 +142,7 @@
       </div>
 
       <!-- Script -->
-      <div class="pf-group">
+      <div class="pf-group" ref="scriptGroupEl">
         <label class="pf-label">Script</label>
         <textarea
           v-model="form.script"
@@ -295,6 +295,9 @@ const companies   = ref<Company[]>([]);
 const customFieldsList = ref<CustomField[]>([]);
 const availableCfKeys  = computed(() => customFieldsList.value.filter(f => f.key).map(f => f.key));
 const fieldErr  = reactive({ name: '', companies: '', script: '' });
+const nameGroupEl      = ref<HTMLElement | null>(null);
+const companiesGroupEl = ref<HTMLElement | null>(null);
+const scriptGroupEl    = ref<HTMLElement | null>(null);
 
 const form = reactive({
   name: '', description: '', category: '', type: 'script' as 'script' | 'application',
@@ -504,9 +507,21 @@ async function save() {
   fieldErr.script = '';
   saveError.value = '';
 
-  if (!form.name.trim())   { fieldErr.name   = 'Name is required.';   return; }
-  if (!form.script.trim()) { fieldErr.script = 'Script is required.'; return; }
-  if (form.scope === 'company' && selectedCompanies.value.length === 0) { fieldErr.companies = 'Add at least one company.'; return; }
+  if (!form.name.trim()) {
+    fieldErr.name = 'Name is required.';
+    nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (!form.script.trim()) {
+    fieldErr.script = 'Script is required.';
+    scriptGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (form.scope === 'company' && selectedCompanies.value.length === 0) {
+    fieldErr.companies = 'Add at least one company.';
+    companiesGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   saving.value = true;
   try {

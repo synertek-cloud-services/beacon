@@ -28,7 +28,7 @@
 
     <div v-else class="pf-body">
 
-      <div class="pf-group">
+      <div class="pf-group" ref="nameGroupEl">
         <label class="pf-label">Name</label>
         <input v-model="form.name" class="pf-input" placeholder="e.g. Finance Workstations" />
         <span v-if="fieldErr.name" class="pf-err">{{ fieldErr.name }}</span>
@@ -107,6 +107,7 @@ const loadError = ref('');
 const saving    = ref(false);
 const saveError = ref('');
 const fieldErr  = reactive({ name: '' });
+const nameGroupEl = ref<HTMLElement | null>(null);
 
 const form = reactive({ name: '', description: '' });
 
@@ -175,7 +176,11 @@ onMounted(async () => {
 async function save() {
   fieldErr.name = '';
   saveError.value = '';
-  if (!form.name.trim()) { fieldErr.name = 'Name is required.'; return; }
+  if (!form.name.trim()) {
+    fieldErr.name = 'Name is required.';
+    nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   saving.value = true;
   try {
