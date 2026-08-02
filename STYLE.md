@@ -400,6 +400,31 @@ Post-conditions, by contrast, don't get their own add-form at all — each row's
 Pill: 5px 14px, border-radius 20px, border becomes accent when active.
 The `<input>` is visually hidden (`display: none`) — the entire `<label>` is the click target.
 
+**Variant: one pill toggles several underlying values together.** Used by `PatchPolicyFormPage.vue`'s Class section — collapsed Datto-style Server/Workstation/Laptop into two pills, Server and Client OS, where "Client OS" needs to set/clear both `workstation` and `laptop` in `form.targetClass` as one unit (Workstation vs. Laptop turned out to have zero real-world relevance for that feature — see CLAUDE.md's Patch Management section). The native `v-model` checkbox-array binding above only handles one value per checkbox, so this needs a real click handler and an options shape carrying a `values[]` array instead of a single `value`:
+```html
+<label
+  v-for="cls in classOptions" :key="cls.label"
+  :class="['pill-opt', { active: isClassActive(cls) }]"
+  @click="toggleClass(cls)"
+>
+  {{ cls.label }}
+</label>
+```
+```typescript
+const classOptions = [
+  { label: 'Server', values: ['server'] },
+  { label: 'Client OS', values: ['workstation', 'laptop'] },
+];
+function isClassActive(cls: { values: string[] }): boolean {
+  return cls.values.every(v => form.targetClass.includes(v));
+}
+function toggleClass(cls: { values: string[] }): void {
+  if (isClassActive(cls)) form.targetClass = form.targetClass.filter(v => !cls.values.includes(v));
+  else form.targetClass = [...new Set([...form.targetClass, ...cls.values])];
+}
+```
+No `<input type="checkbox">` at all in this variant — the `@click` goes directly on the `<label>`. Reach for this only when several real underlying values should always move together as one user-facing concept; for the normal one-pill-one-value case, the plain `v-model` pattern above is simpler and should stay the default.
+
 ## Form field hint / warning box
 
 ```html
