@@ -304,7 +304,10 @@ const CATEGORIES = ['Maintenance', 'Diagnostic', 'Deployment', 'Monitoring', 'Se
 const componentId = computed(() => route.params.id as string | undefined);
 const isNew       = computed(() => !componentId.value);
 
-const loading   = ref(false);
+// Starts true when editing an existing component, so the form never renders
+// with blank/default values before real data arrives -- see onMounted's own
+// comment for the bug this fixes.
+const loading   = ref(!isNew.value);
 const saving    = ref(false);
 const loadError = ref('');
 const saveError = ref('');
@@ -490,12 +493,22 @@ function addPostCondition() {
 
 // ── Load ──
 
+// Real bug, found from a user report on a sibling form (PatchPolicyFormPage.vue):
+// `loading` used to start `false` and these calls ran sequentially, so on an
+// edit page the form rendered once with blank/default values, then flipped to
+// "Loading…" only once the code below reached `loading.value = true`, then
+// flipped back once the real component data arrived -- a visible
+// blank-then-flicker sequence. Fixed by starting `loading` true for the edit
+// case (see its own ref declaration) and running these in parallel.
 onMounted(async () => {
-  try { companies.value = await api.companies.list(); } catch { /* ok */ }
-  try { customFieldsList.value = await api.customFields.list(); } catch { /* ok */ }
+  const [companiesRes, customFieldsRes] = await Promise.allSettled([
+    api.companies.list(), api.customFields.list(),
+  ]);
+  if (companiesRes.status === 'fulfilled')    companies.value       = companiesRes.value;
+  if (customFieldsRes.status === 'fulfilled') customFieldsList.value = customFieldsRes.value;
 
   if (!isNew.value && componentId.value) {
-    loading.value = true;
+    // loading is already true from its own ref init -- no need to set it again.
     try {
       const comp: Component = await api.components.get(componentId.value);
       form.name           = comp.name;
