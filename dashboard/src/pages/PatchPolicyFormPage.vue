@@ -472,7 +472,14 @@ onMounted(async () => {
     form.name        = policy.name;
     form.description = policy.description ?? '';
     form.enabled     = policy.enabled;
-    form.autoApproveClassifications = JSON.parse(policy.autoApproveClassifications) as string[];
+    // Filter out any classification no longer in the current allowed set --
+    // a policy saved before the classification list was trimmed (PR #64,
+    // Critical Updates/Feature Packs/Service Packs/Tools/"Updates" removed
+    // as obsolete) can still have one of those stale values stored. Loading
+    // it unfiltered re-sends it verbatim on the next Save and the server
+    // now rejects it with a 400 (real bug, hit live on a real policy).
+    form.autoApproveClassifications = (JSON.parse(policy.autoApproveClassifications) as string[])
+      .filter(c => (autoApproveOptions as readonly string[]).includes(c));
     form.targetClass = JSON.parse(policy.targetClass) as string[];
     form.autoReboot  = policy.autoReboot;
     form.manageWindowsUpdate = policy.manageWindowsUpdate;
