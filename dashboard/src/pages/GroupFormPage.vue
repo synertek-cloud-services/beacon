@@ -7,21 +7,23 @@
       <span class="pf-crumb-current">{{ isNew ? 'Create Group' : 'Edit Group' }}</span>
     </nav>
 
-    <div class="pf-topbar">
-      <button class="pf-back" @click="router.push('/groups')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
-      <h1 class="pf-title">{{ isNew ? 'Create Group' : (form.name || 'Edit Group') }}</h1>
-      <div class="pf-topbar-right">
-        <button class="btn btn-ghost btn-sm" @click="router.push('/groups')">Cancel</button>
-        <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : (isNew ? 'Create Group' : 'Save Changes') }}
+    <div class="pf-sticky-bar">
+      <div class="pf-topbar">
+        <button class="pf-back" @click="router.push('/groups')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
+        <h1 class="pf-title">{{ isNew ? 'Create Group' : (form.name || 'Edit Group') }}</h1>
+        <div class="pf-topbar-right">
+          <button class="btn btn-ghost btn-sm" @click="router.push('/groups')">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
+            {{ saving ? 'Saving…' : (isNew ? 'Create Group' : 'Save Changes') }}
+          </button>
+        </div>
       </div>
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
+      <div v-if="saveError" class="error-banner">{{ saveError }}</div>
     </div>
 
-    <div v-if="loadError" class="error-banner" style="margin:0 0 16px">{{ loadError }}</div>
-    <div v-if="saveError" class="error-banner" style="margin:0 0 16px">{{ saveError }}</div>
     <div v-if="loading" class="pf-state">Loading…</div>
 
     <div v-else class="pf-body">
@@ -202,7 +204,19 @@ async function save() {
 .pf-crumb-link:hover { text-decoration: underline; }
 .pf-crumb-current { color: var(--color-text-subtle); }
 
-.pf-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+/* Sticky so Save/Cancel and any error feedback stay reachable and visible
+   without scrolling on a long form -- position:sticky respects the .page
+   scroll container's own padding box, so top:0 alone is enough to pin it
+   flush against the visible top edge with no negative-margin trick needed. */
+.pf-sticky-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--color-canvas);
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pf-sticky-bar .error-banner { margin-top: 12px; }
+
+.pf-topbar { display: flex; align-items: center; gap: 12px; }
 .pf-back {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 6px;

@@ -294,7 +294,9 @@ Full-page form pattern:
 ```
 .pf-page (flex column, min-height: 100%)
   .pf-crumb  (breadcrumb: 12px, --color-text-muted, accent links)
-  .pf-topbar (back button + h1 + Cancel/Save)
+  .pf-sticky-bar (position: sticky, top: 0 — see "Sticky save bar" below)
+    .pf-topbar (back button + h1 + Cancel/Save)
+    error-banner / .pf-success (load or save feedback, if any)
   .pf-body (flex column)
     .pf-group (each section: flex column, gap 10px, padding 20px 0, border-bottom)
       .pf-label (15px, 600, --color-text-primary)
@@ -308,6 +310,43 @@ Each `.pf-group` is max-width 760px. The label font-size is larger (15px) than t
 **Third real example: `JobFormPage.vue`** (`/jobs/new`) — same story as `ComponentFormPage.vue`: replaced a modal (`CreateJobModal.vue`, deleted) that had grown a real Schedule/Execution feature set with no natural place to put it in an 860px `.modal-xl`. Confirms the shell scales past "a handful of simple fields" — this page has a component picker with a live search-combobox, a multi-mode target picker (All/Company/Specific Devices, the latter with its own scrollable checkbox list), and two seg-bar-driven conditional sections (Schedule, Execution), all inside ordinary `.pf-group` blocks with no layout changes needed to the shell itself.
 
 **Fourth real example, and the first non-form use: `DeviceChangeLogPage.vue`** (`/devices/:id/change-log`) — reuses the `.pf-page`/`.pf-crumb`/`.pf-topbar` shell for a read-only, filterable/paginated *browse* page (no `.pf-group`/`.pf-body` form fields at all — just a `.section-card` with a filter bar, table, and pagination bar dropped into the topbar's place). Confirms this shell isn't just for create/edit forms; use it any time a section needs to "pop out" into its own full page reached via a button (as opposed to a modal, which stays overlaid on the page that opened it) — see Device detail page's Change Log entry in CLAUDE.md for why this one specifically needed to be a page and not a modal (unbounded, growing dataset needing real pagination/filtering, not a quick glance).
+
+### Sticky save bar (`.pf-sticky-bar`)
+
+Real bug, found from live user feedback: `.pf-topbar` used to scroll away with the rest of the page on a long form (Patch Policy has ~10 sections), so Save/Cancel required scrolling back to the top to reach — and the save-error banner had drifted to the *bottom* of `.pf-body`, in the last `.pf-group`, in every file that had one (a copy-paste artifact — whoever added it the first time put it wherever they happened to be editing, and every subsequent file copied that placement). Combined, a failed save on a long form gave no visible feedback at all near the button you'd just clicked — you had to know to scroll all the way down to find out why.
+
+Fixed by wrapping `.pf-topbar` and any load/save status banner in a `.pf-sticky-bar` container:
+
+```html
+<div class="pf-sticky-bar">
+  <div class="pf-topbar">
+    <button class="pf-back" @click="...">...</button>
+    <h1 class="pf-title">...</h1>
+    <div class="pf-topbar-right">
+      <button class="btn btn-ghost btn-sm" @click="...">Cancel</button>
+      <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">...</button>
+    </div>
+  </div>
+  <div v-if="loadError" class="error-banner">{{ loadError }}</div>
+  <div v-if="saveError" class="error-banner">{{ saveError }}</div>
+</div>
+```
+```css
+.pf-sticky-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--color-canvas);
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pf-sticky-bar .error-banner { margin-top: 12px; }
+.pf-topbar { display: flex; align-items: center; gap: 12px; /* no margin-bottom -- the wrapper owns that spacing now */ }
+```
+
+**`position: sticky; top: 0` alone is enough — no negative-margin trick needed.** `.pf-sticky-bar` sits inside `.page` (the app's real scroll container, `padding: 28px`, see Shell layout above); sticky positioning resolves against the nearest scrolling ancestor's *padding box*, so the bar is allowed to slide up through that padding and land flush against the true top edge of the visible scroll area the moment you scroll past its natural position — the padding doesn't leave a gap above it. `background: var(--color-canvas)` is required so page content scrolling underneath doesn't show through once it's stuck.
+
+`.pf-crumb` (the breadcrumb) stays **outside** the sticky wrapper and scrolls away normally — it's informational, not something you need reachable mid-scroll, and keeping it out avoids the sticky bar eating extra vertical space at rest.
+
+Applied to every full-page form with a single top-level Save action: `PolicyFormPage.vue`, `PatchPolicyFormPage.vue`, `MaintenancePolicyFormPage.vue`, `ComponentFormPage.vue`, `JobFormPage.vue`, `GroupFormPage.vue`, `UserFormPage.vue`, `GeneralSettingsPage.vue`. **Not** applied to settings pages with several independent per-section save actions (`SsoSettingsPage.vue`, `NotificationSettingsPage.vue`, `CustomFieldsSettingsPage.vue`, `BrandingSettingsPage.vue`) or the one read-only browse page reusing this shell (`DeviceChangeLogPage.vue`) — neither has the "one Save button, unreachable on a long scroll" problem this fixes. If a future page in either of those categories grows a single dominant save action, revisit.
 
 ### Variables / Post-conditions editor (inline add-form, not a drawer)
 

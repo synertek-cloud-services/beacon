@@ -1,15 +1,19 @@
 <template>
   <div class="pf-page">
-    <div class="pf-topbar">
-      <h1 class="pf-title">General Settings</h1>
-      <div class="pf-topbar-right">
-        <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
-        </button>
+    <div class="pf-sticky-bar">
+      <div class="pf-topbar">
+        <h1 class="pf-title">General Settings</h1>
+        <div class="pf-topbar-right">
+          <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
+            {{ saving ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
       </div>
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
+      <div v-if="saveSuccess" class="pf-success">Saved.</div>
+      <div v-if="saveError" class="error-banner">{{ saveError }}</div>
     </div>
 
-    <div v-if="loadError" class="error-banner" style="margin:0 0 16px">{{ loadError }}</div>
     <div v-if="loading" class="pf-state">Loading…</div>
 
     <div v-else class="pf-body">
@@ -24,9 +28,6 @@
           <option v-for="tz in ianaTimezones" :key="tz" :value="tz">{{ tz }}</option>
         </select>
       </div>
-
-      <div v-if="saveSuccess" class="pf-success">Saved.</div>
-      <div v-if="saveError" class="error-banner">{{ saveError }}</div>
     </div>
   </div>
 </template>
@@ -79,7 +80,18 @@ async function save() {
 
 <style scoped>
 .pf-page { display: flex; flex-direction: column; min-height: 100%; }
-.pf-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+/* Sticky so Save and any error/success feedback stay reachable and visible
+   without scrolling on a long form -- position:sticky respects the .page
+   scroll container's own padding box, so top:0 alone is enough to pin it
+   flush against the visible top edge with no negative-margin trick needed. */
+.pf-sticky-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--color-canvas);
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pf-sticky-bar .error-banner { margin-top: 12px; }
+.pf-topbar { display: flex; align-items: center; gap: 12px; }
 .pf-title { font-size: 20px; font-weight: 700; color: var(--color-text-primary); flex: 1; margin: 0; }
 .pf-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
 .pf-state { padding: 40px; text-align: center; color: var(--color-text-muted); }
