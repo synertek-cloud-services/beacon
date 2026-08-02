@@ -1,0 +1,7 @@
+# Local development only. Copy to .dev.vars and replace every placeholder.
+# Never reuse production secrets here and never commit .dev.vars.
+ADMIN_SECRET="replace-with-a-long-random-break-glass-secret"
+CONFIG_ENCRYPTION_KEY="replace-with-64-lowercase-hex-characters"
+
+# Override the production value from wrangler.toml while running locally.
+WORKER_URL="http://localhost:8787"

@@ -39,7 +39,13 @@ class_name = "SessionRelay"
 tag = "v1"
 new_sqlite_classes = ["SessionRelay"]
 
-# Secrets (set via `wrangler secret put <NAME>`, not declared here):
+# Required encrypted Worker secrets. For the first deployment, provide both
+# atomically with `wrangler deploy --secrets-file`; see docs/SELF_HOSTING.md.
+# Do not add a `[secrets] required = [...]` block without also changing the
+# local-development setup: Wrangler then excludes extra `.dev.vars` keys such
+# as the required local WORKER_URL override.
+#
+# Secret meanings (values never belong in this file):
 #   ADMIN_SECRET          — break-glass bootstrap/recovery bearer token
 #   CONFIG_ENCRYPTION_KEY — 32 random bytes hex (e.g. `openssl rand -hex 32`),
 #                           encrypts SSO provider client secrets at rest
