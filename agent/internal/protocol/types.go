@@ -181,6 +181,12 @@ type AuditPayload struct {
 	// serializes as explicit `null` (collection semantics unchanged) while
 	// a non-nil empty slice now serializes as `[]` (a real answer).
 	Patches []PatchItem `json:"patches"`
+	// Whether this device has the Hyper-V role/feature installed (a
+	// virtualization *host*, not a guest -- see HardwareInfo.Virtualization
+	// for the opposite check). Nil (omitted) on non-Windows or a collection
+	// failure, distinct from a confirmed false. Windows-only, feeds Patch
+	// Policy's automatic Hyper-V-host exclusion.
+	HypervisorHost *bool `json:"hypervisor_host,omitempty"`
 }
 
 type HardwareInfo struct {

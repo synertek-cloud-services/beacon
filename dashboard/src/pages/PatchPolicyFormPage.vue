@@ -131,8 +131,11 @@
         </p>
         <div class="pf-target-sec">
           <div class="pill-group">
-            <label v-for="cls in classOptions" :key="cls.value" :class="['pill-opt', { active: form.targetClass.includes(cls.value) }]">
-              <input type="checkbox" :value="cls.value" v-model="form.targetClass" class="pill-cb" />
+            <label
+              v-for="cls in classOptions" :key="cls.label"
+              :class="['pill-opt', { active: isClassActive(cls) }]"
+              @click="toggleClass(cls)"
+            >
               {{ cls.label }}
             </label>
           </div>
@@ -334,7 +337,29 @@ const weekdayOptions = [
 
 // No OS row (unlike PolicyFormPage's OS & Class) -- Patch Management only
 // ever runs against Windows devices, so an OS filter here would be inert.
-const classOptions = [{ value: 'server', label: 'Server' }, { value: 'workstation', label: 'Workstation' }, { value: 'laptop', label: 'Laptop' }];
+//
+// Two pills, not three -- Workstation vs. Laptop is purely a hardware
+// form-factor signal (agent/internal/inventory/collect.go's detectClass
+// distinguishes them only by battery presence) with zero patch-management
+// relevance; real-world patching only ever cares about Server vs. Client
+// OS. Each pill toggles its full underlying values[] together in
+// form.targetClass -- devices.class itself is untouched (still
+// server/workstation/laptop everywhere else in the app, e.g. Device
+// Groups, Network Discovery), this is a Patch-Policy-only UI merge.
+const classOptions = [
+  { label: 'Server', values: ['server'] },
+  { label: 'Client OS', values: ['workstation', 'laptop'] },
+];
+function isClassActive(cls: { values: string[] }): boolean {
+  return cls.values.every(v => form.targetClass.includes(v));
+}
+function toggleClass(cls: { values: string[] }): void {
+  if (isClassActive(cls)) {
+    form.targetClass = form.targetClass.filter(v => !cls.values.includes(v));
+  } else {
+    form.targetClass = [...new Set([...form.targetClass, ...cls.values])];
+  }
+}
 
 const form = reactive({
   name: '',

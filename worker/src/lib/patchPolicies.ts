@@ -153,6 +153,25 @@ export function deviceMatchesPatchPolicy(
   // this is a blanket flag, not a per-policy exclusion list.
   if (excludedCompanyIds.has(device.companyId)) return false;
 
+  const companies   = policyCompanyIds.get(p.id);
+  const devices = policyDeviceIds.get(p.id);
+  const groups  = policyGroupIds.get(p.id);
+
+  const matchesDevice = devices?.has(device.id) ?? false;
+  const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
+
+  // Hyper-V hosts are never swept in automatically by a Server-class or
+  // company-wide target -- no opt-out toggle, confirmed via AskUserQuestion
+  // (real operational experience: nobody wants an RMM auto-rebooting a
+  // hypervisor host without first checking cluster/maintenance-mode state
+  // or migrating VMs off it). The only way to patch one through Beacon is a
+  // policy that explicitly Device- or Group-targets it -- a deliberately
+  // curated selection, unlike company-wide targeting, which is just as much
+  // an unattended sweep as the class-based default. This check must run
+  // before the class check below, since it's meant to override it, not be
+  // gated behind it.
+  if (device.isHyperVHost && !matchesDevice && !matchesGroup) return false;
+
   // Class check is ANDed with the OR-list below, same relationship
   // policies.targetClass has with its own Companies/Devices/Groups OR-list
   // (see alerts.ts's deviceMatchesPolicy) -- a device must be in-class AND
@@ -162,15 +181,10 @@ export function deviceMatchesPatchPolicy(
   const classOk = targetClass.length === 0 || (devClass ? targetClass.includes(devClass) : false);
   if (!classOk) return false;
 
-  const companies   = policyCompanyIds.get(p.id);
-  const devices = policyDeviceIds.get(p.id);
-  const groups  = policyGroupIds.get(p.id);
   const total = (companies?.size ?? 0) + (devices?.size ?? 0) + (groups?.size ?? 0);
   if (total === 0) return true; // unrestricted — matches every device
 
-  const matchesCompany   = companies?.has(device.companyId) ?? false;
-  const matchesDevice = devices?.has(device.id) ?? false;
-  const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
+  const matchesCompany = companies?.has(device.companyId) ?? false;
   return matchesCompany || matchesDevice || matchesGroup;
 }
 

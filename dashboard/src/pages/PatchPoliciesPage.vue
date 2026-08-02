@@ -201,10 +201,20 @@ async function togglePolicy(policy: PatchPolicy) {
 // '' when unrestricted (all 3 classes) -- same "empty = default, don't
 // clutter the summary" convention GlobalPoliciesPage.vue's own OS/Class
 // summary uses.
+// Mirrors PatchPolicyFormPage.vue's two-pill Server/"Client OS" merge --
+// Workstation vs. Laptop has zero patch-management relevance (pure
+// hardware form-factor signal), so both together read as one "Client OS"
+// concept here too, not listed separately.
 function classSummary(p: PatchPolicy): string {
   let cls: string[] = [];
   try { cls = JSON.parse(p.targetClass) as string[]; } catch { /* leave empty */ }
   if (cls.length === 0 || cls.length === 3) return '';
+  const hasServer = cls.includes('server');
+  const hasClient = cls.includes('workstation') && cls.includes('laptop');
+  if (hasServer && !hasClient) return 'Server';
+  if (hasClient && !hasServer) return 'Client OS';
+  // Legacy partial state from before the Workstation/Laptop merge (e.g.
+  // just one of the two checked) -- fall back rather than show a wrong label.
   return cls.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(' / ');
 }
 

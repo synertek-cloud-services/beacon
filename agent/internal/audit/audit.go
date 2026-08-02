@@ -90,6 +90,12 @@ func sendAudit(
 		payload.Patches = patches
 	}
 
+	if hyperV, err := collectHyperVHost(); err != nil {
+		log.Printf("audit: hyper-v host collection failed: %v", err)
+	} else {
+		payload.HypervisorHost = hyperV
+	}
+
 	req := protocol.AuditRequest{
 		DeviceID:     deviceID,
 		TenantID:     tenantID,

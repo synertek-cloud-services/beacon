@@ -725,6 +725,10 @@ export interface Device {
   windowsUpdateManagedAt: number | null;
   microsoftUpdateManaged: boolean | null;
   microsoftUpdateManagedAt: number | null;
+  // Null = never evaluated (non-Windows, or not yet audited). Drives Patch
+  // Policy's automatic exclusion of Hyper-V hosts from a Server-class/
+  // company-wide sweep — see CLAUDE.md's Patch Management section.
+  isHyperVHost: boolean | null;
 }
 
 // ── API client ───────────────────────────────────────────────
