@@ -9,26 +9,28 @@
     </nav>
 
     <!-- Top bar -->
-    <div class="pf-topbar">
-      <button class="pf-back" @click="router.push('/components')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
-      <h1 class="pf-title">{{ isNew ? 'Create Component' : (form.name || 'Edit Component') }}</h1>
-      <div class="pf-topbar-right">
-        <button class="btn btn-ghost btn-sm" @click="router.push('/components')">Cancel</button>
-        <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : (isNew ? 'Create Component' : 'Save Changes') }}
+    <div class="pf-sticky-bar">
+      <div class="pf-topbar">
+        <button class="pf-back" @click="router.push('/components')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
+        <h1 class="pf-title">{{ isNew ? 'Create Component' : (form.name || 'Edit Component') }}</h1>
+        <div class="pf-topbar-right">
+          <button class="btn btn-ghost btn-sm" @click="router.push('/components')">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">
+            {{ saving ? 'Saving…' : (isNew ? 'Create Component' : 'Save Changes') }}
+          </button>
+        </div>
       </div>
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
+      <div v-if="saveError" class="error-banner">{{ saveError }}</div>
     </div>
-
-    <div v-if="loadError" class="error-banner" style="margin:0 0 16px">{{ loadError }}</div>
     <div v-if="loading" class="pf-state">Loading…</div>
 
     <div v-else class="pf-body">
 
       <!-- Name -->
-      <div class="pf-group">
+      <div class="pf-group" ref="nameGroupEl">
         <label class="pf-label">Name</label>
         <input v-model="form.name" class="pf-input" placeholder="Enter a name" />
         <span v-if="fieldErr.name" class="pf-err">{{ fieldErr.name }}</span>
@@ -74,7 +76,7 @@
       </div>
 
       <!-- Companies scope -->
-      <div class="pf-group">
+      <div class="pf-group" ref="companiesGroupEl">
         <label class="pf-label">Companies</label>
         <div class="seg-bar">
           <button :class="['seg-btn', 'seg-primary', { active: form.scope === 'global' }]" @click="form.scope = 'global'">All Companies</button>
@@ -140,7 +142,7 @@
       </div>
 
       <!-- Script -->
-      <div class="pf-group">
+      <div class="pf-group" ref="scriptGroupEl">
         <label class="pf-label">Script</label>
         <textarea
           v-model="form.script"
@@ -267,8 +269,6 @@
         </div>
       </div>
 
-      <div v-if="saveError" class="error-banner">{{ saveError }}</div>
-
     </div><!-- /pf-body -->
   </div><!-- /pf-page -->
 </template>
@@ -295,6 +295,9 @@ const companies   = ref<Company[]>([]);
 const customFieldsList = ref<CustomField[]>([]);
 const availableCfKeys  = computed(() => customFieldsList.value.filter(f => f.key).map(f => f.key));
 const fieldErr  = reactive({ name: '', companies: '', script: '' });
+const nameGroupEl      = ref<HTMLElement | null>(null);
+const companiesGroupEl = ref<HTMLElement | null>(null);
+const scriptGroupEl    = ref<HTMLElement | null>(null);
 
 const form = reactive({
   name: '', description: '', category: '', type: 'script' as 'script' | 'application',
@@ -504,9 +507,21 @@ async function save() {
   fieldErr.script = '';
   saveError.value = '';
 
-  if (!form.name.trim())   { fieldErr.name   = 'Name is required.';   return; }
-  if (!form.script.trim()) { fieldErr.script = 'Script is required.'; return; }
-  if (form.scope === 'company' && selectedCompanies.value.length === 0) { fieldErr.companies = 'Add at least one company.'; return; }
+  if (!form.name.trim()) {
+    fieldErr.name = 'Name is required.';
+    nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (!form.script.trim()) {
+    fieldErr.script = 'Script is required.';
+    scriptGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (form.scope === 'company' && selectedCompanies.value.length === 0) {
+    fieldErr.companies = 'Add at least one company.';
+    companiesGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   saving.value = true;
   try {
@@ -565,8 +580,20 @@ async function save() {
 .pf-crumb-link:hover { text-decoration: underline; }
 .pf-crumb-current { color: var(--color-text-subtle); }
 
+/* Sticky so Save/Cancel and any error feedback stay reachable and visible
+   without scrolling on a long form -- position:sticky respects the .page
+   scroll container's own padding box, so top:0 alone is enough to pin it
+   flush against the visible top edge with no negative-margin trick needed. */
+.pf-sticky-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--color-canvas);
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pf-sticky-bar .error-banner { margin-top: 12px; }
+
 /* ── Top bar ── */
-.pf-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.pf-topbar { display: flex; align-items: center; gap: 12px; }
 .pf-back {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 6px;
