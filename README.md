@@ -2,7 +2,7 @@
 
 Beacon is a self-hosted Remote Monitoring & Management (RMM) platform. It runs a lightweight Go agent on managed endpoints (Windows, macOS, Linux), a Cloudflare Workers backend for check-ins and administration, and a Vue 3 dashboard for day-to-day operations.
 
-It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation jobs, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
+It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation, Windows patch management, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
 
 ## Architecture
 
@@ -21,44 +21,34 @@ Data flow: agents enroll against the Worker API, then check in once a minute wit
 
 - **Device enrollment & approval** — token-based enrollment, per-company auto-approve or manual review
 - **Policy-based monitoring** — global or per-company policies, each made of one or more monitors (disk space, CPU/memory usage, antivirus health, device online/offline, file size, ping reachability/latency/packet-loss, process state, Windows service state, software install/uninstall/version-change)
-- **Alerting** — sustained-condition debounce, auto-resolve, webhook notification
+- **Alerting** — sustained-condition debounce, auto-resolve, email and webhook notification
 - **Remote shell & TCP tunnel sessions** — browser-based, no agent-side listening port
-- **Scripted automation** — a reusable script/component library, dispatched as one-off or scheduled jobs across a device selection
+- **Scripted automation** — reusable components, variables/secrets, one-off and scheduled jobs, and detailed command results
 - **Inventory auditing** — full hardware/software/services snapshot on enrollment, every 24h, or on demand
-- **Multi-company** — companies, contacts, locations, per-company defaults
+- **Windows patch management** — scan, approve/ignore, policy scheduling, reboot prompts, and optional Windows Update management
+- **Multi-company** — companies, contacts, locations, policy/job targeting, Device Groups, and per-company defaults
+- **Administration** — local users, Microsoft Entra ID SSO, three-level RBAC, activity logging, branding, and shared dashboards
 
-## Quick start (self-hosting)
+## Self-hosting
 
-### Prerequisites
+Beacon uses Cloudflare Workers, D1, Durable Objects, R2, and Pages. The complete
+production installation, bootstrap, and first-device procedure is in
+[`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
 
-- Node.js + [pnpm](https://pnpm.io/)
-- Go 1.22+
-- A [Cloudflare account](https://dash.cloudflare.com/) (Workers + D1 + Pages)
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (`npx wrangler`, no global install needed)
-
-### 1. Worker setup
-
-```bash
-cd worker
-cp wrangler.toml.example wrangler.toml
-```
-
-Edit `wrangler.toml`: set your own D1 `database_name`/`database_id` (`npx wrangler d1 create beacon`), and your own custom domain route (or remove the `[[routes]]` block to use the default `workers.dev` subdomain).
-
-Create `worker/.dev.vars` for local development:
-
-```
-ADMIN_SECRET="pick-a-long-random-string"
-```
-
-Then:
+For local development after copying the example configuration files:
 
 ```bash
+pnpm --dir worker install --frozen-lockfile
+pnpm --dir dashboard install --frozen-lockfile
 make migrate-local     # apply migrations to local D1
-make dev                # wrangler dev
+make dev                # Worker on http://localhost:8787
+# In another terminal:
+pnpm --dir dashboard dev
 ```
 
-For production: `make migrate-remote` (after creating your D1 database and setting the `ADMIN_SECRET` secret via `npx wrangler secret put ADMIN_SECRET`), then `make deploy`.
+Leave `VITE_API_URL` unset for local development; Vite proxies `/v1` to the
+local Worker. Never commit `worker/wrangler.toml`, `worker/.dev.vars`, deployment
+secret files, or `dashboard/.env.production`.
 
 ### Optional fictional demo worlds
 
@@ -68,7 +58,7 @@ worlds are never applied by migrations and do not create users, SSO settings,
 real enrollment tokens, or usable agent credentials.
 
 Available worlds: `matrix`, `minecraft`, `holy-grail`, `fallout`, and
-`star-trek`. Each provides sites, contacts, mixed endpoint states, inventory,
+`star-trek`. Each provides companies, contacts, mixed endpoint states, inventory,
 device groups, custom fields, alerts, and job history.
 They intentionally cannot open Remote Shell or TCP sessions because no live
 agent is behind a demo endpoint.
@@ -107,42 +97,23 @@ requires these one-time GitHub repository settings:
 Disable automatic production Pages deployments in Cloudflare; otherwise Pages
 can publish the frontend before its Worker and database changes are released.
 
-### 2. Dashboard setup
-
-```bash
-cd dashboard
-cp .env.production.example .env.production
-```
-
-Edit `.env.production` to point `VITE_API_URL` at your deployed Worker URL. Then:
-
-```bash
-pnpm install
-pnpm dev          # local dev server on :5173
-pnpm run build    # production build (type-check + vite build) for Cloudflare Pages
-```
-
-Set the dashboard's Cloudflare Pages project root directory to `dashboard`, build command to `pnpm run build`, output directory to `dist`.
-
-### 3. Agent
-
-```bash
-make build-agent-windows   # dist/agent-windows-amd64.exe
-make build-agent-linux     # dist/agent-linux-amd64
-make build-agent-darwin    # dist/agent-darwin-arm64
-```
-
-The agent needs the Worker's enrollment endpoint URL and a per-company enrollment token (create one from the dashboard's Companies page) at first run.
-
 ## Database migrations
 
-Migrations live in `migrations/`, applied via Wrangler/D1 — see `make migrate-local` / `make migrate-remote` above. `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than auto-generated; when adding a schema change, add a new migration file and hand-edit `schema.ts` to match.
+Migrations live in `migrations/` and are applied through Wrangler/D1; see the
+[self-hosting guide](docs/SELF_HOSTING.md) for production setup. The matching
+`worker/src/db/schema.ts` definitions are maintained by hand.
 
 ## Security notes
 
-- `ADMIN_SECRET` is a single shared bearer token gating all `/v1/admin/*` routes and remote session access — treat it like a root password. There's no per-user account system yet.
+- Normal access uses local or Microsoft Entra ID user sessions with `readonly`,
+  `technician`, and `admin` roles. `ADMIN_SECRET` remains break-glass bootstrap
+  and recovery access; do not use it as an everyday login.
+- `CONFIG_ENCRYPTION_KEY` encrypts recoverable configuration secrets. Losing or
+  changing it makes existing encrypted SSO, email, and company secrets unreadable.
 - The agent-to-Worker enrollment/check-in flow uses per-device tokens, not the admin secret.
-- Released agent binaries are Ed25519-signed; see `agent/tools/keygen` and `agent/tools/sign`. Keep the private key out of source control (CI secret only).
+- Released agent binaries are Ed25519-signed. Keep the private signing key out
+  of source control and logs. Independent release publishing is tracked in
+  [issue #92](https://github.com/synertek-cloud-services/beacon/issues/92).
 
 ## License
 

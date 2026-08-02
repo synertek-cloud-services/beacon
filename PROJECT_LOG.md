@@ -1,5 +1,61 @@
 # Beacon — Project Log
 
+## Session: 2026-08-02 — Self-hosting installation audit and beta release-channel blocker
+
+### What was completed
+
+Audited the README's developer-oriented quick start against Beacon's current
+Cloudflare bindings, authentication system, dashboard deployment, bootstrap
+flow, and agent installer. Replaced it with a focused README entry point plus a
+complete `docs/SELF_HOSTING.md` production procedure, added a safe local
+`.dev.vars` template, documented atomic first deployment of Worker code and
+secrets, and corrected stale claims that Beacon had no user-account system or
+email notifications.
+
+### Key technical decisions
+
+- The first Worker deployment uses Wrangler's `--secrets-file` support so code,
+  `ADMIN_SECRET`, and `CONFIG_ENCRYPTION_KEY` become active atomically; Beacon
+  must never be exposed with its break-glass binding absent.
+- `worker/wrangler.toml.example` deliberately does not declare a `[secrets]`
+  required list. Current Wrangler behavior would then exclude extra
+  `.dev.vars` keys, including the local `WORKER_URL=http://localhost:8787`
+  override that prevents local Remote Shell sessions from dialing production.
+- Emergency access bootstraps the first normal admin account. It remains
+  break-glass recovery access, not the everyday authentication model.
+- Enrollment tokens currently remain in installed service arguments after
+  enrollment. The guide requires a single-purpose token that is promptly
+  revoked; the polished deployment work remains tracked separately.
+
+### Newly discovered beta blocker
+
+A fresh self-hosted D1 database has no agent-version catalog, while the current
+release script hardcodes the upstream GitHub repository and agents pin the
+upstream Ed25519 public key. Independent hosters cannot publish host-signed
+updates without source edits and upstream credentials. Issue #92 now tracks a
+host-controlled signing key, build-time public-key embedding, configurable
+release hosting, Worker registration, and independent verification. The
+self-hosting guide states this limitation explicitly rather than presenting
+initial enrollment as a functioning update channel.
+
+### Clean-install validation evidence
+
+Validation used an isolated, empty local D1 state on Linux
+`6.18.33.1-microsoft-standard-WSL2` x86-64 with Node `22.23.1`, pnpm `11.18.0`,
+Go `1.22.2`, and Wrangler `4.110.0`. All 69 repository migrations applied to
+the empty database. Against the resulting local Worker, break-glass identity,
+first-admin creation, local login, company creation, one-use enrollment-token
+creation, and Linux-shaped agent enrollment returned `200`/`201`; the enrolled
+device was approved. Worker type checking, the dashboard production build,
+and `go build ./...` also passed.
+
+The test caught three documentation defects before handoff: GNU Make was
+missing from the prerequisites, the Pages project-create command omitted its
+required project-name argument, and macOS had not been explicitly identified
+as unvalidated. Provisioning a second hosted Cloudflare account, validating
+custom-domain DNS/TLS, and installing on real Windows/Linux endpoints remain
+environmental beta validation rather than claims made by this local test.
+
 ## Session: 2026-08-02 — Tray blank-icon fix, sticky save bar UX overhaul, Patch Policy Class simplification + Hyper-V host exclusion
 
 ### What was completed
