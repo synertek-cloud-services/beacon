@@ -21,7 +21,9 @@ Thumbs.db
 .dev.vars
 .envrc
 .direnv/
+.env
 *.pem
+*.zip
 
 worker/wrangler.toml
 dashboard/.env.production
