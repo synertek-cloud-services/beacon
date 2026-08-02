@@ -4,6 +4,8 @@ title: "[Bug]: "
 labels:
   - "type: bug"
   - "needs: triage"
+projects:
+  - "synertek-cloud-services/1"
 body:
   - type: markdown
     attributes:

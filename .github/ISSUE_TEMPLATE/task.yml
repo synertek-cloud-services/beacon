@@ -4,6 +4,8 @@ title: "[Task]: "
 labels:
   - "type: maintenance"
   - "needs: triage"
+projects:
+  - "synertek-cloud-services/1"
 body:
   - type: textarea
     id: objective
