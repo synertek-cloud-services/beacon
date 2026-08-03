@@ -1,5 +1,26 @@
 # Beacon — Project Log
 
+## Session: 2026-08-03 — Hosted session relay regression coverage
+
+Investigated issue #98 against the unchanged hosted validation Worker after its
+Ubuntu acceptance run had produced no Remote Shell traffic. The failure did
+not reproduce: an isolated two-client test passed binary frames in both
+directions and propagated peer closure; the same test passed with the agent's
+actual Gorilla WebSocket client; and Beacon's real Linux PTY session code
+passed through the hosted relay in both client-first and agent-first order,
+including agent-side shell shutdown when the client disconnected. The prior
+failure is therefore recorded as transient/unexplained rather than assigned a
+speculative code cause.
+
+Added Workers-runtime regression tests for both connection orders, binary
+payload integrity, peer-close propagation, and tag-based routing after Durable
+Object hibernation. `SessionRelay` now emits metadata-only connection,
+disconnection, error, and no-peer frame-drop diagnostics; it never logs frame
+contents, WebSocket URLs, or client credentials. Disposable hosted test rows
+were removed and verified at zero. Linux Remote Shell remains Experimental
+until the normal dashboard-to-enrolled-agent workflow is repeated successfully
+as one continuous acceptance run.
+
 ## Session: 2026-08-02 — Beta platform matrix and Ubuntu acceptance
 
 Published `docs/BETA_PLATFORM_SUPPORT.md` as Beacon's per-capability beta
