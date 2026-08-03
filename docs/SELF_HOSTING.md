@@ -6,9 +6,14 @@ Pages dashboard, initial administrator, and first endpoint enrollment.
 
 ## Before you begin
 
-Beacon currently targets a technical beta. Read the open
-[`v0.9.0 Beta` milestone](https://github.com/synertek-cloud-services/beacon/milestone/2)
-before placing it on production endpoints.
+Beacon is available as a technical beta. Before enrolling endpoints, read the
+[beta platform support matrix](BETA_PLATFORM_SUPPORT.md) and
+[beta diagnostics and support guide](BETA_SUPPORT.md). The current beta
+baseline is published in [GitHub Releases](https://github.com/synertek-cloud-services/beacon/releases).
+
+Do not place it on unmanaged production fleets until you have accepted the
+documented beta limitations and completed your own backup, recovery, and
+endpoint acceptance checks.
 
 You need:
 
