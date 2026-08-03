@@ -57,9 +57,15 @@ export class SessionRelay implements DurableObject {
     }
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+  async webSocketClose(ws: WebSocket, code: number, _reason: string): Promise<void> {
     const [role, sessionTag] = this.state.getTags(ws);
     const peers = this.state.getWebSockets(role === 'agent' ? 'client' : 'agent');
+    // Browser close() with no arguments is reported as 1005 (No Status
+    // Received), but 1005/1006/1015 and other protocol-level codes cannot be
+    // supplied to WebSocket.close(). Reusing one throws before the peer is
+    // closed, leaving an agent PTY alive. Preserve application codes that the
+    // WebSocket API permits and normalize everything else to a clean close.
+    const peerCloseCode = code === 1000 || (code >= 3000 && code <= 4999) ? code : 1000;
     console.info('session relay disconnected', {
       sessionId: sessionTag?.replace(/^session:/, '') ?? 'unknown',
       role,
@@ -67,7 +73,7 @@ export class SessionRelay implements DurableObject {
       peerConnections: peers.length,
     });
     for (const target of peers) {
-      target.close(code, `${role} disconnected: ${reason}`);
+      target.close(peerCloseCode, `${role} disconnected`);
     }
   }
 

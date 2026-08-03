@@ -81,4 +81,18 @@ describe('SessionRelay', () => {
     client.close(1000, 'test complete');
     expect((await agentClosed).code).toBe(1000);
   });
+
+  it('normalizes a browser close without a status code and closes the peer', async () => {
+    const sessionId = crypto.randomUUID();
+    const stub = env.SESSION.get(env.SESSION.idFromName(sessionId));
+    const client = await connect(stub, sessionId, 'client');
+    const agent = await connect(stub, sessionId, 'agent');
+
+    const agentClosed = nextClose(agent);
+    client.close();
+
+    const closeEvent = await agentClosed;
+    expect(closeEvent.code).toBe(1000);
+    expect(closeEvent.reason).toBe('client disconnected');
+  });
 });

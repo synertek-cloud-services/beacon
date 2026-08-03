@@ -100,7 +100,7 @@ async function openSession() {
       if (ws !== socket || status.value !== 'connecting') return;
       status.value = 'error';
       errorMsg.value = 'The agent did not connect within 70 seconds. Confirm the device is online and its agent supports Remote Shell.';
-      socket.close();
+      socket.close(1000, 'connection timeout');
     }, CONNECT_TIMEOUT_MS);
   } catch (e: any) {
     clearConnectTimeout();
@@ -110,7 +110,7 @@ async function openSession() {
 }
 
 function reconnect() {
-  ws?.close();
+  ws?.close(1000, 'reconnecting');
   term?.clear();
   openSession();
 }
@@ -147,7 +147,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearConnectTimeout();
   resizeObserver?.disconnect();
-  ws?.close();
+  ws?.close(1000, 'remote shell closed');
   term?.dispose();
 });
 </script>
