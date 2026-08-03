@@ -79,7 +79,7 @@
                     Tokens
                     <span v-if="!expandedLoading" class="tab-pill">{{ tokens.length }}</span>
                   </button>
-                  <button :class="['expand-tab', expandedTab === 'variables' ? 'active' : '']" @click.stop="expandedTab = 'variables'">
+                  <button v-if="isAdmin" :class="['expand-tab', expandedTab === 'variables' ? 'active' : '']" @click.stop="expandedTab = 'variables'">
                     Variables
                     <span v-if="!expandedLoading" class="tab-pill">{{ variables.length }}</span>
                   </button>
@@ -637,6 +637,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, type Company, type CompanyContact, type CompanyLocation, type CompanyVariable, type EnrollmentToken, type Address, type Device, type NetworkDiscoveryConfig, type DiscoveredDevice } from '../api';
+import { hasRole } from '../auth';
 import AddressForm from '../components/AddressForm.vue';
 
 // ── State ────────────────────────────────────────────────────
@@ -658,6 +659,7 @@ const discoveryConfig     = ref<NetworkDiscoveryConfig | null>(null);
 const discoveredDevices   = ref<DiscoveredDevice[]>([]);
 const companyDevices      = ref<Device[]>([]);
 const expandedCompany  = computed(() => companies.value.find(t => t.id === expandedId.value));
+const isAdmin = computed(() => hasRole('admin'));
 
 const eligibleProbeDevices = computed(() => companyDevices.value.filter(d =>
   d.status === 'approved' && (d.overrideClass ?? d.detectedClass) !== 'laptop'));
@@ -767,7 +769,7 @@ async function toggleExpanded(id: string) {
       api.companies.contacts.list(id),
       api.companies.locations.list(id),
       api.companies.tokens.list(id),
-      api.companies.variables.list(id),
+      isAdmin.value ? api.companies.variables.list(id) : Promise.resolve([]),
       api.companies.discovery.get(id),
       api.companies.discoveredDevices.list(id),
       api.devices.list('approved'),

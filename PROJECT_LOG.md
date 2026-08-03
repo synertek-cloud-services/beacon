@@ -1,5 +1,29 @@
 # Beacon — Project Log
 
+## Session: 2026-08-02 — API authorization and role-boundary audit
+
+Audited every Worker route family against Beacon's global
+`readonly`/`technician`/`admin` hierarchy and documented the resulting public,
+device-credential, capability-token, and user-role contracts in
+`docs/AUTHORIZATION.md`. The audit found and corrected three concrete boundary
+gaps: device list/detail responses exposed the stored device credential hash
+and enrollment-token provenance; Company Variables/Secrets could be viewed by
+readonly users and changed by technicians; and technicians could register a
+fleet agent release. Device responses now explicitly omit both internal
+authentication fields, all Company Variable operations are admin-only, and
+agent-version registration is admin-only. The Companies page hides and does
+not fetch the Variables tab below admin; backend checks remain authoritative.
+
+Added `scripts/test-authorization.mjs`, a guarded mutating drill that refuses a
+remote target without explicit opt-in. It creates isolated role accounts and
+data, verifies readonly reads/denied mutation, technician operations, admin-only
+secret and release boundaries, secret/ciphertext/nonce redaction, device
+credential redaction, immediate role changes, account disable, logout, and an
+actual database-expired session. The complete drill passed against a fresh
+local D1 database and the existing disposable hosted validation Worker. Hosted
+test records were removed, foreign-key integrity remained clean, and the
+shared validation Worker was restored to the current `main` deployment.
+
 ## Session: 2026-08-02 — Backup, restore, and release recovery
 
 ### What was completed

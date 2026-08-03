@@ -432,7 +432,7 @@ function shapeVariable(row: typeof schema.companyVariables.$inferSelect) {
 }
 
 adminCompanies.get('/:id/variables', async (c) => {
-  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   const rows = await db
@@ -445,7 +445,7 @@ adminCompanies.get('/:id/variables', async (c) => {
 });
 
 adminCompanies.post('/:id/variables', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
@@ -488,7 +488,7 @@ adminCompanies.post('/:id/variables', async (c) => {
 });
 
 adminCompanies.patch('/:id/variables/:varId', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
   const varId = c.req.param('varId');
@@ -520,7 +520,7 @@ adminCompanies.patch('/:id/variables/:varId', async (c) => {
 });
 
 adminCompanies.delete('/:id/variables/:varId', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
 
   await db.delete(schema.companyVariables).where(eq(schema.companyVariables.id, c.req.param('varId')));

@@ -11,7 +11,7 @@ const adminAgentVersions = new Hono<{ Bindings: Bindings }>();
 // Registers a new agent binary version. Marks it as latest for its platform.
 // Body: { version, os, arch, download_url, signature_hex }
 adminAgentVersions.post('/', async (c) => {
-  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
