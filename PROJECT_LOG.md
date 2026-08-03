@@ -16,10 +16,24 @@ Added Workers-runtime regression tests for both connection orders, binary
 payload integrity, peer-close propagation, and tag-based routing after Durable
 Object hibernation. `SessionRelay` now emits metadata-only connection,
 disconnection, error, and no-peer frame-drop diagnostics; it never logs frame
-contents, WebSocket URLs, or client credentials. Disposable hosted test rows
-were removed and verified at zero. Linux Remote Shell remains Experimental
-until the normal dashboard-to-enrolled-agent workflow is repeated successfully
-as one continuous acceptance run.
+contents, WebSocket URLs, or client credentials.
+
+The continuous dashboard-to-enrolled-agent rerun then exposed a separate,
+reproducible cleanup defect: `RemoteShellModal` called browser `close()` with
+no status code, which reached the DO as reserved code `1005`; the relay reused
+that invalid code in `target.close()`, threw before closing the agent peer, and
+left the endpoint PTY alive. The dashboard now sends code `1000` for modal
+close, reconnect, and timeout, while the relay defensively normalizes any
+non-application close code to `1000`. The exact no-code browser close is a
+Workers-runtime regression test.
+
+After deploying the branch only to the isolated validation Worker/Pages site,
+a real Ubuntu 24.04 agent passed the complete dashboard flow: interactive
+command output arrived, the shell was a PTY child of the agent, closing the
+modal produced a relay client disconnect, the agent logged session closure,
+and the exact PTY PID disappeared with no child shell remaining. Linux Remote
+Shell is now Supported. All disposable hosted/Vultr records and credentials
+were removed after the run.
 
 ## Session: 2026-08-02 — Beta platform matrix and Ubuntu acceptance
 
