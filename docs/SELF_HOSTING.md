@@ -92,8 +92,8 @@ Generate and store two independent values:
   and company secrets that Beacon must later decrypt.
 
 Losing `CONFIG_ENCRYPTION_KEY` makes those stored values unreadable. Replacing
-it is not a password reset. Preserve both values for the backup/recovery work
-tracked in [issue #85](https://github.com/synertek-cloud-services/beacon/issues/85).
+it is not a password reset. Preserve both values according to the
+[backup and recovery runbook](BACKUP_RECOVERY.md).
 
 For the first deployment, create `worker/.deploy.secrets` in dotenv format:
 
@@ -308,7 +308,7 @@ alone does not recover the channel. There is no automatic signing-key rotation
 in the beta workflow.
 
 Back up the signing key before fleet deployment and test restoration of that
-backup as part of [issue #85](https://github.com/synertek-cloud-services/beacon/issues/85).
+backup according to the [backup and recovery runbook](BACKUP_RECOVERY.md).
 Never run an initial fleet from plain upstream-key builds if the fleet is meant
 to follow the host-controlled channel.
 
@@ -328,9 +328,10 @@ Before enrolling more endpoints, verify:
 - Remote Shell uses the configured Worker origin rather than another instance.
 - No secret or organization-specific configuration file is tracked by Git.
 
-Backups, restoration, and failed-release recovery are intentionally handled by
-[issue #85](https://github.com/synertek-cloud-services/beacon/issues/85) rather
-than being improvised in this installation guide.
+Before enrolling production endpoints, complete and test the
+[backup and recovery runbook](BACKUP_RECOVERY.md). It covers D1/R2 restoration,
+secret and signing-key continuity, stale-command quarantine, Worker/Pages
+rollback boundaries, and failed agent updates.
 
 ## Local development
 

@@ -1,5 +1,64 @@
 # Beacon — Project Log
 
+## Session: 2026-08-02 — Backup, restore, and release recovery
+
+### What was completed
+
+Implemented issue #85's operator runbook for persistent-state inventory, backup
+cadence, isolated restoration, acceptance checks, D1 Time Travel, Worker/Pages
+release recovery, and failed agent updates. The self-hosting guide now requires
+the runbook before production enrollment instead of pointing at unfinished
+follow-up work.
+
+Added `scripts/backup-d1.mjs` and its focused restore-preparation library/tests.
+The script creates restricted full and data-only D1 exports, suppresses
+Wrangler output that can contain a temporary signed download URL, records the
+source commit and SHA-256 checksums, and prepares a migration-schema clear plus
+a parent-first, large-row-safe data import. It refuses to overwrite an existing
+backup directory.
+
+### Hosted recovery drill and defects found
+
+The complete process was exercised against the disposable hosted Cloudflare
+environment and a fresh recovery Worker, D1 database, and private R2 bucket.
+The source snapshot contained a local admin, an approved device credential,
+encrypted company secret, component, R2 branding logo, and a real Linux audit.
+
+Two Wrangler/D1 portability defects made the untouched export fail on a fresh
+database: tables/rows were emitted before their foreign-key parents, and one
+device-audit `INSERT` was roughly 142 KB and exceeded D1's accepted statement
+size. The preparation library derives a dependency graph from the exported
+schema, orders rows parent-first, and reconstructs oversized string values with
+bounded append updates. A final backup produced by the repository script—not
+the drill prototype—successfully rebuilt all 55 schema tables and restored all
+23 populated tables, including the oversized audit.
+
+End-to-end checks then passed: public health, normal local login and session
+identity, restored companies and approved devices, exact R2 logo checksum,
+decryption of the backed-up company secret during job dispatch, aggregate large
+audit payload equality, an empty `PRAGMA foreign_key_check`, and a check-in
+authenticated by an endpoint credential that existed at snapshot time. Secret
+plaintext, raw endpoint credentials, and signed export URLs were not printed.
+The issue-specific source records and all temporary recovery resources/files
+were deleted afterward; the reusable hosted installation-validation environment
+remains available without the drill data.
+
+### Key technical decisions
+
+- D1 is authoritative persistent state. R2 currently contributes only the
+  active branding object; `SessionRelay` has no durable data to restore.
+- The exact `CONFIG_ENCRYPTION_KEY` and agent signing private key are
+  irreplaceable. Cloudflare Worker secrets are write-only after upload, so the
+  operator's encrypted secret store is part of the recovery system.
+- Restore begins at the manifest's recorded Beacon commit in isolated
+  resources. Newer migrations are applied only after that snapshot validates.
+- Restored queued/sent commands require an explicit quarantine/replay decision
+  before agents reconnect; exact data restoration must not silently repeat old
+  operational actions.
+- Worker rollback never reverses D1, R2, Pages, DNS, or agent releases. A bad
+  agent that still checks in requires a higher signed fix-forward release;
+  immutable same-version assets are not replaced or downgraded.
+
 ## Session: 2026-08-02 — Self-hostable agent release channel
 
 ### What was completed

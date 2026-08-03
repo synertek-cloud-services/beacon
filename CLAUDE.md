@@ -171,6 +171,21 @@ Latest migration: `0069` (`component_requires_admin` — `components.requires_ad
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated — `migrations/meta/_journal.json` only tracks through migration 0003, so running `drizzle-kit generate` now would diff against a stale snapshot and produce a bogus catch-up migration. Don't run `make db-generate`; hand-edit `schema.ts` to match new migrations instead, consistent with how 0004 onward were actually done.
 
+### Backup and recovery
+
+`docs/BACKUP_RECOVERY.md` is the operator contract. D1 is the authoritative
+persistent state; R2 currently holds only the active host-uploaded branding
+logo; `SessionRelay` has no durable state. The exact `CONFIG_ENCRYPTION_KEY` and
+agent signing key are irreplaceable recovery material.
+
+Do not treat a raw Wrangler export as proven restorable. A hosted drill found
+foreign-key table ordering and an oversized audit `INSERT` that prevented a raw
+import. `scripts/backup-d1.mjs` creates both original exports plus a
+migration-schema clear and parent-first, large-row-safe restore file. Restore at
+the manifest's source commit in isolated resources, validate there, and apply
+newer migrations afterward. Before reconnecting agents, explicitly expire or
+accept restored queued work so stale commands cannot replay accidentally.
+
 ## Auth System
 
 Multi-user auth replacing the old single-`ADMIN_SECRET`-only model. Local accounts + Microsoft Entra ID SSO, global RBAC (no per-company scoping — Beacon's users are internal MSP staff, not client-facing).
