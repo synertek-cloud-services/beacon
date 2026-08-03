@@ -12,6 +12,13 @@ function auth(c: any, minRole: Role = 'readonly') {
   return requireUser(c.req.header('Authorization'), c.env, minRole);
 }
 
+// Device credentials and their enrollment-token provenance are internal
+// authentication material, not part of the dashboard's device contract.
+function shapeDevice(row: typeof schema.devices.$inferSelect) {
+  const { deviceCredentialHash: _, enrollmentTokenId: __, ...device } = row;
+  return device;
+}
+
 // GET /v1/admin/devices?status=pending|approved|revoked
 adminDevices.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
@@ -31,7 +38,7 @@ adminDevices.get('/', async (c) => {
     : [];
   const companyMap = new Map(companies.map(t => [t.id, t.name]));
 
-  const rows = devices.map(d => ({ ...d, companyName: companyMap.get(d.companyId) ?? null }));
+  const rows = devices.map(d => ({ ...shapeDevice(d), companyName: companyMap.get(d.companyId) ?? null }));
 
   return c.json(rows);
 });
@@ -47,7 +54,7 @@ adminDevices.get('/:id', async (c) => {
   const company = await db.select({ name: schema.companies.name })
     .from(schema.companies).where(eq(schema.companies.id, device.companyId)).get();
 
-  return c.json({ ...device, companyName: company?.name ?? null });
+  return c.json({ ...shapeDevice(device), companyName: company?.name ?? null });
 });
 
 // GET /v1/admin/devices/:id/effective-monitors — which policies/monitors
