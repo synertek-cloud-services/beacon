@@ -536,9 +536,24 @@ when the client disconnected. Workers-runtime regression tests now cover both
 orders, byte preservation, close propagation, and tag-based routing after DO
 hibernation. The relay logs metadata-only lifecycle and no-peer-drop events,
 never frame contents, URLs, or credentials. Treat the original result as a
-transient/unexplained failure, not a confirmed relay defect. Linux Remote Shell
-remains Experimental until the normal dashboard-to-enrolled-agent workflow
-passes again as one continuous acceptance run.
+transient/unexplained failure, not a confirmed traffic-forwarding defect.
+
+The subsequent continuous dashboard rerun did expose a distinct close-path
+bug. `RemoteShellModal` used `ws.close()` without a status code; Workers
+reported that as reserved code `1005`, and `SessionRelay.webSocketClose`
+attempted to pass the same invalid code to the agent peer's `close()`. That
+call threw before reaching the agent, leaving its PTY alive indefinitely. The
+dashboard now explicitly uses code `1000` for modal close, reconnect, and
+connection timeout. The relay also accepts only code `1000` or application
+codes `3000`–`4999` for peer propagation and normalizes every other incoming
+code to `1000`; peer reasons are bounded to the fixed role-only text rather
+than prefixing an already maximum-length remote reason. A Workers-runtime test
+reproduces the exact no-argument browser close.
+
+The patched isolated deployment passed the full Ubuntu 24.04 flow through the
+real dashboard and enrolled agent: interactive command output, a real PTY child
+process, relay disconnect metadata, agent session closure, and confirmed PTY
+PID removal after closing the modal. Linux Remote Shell is Supported.
 
 ### Explicitly out of scope (deliberate, not an oversight)
 File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover, shutdown/restart, network device deploy/wake, in-session Quick Jobs, session history/audit UI — all future work, all able to reuse this same relay/auth/dial-out plumbing. Multiple simultaneous shell sessions per device already "just works" (each gets its own DO instance) — a nice side effect, not a separate feature.
