@@ -521,15 +521,24 @@ xterm.js (`@xterm/xterm` + `@xterm/addon-fit`) — first terminal-emulator depen
 1. **Missing CORS** — `/v1/sessions*` wasn't in `index.ts`'s CORS middleware list at all (only `/v1/admin/*` and `/v1/auth/*` were).
 2. **Origin misdirection** — `sessions.ts` built the agent/client WS URLs from `new URL(c.req.url).origin`, which reflected the *production* domain even under local `wrangler dev` (caused by the `[[routes]]` custom-domain block in `wrangler.toml`) — a local test agent actually dialed out and connected to the real production worker during testing before this was caught. Fixed with a configured `WORKER_URL` env var (see Self-hosting config above) instead of deriving from the request.
 
-### Hosted relay acceptance gap
+### Hosted relay acceptance status
 
 The 2026-08-03 Ubuntu 24.04 beta acceptance run delivered `open_session` and
 the real agent logged that it opened its PTY, but the hosted Durable Object
 relay returned no traffic to the client. Both dashboard-style client-first and
-agent-first connection order timed out with matching configured Worker
-origins. Linux Remote Shell is therefore Experimental, not Supported, until
-issue #98 identifies the relay failure and an end-to-end hosted binary-frame
-test passes.
+agent-first connection order timed out with matching configured Worker origins.
+
+Issue #98 could not reproduce that failure against the same, unchanged hosted
+deployment. Binary traffic and peer-close propagation passed through the
+hosted relay with generic clients and the agent's Gorilla WebSocket client;
+Beacon's actual Linux PTY code then passed in both connection orders and exited
+when the client disconnected. Workers-runtime regression tests now cover both
+orders, byte preservation, close propagation, and tag-based routing after DO
+hibernation. The relay logs metadata-only lifecycle and no-peer-drop events,
+never frame contents, URLs, or credentials. Treat the original result as a
+transient/unexplained failure, not a confirmed relay defect. Linux Remote Shell
+remains Experimental until the normal dashboard-to-enrolled-agent workflow
+passes again as one continuous acceptance run.
 
 ### Explicitly out of scope (deliberate, not an oversight)
 File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot, remote takeover, shutdown/restart, network device deploy/wake, in-session Quick Jobs, session history/audit UI — all future work, all able to reuse this same relay/auth/dial-out plumbing. Multiple simultaneous shell sessions per device already "just works" (each gets its own DO instance) — a nice side effect, not a separate feature.

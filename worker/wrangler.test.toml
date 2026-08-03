@@ -1,0 +1,11 @@
+name = "beacon-session-relay-test"
+main = "src/index.ts"
+compatibility_date = "2026-07-09"
+
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionRelay"]
