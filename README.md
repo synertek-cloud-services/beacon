@@ -4,7 +4,9 @@ Beacon is a self-hosted Remote Monitoring & Management (RMM) platform. It runs a
 
 Platform capabilities are not assumed to be identical. See the
 [beta platform support matrix and acceptance checklists](docs/BETA_PLATFORM_SUPPORT.md)
-for the current Windows, Linux, and macOS support contract.
+for the current Windows, Linux, and macOS support contract, and
+[`docs/BETA_SUPPORT.md`](docs/BETA_SUPPORT.md) for how to report a problem and
+diagnose it yourself.
 
 It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation, Windows patch management, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
 

@@ -1,5 +1,38 @@
 # Beacon — Project Log
 
+## Session: 2026-08-03 — Beta diagnostics and support workflow (issue #82)
+
+Published `docs/BETA_SUPPORT.md`, the last open item on the v0.9.0 Beta
+milestone. Investigated what already existed before writing anything new:
+`SECURITY.md` already covered private vulnerability reporting, and
+`.github/ISSUE_TEMPLATE/{bug,feature}.yml` already covered the public
+report paths — so the new doc's job is the practical middle ground those
+don't cover: where to actually find a version number or a log, how to
+redact one safely, and symptom-based guidance across enrollment, check-in,
+audit, jobs, patch management, remote shell, self-update, and uninstall.
+
+Found and documented one real, previously-undocumented gap while writing
+the version-discovery section: **Beacon has no in-app indicator of which
+Worker/dashboard commit is deployed anywhere** — grepped for a version
+endpoint, a dashboard footer, and `package.json` versions, and none of them
+are meaningful (`worker/package.json`/`dashboard/package.json` are inert
+`0.1.0`/`0.0.0`, `/health` returns only `{ok:true}`). Documented this
+honestly as a real limitation with the practical workaround (Cloudflare
+Pages' per-deployment commit-hash tag, `wrangler deployments list`) rather
+than inventing a version endpoint just to fill the section. Agent version
+has no such gap — it's already shown on Device Detail and logged on every
+agent startup.
+
+Cross-linked in both directions rather than duplicating content:
+`README.md` and `docs/BETA_PLATFORM_SUPPORT.md` now point at
+`docs/BETA_SUPPORT.md`; `SECURITY.md` gained one line pointing non-security
+reports back the other way. The symptom-based troubleshooting section
+deliberately reuses specific, real prior-session findings already on record
+in `CLAUDE.md` (the `agent.log` open-file race fixed in v0.2.19, the
+Remote Shell close-code fix from this same day's earlier session, the
+still-open `wuinstall` download hang) rather than writing generic advice
+disconnected from this codebase's actual history.
+
 ## Session: 2026-08-03 — Hosted session relay regression coverage
 
 Investigated issue #98 against the unchanged hosted validation Worker after its

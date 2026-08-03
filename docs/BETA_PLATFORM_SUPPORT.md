@@ -8,6 +8,9 @@ The matrix applies to the repository's current `main` release candidate. A
 hoster's plugins, operating-system policy, firewall, email provider, and network
 can still affect a supported workflow.
 
+See [`docs/BETA_SUPPORT.md`](BETA_SUPPORT.md) for how to report a problem,
+find logs, and troubleshoot common symptoms by area.
+
 ## Status vocabulary
 
 | Status | Meaning |
