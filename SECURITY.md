@@ -1,5 +1,9 @@
 # Security Policy
 
+For a non-security bug or feature request, see
+[`docs/BETA_SUPPORT.md`](docs/BETA_SUPPORT.md) instead — it covers the public
+issue paths, log locations, and safe log-collection guidance.
+
 ## Reporting a vulnerability
 
 Do not report security vulnerabilities through public GitHub issues, pull
