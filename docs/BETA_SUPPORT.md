@@ -115,8 +115,8 @@ issue rather than a functional bug.
   since dispatch yet (up to a minute), or is offline — confirm Last Seen
   before assuming the dispatch itself failed.
 - **"Requires Admin to Run" 403**: the component is flagged
-  `requires_admin`; only an admin account can run or create it, and only an
-  admin can clear the flag.
+  `requires_admin`; only an admin account can run it or set and clear that
+  flag.
 - **Run-as-logged-in-user job fails with a clear Stderr message instead of
   running**: expected when there's no active console session, the device
   isn't Windows, or the shell isn't PowerShell — this deliberately fails
@@ -152,13 +152,13 @@ issue rather than a functional bug.
   the session is queued, up to a minute — allow that before treating it as
   failed. If it's still stuck past that, check `agent.log` for a PTY-open
   message; if the agent logged success but the dashboard never received
-  traffic, that's the specific failure shape tracked as a platform-support
-  gap, not a new issue — check the current status in
-  `docs/BETA_PLATFORM_SUPPORT.md` first.
+  traffic, report it as a Remote Shell bug with the relevant sanitized agent
+  and browser logs.
 - **Closing the modal leaves the remote shell process running**: fixed for
-  sessions initiated by a current dashboard build talking to a current
-  agent (explicit close code `1000` on both ends) — an old cached dashboard
-  bundle or an old agent build can still hit the previous behavior.
+  sessions initiated by a current dashboard build through a current Worker
+  deployment (explicit close code `1000` on both ends) — an old cached
+  dashboard bundle or an un-updated self-hosted Worker can still hit the
+  previous behavior.
 
 ### Agent self-update
 
