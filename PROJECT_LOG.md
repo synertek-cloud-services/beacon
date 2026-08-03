@@ -1,5 +1,57 @@
 # Beacon — Project Log
 
+## Session: 2026-08-02 — Self-hostable agent release channel
+
+### What was completed
+
+Implemented issue #92's independent release workflow. A hoster can generate an
+Ed25519 key directly into a new restricted file (mode `0600` on POSIX), retain
+the legacy environment variable for existing automation, automatically derive and linker-embed the
+public half into every platform build, select or safely detect a public GitHub
+release repository, and publish/register all five platform binaries without a
+manual source edit or upstream signing material.
+
+The signing and verification tools now consume the same embedded release-key
+package. Signing rejects a malformed private key, an inconsistent seed/public
+half, or a key that does not match the build's embedded public key. The release
+script requires exact SHA-256 equality and Ed25519 verification of downloaded
+GitHub assets before Worker registration, then verifies the Worker's public
+version metadata and download bytes. There is no cryptographic-verification
+fallback. Existing version assets are immutable, same-version retries skip
+identical current catalog rows, and conflicting metadata or downgrades fail.
+
+### Validation and defect found
+
+The full Go test suite and focused Node release-configuration tests pass. A
+throwaway host-controlled key and semantic prerelease exercised the real public
+GitHub release path plus the disposable hosted Worker: all five platform assets
+built, signed, downloaded, matched their local hashes, passed Ed25519
+verification, registered, and passed the unauthenticated Worker version/download
+checks. An identical second invocation verified all five immutable assets and
+skipped all five catalog writes.
+
+That retry test found an existing Windows reproducibility defect: the tray
+helper imported `internal/service` for the reboot-marker path, while `service`
+embeds the previously built tray executable. Every tray build therefore
+indirectly depended on the prior tray bytes, changing the Windows agent on each
+run. The shared path now lives in neutral `internal/rebootmarker`; independent
+tray builds and complete repeated releases are byte-identical.
+
+All temporary prereleases/tags, disposable D1 catalog rows, comparison files,
+and the throwaway private key were deleted after validation. The reusable
+Cloudflare installation-validation environment remains available as planned.
+
+### Key technical decisions
+
+- Plain development builds retain Beacon's upstream public key; only the
+  release script injects a host-controlled key.
+- GitHub release repositories must be public because agent downloads carry no
+  GitHub credential.
+- Signing-key loss is not recoverable through a newly generated key. Rotation
+  requires a deliberate transition while the old trusted key remains available.
+- Release versions and their hosted bytes are immutable; repair means a new
+  semantic version, not replacing an asset beneath an existing signature.
+
 ## Session: 2026-08-02 — Self-hosting installation audit and beta release-channel blocker
 
 ### What was completed

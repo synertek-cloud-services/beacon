@@ -193,7 +193,7 @@ single-purpose deployment token and revoke it promptly after the intended
 devices enroll. Polished silent deployment and token handling are tracked in
 [issue #87](https://github.com/synertek-cloud-services/beacon/issues/87).
 
-## 9. Install an initial agent
+## 9. Install an initial validation agent
 
 Build development binaries from the checked-out source:
 
@@ -202,9 +202,11 @@ make build-agent-windows
 make build-agent-linux
 ```
 
-These Makefile targets are suitable for initial beta enrollment, not a signed
-release channel. Run installation from an elevated Administrator/root shell and
-substitute the actual API origin and a newly-created enrollment token.
+These Makefile targets are suitable for disposable installation validation,
+not a production fleet or host-controlled release channel. For production
+agents, complete section 10 first and install its published binaries instead.
+Run installation from an elevated Administrator/root shell and substitute the
+actual API origin and a newly-created enrollment token.
 
 Windows:
 
@@ -227,21 +229,90 @@ The installer copies the binary into its system location and starts the Beacon
 service. Approve the pending device in the dashboard when auto-approval is off,
 then confirm that Last Seen and Last Audit advance.
 
-### Current agent-release limitation
+Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
+new self-hosted installation, publish the host-controlled channel in the next
+section and install those binaries instead. An agent cannot switch from one
+signing key to another through a release signed only by the new key.
 
-A fresh database contains no agent release catalog. The current maintainer
-release script and embedded update-verification key belong to the upstream
-Beacon release channel, so an independent hoster cannot yet publish and
-register host-signed updates without modifying source. [Issue #92](https://github.com/synertek-cloud-services/beacon/issues/92) is the beta
-blocker for host-controlled signing, configurable release hosting, registration,
-and verification.
+## 10. Publish the host-controlled agent channel
 
-Until #92 lands, initial binaries can be built from source or obtained from an
-upstream release, but independent automatic agent updates are not a supported
-self-hosting workflow. Do not describe a successful initial enrollment as
-proof that the update channel is configured.
+Do this before installing production agents. You need an authenticated GitHub
+CLI with release-write access to a **public** Beacon fork or repository. Agent
+downloads are intentionally unauthenticated, so private GitHub release assets
+cannot serve as the update channel.
 
-## 10. Installation checks
+Generate the signing key once, writing it outside the repository to an existing
+secure directory:
+
+```bash
+cd agent
+go run ./tools/keygen --out /secure/path/beacon-agent-signing.key
+cd ..
+```
+
+The command refuses to overwrite an existing file. On Linux and macOS it
+creates the file with mode `0600`, which the release script enforces. On
+Windows, restrict the file's ACL to the release operator before use. The
+command prints the non-secret public key, never the private key. Place the
+private-key file and its encrypted backup in the same operational class as
+`CONFIG_ENCRYPTION_KEY`; do not commit it, paste it into an issue, or allow it
+into command output.
+
+Prepare the release process environment through your shell or secret manager:
+
+```bash
+export BEACON_SIGNING_KEY_FILE=/secure/path/beacon-agent-signing.key
+export BEACON_WORKER_URL=https://beacon-api.example.com
+export BEACON_RELEASE_REPOSITORY=YOUR_GITHUB_OWNER/YOUR_PUBLIC_BEACON_REPOSITORY
+export BEACON_ADMIN_SECRET
+node scripts/publish-agent.mjs 0.3.0
+unset BEACON_ADMIN_SECRET
+```
+
+Set `BEACON_ADMIN_SECRET` without putting its value in the command or shell
+history. `BEACON_RELEASE_REPOSITORY` is optional when `gh repo view` correctly
+detects the intended fork from the checkout. Setting it explicitly is safer on
+a checkout with several remotes. A semantic prerelease version such as
+`0.3.0-beta.1` is created as a GitHub prerelease.
+
+For every supported platform, the script:
+
+1. Derives the public half of the host-controlled Ed25519 key and embeds it in
+   the agent at build time.
+2. Builds the five platform binaries and publishes them to the selected GitHub
+   release.
+3. Refuses to sign if the private key does not match the public key supplied to
+   the build.
+4. Downloads the public release asset, requires an exact SHA-256 match, and
+   verifies its Ed25519 signature before registering it.
+5. Registers the verified metadata with the Worker and confirms the public
+   version and download routes return that release and those exact bytes.
+
+Published version assets are immutable. Re-running the same version may verify
+byte-identical assets and skip identical current catalog entries, but the
+script will not overwrite a different or incomplete existing release. It also
+rejects a downgrade below the Worker's current platform version. Correct the
+problem and publish a new semantic version instead.
+
+The older `BEACON_SIGNING_KEY` environment variable remains supported for
+existing automation, but the restricted key file avoids repeatedly copying
+private material between a password manager and a shell.
+
+### Signing-key continuity
+
+Every deployed agent permanently trusts the public key embedded when it was
+built. Losing the corresponding private key means those agents cannot accept
+another automatic update. Replacing or rotating it requires a planned
+transition release signed by the currently trusted key; generating a new key
+alone does not recover the channel. There is no automatic signing-key rotation
+in the beta workflow.
+
+Back up the signing key before fleet deployment and test restoration of that
+backup as part of [issue #85](https://github.com/synertek-cloud-services/beacon/issues/85).
+Never run an initial fleet from plain upstream-key builds if the fleet is meant
+to follow the host-controlled channel.
+
+## 11. Installation checks
 
 Before enrolling more endpoints, verify:
 
@@ -251,6 +322,8 @@ Before enrolling more endpoints, verify:
 - The default dashboard is present.
 - A company and enrollment token can be created.
 - A device can enroll, be approved, check in, and submit an audit.
+- Each supported platform has a registered host-controlled agent release, and
+  the release script completed its hosted-byte and Worker-route verification.
 - Worker cron triggers are configured for `*/2 * * * *`.
 - Remote Shell uses the configured Worker origin rather than another instance.
 - No secret or organization-specific configuration file is tracked by Git.

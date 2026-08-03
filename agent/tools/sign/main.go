@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/synertek-cloud-services/beacon/agent/internal/releasekey"
 )
 
 func main() {
@@ -29,6 +31,10 @@ func main() {
 	privBytes, err := hex.DecodeString(keyHex)
 	if err != nil || len(privBytes) != ed25519.PrivateKeySize {
 		log.Fatalf("BEACON_SIGNING_KEY: expected %d hex bytes, got %d", ed25519.PrivateKeySize, len(privBytes))
+	}
+
+	if err := releasekey.ValidatePrivateKey(ed25519.PrivateKey(privBytes)); err != nil {
+		log.Fatalf("BEACON_SIGNING_KEY: %v", err)
 	}
 
 	data, err := os.ReadFile(binaryPath)
