@@ -143,8 +143,14 @@ cp dashboard/.env.production.example dashboard/.env.production
 pnpm --dir dashboard run build
 cd worker
 npx wrangler pages project create beacon-dashboard --production-branch main
-npx wrangler pages deploy ../dashboard/dist --project-name beacon-dashboard --branch main
+npx wrangler pages deploy --cwd .. dashboard/dist --project-name beacon-dashboard --branch main
 ```
+
+`--cwd ..` runs the Pages upload from the repository root. Without it,
+Wrangler finds the Worker's `wrangler.toml`, warns that it lacks the
+Pages-only `pages_build_output_dir` setting, and then ignores that file. The
+upload still works, but avoiding the unrelated Worker configuration makes the
+procedure and its output unambiguous.
 
 Use the same Pages project name represented by `PAGES_PREVIEW_SUFFIX`. Attach a
 custom dashboard domain in Cloudflare if desired. If the final dashboard origin

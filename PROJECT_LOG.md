@@ -49,12 +49,38 @@ creation, and Linux-shaped agent enrollment returned `200`/`201`; the enrolled
 device was approved. Worker type checking, the dashboard production build,
 and `go build ./...` also passed.
 
-The test caught three documentation defects before handoff: GNU Make was
+The local test caught three documentation defects before handoff: GNU Make was
 missing from the prerequisites, the Pages project-create command omitted its
 required project-name argument, and macOS had not been explicitly identified
-as unvalidated. Provisioning a second hosted Cloudflare account, validating
-custom-domain DNS/TLS, and installing on real Windows/Linux endpoints remain
-environmental beta validation rather than claims made by this local test.
+as unvalidated.
+
+The merged guide was then followed against an isolated hosted Cloudflare
+environment using `workers.dev` and `pages.dev`: a fresh D1 database received
+all 69 migrations; Worker code and both secrets were deployed atomically; a
+later normal deploy proved encrypted secrets remained bound; Durable Objects,
+the two-minute cron, private R2 logo upload/read/delete, exact-origin CORS,
+break-glass bootstrap, local-user login, encrypted configuration-secret
+storage/masking, company creation, one-use enrollment, check-in, and audit all
+passed. The user also manually confirmed the hosted Dashboard, Companies,
+Devices, and Settings/Users pages loaded correctly. The Pages test found that
+running its upload from `worker/` emits a harmless configuration warning, so
+the guide now uses Wrangler's `--cwd ..` option; that exact replacement was
+re-run successfully without the warning.
+
+A disposable Vultr Ubuntu 24.04 systemd VM completed the real Linux lifecycle:
+the source-built amd64 agent installed active/enabled, enrolled and checked in,
+survived a service restart with a new PID, processed `run_audit` through
+`completed`, and submitted hardware, software, services, and security
+inventory. Its one-use token was promptly revoked. The real uninstall removed
+the service, installed binary, credential/log directory, and process. The VM,
+IP-restricted firewall, Vultr SSH-key record, local API key, and local SSH key
+were all deleted and verified absent afterward; the user then deleted the
+temporary Vultr service account. Full evidence is recorded on issue #81.
+
+Custom-domain DNS/TLS and Windows service lifecycle testing remain deployment
+and platform acceptance work under #84/#87. Independent host-signed agent
+publishing remains the separate beta blocker in #92; neither invalidates the
+now-validated source-built initial installation procedure.
 
 ## Session: 2026-08-02 — Tray blank-icon fix, sticky save bar UX overhaul, Patch Policy Class simplification + Hyper-V host exclusion
 
