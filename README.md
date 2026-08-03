@@ -96,6 +96,8 @@ requires these one-time GitHub repository settings:
 
 Disable automatic production Pages deployments in Cloudflare; otherwise Pages
 can publish the frontend before its Worker and database changes are released.
+Back up and test recovery before enrolling production endpoints; see the
+[backup and recovery runbook](docs/BACKUP_RECOVERY.md).
 
 ## Database migrations
 
