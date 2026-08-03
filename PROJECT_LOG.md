@@ -1,5 +1,46 @@
 # Beacon — Project Log
 
+## Session: 2026-08-02 — Beta platform matrix and Ubuntu acceptance
+
+Published `docs/BETA_PLATFORM_SUPPORT.md` as Beacon's per-capability beta
+support contract and repeatable Windows/Linux/macOS promotion checklist. The
+matrix deliberately distinguishes Supported, Experimental, Unvalidated, Not
+available, and Not applicable rather than inferring parity from shared Go code
+or successful cross-compilation. README and CLAUDE now point to that contract.
+
+A disposable Vultr Ubuntu 24.04 amd64 VM exercised the current candidate
+against the hosted validation Worker. The run passed manual enrollment
+approval and token revocation, check-in, on-demand hardware/software/service
+audit, agent-measured ping alert trigger and automatic resolution, direct
+scripts, Quick Jobs, nonzero-exit reporting, timeout failure reporting,
+one-time hosted-cron dispatch, agent restart with a different PID, full reboot
+with a different boot ID, and resumed check-ins. Signed self-update was not run
+because the isolated Worker had no candidate A/B release catalog. Notification
+provider delivery was not enabled for the disposable monitor.
+
+The live run found two Linux service defects. First, `restart_agent` exits
+cleanly, so the old systemd `Restart=on-failure` policy left the agent stopped;
+fresh units now use `Restart=always`. That exposed the second defect: a plain
+detached self-uninstall helper remained in the service cgroup, was killed when
+the main process exited, and allowed systemd to restart the agent before any
+cleanup occurred. Linux self-uninstall now submits cleanup through a unique
+transient `systemd-run --collect --no-block` unit. A second clean Ubuntu VM
+passed two complete install/uninstall cycles: service unit, installed binary,
+and `/etc/beacon` were removed; reinstall enrolled a different device identity;
+and final remote uninstall passed again.
+
+Hosted Remote Shell did not pass. In both client-first and agent-first order,
+the command reached `sent` and the real agent logged that it opened its PTY,
+but the Durable Object relay forwarded no traffic before timeout. Linux Remote
+Shell is labeled Experimental and the confirmed follow-up is issue #98.
+
+Both Vultr VMs, firewalls, uploaded SSH keys, local API/SSH credentials,
+enrollment/session credentials, and disposable agent installs were deleted and
+verified absent after testing. The hosted company, three device records,
+tokens, temporary policy, jobs, commands, audits, alerts, and sessions were
+also removed; issue-specific record counts were zero and D1's
+`PRAGMA foreign_key_check` returned no rows.
+
 ## Session: 2026-08-02 — API authorization and role-boundary audit
 
 Audited every Worker route family against Beacon's global

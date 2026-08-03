@@ -2,6 +2,10 @@
 
 Beacon is a self-hosted Remote Monitoring & Management (RMM) platform. It runs a lightweight Go agent on managed endpoints (Windows, macOS, Linux), a Cloudflare Workers backend for check-ins and administration, and a Vue 3 dashboard for day-to-day operations.
 
+Platform capabilities are not assumed to be identical. See the
+[beta platform support matrix and acceptance checklists](docs/BETA_PLATFORM_SUPPORT.md)
+for the current Windows, Linux, and macOS support contract.
+
 It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation, Windows patch management, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
 
 ## Architecture
