@@ -52,11 +52,10 @@ func Uninstall() error {
 // since neither this process nor Go installs a custom SIGTERM handler, the
 // OS's default SIGTERM action (immediate termination) fires the moment the
 // stop takes effect -- killing this process mid-call, before disable/remove
-// ever run. Same detached-helper fix as install_windows.go's SelfUninstall:
-// spawn an independent helper that does the real work after a short delay,
-// then let this process exit normally.
+// ever run. The Linux helper must additionally leave beacon-agent.service's
+// cgroup: a plain detached child is still killed by systemd when the main
+// process exits. A transient systemd unit provides that cgroup boundary.
 func SelfUninstall() error {
-	var script string
 	switch runtime.GOOS {
 	case "linux":
 		// credential.Dir()'s rm -rf also removes agent.log (setupLogging
@@ -64,30 +63,47 @@ func SelfUninstall() error {
 		// platform, not just Windows) -- neither was ever removed by any
 		// uninstall path before, which left a stale credential behind for a
 		// later reinstall to silently reuse instead of enrolling fresh.
-		script = fmt.Sprintf(
+		script := fmt.Sprintf(
 			"sleep 2; systemctl stop beacon-agent; systemctl disable beacon-agent; rm -f %s %s; rm -rf %s; systemctl daemon-reload",
 			linuxUnitPath, linuxBinPath, credential.Dir(),
 		)
+		// --no-block makes Run wait only for systemd to accept the transient
+		// unit, not for the cleanup itself. Run (rather than Start) confirms
+		// submission before the caller exits and also reaps systemd-run.
+		if err := linuxSelfUninstallCommand(os.Getpid(), script).Run(); err != nil {
+			return fmt.Errorf("submit uninstall helper: %w", err)
+		}
+		return nil
 	case "darwin":
-		script = fmt.Sprintf(
+		script := fmt.Sprintf(
 			"sleep 2; launchctl unload %s; rm -f %s %s; rm -rf %s",
 			macPlistPath, macPlistPath, macBinPath, credential.Dir(),
 		)
+		// launchd does not place an ordinary detached child in the daemon's
+		// lifecycle the way systemd's service cgroup does on Linux.
+		if err := exec.Command("sh", "-c", script).Start(); err != nil {
+			return fmt.Errorf("spawn uninstall helper: %w", err)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
-	// .Start(), not run()'s blocking .Run() -- this must return immediately
-	// so the caller can os.Exit(0) right after, leaving the helper to run
-	// independently (a child process's lifetime isn't tied to its parent's
-	// on Linux/macOS by default, same as Windows).
-	if err := exec.Command("sh", "-c", script).Start(); err != nil {
-		return fmt.Errorf("spawn uninstall helper: %w", err)
-	}
-	return nil
+}
+
+func linuxSelfUninstallCommand(pid int, script string) *exec.Cmd {
+	return exec.Command(
+		"systemd-run",
+		fmt.Sprintf("--unit=beacon-agent-uninstall-%d", pid),
+		"--collect",
+		"--no-block",
+		"/bin/sh",
+		"-c",
+		script,
+	)
 }
 
 // Reharden is a no-op on Linux/macOS -- their restart-on-exit behavior
-// (systemd's Restart=on-failure, launchd's KeepAlive) is written directly
+// (systemd's Restart=always, launchd's KeepAlive) is written directly
 // into the unit/plist file at install time, not configured via a separate
 // runtime API call the way Windows' SCM recovery actions are, so there's no
 // equivalent gap to self-heal here. See install_windows.go's Reharden.
@@ -101,7 +117,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart={{.Bin}} --server-url {{.ServerURL}} --enroll-token {{.Token}}
-Restart=on-failure
+Restart=always
 RestartSec=30
 
 [Install]
