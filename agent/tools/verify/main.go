@@ -14,10 +14,9 @@ import (
 	"io"
 	"log"
 	"os"
-)
 
-// Must match pinnedPublicKey in agent/internal/updater/verify.go.
-const pinnedPublicKey = "673119993b2e981690afb9567065d53813e5cd83409d6b7f1f2a62175a220282"
+	"github.com/synertek-cloud-services/beacon/agent/internal/releasekey"
+)
 
 func main() {
 	if len(os.Args) != 2 {
@@ -34,7 +33,10 @@ func main() {
 		log.Fatalf("BEACON_SIGNATURE_HEX: expected %d hex bytes, got %d", ed25519.SignatureSize, len(sigBytes))
 	}
 
-	pubBytes, _ := hex.DecodeString(pinnedPublicKey)
+	publicKey, err := releasekey.PublicKey()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var data []byte
 	if os.Args[1] == "-" {
@@ -50,7 +52,7 @@ func main() {
 	}
 
 	digest := sha256.Sum256(data)
-	if !ed25519.Verify(ed25519.PublicKey(pubBytes), digest[:], sigBytes) {
+	if !ed25519.Verify(publicKey, digest[:], sigBytes) {
 		fmt.Fprintf(os.Stderr, "INVALID: signature does not match pinned public key for %s\n", os.Args[1])
 		os.Exit(1)
 	}

@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"fyne.io/systray"
-	"github.com/synertek-cloud-services/beacon/agent/internal/service"
+	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
 )
 
 //go:embed assets/icon.ico
@@ -128,7 +128,7 @@ func pollPendingReboot() {
 		if dialogShowing {
 			continue
 		}
-		path := service.PendingRebootMarkerPath()
+		path := rebootmarker.Path()
 		if path == "" {
 			return // shouldn't happen -- this binary is Windows-only -- but bail cleanly if it ever does
 		}

@@ -1,195 +1,314 @@
 #!/usr/bin/env node
 /**
- * Build, sign, publish, and verify a new agent version.
+ * Build, sign, publish, register, and verify a new agent version.
  *
- * Required env vars:
- *   BEACON_SIGNING_KEY   — hex Ed25519 private key (from tools/keygen, in password manager)
- *   BEACON_WORKER_URL    — worker base URL (e.g. https://rmm-api.cloud.synertekcs.com)
- *   BEACON_ADMIN_SECRET  — worker admin secret
+ * Required environment:
+ *   BEACON_SIGNING_KEY_FILE — mode-0600 Ed25519 private-key file (recommended),
+ *                             or BEACON_SIGNING_KEY for the legacy workflow
+ *   BEACON_WORKER_URL       — Worker origin
+ *   BEACON_ADMIN_SECRET     — Worker break-glass secret used for registration
  *
- * Usage (export + run in a single command to prevent direnv from resetting env between prompts):
- *   export BEACON_SIGNING_KEY=<key> BEACON_WORKER_URL=<url> BEACON_ADMIN_SECRET=<secret> && \
- *     node scripts/publish-agent.mjs 0.2.9
- *
- * What it does:
- *   0. Rebuilds beacon-tray.exe and embeds it into the Windows agent binary
- *      (not its own release artifact -- see internal/service/tray_windows.go)
- *   1. Builds all 5 platform binaries with -trimpath (reproducible across machines/dirs)
- *   2. Creates (or reuses) a GitHub release vX.Y.Z and uploads the binaries
- *   3. Signs each binary with the Ed25519 key
- *   4. Registers each with the worker via POST /v1/admin/agent/versions
- *   5. Verifies the registered signature by re-downloading from GitHub and re-checking
+ * Optional environment:
+ *   BEACON_RELEASE_REPOSITORY — public GitHub repository in owner/repository
+ *                               form; otherwise detected from the checkout
  */
 
-import { execSync, spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { execFileSync, spawnSync } from 'child_process';
+import { createHash } from 'crypto';
+import { mkdirSync, readFileSync } from 'fs';
 import { resolve, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createHash } from 'crypto';
+
+import {
+  compareVersions,
+  normalizeWorkerUrl,
+  publicKeyFromSigningKey,
+  readSigningKey,
+  validateRepository,
+  validateVersion,
+} from './lib/agent-release.mjs';
 
 const rootDir = resolve(fileURLToPath(import.meta.url), '../..');
 const agentDir = join(rootDir, 'agent');
-const distDir  = join(rootDir, 'dist');
+const distDir = join(rootDir, 'dist');
+const releaseKeyVariable = 'github.com/synertek-cloud-services/beacon/agent/internal/releasekey.PublicKeyHex';
 
-const version = process.argv[2];
-if (!version) {
-  console.error('usage: publish-agent.mjs <version>');
+function fail(message) {
+  console.error(message);
   process.exit(1);
 }
 
-const workerUrl   = process.env.BEACON_WORKER_URL;
+function run(command, args, options = {}) {
+  try {
+    return execFileSync(command, args, options);
+  } catch (error) {
+    const detail = error.stderr?.toString().trim();
+    fail(detail ? `${command} failed: ${detail}` : `${command} failed`);
+  }
+}
+
+function runGo(args, options = {}) {
+  return run('go', args, { cwd: agentDir, stdio: 'inherit', ...options });
+}
+
+async function fetchWithRetry(url, options = {}, attempts = 5) {
+  let lastResponse;
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      lastResponse = await fetch(url, options);
+      if (lastResponse.ok || attempt === attempts) return lastResponse;
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) throw error;
+    }
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 3000));
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError;
+}
+
+function detectReleaseRepository(explicitRepository) {
+  const args = ['repo', 'view'];
+  if (explicitRepository) args.push(validateRepository(explicitRepository));
+  args.push('--json', 'nameWithOwner,visibility');
+
+  const raw = run('gh', args, { cwd: rootDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const repository = JSON.parse(raw);
+  validateRepository(repository.nameWithOwner);
+  if (repository.visibility !== 'PUBLIC') {
+    fail(`Release repository ${repository.nameWithOwner} is not public; Beacon agents cannot authenticate to private GitHub release assets`);
+  }
+  return repository.nameWithOwner;
+}
+
+const versionArgument = process.argv[2];
+if (!versionArgument || process.argv.length !== 3) {
+  fail('usage: node scripts/publish-agent.mjs <version>');
+}
+
+let version;
+let workerUrl;
+let signingKey;
+try {
+  version = validateVersion(versionArgument);
+  workerUrl = normalizeWorkerUrl(process.env.BEACON_WORKER_URL ?? '');
+  signingKey = readSigningKey({
+    keyFile: process.env.BEACON_SIGNING_KEY_FILE,
+    keyValue: process.env.BEACON_SIGNING_KEY,
+  });
+} catch (error) {
+  fail(error.message);
+}
+
 const adminSecret = process.env.BEACON_ADMIN_SECRET;
-const signingKey  = process.env.BEACON_SIGNING_KEY;
+if (!adminSecret) fail('BEACON_ADMIN_SECRET is required');
 
-if (!workerUrl || !adminSecret || !signingKey) {
-  console.error('Required: BEACON_WORKER_URL, BEACON_ADMIN_SECRET, BEACON_SIGNING_KEY');
-  process.exit(1);
-}
+const publicKey = publicKeyFromSigningKey(signingKey);
+const releaseRepository = detectReleaseRepository(process.env.BEACON_RELEASE_REPOSITORY);
+const releaseKeyLdflag = `-X ${releaseKeyVariable}=${publicKey}`;
+const agentLdflags = `-X main.version=${version} ${releaseKeyLdflag}`;
 
 const targets = [
-  { os: 'linux',   arch: 'amd64' },
-  { os: 'linux',   arch: 'arm64' },
+  { os: 'linux', arch: 'amd64' },
+  { os: 'linux', arch: 'arm64' },
   { os: 'windows', arch: 'amd64' },
-  { os: 'darwin',  arch: 'amd64' },
-  { os: 'darwin',  arch: 'arm64' },
+  { os: 'darwin', arch: 'amd64' },
+  { os: 'darwin', arch: 'arm64' },
 ];
-
 const tag = `v${version}`;
+const assetName = ({ os, arch }) => os === 'windows'
+  ? `beacon-agent-${os}-${arch}.exe`
+  : `beacon-agent-${os}-${arch}`;
 
-// ── Step 1: Build all binaries ──────────────────────────────────────────────
+mkdirSync(distDir, { recursive: true });
 
-execSync(`mkdir -p ${distDir}`);
-
-// beacon-tray.exe gets embedded into the Windows agent binary via
-// //go:embed (internal/service/tray_windows.go) rather than shipped as its
-// own release artifact -- the self-update/versions-registration pipeline
-// stays untouched, still exactly one beacon-agent.exe per platform. Must be
-// rebuilt with -trimpath here, before the main loop below, so the
-// windows/amd64 build picks up fresh bytes -- its own reproducibility
-// requirement, same reasoning as the main binary: these bytes become part
-// of it.
+console.log(`Publishing ${tag} to ${releaseRepository} with a host-controlled update key.`);
 console.log('Building beacon-tray.exe (embedded into the Windows agent binary)…');
-execSync(
-  // -H=windowsgui marks the PE as a GUI-subsystem binary, so Windows never
-  // allocates a console for it. Without this, every tray launch (service
-  // start, new login, the 60s EnsureTrayRunning resilience check) pops a
-  // real, visible, blank console window into the target user's session --
-  // confirmed on real hardware, not theoretical: systray itself never
-  // writes to a console, so the window just sits there empty until closed.
-  `go build -trimpath -ldflags="-H=windowsgui" -o internal/service/embedded/beacon-tray.exe ./cmd/beacon-tray`,
-  { cwd: agentDir, env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' }, stdio: 'inherit' }
+runGo(
+  ['build', '-trimpath', '-ldflags=-H=windowsgui', '-o', 'internal/service/embedded/beacon-tray.exe', './cmd/beacon-tray'],
+  { env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' } },
 );
 
-for (const { os, arch } of targets) {
-  const outName = os === 'windows' ? `beacon-agent-${os}-${arch}.exe` : `beacon-agent-${os}-${arch}`;
-  const outPath = join(distDir, outName);
-  console.log(`Building ${os}/${arch}…`);
-  execSync(
-    // -trimpath strips the build machine's absolute paths from the binary so
-    // the same source always produces the same bytes regardless of where it's
-    // built — this makes signatures reproducible across machines and directories.
-    `go build -trimpath -ldflags="-X main.version=${version}" -o ${outPath} ./cmd/agent`,
-    { cwd: agentDir, env: { ...process.env, GOOS: os, GOARCH: arch, CGO_ENABLED: '0' }, stdio: 'inherit' }
+for (const target of targets) {
+  const outputPath = join(distDir, assetName(target));
+  console.log(`Building ${target.os}/${target.arch}…`);
+  runGo(
+    ['build', '-trimpath', `-ldflags=${agentLdflags}`, '-o', outputPath, './cmd/agent'],
+    { env: { ...process.env, GOOS: target.os, GOARCH: target.arch, CGO_ENABLED: '0' } },
   );
 }
 
-// ── Step 2: Create GitHub release (idempotent — reuses existing release) ────
+const signedReleases = [];
+for (const target of targets) {
+  const name = assetName(target);
+  const outputPath = join(distDir, name);
 
-const assetNames = targets.map(({ os, arch }) =>
-  os === 'windows' ? `beacon-agent-${os}-${arch}.exe` : `beacon-agent-${os}-${arch}`
-);
+  console.log(`[${target.os}/${target.arch}] Validating the embedded key and signing…`);
+  const signResult = spawnSync(
+    'go', ['run', `-ldflags=${releaseKeyLdflag}`, './tools/sign', outputPath],
+    {
+      cwd: agentDir,
+      env: { ...process.env, BEACON_SIGNING_KEY: signingKey },
+      encoding: 'utf8',
+    },
+  );
+  if (signResult.status !== 0) {
+    fail(signResult.stderr?.trim() || `Signing failed for ${name}`);
+  }
+  signedReleases.push({
+    ...target,
+    name,
+    outputPath,
+    signatureHex: signResult.stdout.trim(),
+    downloadUrl: `https://github.com/${releaseRepository}/releases/download/${tag}/${name}`,
+  });
+}
 
-let releaseExists = false;
+const catalogResponse = await fetch(`${workerUrl}/v1/admin/agent/versions`, {
+  headers: { Authorization: `Bearer ${adminSecret}` },
+});
+if (!catalogResponse.ok) fail(`Worker release-catalog check failed: HTTP ${catalogResponse.status}`);
+const catalog = await catalogResponse.json();
+
+for (const release of signedReleases) {
+  const platformRows = catalog.filter(row => row.os === release.os && row.arch === release.arch);
+  const sameVersionRows = platformRows.filter(row => row.version === version);
+  if (sameVersionRows.some(row =>
+    row.downloadUrl !== release.downloadUrl || row.signatureHex !== release.signatureHex
+  )) {
+    fail(`Worker already contains conflicting metadata for ${version} ${release.os}/${release.arch}; publish a new version`);
+  }
+  const exactCurrent = sameVersionRows.some(row =>
+    row.isLatest
+    && row.downloadUrl === release.downloadUrl
+    && row.signatureHex === release.signatureHex
+  );
+  const current = platformRows.find(row => row.isLatest);
+  if (!exactCurrent && current && compareVersions(version, current.version) <= 0) {
+    fail(`Refusing to replace current ${release.os}/${release.arch} version ${current.version} with ${version}`);
+  }
+}
+
+let releaseExists = true;
 try {
-  execSync(`gh release view ${tag} --json tagName`, { stdio: 'pipe' });
-  releaseExists = true;
-} catch { /* doesn't exist yet */ }
+  execFileSync('gh', ['release', 'view', tag, '--repo', releaseRepository, '--json', 'tagName'], {
+    cwd: rootDir,
+    stdio: 'pipe',
+  });
+} catch {
+  releaseExists = false;
+}
 
+const assetPaths = targets.map(target => join(distDir, assetName(target)));
 if (releaseExists) {
-  console.log(`\nGitHub release ${tag} already exists — uploading/overwriting assets…`);
-  for (const name of assetNames) {
-    try {
-      execSync(`gh release upload ${tag} ${join(distDir, name)} --clobber`, { stdio: 'inherit' });
-    } catch (e) {
-      console.error(`Failed to upload ${name}: ${e.message}`);
-      process.exit(1);
-    }
-  }
+  console.log(`GitHub release ${tag} already exists — verifying its immutable assets…`);
 } else {
-  console.log(`\nCreating GitHub release ${tag}…`);
-  const assetPaths = assetNames.map(n => join(distDir, n)).join(' ');
-  execSync(`gh release create ${tag} ${assetPaths} --title "Agent ${tag}" --notes "Agent ${tag}"`, {
-    cwd: rootDir, stdio: 'inherit',
-  });
+  console.log(`Creating GitHub release ${tag}…`);
+  const createArgs = [
+    'release', 'create', tag, ...assetPaths,
+    '--repo', releaseRepository,
+    '--title', `Agent ${tag}`,
+    '--notes', `Agent ${tag}`,
+  ];
+  if (version.includes('-')) createArgs.push('--prerelease');
+  run('gh', createArgs, { cwd: rootDir, stdio: 'inherit' });
 }
 
-const downloadBase = `https://github.com/synertek-cloud-services/beacon/releases/download/${tag}`;
+const verifiedReleases = [];
 
-// ── Step 3: Sign, register, and verify each binary ─────────────────────────
-
-for (const { os, arch } of targets) {
-  const outName = os === 'windows' ? `beacon-agent-${os}-${arch}.exe` : `beacon-agent-${os}-${arch}`;
-  const outPath = join(distDir, outName);
-
-  console.log(`\n[${os}/${arch}] Signing…`);
-  const sigResult = spawnSync('go', ['run', './tools/sign', outPath], {
-    cwd: agentDir, env: { ...process.env, BEACON_SIGNING_KEY: signingKey },
-  });
-  if (sigResult.status !== 0) {
-    console.error(sigResult.stderr?.toString());
-    process.exit(1);
-  }
-  const signatureHex = sigResult.stdout.toString().trim();
-
-  const downloadUrl = `${downloadBase}/${outName}`;
-  console.log(`[${os}/${arch}] Registering with worker…`);
-  const resp = await fetch(`${workerUrl}/v1/admin/agent/versions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminSecret}` },
-    body: JSON.stringify({ version, os, arch, download_url: downloadUrl, signature_hex: signatureHex }),
-  });
-  if (!resp.ok) {
-    console.error(`Worker ${resp.status}: ${await resp.text()}`);
-    process.exit(1);
+for (const release of signedReleases) {
+  console.log(`[${release.os}/${release.arch}] Downloading and independently verifying the hosted asset…`);
+  const download = await fetchWithRetry(release.downloadUrl);
+  if (!download.ok) fail(`Download failed for ${release.name}: HTTP ${download.status}`);
+  const hostedBytes = Buffer.from(await download.arrayBuffer());
+  const localBytes = readFileSync(release.outputPath);
+  const localHash = createHash('sha256').update(localBytes).digest('hex');
+  const hostedHash = createHash('sha256').update(hostedBytes).digest('hex');
+  if (localHash !== hostedHash) {
+    fail(`Immutable hosted bytes do not match the local release build for ${release.name}; publish a new version instead`);
   }
 
-  // Verify: re-download from GitHub and re-compute the signature, then compare
-  // against what was just registered. Catches key corruption silently — the
-  // v0.2.2 incident where a corrupted key signed every binary "successfully"
-  // but devices never actually updated.
-  console.log(`[${os}/${arch}] Verifying signature against live GitHub asset…`);
-  const dl = await fetch(downloadUrl);
-  if (!dl.ok) {
-    console.error(`  Download failed: ${dl.status} — has the release finished propagating? Retry in a moment.`);
-    process.exit(1);
+  const verifyResult = spawnSync(
+    'go', ['run', `-ldflags=${releaseKeyLdflag}`, './tools/verify', '-'],
+    {
+      cwd: agentDir,
+      env: { ...process.env, BEACON_SIGNATURE_HEX: release.signatureHex },
+      input: hostedBytes,
+      encoding: 'utf8',
+    },
+  );
+  if (verifyResult.status !== 0) {
+    fail(verifyResult.stderr?.trim() || `Signature verification failed for ${release.name}`);
   }
-  const bytes = Buffer.from(await dl.arrayBuffer());
+  verifiedReleases.push({ ...release, hostedHash });
+}
 
-  const verify = spawnSync('go', ['run', './tools/verify', '-'], {
-    cwd: agentDir,
-    env: { ...process.env, BEACON_SIGNATURE_HEX: signatureHex },
-    input: bytes,
-  });
+for (const release of verifiedReleases) {
+  const platformRows = catalog.filter(row => row.os === release.os && row.arch === release.arch);
+  const sameVersionRows = platformRows.filter(row => row.version === version);
+  const exactCurrent = sameVersionRows.some(row =>
+    row.isLatest
+    && row.downloadUrl === release.downloadUrl
+    && row.signatureHex === release.signatureHex
+  );
+  const conflictingVersion = sameVersionRows.some(row =>
+    row.downloadUrl !== release.downloadUrl || row.signatureHex !== release.signatureHex
+  );
 
-  // tools/verify may not exist yet — fall back to a SHA-256 sanity check
-  if (verify.status === null) {
-    const localBytes = readFileSync(outPath);
-    const localHash  = createHash('sha256').update(localBytes).digest('hex');
-    const remoteHash = createHash('sha256').update(bytes).digest('hex');
-    if (localHash !== remoteHash) {
-      console.error(`  MISMATCH: local and remote SHA-256 differ for ${outName}`);
-      console.error(`  Local:  ${localHash}`);
-      console.error(`  Remote: ${remoteHash}`);
-      process.exit(1);
-    }
-    console.log(`  ✓ SHA-256 matches (${localHash.slice(0, 16)}…) — Ed25519 verify skipped (no tools/verify binary)`);
-  } else if (verify.status !== 0) {
-    console.error(`  SIGNATURE MISMATCH for ${outName}`);
-    console.error(verify.stderr?.toString());
-    process.exit(1);
+  if (conflictingVersion) {
+    fail(`Worker already contains conflicting metadata for ${version} ${release.os}/${release.arch}; publish a new version`);
+  }
+
+  if (exactCurrent) {
+    console.log(`[${release.os}/${release.arch}] Identical release is already current — registration skipped.`);
   } else {
-    console.log(`  ✓ Signature verified`);
+    const current = platformRows.find(row => row.isLatest);
+    if (current && compareVersions(version, current.version) <= 0) {
+      fail(`Refusing to replace current ${release.os}/${release.arch} version ${current.version} with ${version}`);
+    }
+
+    console.log(`[${release.os}/${release.arch}] Registering verified release with the Worker…`);
+    const response = await fetch(`${workerUrl}/v1/admin/agent/versions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminSecret}`,
+      },
+      body: JSON.stringify({
+        version,
+        os: release.os,
+        arch: release.arch,
+        download_url: release.downloadUrl,
+        signature_hex: release.signatureHex,
+      }),
+    });
+    if (!response.ok) fail(`Worker registration failed for ${release.os}/${release.arch}: HTTP ${response.status}`);
   }
+
+  const versionUrl = new URL('/v1/agent/version', workerUrl);
+  versionUrl.searchParams.set('os', release.os);
+  versionUrl.searchParams.set('arch', release.arch);
+  versionUrl.searchParams.set('current', '0.0.0');
+  const registeredResponse = await fetch(versionUrl);
+  if (!registeredResponse.ok) fail(`Registered version check failed for ${release.os}/${release.arch}: HTTP ${registeredResponse.status}`);
+  const registered = await registeredResponse.json();
+  if (
+    registered.latest_version !== version
+    || registered.download_url !== release.downloadUrl
+    || registered.signature_hex !== release.signatureHex
+  ) {
+    fail(`Worker returned unexpected release metadata for ${release.os}/${release.arch}`);
+  }
+
+  const agentDownloadUrl = new URL('/v1/agent/download', workerUrl);
+  agentDownloadUrl.searchParams.set('os', release.os);
+  agentDownloadUrl.searchParams.set('arch', release.arch);
+  const agentDownload = await fetch(agentDownloadUrl);
+  if (!agentDownload.ok) fail(`Agent download route failed for ${release.os}/${release.arch}: HTTP ${agentDownload.status}`);
+  const agentBytes = Buffer.from(await agentDownload.arrayBuffer());
+  const agentHash = createHash('sha256').update(agentBytes).digest('hex');
+  if (agentHash !== release.hostedHash) fail(`Agent download route returned unexpected bytes for ${release.os}/${release.arch}`);
 }
 
-console.log(`\nDone. Agent ${tag} is live.`);
+console.log(`Done. Agent ${tag} is published, registered, and independently verified.`);

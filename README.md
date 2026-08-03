@@ -112,8 +112,9 @@ Migrations live in `migrations/` and are applied through Wrangler/D1; see the
   changing it makes existing encrypted SSO, email, and company secrets unreadable.
 - The agent-to-Worker enrollment/check-in flow uses per-device tokens, not the admin secret.
 - Released agent binaries are Ed25519-signed. Keep the private signing key out
-  of source control and logs. Independent release publishing is tracked in
-  [issue #92](https://github.com/synertek-cloud-services/beacon/issues/92).
+  of source control and logs. Each self-hoster can generate a host-controlled
+  key and publish a separately trusted update channel by following the
+  [self-hosting guide](docs/SELF_HOSTING.md#10-publish-the-host-controlled-agent-channel).
 
 ## License
 

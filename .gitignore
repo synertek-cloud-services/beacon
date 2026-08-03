@@ -24,6 +24,7 @@ Thumbs.db
 .direnv/
 .env
 *.pem
+*.key
 *.zip
 
 worker/wrangler.toml

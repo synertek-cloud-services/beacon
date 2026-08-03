@@ -23,6 +23,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/pingutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/procutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
+	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
 	"github.com/synertek-cloud-services/beacon/agent/internal/service"
 	"github.com/synertek-cloud-services/beacon/agent/internal/session"
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
@@ -628,7 +629,7 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 }
 
 // rebootMarker is the on-disk state shared between the agent and
-// beacon-tray.exe (agent/internal/service.PendingRebootMarkerPath) -- a
+// beacon-tray.exe (agent/internal/rebootmarker.Path) -- a
 // polled file rather than a named pipe, deliberately, since a reboot
 // prompt isn't latency-critical and this avoids real Windows IPC
 // connection-lifecycle complexity for marginal benefit. SnoozedUntil==0
@@ -646,7 +647,7 @@ type rebootMarker struct {
 // -- never clobbers an in-progress snooze from a previous install's prompt
 // that the user hasn't responded to yet.
 func writePendingRebootMarker() {
-	path := service.PendingRebootMarkerPath()
+	path := rebootmarker.Path()
 	if path == "" {
 		return // non-Windows; no-op
 	}
@@ -665,7 +666,7 @@ func writePendingRebootMarker() {
 // uses, for consistency. Best-effort: any error here just gets logged, not
 // escalated, since this runs unconditionally on every check-in tick.
 func pollPendingReboot() {
-	path := service.PendingRebootMarkerPath()
+	path := rebootmarker.Path()
 	if path == "" {
 		return // non-Windows; no-op
 	}
