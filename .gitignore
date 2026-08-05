@@ -31,3 +31,4 @@ worker/wrangler.toml
 dashboard/.env.production
 
 .playwright-mcp/
+.dmux/

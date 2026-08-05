@@ -1,5 +1,45 @@
 # Beacon — Project Log
 
+## Session: 2026-08-04 — Windows tray blank-slot recovery
+
+The v0.2.19 periodic `systray.SetIcon` workaround failed on Nebuchadnezzar:
+the tray remained a blank notification-area slot for more than 12 hours after
+a reboot. This established that `NIM_MODIFY` cannot repair a bad initial
+registration. v0.2.20 introduced a one-time helper restart per active
+session, but its `systray.Quit()` merely posted `WM_CLOSE`; real hardware
+showed the flagged process remained alive, so the agent supervisor never
+launched its replacement.
+
+v0.2.21 replaces that handoff with `os.Exit(0)`. The agent starts the first
+helper with `--restart-after=2m`; once it exits, the normal 60-second
+supervisor starts exactly one unflagged replacement, yielding a fresh
+`Shell_NotifyIcon(NIM_ADD)`. A direct hardware control test killed the
+v0.2.20 flagged helper, confirmed the supervisor launched the unflagged
+replacement, and confirmed that replacement rendered the icon. This proves
+the fresh registration is sound and the v0.2.20 quit handoff—not the icon
+asset or Explorer itself—was the remaining defect. v0.2.21 was publicly
+published with all five platform assets and the Worker advertises it as the
+latest Windows release.
+
+The same session recovered a separate laptop check-in incident without a
+reinstall: a legacy hardened `BeaconAgent` service remained present but was
+invisible/inaccessible to the installer, while its install directory retained
+a SYSTEM-only ACL. Starting the existing service through SCM restored
+check-ins; it self-updated from v0.2.18 to v0.2.19 and then v0.2.20. The
+installer must eventually detect an existing-but-protected service instead of
+treating an access error as an absent service and attempting `CreateService`.
+
+### Next steps
+
+1. Validate the automatic v0.2.21 tray handoff on Nebuchadnezzar after an
+   update and reboot/login; this is the final end-to-end acceptance check.
+2. Add a safe legacy-install migration/recovery path for protected service
+   entries and install-directory ACLs, with clear diagnostics rather than a
+   misleading "service already exists" error.
+3. Commit the focused tray changes, including the refreshed embedded tray
+   binary, while preserving unrelated local `.gitignore` and `.dmux-hooks/`
+   work.
+
 ## Session: 2026-08-03 — Beta diagnostics and support workflow (issue #82)
 
 Published `docs/BETA_SUPPORT.md`, the last open item on the v0.9.0 Beta

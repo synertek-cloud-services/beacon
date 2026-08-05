@@ -33,12 +33,13 @@ var iconData []byte
 func main() {
 	version := flag.String("version", "dev", "Beacon agent version to display")
 	dashboardURL := flag.String("dashboard-url", "", "Dashboard URL for the 'Visit Dashboard' menu item (item hidden if unset)")
+	restartAfter := flag.Duration("restart-after", 0, "exit after this delay so the agent supervisor can relaunch the tray")
 	flag.Parse()
 
-	systray.Run(func() { onReady(*version, *dashboardURL) }, func() {})
+	systray.Run(func() { onReady(*version, *dashboardURL, *restartAfter) }, func() {})
 }
 
-func onReady(version, dashboardURL string) {
+func onReady(version, dashboardURL string, restartAfter time.Duration) {
 	systray.SetIcon(iconData)
 	systray.SetTooltip("Beacon Agent " + version)
 
@@ -61,43 +62,31 @@ func onReady(version, dashboardURL string) {
 	// reappear shortly after, confusing UX for no benefit at this stage.
 
 	go pollPendingReboot()
-	go periodicIconRefresh()
+	if restartAfter > 0 {
+		go restartForExplorer(restartAfter)
+	}
 }
 
-// periodicIconRefresh re-issues SetIcon (a NIM_MODIFY call under the hood,
-// confirmed from fyne.io/systray's own source -- not NIM_ADD, so this never
-// risks creating a second icon) every 30s, indefinitely, for as long as
-// this process runs.
+// restartForExplorer exits once after the agent starts this helper. The
+// service supervisor sees the exited process on its next normal check-in
+// tick and starts a replacement, which performs a fresh Shell_NotifyIcon
+// NIM_ADD rather than SetIcon's NIM_MODIFY. This is necessary because a
+// blank slot can survive indefinitely when the original NIM_ADD raced
+// Explorer's notification area creation; modifying that bad registration
+// does not make Explorer render it.
 //
-// Works around a real, confirmed-on-hardware Windows shell race (seen on
-// Nebuchadnezzar across multiple reboots): this process is launched into
-// the user's session via usersession.RunAsSession from the
-// WTS_SESSION_LOGON hook, which fires at logon and can race explorer.exe's
-// own taskbar/notification-area window creation. Per Microsoft's own "The
-// Taskbar" docs, the TaskbarCreated broadcast this library already listens
-// for ("generally applies only to services that are already running when
-// the Shell launches" -- exactly this process's situation) is a one-shot
-// signal sent once, when explorer creates its taskbar; if this process's
-// message window isn't already pumping at that exact instant, the
-// broadcast is missed for good and nothing else ever prompts a retry. The
-// observed symptom (icon launches into the correct session --
-// Get-Process confirms session/PID -- but the notification area shows a
-// blank reserved slot, not a missing one, and not hidden in the overflow
-// flyout) matches Shell_NotifyIcon's own known behavior of sometimes
-// accepting a registration without successfully rendering it when
-// explorer.exe is itself still mid-startup.
-//
-// Deliberately an indefinite periodic re-assertion, not a one-shot delayed
-// retry with a guessed wait time -- this codebase has been burned more than
-// once by guessed fixed delays around Windows timing races (see
-// SelfUninstall's timeout/ping saga in CLAUDE.md); a cheap NIM_MODIFY call
-// every 30s forever self-heals regardless of how long the real race window
-// turns out to be on a given machine, with no need to ever detect that the
-// blank-slot state occurred in the first place.
-func periodicIconRefresh() {
-	for range time.Tick(30 * time.Second) {
-		systray.SetIcon(iconData)
-	}
+// The agent passes this flag only for a session's first tray launch in an
+// agent-process lifetime. The replacement has no flag, so this is a bounded
+// recovery attempt, never a periodic tray restart or a duplicate icon.
+func restartForExplorer(after time.Duration) {
+	time.Sleep(after)
+	// systray.Quit only posts WM_CLOSE to the library's message window. The
+	// v0.2.20 real-hardware run showed that message can be lost or left
+	// unprocessed, leaving this flagged helper alive forever and preventing
+	// the supervisor's replacement launch. This helper owns no privileged
+	// state; its process exit makes Windows discard its notification entry
+	// and is the reliable handoff signal the service supervisor needs.
+	os.Exit(0)
 }
 
 // rebootMarker mirrors agent/cmd/agent/main.go's own copy -- small enough

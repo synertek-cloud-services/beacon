@@ -23,6 +23,7 @@ var (
 	trayMu          sync.Mutex
 	agentVer        string
 	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
+	trayRestarted   = map[uint32]bool{}   // session ID -> first launch has scheduled its one Explorer-start recovery
 	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
 	killOrphansOnce sync.Once
 )
@@ -119,6 +120,7 @@ func EnsureTrayRunning() {
 	for id := range trayPIDs {
 		if _, ok := activeSet[id]; !ok {
 			delete(trayPIDs, id)
+			delete(trayRestarted, id)
 		}
 	}
 	// --dashboard-url is deliberately omitted: the agent only knows its own
@@ -127,7 +129,6 @@ func EnsureTrayRunning() {
 	// the agent to learn the dashboard URL specifically. The tray's "Visit
 	// Dashboard" menu item is already conditional on this flag being set,
 	// so it just won't appear -- honest, not a guess that could be wrong.
-	args := []string{"--version=" + version}
 	var toLaunch []uint32
 	for _, id := range active {
 		if !processAlive(trayPIDs[id]) {
@@ -137,6 +138,17 @@ func EnsureTrayRunning() {
 	trayMu.Unlock()
 
 	for _, id := range toLaunch {
+		args := []string{"--version=" + version}
+		trayMu.Lock()
+		scheduleRestart := !trayRestarted[id]
+		trayMu.Unlock()
+		if scheduleRestart {
+			// Explorer can still be creating its notification area when the
+			// session-logon hook launches the first helper. A later, fresh
+			// NIM_ADD is required to recover a blank reserved slot; SetIcon
+			// only sends NIM_MODIFY and demonstrably cannot repair it.
+			args = append(args, "--restart-after=2m")
+		}
 		pid, err := usersession.RunAsSession(id, trayPath, args)
 		if err != nil {
 			if err == usersession.ErrNoActiveSession {
@@ -147,6 +159,9 @@ func EnsureTrayRunning() {
 		}
 		trayMu.Lock()
 		trayPIDs[id] = pid
+		if scheduleRestart {
+			trayRestarted[id] = true
+		}
 		trayMu.Unlock()
 		log.Printf("service: tray: launched pid %d for session %d", pid, id)
 	}
