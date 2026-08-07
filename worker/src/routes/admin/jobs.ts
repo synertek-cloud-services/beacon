@@ -285,13 +285,13 @@ async function insertJobCommands(
           INSERT INTO commands (id, device_id, company_id, type, payload, status, created_at, job_id, component_id, component_order)
           VALUES (?, ?, ?, 'install_msi', ?, 'queued', ?, ?, ?, ?)
         `).bind(cmdId, device.id, device.company_id, applicationPayload, now, jobId, compId, compOrd);
+        // A queued command is deliberately not downloadable yet. checkin.ts
+        // starts this two-hour window atomically with marking the command
+        // sent, so an offline device does not burn its own grant lifetime.
         const grants = await Promise.all(downloads.map(async ({ file, token }) =>
           db.prepare(`
             INSERT INTO component_file_downloads (id, component_file_id, command_id, device_id, token_hash, expires_at, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-          // A queued command is deliberately not downloadable yet. checkin.ts
-          // starts this two-hour window atomically with marking the command
-          // sent, so an offline device does not burn its own grant lifetime.
           `).bind(uid(), file.id, cmdId, device.id, await sha256hex(token), now, now)
         ));
         // D1 batch preserves statement order and is atomic, so an agent can
