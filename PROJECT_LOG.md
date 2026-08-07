@@ -1,5 +1,60 @@
 # Beacon — Project Log
 
+## Session: 2026-08-07 — Tray blank-icon recurrence, third pass
+
+Jeremy reported the tray icon blank on two live production endpoints
+(Nebuchadnezzar plus one other), both already running v0.2.21 — the release
+that was supposed to have fixed this. Confirmed via direct question rather
+than assumption before touching code: on both devices `beacon-tray.exe` was
+still running (a healthy PID, per the supervisor's own liveness check), just
+with a blank notification-area slot.
+
+That fact disproves v0.2.21's design assumption. Its recovery
+(`--restart-after=2m`, tracked via a `trayRestarted` map) only ever fires
+once per session, on the theory that the blank slot is purely a
+session-logon-timing race against Explorer's own notification-area setup.
+Once that one attempt fires, nothing watches the icon again for the rest of
+the session — so a blank slot arising from any other cause (Explorer
+restarting, sleep/wake, or the same race simply not resolving inside 2
+minutes) has no path back to a working icon. Two prior fixes here (v0.2.19's
+`SetIcon`-only refresh loop, v0.2.20's `WM_CLOSE`-based restart) were each
+plausible in review and each failed on real hardware, so this fix is built
+strictly from what's already been proven rather than a new guess: real
+hardware already showed `SetIcon`/`NIM_MODIFY` cannot repair a blank slot,
+and already showed a genuine process relaunch (fresh `NIM_ADD`) can. The fix
+makes that relaunch cycle recurring instead of one-shot — `trayRestartInterval`
+(10 minutes) replaces `trayRestarted`, and every tray launch, first or
+supervisor-relaunched, gets the same restart flag for the life of the
+session. Added one real correctness fix alongside it: since restarts are now
+indefinite instead of a single early one, they can newly collide with an
+open reboot-confirmation dialog; `beacon-tray`'s `dialogActive` flag (now a
+shared atomic, previously a plain per-goroutine bool) makes a restart skip
+its cycle rather than kill the process out from under a dialog someone is
+about to click.
+
+Verified: cross-platform build (`GOOS=windows/darwin`, plain Linux) and the
+existing `agent` test suite all pass. **Not verified on real hardware** — no
+Windows environment available in this session; needs a real release and
+real-world observation on the two affected endpoints before this can be
+called resolved rather than "removes the specific gap that's now confirmed
+to exist."
+
+### Next steps
+
+1. Publish the next agent release (embeds the rebuilt `beacon-tray.exe`
+   automatically via `scripts/publish-agent.mjs`) and update Nebuchadnezzar
+   and the second affected endpoint to it.
+2. After the update, watch both endpoints across at least one Explorer
+   restart / sleep-wake cycle, not just a fresh login — the whole point of
+   this fix is covering causes beyond the original session-logon race, and
+   the prior fix's own hardware validation only ever exercised that one
+   cause.
+3. If a blank icon still recurs afterward, that would mean the periodic
+   relaunch itself isn't reliably reaching Explorer (rather than the timing
+   window being wrong) — worth checking `agent.log`'s `service: tray:
+   launched pid` lines against Task Manager next time, before attempting a
+   fourth fix.
+
 ## Session: 2026-08-07 — Application Components (#91) and retained Windows acceptance environment
 
 Issue #91 shipped as PR #110: Components can now be file-backed Windows
