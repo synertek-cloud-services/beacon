@@ -1,5 +1,46 @@
 # Beacon — Project Log
 
+## Session: 2026-08-07 — Get Support tray action (#90)
+
+Shipped issue #90: a "Get Support" tray menu item opening a hoster-configured
+URL, revisiting Branding's Datto-reference "Support Request tab" scoping note
+now that the tray genuinely exists (it was declined originally only because
+the GUI agent didn't). Confirmed with Jeremy before implementation: the URL
+opens verbatim, zero query-param injection (no device_id/hostname/company) —
+simplest, matches the issue's "not a general self-service task catalog"
+framing, and satisfies "no device credentials in the URL" by construction.
+
+The one real design correction came from a plan-review pass: the first
+instinct was to thread `support_url` through `CheckInResponse` since
+check-in already runs every 60s. That would have violated this repo's own
+established, incident-backed rule against extending the check-in wire
+protocol for new functionality — and the review sharpened *why* the rule
+applies here, not just to the "actions" its own text names: every existing
+`CheckInResponse` field is either a dispatched action or an assign-then-
+report-back pair, and `support_url` is neither — pure one-way config with
+nothing to report back, a worse fit than anything already there. Landed
+instead on the Go agent polling the already-public, already-unauthenticated
+`GET /v1/branding/identity` directly and independently of check-in — reusing
+an endpoint that already needed `supportUrl` added for the settings page's
+own read, so no new endpoint, no new table, no check-in changes at all.
+
+`branding_identity` gained one nullable column rather than a new table or
+settings page — same "how this instance presents itself" lifecycle as
+Product Name/Logo. Delivery to an already-running tray is eventually-
+consistent (next natural relaunch, via #89's own periodic-restart interval
+or a session logon/logoff), same as `agentVer` today — no live-push
+mechanism, matching existing precedent rather than inventing a new one.
+
+Verified further than a curl check this time: wrote a throwaway Go program
+under `agent/tools/` that called the real `Client.BrandingIdentity()` method
+against a real running local `wrangler dev`, confirming the actual Go struct
+decodes the live JSON correctly, not just that the HTTP shape looks right
+from the outside. Also confirmed the URL scheme validation actually blocks
+a `javascript:` URL (400), not just malformed strings. All three agent OSes
+cross-compile clean. **Not verified on real Windows hardware** — same
+limitation as the rest of this session's tray work; the menu item's actual
+on-screen behavior needs a real device.
+
 ## Session: 2026-08-07 — Reboot Required + Long Uptime dashboard widgets (#89)
 
 Shipped issue #89: patch installation already reported whether a reboot was

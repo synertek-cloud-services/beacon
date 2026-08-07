@@ -711,6 +711,11 @@ export const brandingIdentity = sqliteTable('branding_identity', {
   id: integer('id').primaryKey(),
   productName: text('product_name').notNull(),
   logoKey: text('logo_key'),
+  // Get Support tray menu item's destination -- delivered to the agent via
+  // an unauthenticated GET /v1/branding/identity poll, not check-in. Null
+  // means unconfigured; the tray hides the menu item. See CLAUDE.md's
+  // Branding section (issue #90).
+  supportUrl: text('support_url'),
   updatedAt: integer('updated_at').notNull(),
 });
 

@@ -9,7 +9,7 @@
 // content, no real launch lifecycle (session-change hooking, supervision,
 // embedding into beacon-agent.exe) yet -- those are separate, later passes.
 //
-// Usage: beacon-tray.exe [--version=X.Y.Z] [--dashboard-url=https://...]
+// Usage: beacon-tray.exe [--version=X.Y.Z] [--dashboard-url=https://...] [--support-url=https://...]
 package main
 
 import (
@@ -40,25 +40,45 @@ var dialogActive int32
 func main() {
 	version := flag.String("version", "dev", "Beacon agent version to display")
 	dashboardURL := flag.String("dashboard-url", "", "Dashboard URL for the 'Visit Dashboard' menu item (item hidden if unset)")
+	supportURL := flag.String("support-url", "", "Support destination URL for the 'Get Support' menu item (item hidden if unset)")
 	restartInterval := flag.Duration("restart-after", 0, "periodically exit on this interval so the agent supervisor relaunches the tray with a fresh icon registration; 0 disables")
 	flag.Parse()
 
-	systray.Run(func() { onReady(*version, *dashboardURL, *restartInterval) }, func() {})
+	systray.Run(func() { onReady(*version, *dashboardURL, *supportURL, *restartInterval) }, func() {})
 }
 
-func onReady(version, dashboardURL string, restartInterval time.Duration) {
+func onReady(version, dashboardURL, supportURL string, restartInterval time.Duration) {
 	systray.SetIcon(iconData)
 	systray.SetTooltip("Beacon Agent " + version)
 
 	label := systray.AddMenuItem("Beacon Agent "+version, "")
 	label.Disable()
 
-	if dashboardURL != "" {
+	// One shared separator covers both optional items below, so a future
+	// day where --dashboard-url is finally wired up too (see
+	// EnsureTrayRunning's own comment on why it isn't yet) doesn't produce
+	// two separators back to back.
+	if dashboardURL != "" || supportURL != "" {
 		systray.AddSeparator()
+	}
+	if dashboardURL != "" {
 		visit := systray.AddMenuItem("Visit Dashboard", "Open the Beacon dashboard")
 		go func() {
 			for range visit.ClickedCh {
 				openBrowser(dashboardURL)
+			}
+		}()
+	}
+	if supportURL != "" {
+		// Opened verbatim, with zero device-identifying query params --
+		// a hoster who wants smarter PSA routing configures that on their
+		// own portal's side. This also directly satisfies "do not expose
+		// device credentials in the URL": nothing about the device is ever
+		// added to it at all. See CLAUDE.md's Branding section.
+		support := systray.AddMenuItem("Get Support", "Open the support destination")
+		go func() {
+			for range support.ClickedCh {
+				openBrowser(supportURL)
 			}
 		}()
 	}

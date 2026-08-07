@@ -17,7 +17,11 @@
         </div>
         <p class="field-hint">Square image recommended (256×256px or larger) — it's shown very small (18px in the sidebar, 34px on the sign-in page), so a simple, bold mark works best. Transparent background recommended for non-square art. JPG, PNG, GIF, or SVG, up to 1MB.</p>
         <div class="pf-row" style="gap:8px;margin-top:4px">
-          <input v-model="productNameInput" class="pf-input" placeholder="Product name" style="max-width:280px;width:100%" @change="saveProductName" />
+          <input v-model="productNameInput" class="pf-input" placeholder="Product name" style="max-width:280px;width:100%" @change="saveIdentity" />
+        </div>
+        <p class="field-hint">Support URL shown as a "Get Support" action in the endpoint tray, when set. Opened verbatim in the signed-in user's own browser session — no device information is appended to it.</p>
+        <div class="pf-row" style="gap:8px;margin-top:4px">
+          <input v-model="supportUrlInput" class="pf-input" placeholder="Support URL (e.g. https://support.example.com)" style="max-width:280px;width:100%" @change="saveIdentity" />
         </div>
         <div v-if="identityError" class="error-banner">{{ identityError }}</div>
       </section>
@@ -74,7 +78,7 @@ const labels: Record<ThemeKey, string> = { canvas: 'Canvas', surface: 'Surface',
 const themeKeys = THEME_KEYS;
 const themes = ref<BrandingTheme[]>([]); const selected = ref<BrandingTheme | null>(null);
 const draft = ref<ThemeTokens | null>(null); const newName = ref(''); const loading = ref(true); const saving = ref(false); const error = ref(''); const revisionToActivate = ref('');
-const identity = ref<BrandingIdentity | null>(null); const productNameInput = ref(''); const identityError = ref(''); const logoUploading = ref(false);
+const identity = ref<BrandingIdentity | null>(null); const productNameInput = ref(''); const supportUrlInput = ref(''); const identityError = ref(''); const logoUploading = ref(false);
 
 const fieldWarnings = computed<Partial<Record<ThemeKey, string>>>(() => {
   if (!draft.value) return {};
@@ -100,7 +104,7 @@ async function publish() { if (!selected.value) return; await saveDraft(); if (e
 async function activateBuiltIn() { if (!selected.value) return; try { await api.branding.activateBuiltIn(selected.value.id); await loadActiveTheme(); await reload(selected.value.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function activate() { if (!revisionToActivate.value) return; try { await api.branding.activate(revisionToActivate.value); await loadActiveTheme(); await reload(selected.value?.id); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not activate theme.'; } }
 async function removeTheme() { if (!selected.value || !confirm(`Delete ${selected.value.name}?`)) return; try { await api.branding.delete(selected.value.id); await reload(); } catch (e) { error.value = e instanceof Error ? e.message : 'Could not delete theme.'; } }
-async function saveProductName() { identityError.value = ''; try { await api.branding.identity.update(productNameInput.value.trim()); await loadBrandIdentity(); } catch (e) { identityError.value = e instanceof Error ? e.message : 'Could not save product name.'; } }
+async function saveIdentity() { identityError.value = ''; try { await api.branding.identity.update({ productName: productNameInput.value.trim(), supportUrl: supportUrlInput.value.trim() || null }); await loadBrandIdentity(); } catch (e) { identityError.value = e instanceof Error ? e.message : 'Could not save branding identity.'; } }
 async function onLogoChange(e: Event) {
   const input = e.target as HTMLInputElement; const file = input.files?.[0]; input.value = '';
   if (!file) return;
@@ -115,6 +119,7 @@ onMounted(async () => {
     await reload();
     identity.value = await api.branding.identity.get();
     productNameInput.value = identity.value.productName;
+    supportUrlInput.value = identity.value.supportUrl ?? '';
   } catch (e) { error.value = e instanceof Error ? e.message : 'Could not load branding.'; }
   finally { loading.value = false; }
 });

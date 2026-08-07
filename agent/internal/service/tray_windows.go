@@ -38,6 +38,7 @@ const trayRestartInterval = 10 * time.Minute
 var (
 	trayMu          sync.Mutex
 	agentVer        string
+	supportURL      string // Get Support menu item's destination; "" hides it. See SetSupportURL.
 	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
 	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
 	killOrphansOnce sync.Once
@@ -54,6 +55,21 @@ func SetAgentVersion(v string) {
 	trayMu.Lock()
 	defer trayMu.Unlock()
 	agentVer = v
+}
+
+// SetSupportURL records the current Get Support destination, same
+// package-level-state reasoning as SetAgentVersion. Called on every
+// successful check-in (agent/cmd/agent/main.go's checkIn(), via its own
+// independent GET /v1/branding/identity poll -- not check-in itself), so an
+// empty string here correctly clears a previously-configured URL rather
+// than leaving a stale one active. Propagation to an already-running tray
+// is eventually-consistent, same as agentVer -- a change is only picked up
+// on that session's next natural relaunch (the periodic restart interval
+// below, or a session logon/logoff), not pushed live.
+func SetSupportURL(u string) {
+	trayMu.Lock()
+	defer trayMu.Unlock()
+	supportURL = u
 }
 
 // EnsureTrayRunning makes sure every currently-active session has its own
@@ -125,6 +141,7 @@ func EnsureTrayRunning() {
 
 	trayMu.Lock()
 	version := agentVer
+	support := supportURL
 	// Prune tracked sessions that are no longer active -- the tray process
 	// ends with its session, nothing to explicitly kill, just stop
 	// bookkeeping it so the map doesn't grow forever on a busy RDS box.
@@ -158,6 +175,15 @@ func EnsureTrayRunning() {
 		// unconditional rather than a one-shot scheduled only for the first
 		// launch.
 		args := []string{"--version=" + version, "--restart-after=" + trayRestartInterval.String()}
+		if support != "" {
+			// Rebuilt fresh every reconciliation pass, same as --version --
+			// this is what makes multi-session environments and "opens in
+			// the logged-in user's session" true for free: every active
+			// session gets its own tray launch here, each already running
+			// inside that session via RunAsSession below, so its own
+			// openBrowser() call naturally opens there too.
+			args = append(args, "--support-url="+support)
+		}
 		pid, err := usersession.RunAsSession(id, trayPath, args)
 		if err != nil {
 			if err == usersession.ErrNoActiveSession {
