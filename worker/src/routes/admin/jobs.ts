@@ -4,7 +4,7 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import { logActivity } from '../../lib/activityLog';
-import { decryptSecret } from '../../lib/crypto';
+import { decryptSecret, sha256hex } from '../../lib/crypto';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -21,7 +21,18 @@ type ComponentRef =
   | { type: 'library'; component_id: string; order: number; variable_values?: Record<string, string> }
   | { type: 'inline'; shell: string; script: string; timeout_seconds?: number; order: number };
 
-type ResolvedPayload = { shell: string; script: string; timeout_seconds: number; variables: Record<string, string>; target_os: string | null };
+type ScriptPayload = {
+  kind: 'script'; shell: string; script: string; timeout_seconds: number;
+  variables: Record<string, string>; target_os: string | null;
+};
+type ApplicationPayload = {
+  kind: 'application'; installer_file_id: string; installer_arguments: string[];
+  timeout_seconds: number; detection_type: 'none' | 'msi_product_code' | 'powershell';
+  detection_value: string | null; architecture: 'amd64';
+  files: Array<{ id: string; original_name: string; sha256: string; size_bytes: number }>;
+  variables: Record<string, string>; target_os: 'windows';
+};
+type ResolvedPayload = ScriptPayload | ApplicationPayload;
 
 // ── Helper: resolve payload for a component ref ────────────────
 // Library refs also resolve the component's input variables — supplied value,
@@ -32,12 +43,21 @@ async function resolvePayload(
   ref: ComponentRef,
 ): Promise<ResolvedPayload | { error: string } | null> {
   if (ref.type === 'inline') {
-    return { shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300, variables: {}, target_os: null };
+    return { kind: 'script', shell: ref.shell, script: ref.script, timeout_seconds: ref.timeout_seconds ?? 300, variables: {}, target_os: null };
   }
   // library
   const comp = await db.prepare(
-    `SELECT shell, script, timeout_seconds, target_os FROM components WHERE id = ?`
-  ).bind(ref.component_id).first<{ shell: string; script: string; timeout_seconds: number; target_os: string | null }>();
+    `SELECT c.type, c.shell, c.script, c.timeout_seconds, c.target_os,
+            a.installer_file_id, a.installer_arguments, a.timeout_seconds AS app_timeout_seconds,
+            a.detection_type, a.detection_value, a.architecture
+     FROM components c
+     LEFT JOIN component_applications a ON a.component_id = c.id
+     WHERE c.id = ?`
+  ).bind(ref.component_id).first<{
+    type: 'script' | 'application'; shell: string; script: string; timeout_seconds: number; target_os: string | null;
+    installer_file_id: string | null; installer_arguments: string | null; app_timeout_seconds: number | null;
+    detection_type: 'none' | 'msi_product_code' | 'powershell' | null; detection_value: string | null; architecture: 'amd64' | null;
+  }>();
   if (!comp) return null;
 
   const vars = await db.prepare(
@@ -52,7 +72,33 @@ async function resolvePayload(
     if (v.required) return { error: `missing required variable "${v.name}" for component ${ref.component_id}` };
   }
 
-  return { shell: comp.shell, script: comp.script, timeout_seconds: comp.timeout_seconds, variables, target_os: comp.target_os };
+  if (comp.type === 'application') {
+    if (!comp.installer_file_id || !comp.installer_arguments || !comp.app_timeout_seconds || !comp.detection_type || !comp.architecture) {
+      return { error: `application component ${ref.component_id} needs an installer file and application settings` };
+    }
+    const files = await db.prepare(
+      `SELECT id, original_name, sha256, size_bytes FROM component_files WHERE component_id = ? ORDER BY created_at ASC`
+    ).bind(ref.component_id).all<{ id: string; original_name: string; sha256: string; size_bytes: number }>();
+    if (!files.results.some(file => file.id === comp.installer_file_id)) {
+      return { error: `application component ${ref.component_id} has an invalid installer file` };
+    }
+    let installerArguments: string[];
+    try {
+      installerArguments = JSON.parse(comp.installer_arguments);
+    } catch {
+      return { error: `application component ${ref.component_id} has invalid installer arguments` };
+    }
+    if (!Array.isArray(installerArguments) || installerArguments.some(arg => typeof arg !== 'string')) {
+      return { error: `application component ${ref.component_id} has invalid installer arguments` };
+    }
+    return {
+      kind: 'application', installer_file_id: comp.installer_file_id, installer_arguments: installerArguments,
+      timeout_seconds: comp.app_timeout_seconds, detection_type: comp.detection_type, detection_value: comp.detection_value,
+      architecture: comp.architecture, files: files.results, variables, target_os: 'windows',
+    };
+  }
+
+  return { kind: 'script', shell: comp.shell, script: comp.script, timeout_seconds: comp.timeout_seconds, variables, target_os: comp.target_os };
 }
 
 // ── Helper: resolve target device rows ────────────────────────
@@ -202,21 +248,66 @@ async function insertJobCommands(
     const cvVars = cvVarsByCompany.get(device.company_id) ?? {};
 
     for (const { ref, payload } of compatible) {
-      const shell  = resolveShell(payload.shell, device.os_type);
       const cmdId  = uid();
+      const compId  = ref.type === 'library' ? ref.component_id : null;
+      const compOrd = ref.order;
+
+      // Company-variable-derived vars first, then custom-field-derived vars,
+      // then the component's own declared values. For Applications these stay
+      // separate from installer_arguments: the agent expands argument
+      // templates locally immediately before launching msiexec, so the stored
+      // command payload never contains a license key interpolated into an arg.
+      const variables = { ...cvVars, ...cfVars, ...payload.variables };
+
+      if (payload.kind === 'application') {
+        const downloads = await Promise.all(payload.files.map(async file => ({
+          file,
+          token: uid(),
+        })));
+        const applicationPayload = JSON.stringify({
+          installer_file_id: payload.installer_file_id,
+          installer_arguments: payload.installer_arguments,
+          timeout_seconds: payload.timeout_seconds,
+          detection_type: payload.detection_type,
+          detection_value: payload.detection_value,
+          architecture: payload.architecture,
+          files: downloads.map(({ file, token }) => ({
+            id: file.id,
+            original_name: file.original_name,
+            sha256: file.sha256,
+            size_bytes: file.size_bytes,
+            download_token: token,
+          })),
+          variables,
+          run_as_system: runAsSystem,
+        });
+        const command = db.prepare(`
+          INSERT INTO commands (id, device_id, company_id, type, payload, status, created_at, job_id, component_id, component_order)
+          VALUES (?, ?, ?, 'install_msi', ?, 'queued', ?, ?, ?, ?)
+        `).bind(cmdId, device.id, device.company_id, applicationPayload, now, jobId, compId, compOrd);
+        const grants = await Promise.all(downloads.map(async ({ file, token }) =>
+          db.prepare(`
+            INSERT INTO component_file_downloads (id, component_file_id, command_id, device_id, token_hash, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          // A queued command is deliberately not downloadable yet. checkin.ts
+          // starts this two-hour window atomically with marking the command
+          // sent, so an offline device does not burn its own grant lifetime.
+          `).bind(uid(), file.id, cmdId, device.id, await sha256hex(token), now, now)
+        ));
+        // D1 batch preserves statement order and is atomic, so an agent can
+        // never receive its command before every matching file grant exists.
+        await db.batch([command, ...grants]);
+        continue;
+      }
+
+      const shell = resolveShell(payload.shell, device.os_type);
       const scriptPayload = JSON.stringify({
         shell,
         script: payload.script,
         timeout_seconds: payload.timeout_seconds,
-        // Company-variable-derived vars first, then custom-field-derived
-        // vars, then the component's own declared variables -- an explicit
-        // input variable always wins on the (extremely unlikely, given the
-        // CV_/CF_ prefixes) name collision.
-        variables: { ...cvVars, ...cfVars, ...payload.variables },
+        variables,
         run_as_system: runAsSystem,
       });
-      const compId  = ref.type === 'library' ? ref.component_id : null;
-      const compOrd = ref.order;
 
       inserts.push(
         db.prepare(`
@@ -509,6 +600,9 @@ adminJobs.post('/', async (c) => {
     }
   }
   const resolved = resolutions as { ref: ComponentRef; payload: ResolvedPayload }[];
+  if (resolved.some(({ payload }) => payload.kind === 'application') && body.run_as_system === false) {
+    return c.json({ error: 'application components must run as the system account' }, 400);
+  }
 
   const now   = Math.floor(Date.now() / 1000);
   const jobId = uid();

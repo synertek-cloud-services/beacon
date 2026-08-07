@@ -445,7 +445,11 @@ adminComponents.delete('/:id', async (c) => {
   const row = await c.env.DB.prepare(`SELECT id, origin FROM components WHERE id = ?`).bind(id).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+  const files = await c.env.DB.prepare(`SELECT object_key FROM component_files WHERE component_id = ?`).bind(id).all<{ object_key: string }>();
   await c.env.DB.prepare(`DELETE FROM components WHERE id = ?`).bind(id).run();
+  // R2 does not participate in D1's foreign-key cascade, so remove the
+  // corresponding private objects explicitly after the metadata is gone.
+  await Promise.all(files.results.map(file => c.env.COMPONENT_FILES.delete(file.object_key)));
   return c.json({ ok: true });
 });
 
@@ -457,6 +461,18 @@ adminComponents.post('/:id/clone', async (c) => {
 
   const source = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(sourceId).first<any>();
   if (!source) return c.json({ error: 'not found' }, 404);
+
+  // Verify source objects before making the clone row, so a missing private
+  // object cannot leave a half-created application component behind.
+  const sourceFiles = await c.env.DB.prepare(
+    `SELECT * FROM component_files WHERE component_id = ? ORDER BY created_at ASC`
+  ).bind(sourceId).all<any>();
+  const sourceObjects = new Map<string, R2ObjectBody>();
+  for (const file of sourceFiles.results) {
+    const sourceObject = await c.env.COMPONENT_FILES.get(file.object_key);
+    if (!sourceObject) return c.json({ error: 'source application file is unavailable' }, 409);
+    sourceObjects.set(file.id, sourceObject);
+  }
 
   const newId = uid();
   const now   = Math.floor(Date.now() / 1000);
@@ -495,6 +511,36 @@ adminComponents.post('/:id/clone', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO component_companies (id, component_id, company_id, created_at) VALUES (?, ?, ?, ?)
     `).bind(uid(), newId, s.company_id, now).run();
+  }
+
+  // Application files cannot be shared across Components: every clone owns
+  // its own metadata and private R2 objects, keeping later edits/deletes
+  // isolated. Copy the objects server-side; no public download URL exists.
+  const clonedFileIDs = new Map<string, string>();
+  for (const file of sourceFiles.results) {
+    const sourceObject = sourceObjects.get(file.id)!;
+    const clonedFileId = uid();
+    const clonedObjectKey = `components/${newId}/${clonedFileId}`;
+    await c.env.COMPONENT_FILES.put(clonedObjectKey, sourceObject.body, {
+      httpMetadata: { contentType: file.content_type ?? 'application/octet-stream' },
+    });
+    await c.env.DB.prepare(
+      `INSERT INTO component_files (id, component_id, original_name, object_key, sha256, size_bytes, content_type, architecture, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(clonedFileId, newId, file.original_name, clonedObjectKey, file.sha256, file.size_bytes, file.content_type, file.architecture, now).run();
+    clonedFileIDs.set(file.id, clonedFileId);
+  }
+
+  const sourceApplication = await c.env.DB.prepare(
+    `SELECT * FROM component_applications WHERE component_id = ?`
+  ).bind(sourceId).first<any>();
+  if (sourceApplication) {
+    const installerFileId = clonedFileIDs.get(sourceApplication.installer_file_id);
+    if (!installerFileId) return c.json({ error: 'source application installer is unavailable' }, 409);
+    await c.env.DB.prepare(
+      `INSERT INTO component_applications (component_id, installer_file_id, installer_arguments, timeout_seconds, detection_type, detection_value, architecture, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(newId, installerFileId, sourceApplication.installer_arguments, sourceApplication.timeout_seconds, sourceApplication.detection_type, sourceApplication.detection_value, sourceApplication.architecture, now, now).run();
   }
 
   const row = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(newId).first<any>();

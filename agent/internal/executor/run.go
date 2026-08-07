@@ -73,10 +73,12 @@ func writeTempScript(shell, content string) (string, error) {
 
 // Execute runs a command and returns its result. Unknown types are silently
 // ignored — old agents must not choke on new command types added by the server.
-func Execute(cmd protocol.Command) protocol.CommandResult {
+func Execute(cmd protocol.Command, client *protocol.Client, deviceCredential string) protocol.CommandResult {
 	switch cmd.Type {
 	case "run_script":
 		return runScript(cmd)
+	case "install_msi":
+		return installMSI(cmd, client, deviceCredential)
 	default:
 		return protocol.CommandResult{CommandID: cmd.CommandID, Status: "completed"}
 	}
