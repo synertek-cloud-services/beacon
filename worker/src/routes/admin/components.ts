@@ -232,9 +232,18 @@ adminComponents.post('/:id/files', async (c) => {
   const id = uid();
   const objectKey = `components/${componentId}/${id}`;
   try {
-    await c.env.COMPONENT_FILES.put(objectKey, c.req.raw.body.pipeThrough(limiter), {
+    // R2 accepts a request body directly because its length is known, but a
+    // TransformStream intentionally loses that information. Re-wrap the
+    // verified client-declared size so R2 can stream the bytes instead of
+    // rejecting the upload before it reaches our runtime size guard.
+    const fixedLength = new FixedLengthStream(declaredSize);
+    const copy = c.req.raw.body.pipeThrough(limiter).pipeTo(fixedLength.writable);
+    await Promise.all([
+      c.env.COMPONENT_FILES.put(objectKey, fixedLength.readable, {
       httpMetadata: { contentType: c.req.header('Content-Type') ?? 'application/octet-stream' },
-    });
+      }),
+      copy,
+    ]);
     if (received !== declaredSize) throw new Error('uploaded size did not match X-File-Size');
     const now = Math.floor(Date.now() / 1000);
     await c.env.DB.prepare(
