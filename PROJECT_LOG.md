@@ -1,5 +1,30 @@
 # Beacon — Project Log
 
+## Session: 2026-08-07 — Application Components (#91) and retained Windows acceptance environment
+
+Issue #91 shipped as PR #110: Components can now be file-backed Windows
+Applications. An administrator uploads private installer/support files, selects
+an MSI installer, supplies arguments and optional detection, and dispatches the
+component like any other job. The Worker issues short-lived, per-command
+private download grants; the Windows agent verifies each file's checksum and
+size, expands Company/Custom Field variables locally, and invokes `msiexec`
+without a shell. The merged change was end-to-end validated on STCSLT001 with
+an official 7-Zip MSI: private download, installation, and detection all
+completed successfully.
+
+Keep the isolated acceptance environment available for future work; it is not
+production and must not be destroyed, reset, or replaced unless Jeremy
+explicitly asks. Its Worker URL is
+`https://beacon-application-acceptance-20260807.codenexus.workers.dev`, its
+dashboard URL is
+`https://fc8c1d89.beacon-application-acceptance-20260807.pages.dev`, and its
+non-secret Wrangler configuration is at
+`/tmp/beacon-application-acceptance/wrangler.toml`. It uses separately named
+acceptance D1 and R2 resources and a locally built, non-release Windows agent
+installed on STCSLT001. The temporary enrollment token and all Worker secrets
+are intentionally omitted from this repository and must never be logged,
+committed, or displayed.
+
 ## Session: 2026-08-04 — Windows tray blank-slot recovery
 
 The v0.2.19 periodic `systray.SetIcon` workaround failed on Nebuchadnezzar:

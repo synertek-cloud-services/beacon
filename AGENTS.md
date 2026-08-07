@@ -47,6 +47,14 @@ unrelated formatting changes, or speculative features.
   backend `requireUser` authorization checks; dashboard guards are not enough.
 - Do not derive remote-session WebSocket origins from the incoming request.
   Use configured `WORKER_URL`.
+- An isolated Application Components acceptance environment is intentionally
+  retained for future validation. Its non-secret configuration is at
+  `/tmp/beacon-application-acceptance/wrangler.toml`; its Worker URL is
+  `https://beacon-application-acceptance-20260807.codenexus.workers.dev`.
+  Do not delete, reset, replace, or deploy over those acceptance resources, or
+  alter the STCSLT001 test enrollment, unless Jeremy explicitly requests it.
+  Never record or reveal its enrollment token, Worker secrets, signing
+  material, or other credentials.
 
 ## Backend, data, and agent invariants
 
