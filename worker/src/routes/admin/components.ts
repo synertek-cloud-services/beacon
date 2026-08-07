@@ -195,7 +195,12 @@ adminComponents.post('/:id/files', async (c) => {
   if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
   if (component.type !== 'application') return c.json({ error: 'files can only be attached to application components' }, 400);
 
-  const originalName = c.req.header('X-File-Name')?.trim();
+  let originalName: string | undefined;
+  try {
+    originalName = decodeURIComponent(c.req.header('X-File-Name') ?? '').trim();
+  } catch {
+    return c.json({ error: 'X-File-Name is invalid' }, 400);
+  }
   const sha256 = c.req.header('X-File-SHA256')?.trim().toLowerCase();
   const architecture = c.req.header('X-File-Architecture') ?? 'amd64';
   const declaredSize = Number(c.req.header('X-File-Size') ?? '');

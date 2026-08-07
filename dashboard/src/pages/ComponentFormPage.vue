@@ -47,10 +47,10 @@
         <label class="pf-label">Kind</label>
         <div class="seg-bar">
           <button :class="['seg-btn', 'seg-primary', { active: form.type === 'script' }]" @click="form.type = 'script'">Script</button>
-          <button :class="['seg-btn', 'seg-primary', { active: form.type === 'application' }]" @click="form.type = 'application'">Application</button>
+          <button :class="['seg-btn', 'seg-primary', { active: form.type === 'application' }]" @click="selectApplication">Application</button>
         </div>
         <p v-if="form.type === 'application'" class="field-hint">
-          Applications run identically to Scripts today — file/installer attachments aren't wired up yet.
+          Windows MSI installer with optional support files. Applications always run as the system account.
         </p>
       </div>
 
@@ -83,13 +83,46 @@
       <!-- Platform (OS targeting) -->
       <div class="pf-group">
         <label class="pf-label">Platform</label>
-        <select v-model="form.targetOs" class="pf-input" style="max-width:200px" :disabled="isStore">
+        <select v-model="form.targetOs" class="pf-input" style="max-width:200px" :disabled="isStore || form.type === 'application'">
           <option value="">All Platforms</option>
           <option value="windows">Windows</option>
           <option value="linux">Linux</option>
           <option value="darwin">macOS</option>
         </select>
-        <p class="field-hint">Jobs skip devices whose OS doesn't match. Leave blank to run on any platform.</p>
+        <p v-if="form.type === 'application'" class="field-hint">Applications are currently Windows amd64 MSI packages.</p>
+        <p v-else class="field-hint">Jobs skip devices whose OS doesn't match. Leave blank to run on any platform.</p>
+      </div>
+
+      <!-- Application package -->
+      <div v-if="form.type === 'application'" class="pf-group">
+        <label class="pf-label">Installer files</label>
+        <p class="field-hint">Add an MSI and any files it needs beside it. Maximum 100 MiB per file and 500 MiB per component.</p>
+        <input type="file" class="pf-input" @change="addApplicationFile" />
+        <div class="pf-monitors">
+          <div v-if="applicationFiles.length === 0" class="pf-mon-empty"><p>Add the MSI installer before saving this Application Component.</p></div>
+          <div v-for="file in applicationFiles" :key="file.id" class="pf-mon-row">
+            <label class="checkbox-label"><input v-model="applicationInstallerId" type="radio" :value="file.id" /> Installer</label>
+            <span class="pf-mon-desc"><strong>{{ file.name }}</strong><span v-if="file.sizeBytes"> — {{ formatFileSize(file.sizeBytes) }}</span></span>
+            <button class="btn-text danger" @click="removeApplicationFile(file)">Remove</button>
+          </div>
+        </div>
+        <span v-if="fieldErr.application" class="pf-err">{{ fieldErr.application }}</span>
+      </div>
+
+      <div v-if="form.type === 'application'" class="pf-group">
+        <label class="pf-label">MSI arguments</label>
+        <textarea v-model="applicationArguments" class="pf-input pf-textarea" rows="4" placeholder="/qn&#10;SITE_TOKEN=${CV_AV_SITE_TOKEN}" spellcheck="false"></textarea>
+        <p class="field-hint">One argument per line. Use <span class="mono">${CV_KEY}</span> or <span class="mono">${CF_KEY}</span>; values are expanded only on the endpoint just before installation.</p>
+      </div>
+
+      <div v-if="form.type === 'application'" class="pf-group">
+        <label class="pf-label">Detection</label>
+        <select v-model="applicationDetectionType" class="pf-input" style="max-width:280px">
+          <option value="none">Always run installer</option>
+          <option value="msi_product_code">MSI product code</option>
+          <option value="powershell">PowerShell exit-code check</option>
+        </select>
+        <input v-if="applicationDetectionType !== 'none'" v-model="applicationDetectionValue" class="pf-input" :placeholder="applicationDetectionType === 'msi_product_code' ? '{PRODUCT-CODE-GUID}' : 'Exit 0 when already installed'" />
       </div>
 
       <!-- Companies scope -->
@@ -147,7 +180,7 @@
       </Teleport>
 
       <!-- Shell -->
-      <div class="pf-group">
+      <div v-if="form.type === 'script'" class="pf-group">
         <label class="pf-label">Shell</label>
         <select v-model="form.shell" class="pf-input" style="max-width:380px">
           <option value="auto">Auto — PowerShell on Windows, Bash elsewhere</option>
@@ -159,7 +192,7 @@
       </div>
 
       <!-- Script -->
-      <div class="pf-group" ref="scriptGroupEl">
+      <div v-if="form.type === 'script'" class="pf-group" ref="scriptGroupEl">
         <label class="pf-label">Script</label>
         <textarea
           v-model="form.script"
@@ -178,7 +211,7 @@
       </div>
 
       <!-- Timeout -->
-      <div class="pf-group">
+      <div v-if="form.type === 'script'" class="pf-group">
         <label class="pf-label">Timeout this script if not completed within (seconds)</label>
         <input v-model.number="form.timeoutSeconds" type="number" min="5" max="3600" class="pf-input" style="max-width:140px" />
       </div>
@@ -256,7 +289,7 @@
       </div>
 
       <!-- Post-conditions -->
-      <div class="pf-group">
+      <div v-if="form.type === 'script'" class="pf-group">
         <label class="pf-label">Post-conditions</label>
         <p class="field-hint" style="margin:0 0 8px">Flag a completed run as "Warning" when its output matches — doesn't change pass/fail.</p>
         <div class="pf-monitors">
@@ -315,7 +348,7 @@ const isStore   = ref(false);
 const companies   = ref<Company[]>([]);
 const customFieldsList = ref<CustomField[]>([]);
 const availableCfKeys  = computed(() => customFieldsList.value.filter(f => f.key).map(f => f.key));
-const fieldErr  = reactive({ name: '', companies: '', script: '' });
+const fieldErr  = reactive({ name: '', companies: '', script: '', application: '' });
 const nameGroupEl      = ref<HTMLElement | null>(null);
 const companiesGroupEl = ref<HTMLElement | null>(null);
 const scriptGroupEl    = ref<HTMLElement | null>(null);
@@ -330,6 +363,76 @@ const isAdmin = computed(() => hasRole('admin'));
 
 const postConditions = ref<PostCondition[]>([]);
 const variables       = ref<ComponentVariable[]>([]);
+
+type ApplicationFileState = { id: string; name: string; sizeBytes: number; file?: File };
+const applicationFiles = ref<ApplicationFileState[]>([]);
+const applicationInstallerId = ref('');
+const applicationArguments = ref('');
+const applicationDetectionType = ref<'none' | 'msi_product_code' | 'powershell'>('none');
+const applicationDetectionValue = ref('');
+
+function selectApplication() {
+  form.type = 'application';
+  form.targetOs = 'windows';
+}
+
+function formatFileSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MiB` : `${Math.ceil(bytes / 1024)} KiB`;
+}
+
+function addApplicationFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > 100 * 1024 * 1024) { fieldErr.application = 'Each application file must be 100 MiB or smaller.'; return; }
+  if (applicationFiles.value.some(existing => existing.name.toLowerCase() === file.name.toLowerCase())) {
+    fieldErr.application = 'Application file names must be unique.'; return;
+  }
+  if (applicationFiles.value.reduce((total, existing) => total + existing.sizeBytes, file.size) > 500 * 1024 * 1024) {
+    fieldErr.application = 'Application files cannot exceed 500 MiB in total.'; return;
+  }
+  const id = `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  applicationFiles.value.push({ id, name: file.name, sizeBytes: file.size, file });
+  if (!applicationInstallerId.value) applicationInstallerId.value = id;
+  fieldErr.application = '';
+}
+
+async function sha256(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function removeApplicationFile(file: ApplicationFileState) {
+  if (!file.file && componentId.value) {
+    try { await api.components.files.remove(componentId.value, file.id); }
+    catch (e: any) { saveError.value = e.message; return; }
+  }
+  applicationFiles.value = applicationFiles.value.filter(existing => existing.id !== file.id);
+  if (applicationInstallerId.value === file.id) applicationInstallerId.value = applicationFiles.value[0]?.id ?? '';
+}
+
+async function persistApplication(id: string) {
+  for (const applicationFile of applicationFiles.value) {
+    if (!applicationFile.file) continue;
+    const uploaded = await api.components.files.upload(id, applicationFile.file, await sha256(applicationFile.file));
+    applicationFile.id = uploaded.id;
+    applicationFile.file = undefined;
+  }
+  if (!applicationInstallerId.value || !applicationFiles.value.some(file => file.id === applicationInstallerId.value)) {
+    throw new Error('Choose the MSI installer file.');
+  }
+  if (applicationDetectionType.value !== 'none' && !applicationDetectionValue.value.trim()) {
+    throw new Error('Enter a detection value or choose Always run installer.');
+  }
+  await api.components.application.save(id, {
+    installer_file_id: applicationInstallerId.value,
+    installer_arguments: applicationArguments.value.split('\n').map(arg => arg.trim()).filter(Boolean),
+    timeout_seconds: 900,
+    detection_type: applicationDetectionType.value,
+    detection_value: applicationDetectionType.value === 'none' ? null : applicationDetectionValue.value.trim(),
+  });
+}
 
 // ── Companies (multi-select — a component can be restricted to several companies,
 // added/removed one at a time via the "Add Company" flyout) ──
@@ -524,6 +627,11 @@ onMounted(async () => {
       postConditions.value = comp.postConditions.map(pc => ({ ...pc }));
       variables.value       = comp.variables.map(v => ({ ...v }));
       selectedCompanies.value   = comp.companies.map(s => ({ ...s }));
+      applicationFiles.value = comp.files.map(file => ({ id: file.id, name: file.originalName, sizeBytes: file.sizeBytes }));
+      applicationInstallerId.value = comp.application?.installerFileId ?? '';
+      applicationArguments.value = comp.application?.installerArguments.join('\n') ?? '';
+      applicationDetectionType.value = comp.application?.detectionType ?? 'none';
+      applicationDetectionValue.value = comp.application?.detectionValue ?? '';
       isStore.value         = comp.origin === 'store';
     } catch (e: any) {
       loadError.value = e.message;
@@ -539,6 +647,7 @@ async function save() {
   fieldErr.name   = '';
   fieldErr.companies  = '';
   fieldErr.script = '';
+  fieldErr.application = '';
   saveError.value = '';
 
   if (!form.name.trim()) {
@@ -546,7 +655,7 @@ async function save() {
     nameGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  if (!form.script.trim()) {
+  if (form.type === 'script' && !form.script.trim()) {
     fieldErr.script = 'Script is required.';
     scriptGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
@@ -554,6 +663,10 @@ async function save() {
   if (form.scope === 'company' && selectedCompanies.value.length === 0) {
     fieldErr.companies = 'Add at least one company.';
     companiesGroupEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (form.type === 'application' && applicationFiles.value.length === 0) {
+    fieldErr.application = 'Add the MSI installer file.';
     return;
   }
 
@@ -566,11 +679,11 @@ async function save() {
         category:        form.category || null,
         type:            form.type,
         scope:           form.scope,
-        shell:           form.shell,
-        script:          form.script,
+        shell:           form.type === 'application' ? undefined : form.shell,
+        script:          form.type === 'application' ? undefined : form.script,
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
-        target_os:       form.targetOs || null,
+        target_os:       form.type === 'application' ? 'windows' : (form.targetOs || null),
         ...(isAdmin.value ? { requires_admin: form.requiresAdmin } : {}),
       });
       for (const v of variables.value) {
@@ -583,6 +696,7 @@ async function save() {
       for (const s of selectedCompanies.value) {
         await api.components.companies.add(created.id, s.companyId);
       }
+      if (form.type === 'application') await persistApplication(created.id);
     } else if (componentId.value) {
       await api.components.update(componentId.value, {
         name:            form.name.trim(),
@@ -590,13 +704,14 @@ async function save() {
         category:        form.category || null,
         type:            form.type,
         scope:           form.scope,
-        shell:           form.shell,
-        script:          form.script,
+        shell:           form.type === 'application' ? undefined : form.shell,
+        script:          form.type === 'application' ? undefined : form.script,
         timeout_seconds: form.timeoutSeconds,
         post_conditions: postConditions.value,
-        target_os:       form.targetOs || null,
+        target_os:       form.type === 'application' ? 'windows' : (form.targetOs || null),
         ...(isAdmin.value ? { requires_admin: form.requiresAdmin } : {}),
       });
+      if (form.type === 'application') await persistApplication(componentId.value);
     }
     router.push('/components');
   } catch (e: any) {
