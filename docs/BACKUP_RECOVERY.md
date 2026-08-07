@@ -10,7 +10,7 @@ fleet.
 | State | Purpose | Recovery requirement |
 |---|---|---|
 | D1 database | Users, companies, device credential hashes, configuration, policies, jobs, alerts, audits, and agent release catalog | Export both schema/data and data-only forms. Keep the Beacon commit recorded by the backup. |
-| Private R2 bucket | The active host-uploaded branding logo | Back up the object referenced by `branding_identity.logo_key`, including its key and content type. |
+| Private R2 buckets | The active host-uploaded branding logo and Application Component files | Back up the logo object referenced by `branding_identity.logo_key` and every object in the private application-file bucket, including keys and content types. |
 | `CONFIG_ENCRYPTION_KEY` | Decrypts SSO, email-provider, and company secrets stored in D1 | Preserve the exact value in an encrypted secret store. A replacement key cannot decrypt a restored database. |
 | `ADMIN_SECRET` | Break-glass administration | Preserve it separately from routine user credentials. It can be rotated after normal admin access is recovered. |
 | Agent signing private key | Signs releases accepted by deployed agents | Preserve the exact key. Losing it breaks automatic updates; a new key is not a recovery mechanism. |
@@ -30,8 +30,9 @@ Devices enrolled after the snapshot must be re-enrolled.
 - Take a D1 backup at least daily, before each production release, and before a
   risky operational change. Retain several generations outside the Cloudflare
   account.
-- Back up R2 whenever the branding logo changes. Beacon deletes the prior logo,
-  so only the key referenced by D1 is required for the current product state.
+- Back up R2 whenever the branding logo or an Application Component changes.
+  The logo bucket needs only the active key referenced by D1; application files
+  require a complete copy of the private application-file bucket.
 - Update the encrypted deployment inventory whenever origins, bindings, DNS,
   Pages settings, GitHub Actions configuration, or IdP redirects change.
 - Back up secrets and the agent signing key when created or rotated. Keep a
@@ -84,9 +85,10 @@ pnpm exec wrangler r2 object get "$R2_BUCKET/$LOGO_KEY" \
   --remote --file "/secure/beacon-backups/2026-08-02T2300Z/$LOGO_KEY"
 ```
 
-If `logo_key` is `null`, there is no host-uploaded R2 object to back up. For a
-future Beacon version that stores more than the active logo, use the R2 S3 API
-or `rclone` to copy the complete bucket rather than assuming one object.
+If `logo_key` is `null`, there is no host-uploaded logo object to back up. Copy
+the complete `COMPONENT_FILES` bucket with the R2 S3 API or `rclone`; its
+object keys are referenced by `component_files.object_key` and must be restored
+unchanged alongside D1.
 
 Finally, copy the deployment inventory and encrypted secret/key backups into
 the protected backup set. Verify every recorded checksum from a separate
@@ -101,7 +103,8 @@ cron trigger or point production DNS at it yet.
 1. Verify the backup checksums and check out `sourceCommit` from the manifest in
    a separate working tree. Install that revision's Worker dependencies.
 2. Create the recovery D1/R2 resources and put their IDs/names in a separate
-   Wrangler configuration with the same `DB`, `LOGOS`, and `SESSION` bindings.
+   Wrangler configuration with the same `DB`, `LOGOS`, `COMPONENT_FILES`, and
+   `SESSION` bindings.
 3. Create the matching schema, clear migration seed data, and import the
    prepared snapshot:
 

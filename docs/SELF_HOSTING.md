@@ -1,7 +1,7 @@
 # Self-hosting Beacon
 
 This guide installs an independent Beacon instance on Cloudflare. It covers the
-Worker API, D1 database, Durable Object session relay, private R2 logo storage,
+Worker API, D1 database, Durable Object session relay, private R2 logo and application-file storage,
 Pages dashboard, initial administrator, and first endpoint enrollment.
 
 ## Before you begin
@@ -50,7 +50,8 @@ Decide these values before editing configuration:
 |---|---|
 | Worker name | `beacon` |
 | D1 database name | `beacon` |
-| Private R2 bucket | `beacon-logos` |
+| Private R2 logo bucket | `beacon-logos` |
+| Private R2 application-file bucket | `beacon-component-files` |
 | Worker/API origin | `https://beacon-api.example.com` |
 | Pages project | `beacon-dashboard` |
 | Dashboard origin | `https://beacon.example.com` |
@@ -66,6 +67,7 @@ From `worker/`:
 ```bash
 npx wrangler d1 create beacon
 npx wrangler r2 bucket create beacon-logos
+npx wrangler r2 bucket create beacon-component-files
 ```
 
 The D1 command prints a database UUID. Copy `wrangler.toml.example` to
@@ -73,7 +75,7 @@ The D1 command prints a database UUID. Copy `wrangler.toml.example` to
 
 - `account_id`
 - D1 `database_name` and `database_id`
-- R2 `bucket_name`
+- both R2 `bucket_name` values
 - `ALLOWED_ORIGIN` with the final dashboard origin
 - `WORKER_URL` with the final API origin
 - `PAGES_PREVIEW_SUFFIX` with `.<pages-project>.pages.dev`
@@ -82,8 +84,9 @@ The D1 command prints a database UUID. Copy `wrangler.toml.example` to
 If using `workers.dev`, remove the `[[routes]]` block. After Cloudflare assigns
 the Worker origin, put that exact HTTPS origin in `WORKER_URL` and redeploy.
 
-The R2 bucket remains private. Beacon serves stored branding logos through
-authorized Worker routes; it does not require an R2 public domain.
+Both R2 buckets remain private. Beacon serves branding logos and grants
+application-file downloads through authorized Worker routes; neither requires
+an R2 public domain.
 
 ## 4. Prepare required secrets
 
