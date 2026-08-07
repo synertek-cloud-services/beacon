@@ -716,7 +716,7 @@ export interface DeviceGroupMember {
   companyName: string;
 }
 
-export interface BrandingIdentity { productName: string; logoKey: string | null; }
+export interface BrandingIdentity { productName: string; logoKey: string | null; supportUrl: string | null; }
 export interface BrandingRevision { id: string; revision: number; publishedAt: number; }
 export interface BrandingTheme {
   id: string;
@@ -850,7 +850,7 @@ export const api = {
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/branding/admin/themes/${id}`),
     identity: {
       get: () => request<BrandingIdentity>('GET', '/v1/branding/identity'),
-      update: (productName: string) => request<{ ok: boolean }>('PATCH', '/v1/branding/admin/identity', { productName }),
+      update: (body: { productName: string; supportUrl?: string | null }) => request<{ ok: boolean }>('PATCH', '/v1/branding/admin/identity', body),
     },
     logo: {
       upload: (file: File) => uploadFile<{ logoKey: string }>('/v1/branding/admin/logo', file),

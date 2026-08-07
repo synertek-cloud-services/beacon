@@ -61,6 +61,43 @@ func (c *Client) DownloadComponentFile(deviceCredential, token string) (*http.Re
 	return resp, nil
 }
 
+// BrandingIdentityResponse mirrors GET /v1/branding/identity's response
+// shape. Deliberately camelCase JSON tags -- this hits the same public,
+// dashboard-facing endpoint the dashboard itself calls, not a new
+// device-scoped wire contract, so it follows that endpoint's own naming
+// instead of this file's snake_case device-protocol convention.
+type BrandingIdentityResponse struct {
+	SupportURL string `json:"supportUrl"`
+}
+
+// identityClient gets its own short timeout, same reasoning as the
+// updater package's versionCheckClient -- a hung request here must never
+// block checkIn()'s caller.
+var identityClient = &http.Client{Timeout: 30 * time.Second}
+
+// BrandingIdentity fetches the host's current branding identity --
+// unauthenticated, public, and deliberately polled independently of
+// check-in rather than folded into CheckInResponse. support_url is pure
+// one-way config with no round trip, a worse fit for the check-in wire
+// protocol than any field already there -- see CLAUDE.md's Network
+// Discovery / Patch Management sections for the check-in-extension rule
+// this sidesteps.
+func (c *Client) BrandingIdentity() (*BrandingIdentityResponse, error) {
+	resp, err := identityClient.Get(c.serverURL + "/v1/branding/identity")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from /v1/branding/identity", resp.StatusCode)
+	}
+	var result BrandingIdentityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func post[T any](c *Client, path, auth string, body any) (*T, error) {
 	b, err := json.Marshal(body)
 	if err != nil {

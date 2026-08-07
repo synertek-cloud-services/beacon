@@ -71,7 +71,12 @@ const LOGO_CONTENT_TYPES: Record<string, string> = {
 branding.get('/identity', async (c) => {
   noStore(c);
   const row = await drizzle(c.env.DB, { schema }).select().from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
-  return c.json({ productName: row?.productName ?? '', logoKey: row?.logoKey ?? null });
+  // Dual-purpose: the dashboard's own pre-login branding pointer, and (as of
+  // supportUrl) the Go agent's independent poll source for the tray's Get
+  // Support menu item -- both are equally fine consuming unauthenticated,
+  // host-wide config, so this stays one endpoint rather than splitting by
+  // audience. See CLAUDE.md's Branding section.
+  return c.json({ productName: row?.productName ?? '', logoKey: row?.logoKey ?? null, supportUrl: row?.supportUrl ?? null });
 });
 
 branding.get('/logo/:key', async (c) => {
@@ -86,9 +91,33 @@ branding.get('/logo/:key', async (c) => {
 
 branding.patch('/admin/identity', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const body = await c.req.json<{ productName?: string }>();
+  const body = await c.req.json<{ productName?: string; supportUrl?: string | null }>();
   if (typeof body.productName !== 'string') return c.json({ error: 'productName is required' }, 400);
-  await drizzle(c.env.DB, { schema }).update(schema.brandingIdentity).set({ productName: body.productName.trim(), updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingIdentity.id, 1));
+  const updates: Partial<typeof schema.brandingIdentity.$inferInsert> = {
+    productName: body.productName.trim(),
+    updatedAt: Math.floor(Date.now() / 1000),
+  };
+  if (body.supportUrl !== undefined) {
+    const trimmed = (body.supportUrl ?? '').trim();
+    if (trimmed === '') {
+      updates.supportUrl = null;
+    } else {
+      // Validated here, not just for tidiness -- this string is later
+      // shelled out as a literal `cmd /c start "" <url>` argument on every
+      // enrolled Windows device (agent/cmd/beacon-tray's openBrowser), same
+      // "validate before it reaches a shelled-out agent-side command"
+      // convention as Network Discovery's CIDR check and Patch Management's
+      // update_ids GUID check before wuinstall.
+      try {
+        const u = new URL(trimmed);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error();
+      } catch {
+        return c.json({ error: 'supportUrl must be a valid http(s) URL' }, 400);
+      }
+      updates.supportUrl = trimmed;
+    }
+  }
+  await drizzle(c.env.DB, { schema }).update(schema.brandingIdentity).set(updates).where(eq(schema.brandingIdentity.id, 1));
   return c.json({ ok: true });
 });
 

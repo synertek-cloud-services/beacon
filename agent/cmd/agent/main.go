@@ -348,6 +348,18 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		return err
 	}
 
+	// Piggybacks on this same 60s cadence rather than a separate poll loop
+	// or the check-in wire protocol itself -- support_url is pure one-way
+	// config with no round trip, deliberately kept out of CheckInRequest/
+	// CheckInResponse (see BrandingIdentity's own doc comment). Non-fatal:
+	// a transient fetch failure is logged and skipped, never treated as a
+	// check-in failure.
+	if identity, err := client.BrandingIdentity(); err != nil {
+		log.Printf("branding identity fetch: %v", err)
+	} else {
+		service.SetSupportURL(identity.SupportURL)
+	}
+
 	for _, chk := range resp.ServiceChecks {
 		go func(chk protocol.ServiceCheck) {
 			running, cpu, mem := svcutil.Find(chk.ServiceName)
