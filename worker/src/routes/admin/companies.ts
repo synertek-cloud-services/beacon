@@ -393,10 +393,30 @@ adminCompanies.delete('/:id/tokens/:tokenId', async (c) => {
 adminCompanies.delete('/:id/tokens/:tokenId/permanent', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
+  const companyId = c.req.param('id');
+  const tokenId = c.req.param('tokenId');
+
+  const token = await db
+    .select({ useCount: schema.enrollmentTokens.useCount, revokedAt: schema.enrollmentTokens.revokedAt })
+    .from(schema.enrollmentTokens)
+    .where(and(
+      eq(schema.enrollmentTokens.id, tokenId),
+      eq(schema.enrollmentTokens.companyId, companyId),
+    ))
+    .get();
+
+  if (!token) return c.json({ error: 'enrollment token not found' }, 404);
+  if (!token.revokedAt) return c.json({ error: 'revoke the enrollment token before deleting it' }, 409);
+  if (token.useCount > 0) {
+    return c.json({ error: 'enrollment tokens that have enrolled devices are retained for enrollment history' }, 409);
+  }
 
   await db
     .delete(schema.enrollmentTokens)
-    .where(eq(schema.enrollmentTokens.id, c.req.param('tokenId')));
+    .where(and(
+      eq(schema.enrollmentTokens.id, tokenId),
+      eq(schema.enrollmentTokens.companyId, companyId),
+    ));
 
   return c.json({ ok: true });
 });

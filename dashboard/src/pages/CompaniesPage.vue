@@ -176,7 +176,8 @@
                           </td>
                           <td>
                             <button v-if="!tok.revokedAt" class="btn btn-danger btn-sm" @click.stop="revokeToken(tok.id)">Revoke</button>
-                            <button v-else class="btn btn-danger btn-sm" @click.stop="deleteToken(tok.id)">Delete</button>
+                            <button v-else-if="tok.useCount === 0" class="btn btn-danger btn-sm" @click.stop="deleteToken(tok.id)">Delete</button>
+                            <span v-else class="text-xs text-muted-2" title="This token is retained because it enrolled one or more devices.">Retained after use</span>
                           </td>
                         </tr>
                       </tbody>
