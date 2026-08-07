@@ -22,12 +22,12 @@ const (
 	macPlistLabel = "com.beacon.agent"
 )
 
-func Install(serverURL, enrollToken string) error {
+func Install(serverURL string) error {
 	switch runtime.GOOS {
 	case "linux":
-		return installLinux(serverURL, enrollToken)
+		return installLinux(serverURL)
 	case "darwin":
-		return installDarwin(serverURL, enrollToken)
+		return installDarwin(serverURL)
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
@@ -116,7 +116,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart={{.Bin}} --server-url {{.ServerURL}} --enroll-token {{.Token}}
+ExecStart={{.Bin}} --server-url {{.ServerURL}}
 Restart=always
 RestartSec=30
 
@@ -124,7 +124,7 @@ RestartSec=30
 WantedBy=multi-user.target
 `
 
-func installLinux(serverURL, enrollToken string) error {
+func installLinux(serverURL string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
@@ -134,7 +134,7 @@ func installLinux(serverURL, enrollToken string) error {
 	}
 
 	unit, err := render(linuxUnitTmpl, map[string]string{
-		"Bin": linuxBinPath, "ServerURL": serverURL, "Token": enrollToken,
+		"Bin": linuxBinPath, "ServerURL": serverURL,
 	})
 	if err != nil {
 		return err
@@ -174,7 +174,6 @@ const macPlistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
 	<array>
 		<string>{{.Bin}}</string>
 		<string>--server-url</string><string>{{.ServerURL}}</string>
-		<string>--enroll-token</string><string>{{.Token}}</string>
 	</array>
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><true/>
@@ -184,7 +183,7 @@ const macPlistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-func installDarwin(serverURL, enrollToken string) error {
+func installDarwin(serverURL string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
@@ -194,8 +193,7 @@ func installDarwin(serverURL, enrollToken string) error {
 	}
 
 	plist, err := render(macPlistTmpl, map[string]string{
-		"Label": macPlistLabel, "Bin": macBinPath,
-		"ServerURL": serverURL, "Token": enrollToken,
+		"Label": macPlistLabel, "Bin": macBinPath, "ServerURL": serverURL,
 	})
 	if err != nil {
 		return err
