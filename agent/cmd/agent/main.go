@@ -647,7 +647,7 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				return
 			}
 			log.Printf("executing command %s (type: %s)", cmd.CommandID, cmd.Type)
-			result := executor.Execute(cmd)
+			result := executor.Execute(cmd, client, cred.DeviceCredential)
 			log.Printf("command %s finished: status=%s exit_code=%d", cmd.CommandID, result.Status, result.ExitCode)
 			pendingMu.Lock()
 			pendingResults = append(pendingResults, result)

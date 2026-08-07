@@ -229,6 +229,13 @@ checkin.post('/', async (c) => {
     await db.update(schema.commands)
       .set({ status: 'sent' })
       .where(inArray(schema.commands.id, queued.map(c => c.id)));
+    // File grants become usable only once their matching command is handed to
+    // the agent. This keeps the capability short-lived without punishing an
+    // offline device whose queued command waited for days before its next
+    // check-in.
+    await c.env.DB.prepare(
+      `UPDATE component_file_downloads SET expires_at = ? WHERE command_id IN (${queued.map(() => '?').join(',')})`
+    ).bind(now + (2 * 60 * 60), ...queued.map(c => c.id)).run();
   }
 
   return c.json<CheckInResponse>({

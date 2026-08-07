@@ -228,6 +228,29 @@ export interface ComponentCompany {
   name: string;
 }
 
+export interface ComponentFile {
+  id: string;
+  componentId: string;
+  originalName: string;
+  sha256: string;
+  sizeBytes: number;
+  contentType: string | null;
+  architecture: 'amd64' | null;
+  createdAt: number;
+}
+
+export interface ComponentApplication {
+  componentId: string;
+  installerFileId: string;
+  installerArguments: string[];
+  timeoutSeconds: number;
+  detectionType: 'none' | 'msi_product_code' | 'powershell';
+  detectionValue: string | null;
+  architecture: 'amd64';
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Component {
   id: string;
   name: string;
@@ -237,6 +260,8 @@ export interface Component {
   origin: 'custom' | 'store';
   scope: 'global' | 'company'; // "Companies" scoping — 'company' means restricted to `companies` below (a real multi-company list, not a single company)
   companies: ComponentCompany[];
+  files: ComponentFile[];
+  application: ComponentApplication | null;
   shell: string;
   script: string;
   timeoutSeconds: number;
@@ -887,7 +912,7 @@ export const api = {
       type?: 'script' | 'application';
       scope?: 'global' | 'company';
       shell?: string;
-      script: string;
+      script?: string;
       timeout_seconds?: number;
       post_conditions?: PostCondition[];
       target_os?: string | null;
@@ -940,6 +965,35 @@ export const api = {
       }>) => request<{ ok: boolean }>('PATCH', `/v1/admin/components/${componentId}/variables/${variableId}`, body),
       delete: (componentId: string, variableId: string) =>
         request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/variables/${variableId}`),
+    },
+    files: {
+      upload: async (componentId: string, file: File, sha256: string): Promise<ComponentFile> => {
+        const res = await fetch(`${baseUrl}/v1/admin/components/${componentId}/files`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token()}`,
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+            'X-File-SHA256': sha256,
+            'X-File-Architecture': 'amd64',
+            'X-File-Size': String(file.size),
+          },
+          body: file,
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => res.statusText)}`);
+        return res.json();
+      },
+      remove: (componentId: string, fileId: string) =>
+        request<{ ok: boolean }>('DELETE', `/v1/admin/components/${componentId}/files/${fileId}`),
+    },
+    application: {
+      save: (componentId: string, body: {
+        installer_file_id: string;
+        installer_arguments?: string[];
+        timeout_seconds?: number;
+        detection_type?: 'none' | 'msi_product_code' | 'powershell';
+        detection_value?: string | null;
+      }) => request<ComponentApplication>('PUT', `/v1/admin/components/${componentId}/application`, body),
     },
   },
 
