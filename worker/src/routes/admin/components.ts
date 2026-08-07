@@ -221,6 +221,13 @@ adminComponents.post('/:id/files', async (c) => {
   if ((total?.bytes ?? 0) + declaredSize > MAX_COMPONENT_TOTAL_FILE_BYTES) {
     return c.json({ error: 'component file total exceeds the 500 MiB limit' }, 413);
   }
+  // Windows file names are case-insensitive and the agent stages every
+  // attachment into one directory, so reject names that would collide before
+  // the package reaches a device.
+  const duplicateName = await c.env.DB.prepare(
+    `SELECT id FROM component_files WHERE component_id = ? AND lower(original_name) = lower(?)`
+  ).bind(componentId, originalName).first<{ id: string }>();
+  if (duplicateName) return c.json({ error: 'application file names must be unique' }, 409);
 
   const id = uid();
   const objectKey = `components/${componentId}/${id}`;
