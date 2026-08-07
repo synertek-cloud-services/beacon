@@ -27,7 +27,7 @@ const (
 
 func installPath() string { return filepath.Join(installDir, exeName) }
 
-func Install(serverURL, enrollToken string) error {
+func Install(serverURL string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
@@ -62,7 +62,6 @@ func Install(serverURL, enrollToken string) error {
 	}
 	s, err := m.CreateService(ServiceName, dest, cfg,
 		"--server-url", serverURL,
-		"--enroll-token", enrollToken,
 	)
 	if err != nil {
 		return fmt.Errorf("create service: %w", err)

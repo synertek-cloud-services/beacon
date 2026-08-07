@@ -17,6 +17,18 @@ func TestLinuxUnitRestartsAfterCleanAgentExit(t *testing.T) {
 	}
 }
 
+func TestLinuxUnitDoesNotPersistEnrollmentToken(t *testing.T) {
+	if strings.Contains(linuxUnitTmpl, "enroll-token") {
+		t.Fatal("Linux unit must not persist an enrollment token")
+	}
+}
+
+func TestMacPlistDoesNotPersistEnrollmentToken(t *testing.T) {
+	if strings.Contains(macPlistTmpl, "enroll-token") {
+		t.Fatal("macOS plist must not persist an enrollment token")
+	}
+}
+
 func TestLinuxSelfUninstallRunsOutsideAgentServiceCgroup(t *testing.T) {
 	script := "cleanup-command"
 	cmd := linuxSelfUninstallCommand(1234, script)

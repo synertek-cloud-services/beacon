@@ -91,13 +91,28 @@ func main() {
 		if !os.IsNotExist(err) {
 			log.Fatalf("loading credential: %v", err)
 		}
-		if *enrollToken == "" {
-			log.Fatal("no stored credential and no --enroll-token provided")
+		token := *enrollToken
+		if token == "" {
+			bootstrap, bootstrapErr := credential.LoadEnrollmentBootstrap()
+			if bootstrapErr != nil {
+				log.Fatal("no stored credential and no --enroll-token or enrollment bootstrap provided")
+			}
+			if bootstrap.ServerURL != *serverURL {
+				log.Fatal("enrollment bootstrap server URL does not match --server-url")
+			}
+			token = bootstrap.Token
 		}
-		cred, err = enroll(client, *enrollToken)
+		cred, err = enroll(client, token)
 		if err != nil {
 			log.Fatalf("enrollment: %v", err)
 		}
+		if err := credential.RemoveEnrollmentBootstrap(); err != nil && !os.IsNotExist(err) {
+			log.Printf("remove enrollment bootstrap: %v", err)
+		}
+	} else if err := credential.RemoveEnrollmentBootstrap(); err != nil && !os.IsNotExist(err) {
+		// A repair install may have written a bootstrap token before the service
+		// discovered its existing device identity. Never retain that stale token.
+		log.Printf("remove stale enrollment bootstrap: %v", err)
 	}
 
 	log.Printf("beacon agent %s — device %s", version, cred.DeviceID)
@@ -228,7 +243,13 @@ func runInstall() {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if err := service.Install(*serverURL, *enrollToken); err != nil {
+	if err := credential.SaveEnrollmentBootstrap(*serverURL, *enrollToken); err != nil {
+		log.Fatalf("prepare enrollment bootstrap: %v", err)
+	}
+	if err := service.Install(*serverURL); err != nil {
+		if removeErr := credential.RemoveEnrollmentBootstrap(); removeErr != nil && !os.IsNotExist(removeErr) {
+			log.Printf("remove enrollment bootstrap after failed install: %v", removeErr)
+		}
 		log.Fatalf("install: %v", err)
 	}
 }
