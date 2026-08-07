@@ -8,7 +8,7 @@ const dashboards = new Hono<{ Bindings: Bindings }>();
 const WIDGET_TYPES = new Set([
   'device_summary', 'online_offline', 'os_distribution', 'class_distribution',
   'antivirus_status', 'offline_by_type', 'alerts_by_priority', 'recent_alerts',
-  'patches_by_severity',
+  'patches_by_severity', 'reboot_required', 'long_uptime',
 ]);
 const TEMPLATES: Record<string, Array<{ type: string; x: number; y: number; w: number; h: number }>> = {
   blank: [],
@@ -162,11 +162,25 @@ dashboards.post('/:id/widgets', async (c) => {
 dashboards.patch('/:id/widgets/:widgetId', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
   const dashboardId = c.req.param('id'), widgetId = c.req.param('widgetId');
-  const body = await c.req.json<{ title?: string | null; layout?: unknown }>(); const now = Math.floor(Date.now() / 1000);
+  const body = await c.req.json<{ title?: string | null; layout?: unknown; config?: unknown }>(); const now = Math.floor(Date.now() / 1000);
   const current = await c.env.DB.prepare('SELECT id FROM dashboard_widgets WHERE id = ? AND dashboard_id = ?').bind(widgetId, dashboardId).first(); if (!current) return c.json({ error: 'not found' }, 404);
   const statements: D1PreparedStatement[] = [];
   if ('title' in body) statements.push(c.env.DB.prepare('UPDATE dashboard_widgets SET title = ?, updated_at = ? WHERE id = ?').bind(body.title?.trim() || null, now, widgetId));
   if (body.layout !== undefined) { if (!validLayout(body.layout)) return c.json({ error: 'invalid widget layout' }, 400); const l = body.layout; statements.push(c.env.DB.prepare('UPDATE dashboard_widgets SET grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ?, updated_at = ? WHERE id = ?').bind(l.x, l.y, l.w, l.h, now, widgetId)); }
+  if (body.config !== undefined) {
+    // Loose validation only -- a plain, JSON-serializable object, size-capped.
+    // No per-type shape check (e.g. long_uptime's threshold_days/servers_only)
+    // since that would need an extra SELECT to learn this widget's own type,
+    // and a malformed config just falls back to defaults client-side, not a
+    // data-integrity risk -- this route is already admin-authenticated same
+    // as every other mutation here.
+    if (typeof body.config !== 'object' || body.config === null || Array.isArray(body.config)) {
+      return c.json({ error: 'config must be a JSON object' }, 400);
+    }
+    const serialized = JSON.stringify(body.config);
+    if (serialized.length > 1024) return c.json({ error: 'config too large' }, 400);
+    statements.push(c.env.DB.prepare('UPDATE dashboard_widgets SET config = ?, updated_at = ? WHERE id = ?').bind(serialized, now, widgetId));
+  }
   if (!statements.length) return c.json({ error: 'nothing to update' }, 400); await c.env.DB.batch(statements); return c.json({ ok: true });
 });
 

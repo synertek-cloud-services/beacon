@@ -1,5 +1,51 @@
 # Beacon — Project Log
 
+## Session: 2026-08-07 — Reboot Required + Long Uptime dashboard widgets (#89)
+
+Shipped issue #89: patch installation already reported whether a reboot was
+required (`wuinstall.Result.RebootRequired`), and the tray already prompted
+the logged-in user, but neither was fleet-visible — a technician had no way
+to see which devices needed a reboot without opening each one. Two confirmed
+decisions before implementation: the new `devices.pendingRebootRequired` flag
+is set uniformly regardless of whether the triggering install was an
+`auto_reboot` Patch Policy dispatch (self-clears fast) or a manual one; and a
+small "Reboot Required" status row was added to `DeviceDetailPage.vue`'s
+Patches section for context, beyond what the issue literally asked for.
+
+The set/clear split was the one place real care mattered: SET lives in
+`checkin.ts`'s command-result loop (an `install_patches` completion
+reporting `reboot_required`), CLEAR lives in the unconditional per-check-in
+device update, comparing the prior check-in's `uptime_seconds` against the
+new one. A plan-review pass caught a real correctness bug before it shipped:
+splicing the clear fields into the update unconditionally (guarded only by
+an inline `true`/`false`) would have meant every ordinary check-in silently
+wiped a flag a *different* check-in had just set — fixed by only including
+the clear fields in the `.set({...})` object when a reboot is actually
+detected. Verified with a real curl-simulated three-check-in sequence
+against local `wrangler dev` (set → clear → an unrelated re-armed flag
+surviving a normal increasing-uptime check-in untouched), not just reasoned
+through.
+
+Long Uptime is the first real consumer of `dashboard_widgets.config`
+(present in the schema since Shared Dashboards shipped, unused by every
+widget type until now) — its threshold/servers-only filter is a
+per-widget-instance value, which is why `buildDashboardData` gained a third
+raw `devices[]` list (mirroring the pre-existing `alerts[]` precedent)
+instead of a pre-aggregated count: a shared dashboard snapshot can't
+pre-aggregate a value that could differ across two instances of the same
+widget type. Both new widgets' "Review →" link introduces a small, reusable
+pattern — `/devices?ids=<comma-separated ids>` — rather than a
+widget-specific filter convention `DevicesPage.vue` would have to
+re-implement the same matching logic for.
+
+**UI verification gap, disclosed rather than glossed over**: this session's
+sandbox has no root access to install headless Chromium's missing system
+libraries (`libnspr4.so`), so the widget/settings-modal/device-list-link UI
+was verified via `vue-tsc -b`'s real type-check and exact reuse of existing
+markup/CSS patterns, not an actual rendered/clicked-through Playwright pass.
+The backend SET/CLEAR/data-flow logic has real curl-based verification; the
+dashboard-UI half does not yet.
+
 ## Session: 2026-08-07 — Tray blank-icon recurrence, third pass
 
 Jeremy reported the tray icon blank on two live production endpoints

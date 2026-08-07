@@ -459,6 +459,13 @@
           <!-- ── Patches (audit, Windows-only) ── -->
           <section :id="'ddev-sec-patches'" class="ddev-page-section">
             <h2 class="ddev-section-heading">Patches</h2>
+            <div v-if="device.pendingRebootRequired" class="ddev-row" style="padding:0 20px 12px">
+              <span class="ddev-label">Reboot Required</span>
+              <span class="inv-badge-danger">Pending</span>
+              <span v-if="device.pendingRebootDetectedAt" class="text-xs text-muted-2" style="margin-left:8px">
+                since {{ absDate(device.pendingRebootDetectedAt) }}
+              </span>
+            </div>
             <div class="ddev-row" style="padding:0 20px 12px">
               <span class="ddev-label">Windows Update</span>
               <span :class="device.windowsUpdateManaged ? 'inv-badge-ok' : 'inv-badge-muted'">

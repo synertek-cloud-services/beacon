@@ -256,6 +256,11 @@ const classTab   = ref<'all' | 'server' | 'workstation' | 'laptop'>('all');
 
 const activeCompany = computed(() => route.query.company as string | undefined);
 const searchQuery   = computed(() => ((route.query.search as string) ?? '').toLowerCase().trim());
+// A dashboard widget's exact match set (e.g. Reboot Required, Long Uptime) --
+// links straight to its devices without re-deriving the widget's own filter
+// criteria a second time here. Composes as one more AND'd pass alongside
+// status/class/search, same as every other filter in visibleDevices below.
+const idsFilter = computed(() => typeof route.query.ids === 'string' ? new Set(route.query.ids.split(',')) : null);
 
 // ── Multi-select ──────────────────────────────────────────────
 const selected = reactive<Record<string, boolean>>({});
@@ -460,6 +465,7 @@ const visibleDevices = computed(() => {
   let list = companyDevices.value;
   if (activeTab.value !== 'all')  list = list.filter(d => d.status === activeTab.value);
   if (classTab.value !== 'all')   list = list.filter(d => (d.detectedClass ?? d.overrideClass) === classTab.value);
+  if (idsFilter.value)            list = list.filter(d => idsFilter.value!.has(d.id));
   if (searchQuery.value) {
     const q = searchQuery.value;
     list = list.filter(d =>

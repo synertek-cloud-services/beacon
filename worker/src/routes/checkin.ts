@@ -41,6 +41,23 @@ checkin.post('/', async (c) => {
     return c.json({ error: 'device_id or company_id mismatch' }, 403);
   }
 
+  // A lower uptime_seconds than the prior check-in means the device has
+  // rebooted since then -- clear any pending-reboot flag. Compared against
+  // `device` (fetched above, before this update), which still holds the OLD
+  // inventory. Only spliced into .set() when actually detected -- never
+  // unconditionally with a live true/false -- otherwise every ordinary
+  // check-in (uptime just increasing normally) would silently wipe a flag a
+  // *different* check-in's command-result loop below had just set.
+  let rebootDetected = false;
+  if (device.pendingRebootRequired && typeof device.inventory === 'string') {
+    try {
+      const prior = JSON.parse(device.inventory) as { uptime_seconds?: number };
+      if (typeof prior.uptime_seconds === 'number' && body.metrics.uptime_seconds < prior.uptime_seconds) {
+        rebootDetected = true;
+      }
+    } catch { /* malformed prior inventory -- leave the flag as-is, next check-in retries */ }
+  }
+
   // detected_class is always recomputed from agent signals — never touches override_class
   await db.update(schema.devices)
     .set({
@@ -52,6 +69,7 @@ checkin.post('/', async (c) => {
       detectedClass: body.metrics.detected_class,
       inventory: JSON.stringify(body.metrics),
       externalIp: c.req.header('CF-Connecting-IP') ?? null,
+      ...(rebootDetected ? { pendingRebootRequired: false, pendingRebootDetectedAt: null } : {}),
     })
     .where(eq(schema.devices.id, device.id));
 
@@ -104,6 +122,26 @@ checkin.post('/', async (c) => {
           // Malformed scan output shouldn't fail the whole check-in --
           // the command row above already recorded raw stdout/stderr for
           // debugging.
+        }
+      }
+
+      if (ownedCmd.type === 'install_patches' && r.status === 'completed') {
+        try {
+          const installResult = JSON.parse(r.stdout ?? '{}') as { reboot_required?: boolean };
+          if (installResult.reboot_required) {
+            // Set unconditionally regardless of the command's own
+            // auto_reboot payload flag -- an auto-reboot dispatch already
+            // shuts the device down almost immediately, so this just
+            // self-clears within a check-in or two via the uptime-decrease
+            // comparison above, rather than needing a separate code path.
+            await db.update(schema.devices).set({
+              pendingRebootRequired: true,
+              pendingRebootDetectedAt: now,
+            }).where(eq(schema.devices.id, device.id));
+          }
+        } catch {
+          // Malformed install result shouldn't fail the whole check-in --
+          // the command row above already recorded raw stdout/stderr.
         }
       }
 

@@ -17,6 +17,7 @@
 
     <Teleport to="body"><div v-if="showWidgetPicker" class="modal-backdrop" @click.self="showWidgetPicker = false"><div class="modal dash-modal"><div class="modal-header"><span class="modal-title">Add widget</span><button class="btn-icon" @click="showWidgetPicker = false">×</button></div><div class="modal-body widget-picker"><button v-for="type in availableWidgets" :key="type" @click="addWidget(type)"><strong>{{ widgetLabels[type] }}</strong><span>{{ widgetDescriptions[type] }}</span></button></div></div></div></Teleport>
     <Teleport to="body"><div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false"><div class="modal dash-modal"><div class="modal-header"><span class="modal-title">Manage dashboard</span><button class="btn-icon" @click="showSettings = false">×</button></div><div class="modal-body"><label class="field-label">Name<input v-model="settingsName" class="form-input" /></label><label class="field-label">Companies <select v-model="settingsCompanyIds" multiple class="form-input company-select"><option v-for="company in companies" :key="company.id" :value="company.id">{{ company.name }}</option></select><span class="field-hint">No selections means all companies.</span></label><label class="home-check"><input v-model="settingsHome" type="checkbox" /> Make this the home dashboard</label></div><div class="modal-footer"><button class="btn btn-danger btn-sm" :disabled="dashboards.length <= 1" @click="deleteDashboard">Delete</button><span class="modal-spacer"/><button class="btn btn-ghost btn-sm" @click="createDashboard('blank')">New blank</button><button class="btn btn-ghost btn-sm" @click="createDashboard('default')">New default</button><button class="btn btn-ghost btn-sm" @click="cloneDashboard">Clone</button><button class="btn btn-primary btn-sm" @click="saveSettings">Save</button></div></div></div></Teleport>
+    <Teleport to="body"><div v-if="showWidgetSettings" class="modal-backdrop" @click.self="showWidgetSettings = null"><div class="modal dash-modal"><div class="modal-header"><span class="modal-title">Widget settings</span><button class="btn-icon" @click="showWidgetSettings = null">×</button></div><div class="modal-body"><label class="field-label">Uptime threshold (days)<input v-model.number="settingsThresholdDays" type="number" min="1" class="form-input" /></label><label class="home-check"><input v-model="settingsServersOnly" type="checkbox" /> Focus on servers only</label></div><div class="modal-footer"><span class="modal-spacer"/><button class="btn btn-primary btn-sm" @click="saveWidgetSettings">Save</button></div></div></div></Teleport>
   </div>
 </template>
 
@@ -33,6 +34,8 @@ const route = useRoute(), router = useRouter();
 const dashboard = ref<DashboardDetail | null>(null), dashboards = ref<DashboardDetail[]>([]), data = ref<DashboardData | null>(null), companies = ref<Company[]>([]), error = ref('');
 const editing = ref(false), showWidgetPicker = ref(false), showSettings = ref(false);
 const settingsName = ref(''), settingsCompanyIds = ref<string[]>([]), settingsHome = ref(false);
+const showWidgetSettings = ref<{ id: string; config: string } | null>(null);
+const settingsThresholdDays = ref(30), settingsServersOnly = ref(false);
 const companyId = computed(() => typeof route.query.company === 'string' ? route.query.company : undefined);
 const gridRef = ref<InstanceType<typeof GridStack> | null>(null);
 // gridstack-vue's shipped .d.ts doesn't reflect its own runtime
@@ -62,10 +65,29 @@ provide('dashboardRemoveLocalWidget', (id: string) => {
   if (!dashboard.value) return;
   dashboard.value.widgets = dashboard.value.widgets.filter(w => w.id !== id);
 });
+provide('dashboardOpenWidgetSettings', (w: { id: string; type: DashboardWidgetType; config: string }) => {
+  const cfg = (() => { try { return JSON.parse(w.config || '{}') as { threshold_days?: number; servers_only?: boolean }; } catch { return {}; } })();
+  settingsThresholdDays.value = cfg.threshold_days ?? 30;
+  settingsServersOnly.value = cfg.servers_only ?? false;
+  showWidgetSettings.value = { id: w.id, config: w.config };
+});
 
-const widgetLabels: Record<DashboardWidgetType, string> = { device_summary: 'Device summary', online_offline: 'Online / Offline', os_distribution: 'Operating systems', class_distribution: 'Device classes', antivirus_status: 'Antivirus status', offline_by_type: 'Offline devices by type', alerts_by_priority: 'Alerts by priority', recent_alerts: 'Recent alerts', patches_by_severity: 'Pending patches' };
-const widgetDescriptions: Record<DashboardWidgetType, string> = { device_summary: 'Key device and alert counts', online_offline: 'Approved device availability', os_distribution: 'Device distribution by OS', class_distribution: 'Device distribution by class', antivirus_status: 'Current antivirus reporting state', offline_by_type: 'Alerting offline devices by class', alerts_by_priority: 'Open alerts by priority', recent_alerts: 'Latest alert activity', patches_by_severity: 'Distinct pending Windows Updates by severity' };
+const widgetLabels: Record<DashboardWidgetType, string> = { device_summary: 'Device summary', online_offline: 'Online / Offline', os_distribution: 'Operating systems', class_distribution: 'Device classes', antivirus_status: 'Antivirus status', offline_by_type: 'Offline devices by type', alerts_by_priority: 'Alerts by priority', recent_alerts: 'Recent alerts', patches_by_severity: 'Pending patches', reboot_required: 'Reboot required', long_uptime: 'Long uptime' };
+const widgetDescriptions: Record<DashboardWidgetType, string> = { device_summary: 'Key device and alert counts', online_offline: 'Approved device availability', os_distribution: 'Device distribution by OS', class_distribution: 'Device distribution by class', antivirus_status: 'Current antivirus reporting state', offline_by_type: 'Alerting offline devices by class', alerts_by_priority: 'Open alerts by priority', recent_alerts: 'Latest alert activity', patches_by_severity: 'Distinct pending Windows Updates by severity', reboot_required: 'Devices with a pending patch reboot', long_uptime: 'Devices online past an uptime threshold' };
 const availableWidgets = Object.keys(widgetLabels) as DashboardWidgetType[];
+
+async function saveWidgetSettings() {
+  if (!dashboard.value || !showWidgetSettings.value) return;
+  const configObj = { threshold_days: settingsThresholdDays.value, servers_only: settingsServersOnly.value };
+  await api.dashboards.widgets.update(dashboard.value.id, showWidgetSettings.value.id, { config: configObj });
+  // Update local state immediately, same reason onGridChange/addWidget do --
+  // gridstack's own updateOptions() re-reads `children` on the next options
+  // change (e.g. toggling Edit layout), which would otherwise reconcile
+  // against a stale pre-save config.
+  const local = dashboard.value.widgets.find(w => w.id === showWidgetSettings.value!.id);
+  if (local) local.config = JSON.stringify(configObj);
+  showWidgetSettings.value = null;
+}
 
 // Read once at grid init (and on :key-forced remount when switching
 // dashboards) -- GridStack's own updateOptions() deliberately never
@@ -101,7 +123,7 @@ const gridOptions = computed<GridStackOptions>(() => ({
     id: w.id, x: w.x, y: w.y, w: w.w, h: w.h,
     minW: 2, minH: 4, maxH: 24,
     component: 'DashWidget',
-    props: { type: w.type, title: w.title },
+    props: { type: w.type, title: w.title, config: w.config },
   })),
 }));
 
@@ -138,7 +160,7 @@ async function addWidget(type: DashboardWidgetType) {
       id: created.id, x: created.x, y: created.y, w: created.w, h: created.h,
       minW: 2, minH: 4, maxH: 24,
       component: 'DashWidget',
-      props: { type: created.type, title: created.title },
+      props: { type: created.type, title: created.title, config: created.config },
     } as GridStackWidget);
   } catch (e: any) { error.value = e.message; }
 }

@@ -66,7 +66,7 @@ export interface Summary {
 export type DashboardWidgetType =
   | 'device_summary' | 'online_offline' | 'os_distribution' | 'class_distribution'
   | 'antivirus_status' | 'offline_by_type' | 'alerts_by_priority' | 'recent_alerts'
-  | 'patches_by_severity';
+  | 'patches_by_severity' | 'reboot_required' | 'long_uptime';
 
 export interface DashboardWidget {
   id: string;
@@ -74,6 +74,15 @@ export interface DashboardWidget {
   title: string | null;
   config: string;
   x: number; y: number; w: number; h: number; sortOrder: number;
+}
+
+// A raw per-device list (mirrors AlertState's own raw-row casing) -- the
+// widget component filters this client-side using its own config, since
+// Long Uptime's threshold/servers-only is a per-widget-instance value that
+// can't be pre-aggregated into Summary the way by_patch_severity is.
+export interface DashboardDeviceRow {
+  id: string; hostname: string | null; company_id: string;
+  class: string; uptime_seconds: number | null; pending_reboot_required: boolean;
 }
 
 export interface Dashboard {
@@ -90,7 +99,7 @@ export interface DashboardDetail extends Dashboard {
   widgets: DashboardWidget[];
 }
 
-export interface DashboardData { summary: Summary; alerts: AlertState[] }
+export interface DashboardData { summary: Summary; alerts: AlertState[]; devices: DashboardDeviceRow[] }
 
 export interface Address {
   street?: string;
@@ -757,6 +766,10 @@ export interface Device {
   // Policy's automatic exclusion of Hyper-V hosts from a Server-class/
   // company-wide sweep — see CLAUDE.md's Patch Management section.
   isHyperVHost: boolean | null;
+  // Fleet-visible pending-reboot state — see CLAUDE.md's Patch Management
+  // section ("Reboot Required" / issue #89).
+  pendingRebootRequired: boolean;
+  pendingRebootDetectedAt: number | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -897,7 +910,7 @@ export const api = {
     delete: (id: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/dashboards/${id}`),
     widgets: {
       create: (dashboardId: string, body: { type: DashboardWidgetType; title?: string; layout?: { x: number; y: number; w: number; h: number } }) => request<DashboardWidget>('POST', `/v1/admin/dashboards/${dashboardId}/widgets`, body),
-      update: (dashboardId: string, widgetId: string, body: { title?: string | null; layout?: { x: number; y: number; w: number; h: number } }) => request<{ ok: boolean }>('PATCH', `/v1/admin/dashboards/${dashboardId}/widgets/${widgetId}`, body),
+      update: (dashboardId: string, widgetId: string, body: { title?: string | null; layout?: { x: number; y: number; w: number; h: number }; config?: Record<string, unknown> }) => request<{ ok: boolean }>('PATCH', `/v1/admin/dashboards/${dashboardId}/widgets/${widgetId}`, body),
       delete: (dashboardId: string, widgetId: string) => request<{ ok: boolean }>('DELETE', `/v1/admin/dashboards/${dashboardId}/widgets/${widgetId}`),
     },
   },
