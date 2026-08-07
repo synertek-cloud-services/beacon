@@ -204,10 +204,14 @@ adminComponents.post('/:id/files', async (c) => {
   const sha256 = c.req.header('X-File-SHA256')?.trim().toLowerCase();
   const architecture = c.req.header('X-File-Architecture') ?? 'amd64';
   const declaredSize = Number(c.req.header('X-File-Size') ?? '');
+  const contentLength = Number(c.req.header('Content-Length') ?? '');
   if (!originalName || originalName.length > 255) return c.json({ error: 'X-File-Name is required and must be at most 255 characters' }, 400);
   if (!sha256 || !SHA256_RE.test(sha256)) return c.json({ error: 'X-File-SHA256 must be a lowercase SHA-256 hex digest' }, 400);
   if (architecture !== 'amd64') return c.json({ error: 'only amd64 application files are supported' }, 400);
   if (!Number.isInteger(declaredSize) || declaredSize < 1) return c.json({ error: 'X-File-Size is required' }, 400);
+  if (!Number.isInteger(contentLength) || contentLength !== declaredSize) {
+    return c.json({ error: 'Content-Length must match X-File-Size' }, 400);
+  }
   if (declaredSize > MAX_COMPONENT_FILE_BYTES) return c.json({ error: 'file exceeds the 100 MiB limit' }, 413);
   if (!c.req.raw.body) return c.json({ error: 'file body required' }, 400);
 
@@ -218,38 +222,21 @@ adminComponents.post('/:id/files', async (c) => {
     return c.json({ error: 'component file total exceeds the 500 MiB limit' }, 413);
   }
 
-  let received = 0;
-  const limiter = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      received += chunk.byteLength;
-      if (received > MAX_COMPONENT_FILE_BYTES) {
-        controller.error(new Error('file exceeds the 100 MiB limit'));
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  });
   const id = uid();
   const objectKey = `components/${componentId}/${id}`;
   try {
-    // R2 accepts a request body directly because its length is known, but a
-    // TransformStream intentionally loses that information. Re-wrap the
-    // verified client-declared size so R2 can stream the bytes instead of
-    // rejecting the upload before it reaches our runtime size guard.
-    const fixedLength = new FixedLengthStream(declaredSize);
-    const copy = c.req.raw.body.pipeThrough(limiter).pipeTo(fixedLength.writable);
-    await Promise.all([
-      c.env.COMPONENT_FILES.put(objectKey, fixedLength.readable, {
+    // R2 recognizes the original request stream as fixed-length. Any wrapper
+    // stream loses that runtime marker, so validate the browser's automatic
+    // Content-Length against the dashboard's declared size and pass the body
+    // through unchanged.
+    await c.env.COMPONENT_FILES.put(objectKey, c.req.raw.body, {
       httpMetadata: { contentType: c.req.header('Content-Type') ?? 'application/octet-stream' },
-      }),
-      copy,
-    ]);
-    if (received !== declaredSize) throw new Error('uploaded size did not match X-File-Size');
+    });
     const now = Math.floor(Date.now() / 1000);
     await c.env.DB.prepare(
       `INSERT INTO component_files (id, component_id, original_name, object_key, sha256, size_bytes, content_type, architecture, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, componentId, originalName, objectKey, sha256, received, c.req.header('Content-Type') ?? null, architecture, now).run();
+    ).bind(id, componentId, originalName, objectKey, sha256, declaredSize, c.req.header('Content-Type') ?? null, architecture, now).run();
     const row = await c.env.DB.prepare(`SELECT * FROM component_files WHERE id = ?`).bind(id).first<any>();
     return c.json(mapFile(row), 201);
   } catch (err) {
