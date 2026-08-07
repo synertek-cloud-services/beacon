@@ -10,6 +10,10 @@ diagnose it yourself.
 
 It covers the core of what a commercial RMM product does — device enrollment and approval, policy-based monitoring and alerting, remote shell sessions, scripted automation, Windows patch management, and inventory auditing — without a per-endpoint license fee, running entirely on infrastructure you control.
 
+## Support this project
+
+Beacon is in open beta and maintained by Synertek Cloud Services. If it’s useful to you, sponsorships help fund continued development, maintainer time, and hosting costs. You can use the GitHub Sponsor button on this repository to support its development—thank you.
+
 ## Architecture
 
 ```
