@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,40 +34,47 @@ func Install(serverURL string) error {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
 
-	dest := installPath()
-	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		return fmt.Errorf("create install dir: %w", err)
-	}
-	if err := copyFile(exe, dest); err != nil {
-		return fmt.Errorf("copy binary: %w", err)
-	}
-
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("open service manager: %w", err)
 	}
 	defer m.Disconnect()
 
-	// Remove stale service if present
-	if s, err := m.OpenService(ServiceName); err == nil {
-		s.Control(svc.Stop)
-		time.Sleep(2 * time.Second)
-		s.Delete()
-		s.Close()
-	}
-
 	cfg := mgr.Config{
 		DisplayName: "Beacon RMM Agent",
 		Description: "Beacon remote monitoring and management agent.",
 		StartType:   mgr.StartAutomatic,
 	}
-	s, err := m.CreateService(ServiceName, dest, cfg,
-		"--server-url", serverURL,
-	)
-	if err != nil {
-		return fmt.Errorf("create service: %w", err)
+	dest := installPath()
+	s, err := m.OpenService(ServiceName)
+	if err == nil {
+		defer s.Close()
+		if err := stopService(s, 30*time.Second); err != nil {
+			return fmt.Errorf("stop existing service: %w", err)
+		}
+		if err := replaceAgentBinary(exe, dest); err != nil {
+			return fmt.Errorf("replace agent binary: %w", err)
+		}
+		cfg.BinaryPathName = serviceCommand(dest, serverURL)
+		if err := s.UpdateConfig(cfg); err != nil {
+			return fmt.Errorf("update existing service: %w", err)
+		}
+	} else {
+		if err != windows.ERROR_SERVICE_DOES_NOT_EXIST {
+			return fmt.Errorf("open existing service: %w (a protected legacy BeaconAgent service requires an elevated recovery path)", err)
+		}
+		if err := os.MkdirAll(installDir, 0o755); err != nil {
+			return fmt.Errorf("create install dir: %w", err)
+		}
+		if err := replaceAgentBinary(exe, dest); err != nil {
+			return fmt.Errorf("copy binary: %w", err)
+		}
+		s, err = m.CreateService(ServiceName, dest, cfg, "--server-url", serverURL)
+		if err != nil {
+			return fmt.Errorf("create service: %w", err)
+		}
+		defer s.Close()
 	}
-	defer s.Close()
 
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w", err)
@@ -76,6 +84,46 @@ func Install(serverURL string) error {
 
 	fmt.Printf("Beacon agent installed and started as Windows service %q\n", ServiceName)
 	return nil
+}
+
+func replaceAgentBinary(src, dst string) error {
+	// An operator may invoke `beacon-agent install` from the already-installed
+	// binary to repair service configuration. Windows keeps that running image
+	// locked, but no file replacement is needed in this exact-path case.
+	if strings.EqualFold(filepath.Clean(src), filepath.Clean(dst)) {
+		return nil
+	}
+	return copyFile(src, dst)
+}
+
+func serviceCommand(exe, serverURL string) string {
+	return syscall.EscapeArg(exe) + " " + syscall.EscapeArg("--server-url") + " " + syscall.EscapeArg(serverURL)
+}
+
+func stopService(s *mgr.Service, timeout time.Duration) error {
+	status, err := s.Query()
+	if err != nil {
+		return fmt.Errorf("query status: %w", err)
+	}
+	if status.State == svc.Stopped {
+		return nil
+	}
+	if _, err := s.Control(svc.Stop); err != nil && err != windows.ERROR_SERVICE_NOT_ACTIVE {
+		return fmt.Errorf("request stop: %w", err)
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, err = s.Query()
+		if err != nil {
+			return fmt.Errorf("query stopping status: %w", err)
+		}
+		if status.State == svc.Stopped {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out after %s", timeout)
 }
 
 // setRecoveryActions configures SCM to restart the service after any exit,
@@ -318,11 +366,28 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.CreateTemp(filepath.Dir(dst), ".beacon-agent-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	tmp := out.Name()
+	defer os.Remove(tmp)
+	if err := out.Chmod(0o755); err != nil {
+		out.Close()
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
