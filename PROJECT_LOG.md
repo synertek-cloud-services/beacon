@@ -38,13 +38,23 @@ pattern — `/devices?ids=<comma-separated ids>` — rather than a
 widget-specific filter convention `DevicesPage.vue` would have to
 re-implement the same matching logic for.
 
-**UI verification gap, disclosed rather than glossed over**: this session's
-sandbox has no root access to install headless Chromium's missing system
-libraries (`libnspr4.so`), so the widget/settings-modal/device-list-link UI
-was verified via `vue-tsc -b`'s real type-check and exact reuse of existing
-markup/CSS patterns, not an actual rendered/clicked-through Playwright pass.
-The backend SET/CLEAR/data-flow logic has real curl-based verification; the
-dashboard-UI half does not yet.
+**A first attempt at UI verification stopped at a real environment blocker**
+(this session's sandbox has no root to `playwright install --with-deps`,
+which failed on missing `libnspr4.so`/`libnss3.so`/`libasound.so.2`) and was
+initially reported as an honest gap rather than routed around. Pushed to
+actually resolve it rather than leave it: `apt-get download` (fetches a
+`.deb`, no root needed) + `dpkg -x` (extracts without installing, no root
+needed) pulled the missing libraries into a scratch directory, and pointing
+`LD_LIBRARY_PATH` at them was enough for a real headless Chromium to launch.
+Ran a full Playwright pass against real local `wrangler dev`/`pnpm dev`
+servers with two enrolled test devices (one flagged, one not): both widgets
+render correctly, the settings modal saves and takes effect without a
+reload, the Reboot Required widget's own link (distinguished from
+`device_summary`'s separate, pre-existing "Review →") correctly filters the
+devices list to exactly the one flagged device out of two total, and Device
+Detail's new status row renders first with the right badge and timestamp.
+The dashboard-UI half of this feature now has the same real, non-speculative
+verification the backend SET/CLEAR logic already had.
 
 ## Session: 2026-08-07 — Tray blank-icon recurrence, third pass
 
