@@ -30,6 +30,7 @@ import adminPatches from './routes/admin/patches';
 import adminPatchPolicies from './routes/admin/patch-policies';
 import adminActivityLog from './routes/admin/activity-log';
 import branding from './routes/branding';
+import componentFiles from './routes/component-files';
 import { evaluateOfflineAlerts } from './lib/alerts';
 import { dispatchDuePatchPolicies } from './lib/patchPolicies';
 import { dispatchDueDiscoveryScans } from './lib/discovery';
@@ -58,6 +59,8 @@ export type Bindings = {
   WORKER_URL: string;
   // Stores host-uploaded branding logos
   LOGOS: R2Bucket;
+  // Private MSI installers and support files for Application Components.
+  COMPONENT_FILES: R2Bucket;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -73,7 +76,7 @@ const corsMiddleware = (c: any, next: any) => cors({
     return '';
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Authorization', 'Content-Type'],
+  allowHeaders: ['Authorization', 'Content-Type', 'X-File-Name', 'X-File-SHA256', 'X-File-Architecture', 'X-File-Size'],
 })(c, next);
 
 app.use('/v1/admin/*', corsMiddleware);
@@ -98,6 +101,7 @@ app.route('/v1/audit', auditRoute);
 app.route('/v1/sessions', sessions);
 app.route('/v1/agent', agentUpdate);
 app.route('/v1/branding', branding);
+app.route('/v1/component-files', componentFiles);
 app.route('/v1/admin/summary', adminSummary);
 app.route('/v1/admin/companies', adminCompanies);
 app.route('/v1/admin/devices', adminDevices);

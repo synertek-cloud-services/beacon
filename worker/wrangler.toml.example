@@ -28,6 +28,12 @@ migrations_dir = "../migrations"
 binding = "LOGOS"
 bucket_name = "beacon-logos"
 
+# Private Application Component installer and support files. Do not expose this
+# bucket through a public/custom domain; agents receive short-lived grants.
+[[r2_buckets]]
+binding = "COMPONENT_FILES"
+bucket_name = "beacon-component-files"
+
 [triggers]
 crons = ["*/2 * * * *"]
 

@@ -427,6 +427,19 @@ export const componentApplications = sqliteTable('component_applications', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// A hashed, time-limited capability for one enrolled device to retrieve one
+// private component file for a queued command. The raw token never persists.
+export const componentFileDownloads = sqliteTable('component_file_downloads', {
+  id: text('id').primaryKey(),
+  componentFileId: text('component_file_id').notNull().references(() => componentFiles.id, { onDelete: 'cascade' }),
+  commandId: text('command_id').notNull().references(() => commands.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: integer('expires_at').notNull(),
+  downloadedAt: integer('downloaded_at'),
+  createdAt: integer('created_at').notNull(),
+});
+
 // Multi-company "Companies" membership for company-scoped components — a component
 // can be restricted to several companies at once, added/removed one at a time
 // (mirrors Datto's "Add Company" flyout).

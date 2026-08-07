@@ -8,6 +8,9 @@ const adminComponents = new Hono<{ Bindings: Bindings }>();
 type VariableType = 'string' | 'selection' | 'boolean' | 'date';
 const VALID_VARIABLE_TYPES: VariableType[] = ['string', 'selection', 'boolean', 'date'];
 const VARIABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_COMPONENT_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_COMPONENT_TOTAL_FILE_BYTES = 500 * 1024 * 1024;
+const SHA256_RE = /^[a-f0-9]{64}$/;
 
 function auth(c: any, minRole: Role = 'readonly') {
   return requireUser(c.req.header('Authorization'), c.env, minRole);
@@ -57,7 +60,34 @@ function mapVariable(r: any) {
   };
 }
 
-// Fetch components + their variables + their companies in three queries,
+function mapFile(r: any) {
+  return {
+    id: r.id,
+    componentId: r.component_id,
+    originalName: r.original_name,
+    sha256: r.sha256,
+    sizeBytes: r.size_bytes,
+    contentType: r.content_type,
+    architecture: r.architecture,
+    createdAt: r.created_at,
+  };
+}
+
+function mapApplication(r: any) {
+  return {
+    componentId: r.component_id,
+    installerFileId: r.installer_file_id,
+    installerArguments: JSON.parse(r.installer_arguments || '[]'),
+    timeoutSeconds: r.timeout_seconds,
+    detectionType: r.detection_type,
+    detectionValue: r.detection_value,
+    architecture: r.architecture,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+// Fetch components and their nested metadata in fixed-count queries,
 // merge in TS (mirrors policies.ts's listWithMonitors pattern) — avoids N+1
 // lookups from the dashboard.
 async function embedRelations(db: D1Database, rows: any[]) {
@@ -86,10 +116,27 @@ async function embedRelations(db: D1Database, rows: any[]) {
     companiesByComponent.get(s.component_id)!.push(mapCompany(s));
   }
 
+  const filesResult = await db.prepare(
+    `SELECT * FROM component_files WHERE component_id IN (${placeholders}) ORDER BY created_at ASC`
+  ).bind(...ids).all<any>();
+  const filesByComponent = new Map<string, ReturnType<typeof mapFile>[]>();
+  for (const f of filesResult.results) {
+    const mapped = mapFile(f);
+    if (!filesByComponent.has(mapped.componentId)) filesByComponent.set(mapped.componentId, []);
+    filesByComponent.get(mapped.componentId)!.push(mapped);
+  }
+
+  const appsResult = await db.prepare(
+    `SELECT * FROM component_applications WHERE component_id IN (${placeholders})`
+  ).bind(...ids).all<any>();
+  const applicationByComponent = new Map(appsResult.results.map(r => [r.component_id, mapApplication(r)]));
+
   return rows.map(r => ({
     ...mapRow(r),
     variables: varsByComponent.get(r.id) ?? [],
     companies: companiesByComponent.get(r.id) ?? [],
+    files: filesByComponent.get(r.id) ?? [],
+    application: applicationByComponent.get(r.id) ?? null,
   }));
 }
 
@@ -135,6 +182,118 @@ adminComponents.get('/', async (c) => {
   return c.json(await embedRelations(c.env.DB, result.results));
 });
 
+// ── Application file lifecycle ────────────────────────────────────────────
+// These routes are deliberately registered ahead of /:id. R2 remains private:
+// administrators write through this authenticated endpoint and devices later
+// receive a short-lived capability, never an object URL.
+
+adminComponents.post('/:id/files', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const componentId = c.req.param('id');
+  const component = await c.env.DB.prepare(`SELECT type, origin FROM components WHERE id = ?`).bind(componentId).first<any>();
+  if (!component) return c.json({ error: 'component not found' }, 404);
+  if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+  if (component.type !== 'application') return c.json({ error: 'files can only be attached to application components' }, 400);
+
+  const originalName = c.req.header('X-File-Name')?.trim();
+  const sha256 = c.req.header('X-File-SHA256')?.trim().toLowerCase();
+  const architecture = c.req.header('X-File-Architecture') ?? 'amd64';
+  const declaredSize = Number(c.req.header('X-File-Size') ?? '');
+  if (!originalName || originalName.length > 255) return c.json({ error: 'X-File-Name is required and must be at most 255 characters' }, 400);
+  if (!sha256 || !SHA256_RE.test(sha256)) return c.json({ error: 'X-File-SHA256 must be a lowercase SHA-256 hex digest' }, 400);
+  if (architecture !== 'amd64') return c.json({ error: 'only amd64 application files are supported' }, 400);
+  if (!Number.isInteger(declaredSize) || declaredSize < 1) return c.json({ error: 'X-File-Size is required' }, 400);
+  if (declaredSize > MAX_COMPONENT_FILE_BYTES) return c.json({ error: 'file exceeds the 100 MiB limit' }, 413);
+  if (!c.req.raw.body) return c.json({ error: 'file body required' }, 400);
+
+  const total = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(size_bytes), 0) AS bytes FROM component_files WHERE component_id = ?`
+  ).bind(componentId).first<{ bytes: number }>();
+  if ((total?.bytes ?? 0) + declaredSize > MAX_COMPONENT_TOTAL_FILE_BYTES) {
+    return c.json({ error: 'component file total exceeds the 500 MiB limit' }, 413);
+  }
+
+  let received = 0;
+  const limiter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > MAX_COMPONENT_FILE_BYTES) {
+        controller.error(new Error('file exceeds the 100 MiB limit'));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  const id = uid();
+  const objectKey = `components/${componentId}/${id}`;
+  try {
+    await c.env.COMPONENT_FILES.put(objectKey, c.req.raw.body.pipeThrough(limiter), {
+      httpMetadata: { contentType: c.req.header('Content-Type') ?? 'application/octet-stream' },
+    });
+    if (received !== declaredSize) throw new Error('uploaded size did not match X-File-Size');
+    const now = Math.floor(Date.now() / 1000);
+    await c.env.DB.prepare(
+      `INSERT INTO component_files (id, component_id, original_name, object_key, sha256, size_bytes, content_type, architecture, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, componentId, originalName, objectKey, sha256, received, c.req.header('Content-Type') ?? null, architecture, now).run();
+    const row = await c.env.DB.prepare(`SELECT * FROM component_files WHERE id = ?`).bind(id).first<any>();
+    return c.json(mapFile(row), 201);
+  } catch (err) {
+    await c.env.COMPONENT_FILES.delete(objectKey);
+    return c.json({ error: err instanceof Error ? err.message : 'file upload failed' }, 400);
+  }
+});
+
+adminComponents.delete('/:id/files/:fileId', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const componentId = c.req.param('id');
+  const component = await c.env.DB.prepare(`SELECT origin FROM components WHERE id = ?`).bind(componentId).first<any>();
+  if (!component) return c.json({ error: 'component not found' }, 404);
+  if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+  const file = await c.env.DB.prepare(`SELECT * FROM component_files WHERE id = ? AND component_id = ?`).bind(c.req.param('fileId'), componentId).first<any>();
+  if (!file) return c.json({ error: 'file not found' }, 404);
+  const installer = await c.env.DB.prepare(`SELECT component_id FROM component_applications WHERE installer_file_id = ?`).bind(file.id).first<any>();
+  if (installer) return c.json({ error: 'choose another installer file before deleting this file' }, 409);
+  await c.env.DB.prepare(`DELETE FROM component_files WHERE id = ?`).bind(file.id).run();
+  await c.env.COMPONENT_FILES.delete(file.object_key);
+  return c.json({ ok: true });
+});
+
+adminComponents.put('/:id/application', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const componentId = c.req.param('id');
+  const component = await c.env.DB.prepare(`SELECT type, origin FROM components WHERE id = ?`).bind(componentId).first<any>();
+  if (!component) return c.json({ error: 'component not found' }, 404);
+  if (component.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
+  if (component.type !== 'application') return c.json({ error: 'application settings require an application component' }, 400);
+
+  const body = await c.req.json<{
+    installer_file_id: string; installer_arguments?: string[]; timeout_seconds?: number;
+    detection_type?: 'none' | 'msi_product_code' | 'powershell'; detection_value?: string | null;
+  }>();
+  if (!body.installer_file_id) return c.json({ error: 'installer_file_id required' }, 400);
+  const installer = await c.env.DB.prepare(`SELECT id FROM component_files WHERE id = ? AND component_id = ?`).bind(body.installer_file_id, componentId).first<any>();
+  if (!installer) return c.json({ error: 'installer file must belong to this component' }, 400);
+  if (body.installer_arguments !== undefined && (!Array.isArray(body.installer_arguments) || body.installer_arguments.some(a => typeof a !== 'string'))) {
+    return c.json({ error: 'installer_arguments must be an array of strings' }, 400);
+  }
+  const timeout = body.timeout_seconds ?? 900;
+  if (!Number.isInteger(timeout) || timeout < 60 || timeout > 3600) return c.json({ error: 'timeout_seconds must be between 60 and 3600' }, 400);
+  const detectionType = body.detection_type ?? 'none';
+  if (!['none', 'msi_product_code', 'powershell'].includes(detectionType)) return c.json({ error: 'invalid detection_type' }, 400);
+  if (detectionType !== 'none' && !body.detection_value?.trim()) return c.json({ error: 'detection_value required when detection is enabled' }, 400);
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    `INSERT INTO component_applications (component_id, installer_file_id, installer_arguments, timeout_seconds, detection_type, detection_value, architecture, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'amd64', ?, ?)
+     ON CONFLICT(component_id) DO UPDATE SET installer_file_id = excluded.installer_file_id, installer_arguments = excluded.installer_arguments,
+       timeout_seconds = excluded.timeout_seconds, detection_type = excluded.detection_type, detection_value = excluded.detection_value, updated_at = excluded.updated_at`
+  ).bind(componentId, body.installer_file_id, JSON.stringify(body.installer_arguments ?? []), timeout, detectionType, detectionType === 'none' ? null : body.detection_value!.trim(), now, now).run();
+  const row = await c.env.DB.prepare(`SELECT * FROM component_applications WHERE component_id = ?`).bind(componentId).first<any>();
+  return c.json(mapApplication(row));
+});
+
 // GET /:id — single component
 adminComponents.get('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
@@ -158,7 +317,7 @@ adminComponents.post('/', async (c) => {
     type?: 'script' | 'application';
     scope?: 'global' | 'company';
     shell?: string;
-    script: string;
+    script?: string;
     timeout_seconds?: number;
     post_conditions?: PostCondition[];
     target_os?: string | null;
@@ -166,7 +325,9 @@ adminComponents.post('/', async (c) => {
   }>();
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
-  if (!body.script?.trim()) return c.json({ error: 'script required' }, 400);
+  const type = body.type ?? 'script';
+  if (type !== 'script' && type !== 'application') return c.json({ error: 'invalid component type' }, 400);
+  if (type === 'script' && !body.script?.trim()) return c.json({ error: 'script required' }, 400);
   const scope = body.scope ?? 'global';
 
   // Only an admin may create a component already flagged as requiring
@@ -186,13 +347,13 @@ adminComponents.post('/', async (c) => {
     body.name.trim(),
     body.description ?? null,
     body.category ?? null,
-    body.type ?? 'script',
+    type,
     scope,
-    body.shell ?? 'auto',
-    body.script,
+    type === 'application' ? 'auto' : (body.shell ?? 'auto'),
+    type === 'application' ? '' : body.script!,
     body.timeout_seconds ?? 300,
     JSON.stringify(body.post_conditions ?? []),
-    body.target_os ?? null,
+    type === 'application' ? 'windows' : (body.target_os ?? null),
     body.requires_admin ?? false,
     now, now,
   ).run();
@@ -224,7 +385,7 @@ adminComponents.patch('/:id', async (c) => {
     requires_admin: boolean;
   }>>();
 
-  const row = await c.env.DB.prepare(`SELECT id, origin, requires_admin FROM components WHERE id = ?`).bind(id).first<any>();
+  const row = await c.env.DB.prepare(`SELECT id, origin, type, requires_admin FROM components WHERE id = ?`).bind(id).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.origin === 'store') return c.json({ error: 'store components are read-only — clone to your library to edit' }, 403);
 
@@ -235,19 +396,33 @@ adminComponents.patch('/:id', async (c) => {
     return c.json({ error: 'admin role required to change requires_admin' }, 403);
   }
 
+  if (body.type !== undefined && body.type !== 'script' && body.type !== 'application') {
+    return c.json({ error: 'invalid component type' }, 400);
+  }
+  if (body.type === 'script' && row.type === 'application') {
+    const files = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM component_files WHERE component_id = ?`).bind(id).first<{ n: number }>();
+    if ((files?.n ?? 0) > 0) return c.json({ error: 'delete application files before changing this component to a script' }, 409);
+  }
+
   const sets: string[] = ['updated_at = ?'];
   const vals: any[] = [Math.floor(Date.now() / 1000)];
 
   if (body.name        !== undefined) { sets.push('name = ?');            vals.push(body.name); }
   if (body.description !== undefined) { sets.push('description = ?');     vals.push(body.description); }
   if (body.category    !== undefined) { sets.push('category = ?');        vals.push(body.category); }
-  if (body.type        !== undefined) { sets.push('type = ?');            vals.push(body.type); }
+  if (body.type        !== undefined) {
+    sets.push('type = ?'); vals.push(body.type);
+    if (body.type === 'application') {
+      sets.push('shell = ?', 'script = ?', 'target_os = ?');
+      vals.push('auto', '', 'windows');
+    }
+  }
   if (body.scope       !== undefined) { sets.push('scope = ?');           vals.push(body.scope); }
   if (body.shell       !== undefined) { sets.push('shell = ?');           vals.push(body.shell); }
   if (body.script      !== undefined) { sets.push('script = ?');          vals.push(body.script); }
   if (body.timeout_seconds !== undefined) { sets.push('timeout_seconds = ?'); vals.push(body.timeout_seconds); }
   if (body.post_conditions !== undefined) { sets.push('post_conditions = ?'); vals.push(JSON.stringify(body.post_conditions)); }
-  if (body.target_os       !== undefined) { sets.push('target_os = ?');       vals.push(body.target_os); }
+  if (body.target_os       !== undefined && body.type !== 'application' && row.type !== 'application') { sets.push('target_os = ?'); vals.push(body.target_os); }
   if (body.requires_admin  !== undefined) { sets.push('requires_admin = ?');  vals.push(body.requires_admin); }
 
   vals.push(id);
