@@ -243,7 +243,7 @@ func runInstall() {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if err := credential.SaveEnrollmentBootstrap(*serverURL, *enrollToken); err != nil {
+	if err := prepareEnrollmentBootstrap(*serverURL, *enrollToken); err != nil {
 		log.Fatalf("prepare enrollment bootstrap: %v", err)
 	}
 	if err := service.Install(*serverURL); err != nil {
@@ -252,6 +252,19 @@ func runInstall() {
 		}
 		log.Fatalf("install: %v", err)
 	}
+}
+
+// prepareEnrollmentBootstrap writes an enrollment token only for a fresh
+// installation. A repair runs against an agent that already has its device
+// credential, so persisting its deployment token would leave unnecessary
+// sensitive material on disk.
+func prepareEnrollmentBootstrap(serverURL, enrollToken string) error {
+	if _, err := credential.Load(); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("loading existing credential: %w", err)
+	}
+	return credential.SaveEnrollmentBootstrap(serverURL, enrollToken)
 }
 
 func enroll(client *protocol.Client, token string) (*credential.Stored, error) {
