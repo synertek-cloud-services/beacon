@@ -399,6 +399,34 @@ export const componentVariables = sqliteTable('component_variables', {
   createdAt:     integer('created_at').notNull(),
 });
 
+// Files attached to an existing Application Component. The bytes stay in a
+// private R2 bucket; objectKey is never exposed as a public download URL.
+export const componentFiles = sqliteTable('component_files', {
+  id: text('id').primaryKey(),
+  componentId: text('component_id').notNull().references(() => components.id, { onDelete: 'cascade' }),
+  originalName: text('original_name').notNull(),
+  objectKey: text('object_key').notNull().unique(),
+  sha256: text('sha256').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  contentType: text('content_type'),
+  architecture: text('architecture'),
+  createdAt: integer('created_at').notNull(),
+});
+
+// Application-specific execution metadata. Script Components intentionally
+// have no row here and continue using their existing shell/script fields.
+export const componentApplications = sqliteTable('component_applications', {
+  componentId: text('component_id').primaryKey().references(() => components.id, { onDelete: 'cascade' }),
+  installerFileId: text('installer_file_id').notNull().references(() => componentFiles.id),
+  installerArguments: text('installer_arguments').notNull().default('[]'),
+  timeoutSeconds: integer('timeout_seconds').notNull().default(900),
+  detectionType: text('detection_type', { enum: ['none', 'msi_product_code', 'powershell'] }).notNull().default('none'),
+  detectionValue: text('detection_value'),
+  architecture: text('architecture', { enum: ['amd64'] }).notNull().default('amd64'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 // Multi-company "Companies" membership for company-scoped components — a component
 // can be restricted to several companies at once, added/removed one at a time
 // (mirrors Datto's "Add Company" flyout).
