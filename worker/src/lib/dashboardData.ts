@@ -7,13 +7,24 @@ export interface DashboardSummary {
   by_patch_severity: Record<string, number>;
 }
 
+// A raw per-device list, not a pre-aggregated count -- unlike everything
+// else in DashboardSummary, Long Uptime's threshold/servers-only filter is a
+// per-widget-instance config value (dashboard_widgets.config), so it can't
+// be pre-aggregated into one shared snapshot the way by_patch_severity is.
+// Mirrors the existing `alerts` raw-list precedent below: the widget
+// component does its own client-side filtering from this.
+export interface DashboardDeviceRow {
+  id: string; hostname: string | null; company_id: string;
+  class: string; uptime_seconds: number | null; pending_reboot_required: boolean;
+}
+
 function placeholders(values: string[]) { return values.map(() => '?').join(', '); }
 
 /** Builds the single data snapshot used by both the legacy summary and widgets. */
 export async function buildDashboardData(db: D1Database, companyIds?: string[]) {
   const scope = companyIds?.length ? ` WHERE company_id IN (${placeholders(companyIds)})` : '';
   const devicesResult = await db.prepare(`
-    SELECT id, company_id, status, last_seen, os_type, detected_class, override_class, inventory
+    SELECT id, hostname, company_id, status, last_seen, os_type, detected_class, override_class, inventory, pending_reboot_required
     FROM devices${scope}
   `).bind(...(companyIds?.length ? companyIds : [])).all<Record<string, unknown>>();
   const devices = devicesResult.results;
@@ -21,14 +32,30 @@ export async function buildDashboardData(db: D1Database, companyIds?: string[]) 
   const approved = devices.filter(d => d.status === 'approved');
   const byOs: Record<string, number> = {}, byClass: Record<string, number> = {}, byAvStatus: Record<string, number> = {};
   let online = 0;
+  const deviceRows: DashboardDeviceRow[] = [];
   for (const d of approved) {
     if (typeof d.last_seen === 'number' && d.last_seen > now - 300) online++;
     const os = typeof d.os_type === 'string' ? d.os_type : 'unknown'; byOs[os] = (byOs[os] ?? 0) + 1;
     const cls = (typeof d.override_class === 'string' ? d.override_class : (typeof d.detected_class === 'string' ? d.detected_class : 'unknown'));
     byClass[cls] = (byClass[cls] ?? 0) + 1;
     let av = 'unknown';
-    if (typeof d.inventory === 'string') try { av = (JSON.parse(d.inventory) as { av_status?: string }).av_status ?? av; } catch { /* unknown */ }
+    let uptimeSeconds: number | null = null;
+    if (typeof d.inventory === 'string') {
+      try {
+        const parsed = JSON.parse(d.inventory) as { av_status?: string; uptime_seconds?: number };
+        av = parsed.av_status ?? av;
+        uptimeSeconds = typeof parsed.uptime_seconds === 'number' ? parsed.uptime_seconds : null;
+      } catch { /* unknown */ }
+    }
     byAvStatus[av] = (byAvStatus[av] ?? 0) + 1;
+    deviceRows.push({
+      id: d.id as string,
+      hostname: typeof d.hostname === 'string' ? d.hostname : null,
+      company_id: d.company_id as string,
+      class: cls,
+      uptime_seconds: uptimeSeconds,
+      pending_reboot_required: d.pending_reboot_required === 1,
+    });
   }
 
   const offlineScope = companyIds?.length ? ` AND d.company_id IN (${placeholders(companyIds)})` : '';
@@ -100,5 +127,6 @@ export async function buildDashboardData(db: D1Database, companyIds?: string[]) 
       by_os: byOs, by_class: byClass, offline_by_class: offlineByClass, by_av_status: byAvStatus,
       by_patch_severity: byPatchSeverity } satisfies DashboardSummary,
     alerts: alerts.results,
+    devices: deviceRows,
   };
 }

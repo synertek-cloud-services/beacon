@@ -98,6 +98,13 @@ export const devices = sqliteTable('devices', {
   // Hyper-V hosts from a policy's Server-class/company sweep -- see
   // worker/src/lib/patchPolicies.ts's deviceMatchesPatchPolicy.
   isHyperVHost: integer('is_hyper_v_host', { mode: 'boolean' }),
+  // Fleet-visible pending-reboot state -- set from an install_patches
+  // command's reboot_required result, cleared once a later check-in's
+  // uptime_seconds shows the device has since restarted. No "never
+  // evaluated" tri-state needed (unlike isHyperVHost/windowsUpdateManaged
+  // above) -- a device either has a pending reboot or it doesn't.
+  pendingRebootRequired: integer('pending_reboot_required', { mode: 'boolean' }).notNull().default(false),
+  pendingRebootDetectedAt: integer('pending_reboot_detected_at'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

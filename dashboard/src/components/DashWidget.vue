@@ -1,5 +1,5 @@
 <template>
-  <div class="dwig-content" :class="{ 'widget-chart': !['device_summary', 'recent_alerts'].includes(type) }">
+  <div class="dwig-content" :class="{ 'widget-chart': !['device_summary', 'recent_alerts', 'reboot_required', 'long_uptime'].includes(type) }">
     <button v-if="editing" class="dwig-remove" title="Remove widget" @click="onRemove">×</button>
 
     <div v-if="type === 'device_summary'" class="stat-grid dash-stats">
@@ -14,6 +14,14 @@
         <tbody><tr v-for="alert in recentAlerts" :key="alert.id" @click="router.push('/global/alerts/' + alert.id)"><td class="mono">{{ formatDate(alert.alerted_at) }}</td><td><span class="pri-badge" :class="`pri-${alert.priority}`">{{ alert.priority }}</span></td><td>{{ categoryLabel(alert.check_type) }}</td><td>{{ alertMessage(alert) }}</td><td>{{ alert.company_name }}</td><td><RouterLink :to="'/devices/' + alert.device_id" @click.stop>{{ alert.hostname ?? '—' }}</RouterLink></td></tr>
           <tr v-if="!recentAlerts.length"><td colspan="6" class="empty-cell">No recent alerts</td></tr></tbody></table></div>
     </template>
+    <div v-else-if="type === 'reboot_required' || type === 'long_uptime'" class="stat-grid dash-stats">
+      <div class="stat-card" :class="type === 'reboot_required' ? 'c-red' : 'c-amber'">
+        <div class="stat-label">{{ title || widgetLabels[type] }}</div>
+        <div class="stat-value">{{ (type === 'reboot_required' ? rebootRequiredDevices : longUptimeDevices).length }}</div>
+        <RouterLink class="stat-sub" :to="idsLink(type === 'reboot_required' ? rebootRequiredDevices : longUptimeDevices)">Review →</RouterLink>
+        <button v-if="editing && type === 'long_uptime'" class="dwig-gear" title="Widget settings" @click.stop="openSettings()">⚙</button>
+      </div>
+    </div>
     <template v-else>
       <div class="widget-title">{{ title || widgetLabels[type] }}</div>
       <DonutChart v-if="chartData(type).length" :data="chartData(type)" :center-label="chartCenter(type)" />
@@ -26,10 +34,10 @@
 import { computed, inject, type Ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useGridStack, useGridStackItem } from 'gridstack/dist/vue';
-import { api, type AlertState, type DashboardData, type DashboardWidgetType } from '../api';
+import { api, type AlertState, type DashboardData, type DashboardWidgetType, type DashboardDeviceRow } from '../api';
 import DonutChart from './DonutChart.vue';
 
-const props = defineProps<{ type: DashboardWidgetType; title: string | null }>();
+const props = defineProps<{ type: DashboardWidgetType; title: string | null; config: string }>();
 
 const router = useRouter();
 
@@ -42,11 +50,28 @@ const data    = inject<Ref<DashboardData | null>>('dashboardData')!;
 const editing = inject<Ref<boolean>>('dashboardEditing')!;
 const dashboardId = inject<Ref<string | undefined>>('dashboardId')!;
 const removeLocalWidget = inject<(id: string) => void>('dashboardRemoveLocalWidget')!;
+const openWidgetSettings = inject<(w: { id: string; type: DashboardWidgetType; config: string }) => void>('dashboardOpenWidgetSettings')!;
 
 const { removeWidget } = useGridStack();
 const item = useGridStackItem();
 
-const widgetLabels: Record<DashboardWidgetType, string> = { device_summary: 'Device summary', online_offline: 'Online / Offline', os_distribution: 'Operating systems', class_distribution: 'Device classes', antivirus_status: 'Antivirus status', offline_by_type: 'Offline devices by type', alerts_by_priority: 'Alerts by priority', recent_alerts: 'Recent alerts', patches_by_severity: 'Pending patches' };
+const widgetLabels: Record<DashboardWidgetType, string> = { device_summary: 'Device summary', online_offline: 'Online / Offline', os_distribution: 'Operating systems', class_distribution: 'Device classes', antivirus_status: 'Antivirus status', offline_by_type: 'Offline devices by type', alerts_by_priority: 'Alerts by priority', recent_alerts: 'Recent alerts', patches_by_severity: 'Pending patches', reboot_required: 'Reboot required', long_uptime: 'Long uptime' };
+
+// Client-side filtered from the shared raw devices list -- Long Uptime's
+// threshold/servers-only is a per-widget-instance config value, which is
+// exactly why buildDashboardData ships a raw list here instead of a
+// pre-aggregated count (see dashboardData.ts's DashboardDeviceRow doc).
+const rebootRequiredDevices = computed(() => (data.value?.devices ?? []).filter(d => d.pending_reboot_required));
+function parseWidgetConfig(): { threshold_days?: number; servers_only?: boolean } {
+  try { return JSON.parse(props.config || '{}'); } catch { return {}; }
+}
+const longUptimeDevices = computed(() => {
+  const cfg = parseWidgetConfig();
+  const thresholdSeconds = (cfg.threshold_days ?? 30) * 86400;
+  return (data.value?.devices ?? []).filter(d => (d.uptime_seconds ?? 0) >= thresholdSeconds && (!cfg.servers_only || d.class === 'server'));
+});
+function idsLink(devices: DashboardDeviceRow[]) { return devices.length ? `/devices?ids=${devices.map(d => d.id).join(',')}` : '/devices'; }
+function openSettings() { openWidgetSettings({ id: item.id, type: props.type, config: props.config }); }
 
 const activeAlerts = computed(() => (data.value?.alerts ?? []).filter(alert => alert.is_alerting === 1));
 const recentAlerts = computed(() => [...(data.value?.alerts ?? [])].slice(0, 12));
@@ -85,6 +110,7 @@ async function onRemove() {
 <style scoped>
 .dwig-content { position:relative; height:100%; box-sizing:border-box; overflow:hidden; display:flex; flex-direction:column; background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:14px; }
 .dwig-remove { position:absolute; top:8px; right:8px; z-index:2; background:color-mix(in srgb, var(--color-surface) 85%, transparent); border:1px solid var(--color-border); color:var(--color-text-muted); border-radius:5px; width:22px; height:22px; cursor:pointer; }
+.dwig-gear { position:absolute; top:8px; right:34px; z-index:2; background:color-mix(in srgb, var(--color-surface) 85%, transparent); border:1px solid var(--color-border); color:var(--color-text-muted); border-radius:5px; width:22px; height:22px; cursor:pointer; font-size:12px; }
 /* Overrides the global .stat-grid's display:grid, whose single implicit row
    sizes to its content rather than stretching -- a taller widget just grew
    dead space below the row, not the row itself. Neither justify-content:center
