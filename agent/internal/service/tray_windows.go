@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -19,11 +20,25 @@ import (
 //go:embed embedded/beacon-tray.exe
 var trayBinary []byte
 
+// trayRestartInterval is how often each session's tray helper exits and lets
+// the supervisor relaunch it with a fresh Shell_NotifyIcon NIM_ADD. This used
+// to be a single one-shot restart scheduled only for a session's first
+// launch, on the theory that Explorer-notification-area-creation racing
+// WTS_SESSION_LOGON was the only way to end up with a blank icon slot. Real
+// hardware disproved that: a tray process that had already used its one
+// recovery attempt went blank again later, with nothing left watching for
+// it. There is no reliable in-process way to detect a blank slot (a
+// successful-looking Shell_NotifyIcon call doesn't guarantee Explorer
+// actually rendered it), so recovery now runs unconditionally, on an
+// ongoing interval, for the life of the session -- trading a brief,
+// harmless icon blip every interval for actually bounding how long a blank
+// slot can persist, instead of leaving it unbounded.
+const trayRestartInterval = 10 * time.Minute
+
 var (
 	trayMu          sync.Mutex
 	agentVer        string
 	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
-	trayRestarted   = map[uint32]bool{}   // session ID -> first launch has scheduled its one Explorer-start recovery
 	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
 	killOrphansOnce sync.Once
 )
@@ -120,7 +135,6 @@ func EnsureTrayRunning() {
 	for id := range trayPIDs {
 		if _, ok := activeSet[id]; !ok {
 			delete(trayPIDs, id)
-			delete(trayRestarted, id)
 		}
 	}
 	// --dashboard-url is deliberately omitted: the agent only knows its own
@@ -138,17 +152,12 @@ func EnsureTrayRunning() {
 	trayMu.Unlock()
 
 	for _, id := range toLaunch {
-		args := []string{"--version=" + version}
-		trayMu.Lock()
-		scheduleRestart := !trayRestarted[id]
-		trayMu.Unlock()
-		if scheduleRestart {
-			// Explorer can still be creating its notification area when the
-			// session-logon hook launches the first helper. A later, fresh
-			// NIM_ADD is required to recover a blank reserved slot; SetIcon
-			// only sends NIM_MODIFY and demonstrably cannot repair it.
-			args = append(args, "--restart-after=2m")
-		}
+		// Every launch -- a session's first or a periodic-restart
+		// replacement alike -- gets the same recurring recovery interval;
+		// see trayRestartInterval's doc comment for why this is
+		// unconditional rather than a one-shot scheduled only for the first
+		// launch.
+		args := []string{"--version=" + version, "--restart-after=" + trayRestartInterval.String()}
 		pid, err := usersession.RunAsSession(id, trayPath, args)
 		if err != nil {
 			if err == usersession.ErrNoActiveSession {
@@ -159,9 +168,6 @@ func EnsureTrayRunning() {
 		}
 		trayMu.Lock()
 		trayPIDs[id] = pid
-		if scheduleRestart {
-			trayRestarted[id] = true
-		}
 		trayMu.Unlock()
 		log.Printf("service: tray: launched pid %d for session %d", pid, id)
 	}
