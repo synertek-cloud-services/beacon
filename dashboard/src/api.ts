@@ -1345,7 +1345,7 @@ export const api = {
     },
   },
   sessions: {
-    open: (deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel') =>
+    open: (deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share') =>
       request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
         device_id: deviceId, company_id: companyId, session_type: sessionType,
       }),

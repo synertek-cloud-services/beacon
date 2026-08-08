@@ -227,6 +227,10 @@ func Uninstall() error {
 	// the way SelfUninstall's self-referential-termination problem requires.
 	// Error ignored: "no matching process found" isn't a real failure.
 	exec.Command("taskkill", "/IM", "beacon-tray.exe", "/F").Run()
+	// beacon-screenshare.exe is the same story -- a per-session helper
+	// launched via usersession.RunAsActiveUser for an in-progress Web
+	// Remote session, not a child of this service.
+	exec.Command("taskkill", "/IM", "beacon-screenshare.exe", "/F").Run()
 
 	// Remove the whole install directory, not just the one exe -- the
 	// previous os.Remove(installPath()) left beacon-tray.exe and any other
@@ -341,6 +345,7 @@ $log = 'C:\Windows\Temp\beacon-uninstall.log'
 Wait-Process -Id %d -Timeout 30 -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 taskkill /IM beacon-tray.exe /F 2>&1 | Out-File -FilePath $log -Append
+taskkill /IM beacon-screenshare.exe /F 2>&1 | Out-File -FilePath $log -Append
 sc.exe stop %s 2>&1 | Out-File -FilePath $log -Append
 sc.exe delete %s 2>&1 | Out-File -FilePath $log -Append
 try { Remove-Item -LiteralPath '%s' -Recurse -Force -ErrorAction Stop; "removed install dir OK" | Out-File -FilePath $log -Append } catch { "install dir removal failed: $_" | Out-File -FilePath $log -Append }

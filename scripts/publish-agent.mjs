@@ -129,6 +129,11 @@ runGo(
   ['build', '-trimpath', '-ldflags=-H=windowsgui', '-o', 'internal/service/embedded/beacon-tray.exe', './cmd/beacon-tray'],
   { env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' } },
 );
+console.log('Building beacon-screenshare.exe (embedded into the Windows agent binary)…');
+runGo(
+  ['build', '-trimpath', '-ldflags=-H=windowsgui', '-o', 'internal/session/embedded/beacon-screenshare.exe', './cmd/beacon-screenshare'],
+  { env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' } },
+);
 
 for (const target of targets) {
   const outputPath = join(distDir, assetName(target));

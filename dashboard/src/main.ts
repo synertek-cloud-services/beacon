@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import DeviceDetailPage from './pages/DeviceDetailPage.vue';
 import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
+import WebRemotePage from './pages/WebRemotePage.vue';
 import CompaniesPage from './pages/CompaniesPage.vue';
 import JobsPage from './pages/JobsPage.vue';
 import JobFormPage from './pages/JobFormPage.vue';
@@ -57,6 +58,7 @@ const router = createRouter({
     { path: '/devices', component: DevicesPage },
     { path: '/devices/:id', component: DeviceDetailPage },
     { path: '/devices/:id/change-log', component: DeviceChangeLogPage },
+    { path: '/remote/:sessionId', component: WebRemotePage },
     { path: '/groups', component: GroupsPage },
     { path: '/groups/new', component: GroupFormPage },
     { path: '/groups/:id', component: GroupFormPage },

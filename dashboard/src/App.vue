@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isLogin" class="login-wrap">
+  <div v-if="isChromeless" class="login-wrap">
     <RouterView />
   </div>
   <div v-else class="shell">
@@ -319,7 +319,11 @@ const vClickOutside = {
 const route = useRoute();
 const router = useRouter();
 
-const isLogin   = computed(() => route.path === '/login' || route.path === '/sso-callback');
+// Web Remote deliberately opens in its own chromeless browser tab (real
+// screen space for a remote-desktop view, matching Datto RMM's own Web
+// Remote behavior) rather than living inside the sidebar shell -- same
+// no-sidebar treatment login/SSO-callback already get.
+const isChromeless = computed(() => route.path === '/login' || route.path === '/sso-callback' || route.path.startsWith('/remote/'));
 const workerUrl = import.meta.env.VITE_API_URL || 'localhost:8787';
 
 const companies      = ref<Company[]>([]);

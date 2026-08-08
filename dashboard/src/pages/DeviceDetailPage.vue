@@ -45,11 +45,13 @@
       <!-- Management toolbar -->
       <div class="ddev-toolbar">
         <!-- Left: management actions -->
-        <button class="toolbar-btn toolbar-btn-dim" title="Requires RustDesk integration — not yet configured" disabled>
+        <button class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
+          :disabled="device.status !== 'approved' || isDemoDevice(device)" @click="openWebRemote()"
+          :title="isDemoDevice(device) ? 'Web Remote requires a live agent; seeded demo devices cannot connect' : device.status !== 'approved' ? 'Device must be approved to open a session' : ''">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/>
           </svg>
-          Remote Session
+          Web Remote
         </button>
         <button class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
           :disabled="device.status !== 'approved' || isDemoDevice(device)" @click="remoteShellOpen = true"
@@ -1030,6 +1032,23 @@ const jobQueued = ref(false);
 
 // Remote Shell modal
 const remoteShellOpen = ref(false);
+
+// Web Remote — opens in a genuine new browser tab (not an in-page modal,
+// unlike Remote Shell above): a remote desktop view needs real screen
+// space, and this matches the reference product's own actual behavior
+// (Datto RMM's Web Remote also opens a new browser tab). The session is
+// created here so a failure to reach the worker surfaces immediately in
+// this page rather than inside a half-opened tab.
+async function openWebRemote() {
+  if (!device.value) return;
+  try {
+    const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share');
+    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}`;
+    window.open(url, '_blank');
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
 
 // Maintenance modal
 const maintModal        = ref(false);

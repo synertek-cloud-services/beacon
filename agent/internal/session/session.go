@@ -26,6 +26,20 @@ func Handle(cmd protocol.Command) {
 
 	log.Printf("session %s: opening %s session", p.SessionID, p.SessionType)
 
+	// screen_share is special-cased before the dial below, not folded into
+	// the switch as just another case: its actual relay connection is made
+	// by a per-session helper process running inside the target user's own
+	// desktop session (see screenshare.go), not by this SYSTEM-context
+	// process. SessionRelay broadcasts to every peer socket sharing a
+	// role, so if this process also dialed as role=agent for the same
+	// session, two agent-role sockets would both receive the browser's
+	// bytes and corrupt RFB's strict single-byte-stream protocol.
+	if p.SessionType == "screen_share" {
+		runScreenShare(p.SessionID, p.WSURL)
+		log.Printf("session %s: closed", p.SessionID)
+		return
+	}
+
 	conn, _, err := websocket.DefaultDialer.Dial(p.WSURL, nil)
 	if err != nil {
 		log.Printf("session %s: dial: %v", p.SessionID, err)
