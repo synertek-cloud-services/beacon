@@ -429,6 +429,10 @@
               </select>
             </div>
 
+            <div v-if="monPanel.form.checkType === 'windows_update_drift'" class="mf-field">
+              <p class="field-hint">Nothing to configure — this monitor checks a fixed condition: whether Windows' own Automatic Updates has been re-enabled (by a domain GPO or a local administrator) on a device Beacon currently manages. Only ever assigned to devices Beacon believes it's managing; it stops being checked, and any open alert clears, the moment that management is disabled.</p>
+            </div>
+
             <div class="mf-pair">
               <template v-if="monPanel.form.checkType !== 'software'">
                 <div class="mf-field">
@@ -679,6 +683,9 @@ const checkTypeOptions = [
   { value: 'software',
     label: 'Software',
     iconPaths: '<path d="M12.89 1.45l8 4A2 2 0 0 1 22 7.24v9.53a2 2 0 0 1-1.11 1.79l-8 4a2 2 0 0 1-1.79 0l-8-4a2 2 0 0 1-1.1-1.8V7.24a2 2 0 0 1 1.11-1.79l8-4a2 2 0 0 1 1.78 0z"/><polyline points="2.32 6.16 12 11 21.68 6.16"/><line x1="12" y1="22.76" x2="12" y2="11"/>' },
+  { value: 'windows_update_drift',
+    label: 'Windows Update Drift',
+    iconPaths: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>' },
 ];
 
 // ── Local monitor type ──
@@ -884,6 +891,7 @@ function buildConfig(f: typeof monPanel.form): Record<string, unknown> {
       name_pattern: f.softwareNamePattern,
       mode:         f.softwareMode,
     };
+    case 'windows_update_drift': return {}; // fixed condition, nothing to configure
     default:             return {};
   }
 }
@@ -1114,7 +1122,7 @@ async function save() {
 // ── Formatters ──
 
 function checkLabel(ct: CheckType): string {
-  const m: Record<CheckType, string> = { disk_space: 'Disk Space', offline: 'Online Status', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus', file_size: 'File/Folder Size', ping: 'Ping', process: 'Process', service: 'Service', software: 'Software' };
+  const m: Record<CheckType, string> = { disk_space: 'Disk Space', offline: 'Online Status', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus', file_size: 'File/Folder Size', ping: 'Ping', process: 'Process', service: 'Service', software: 'Software', windows_update_drift: 'Windows Update Drift' };
   return m[ct] ?? ct;
 }
 
@@ -1182,6 +1190,7 @@ function monitorSummaryLocal(m: LocalMonitor): string {
     case 'process': return processSummary(m);
     case 'service': return serviceSummary(m);
     case 'software': return softwareSummary(m);
+    case 'windows_update_drift': return "alert if Windows' own auto-update is re-enabled while Beacon manages it";
     default: return m.checkType;
   }
 }
@@ -1330,6 +1339,7 @@ function monitorSummaryLocal(m: LocalMonitor): string {
 .chip-process      { background: rgba(240,168,64,.16);   color: var(--color-warning); }
 .chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
 .chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
+.chip-windows_update_drift { background: rgba(58,146,192,.15); color: #3a92c0; }
 
 /* ── btn-icon ── */
 .btn-icon {

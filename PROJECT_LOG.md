@@ -1,5 +1,59 @@
 # Beacon — Project Log
 
+## Session: 2026-08-07 — Windows Update management drift detection (#79)
+
+Shipped issue #79, promoted from Icebox: `syncWindowsUpdateManagement` sets
+or reverts Windows' own Automatic Updates registry policy when Patch Policy
+coverage changes, but never checked it again — a domain GPO refresh or local
+admin could silently re-enable it with zero visibility. Built as a new
+`windows_update_drift` check_type in the existing Two-Tier Policy/Monitor
+system rather than a `commands` dispatch or a `CheckInResponse` extension,
+after checking both alternatives against this repo's own precedent rather
+than assuming: it's structurally identical to `file_size`/`ping`/`process`/
+`service` (an assign-then-report-back measurement needing the full
+`processAlertState` apparatus), not a one-shot action like
+`manage_windows_update` itself.
+
+The one piece needing real scrutiny was "clear the alert unconditionally
+when management is disabled" — `processAlertState`'s own auto-resolve path
+is gated on the monitor's `auto_resolve`/`auto_resolve_after_minutes`
+setting, which governs a different case, so reusing it would leave a stale
+alert open indefinitely for a technician with `auto_resolve` off. Built a
+separate `resolveWindowsUpdateDriftAlerts`, mirroring `reconcileOrphanedAlerts`'s
+unconditional-resolve shape, called from the `manage_windows_update`
+revert-completion path in `checkin.ts`.
+
+**A real race condition was found live during verification, not caught by
+review**: within the same check-in request that completes a
+`manage_windows_update` revert, the in-memory `device` object the assignment
+pass reads was fetched before that revert's DB update landed — so that same
+request could still hand out a drift-check assignment for a now-unmanaged
+device. The agent reports its result on the *next* check-in, by which point
+a fresh `device` fetch would normally reflect the change — except
+`evaluateWindowsUpdateDriftAlerts` never re-checked `windowsUpdateManaged`
+at evaluation time either, so a curl-simulated sequence against local
+`wrangler dev` showed that stale in-flight result reopening tracking
+(`condition_first_seen` set again) on an alert `resolveWindowsUpdateDriftAlerts`
+had already unconditionally closed moments earlier. Fixed by re-checking
+`device.windowsUpdateManaged` inside the evaluate function itself, then
+re-ran the exact same sequence to confirm the fix actually holds.
+
+Also seeded a default global "Windows Update Drift" policy (confirmed with
+Jeremy before building) — unlike `file_size`/`ping`/`process`/`service`,
+there's nothing device-specific to configure, so it ships enabled like
+Antivirus Health/Disk Space/CPU/Memory rather than requiring an operator to
+build it. And a small "Drift detected" badge on Device Detail's existing
+Windows Update row (also confirmed first), reusing the already-loaded
+per-device alert list with no new API call.
+
+Verified: worker type-check, dashboard `vue-tsc -b` build, all three agent
+OSes cross-compile, migration applied with the seed row confirmed, and a
+full curl-simulated check-in walkthrough covering assignment, sustained-fire,
+auto-resolve, and — the case that actually matters — the unconditional
+resolve on coverage loss, including the race-condition fix above re-verified
+after the fact. Not verified on real Windows hardware, same disclosed gap as
+the rest of this session's Patch Management work.
+
 ## Session: 2026-08-07 — Get Support tray action (#90)
 
 Shipped issue #90: a "Get Support" tray menu item opening a hoster-configured

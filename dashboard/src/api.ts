@@ -380,7 +380,7 @@ export interface ActivityLogFilters {
 
 // ── Monitor / Alert types ────────────────────────────────────
 
-export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
+export type CheckType     = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software' | 'windows_update_drift';
 export type AlertPriority = 'critical' | 'high' | 'moderate' | 'low';
 
 export interface PolicyMonitor {

@@ -41,13 +41,14 @@ var version = "0.2.9"
 const checkInInterval = 60 * time.Second
 
 var (
-	pendingMu              sync.Mutex
-	pendingResults         []protocol.CommandResult
-	pendingFileSizeResults []protocol.FileSizeResult
-	pendingPingResults     []protocol.PingResult
-	pendingProcessResults  []protocol.ProcessResult
-	pendingServiceResults  []protocol.ServiceResult
-	auditTrigger           = make(chan struct{}, 1)
+	pendingMu                        sync.Mutex
+	pendingResults                   []protocol.CommandResult
+	pendingFileSizeResults           []protocol.FileSizeResult
+	pendingPingResults               []protocol.PingResult
+	pendingProcessResults            []protocol.ProcessResult
+	pendingServiceResults            []protocol.ServiceResult
+	pendingWindowsUpdateDriftResults []protocol.WindowsUpdateDriftResult
+	auditTrigger                     = make(chan struct{}, 1)
 	// triggerCheckin lets command goroutines wake the main loop early so
 	// results are reported on the next check-in rather than waiting the
 	// full 60-second interval. Buffered so senders never block.
@@ -311,6 +312,8 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 	pendingProcessResults = nil
 	serviceResults := pendingServiceResults
 	pendingServiceResults = nil
+	windowsUpdateDriftResults := pendingWindowsUpdateDriftResults
+	pendingWindowsUpdateDriftResults = nil
 	pendingMu.Unlock()
 
 	resp, err := client.CheckIn(cred.DeviceCredential, protocol.CheckInRequest{
@@ -331,11 +334,12 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 			AvStatus:      snap.AvStatus,
 			AvProduct:     snap.AvProduct,
 		},
-		PendingCommandResults:  results,
-		PendingFileSizeResults: fileSizeResults,
-		PendingPingResults:     pingResults,
-		PendingProcessResults:  processResults,
-		PendingServiceResults:  serviceResults,
+		PendingCommandResults:            results,
+		PendingFileSizeResults:           fileSizeResults,
+		PendingPingResults:               pingResults,
+		PendingProcessResults:            processResults,
+		PendingServiceResults:            serviceResults,
+		PendingWindowsUpdateDriftResults: windowsUpdateDriftResults,
 	})
 	if err != nil {
 		pendingMu.Lock()
@@ -344,6 +348,7 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		pendingPingResults = append(pingResults, pendingPingResults...)
 		pendingProcessResults = append(processResults, pendingProcessResults...)
 		pendingServiceResults = append(serviceResults, pendingServiceResults...)
+		pendingWindowsUpdateDriftResults = append(windowsUpdateDriftResults, pendingWindowsUpdateDriftResults...)
 		pendingMu.Unlock()
 		return err
 	}
@@ -397,6 +402,20 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				PacketsSent:     sent,
 				PacketsReceived: received,
 				AvgRttMs:        avgRtt,
+			})
+			pendingMu.Unlock()
+		}(chk)
+	}
+
+	for _, chk := range resp.WindowsUpdateDriftChecks {
+		go func(chk protocol.WindowsUpdateDriftCheck) {
+			r := auconfig.Read()
+			pendingMu.Lock()
+			pendingWindowsUpdateDriftResults = append(pendingWindowsUpdateDriftResults, protocol.WindowsUpdateDriftResult{
+				MonitorID:    chk.MonitorID,
+				NoAutoUpdate: r.NoAutoUpdate,
+				AUOptions:    r.AUOptions,
+				Error:        r.Error,
 			})
 			pendingMu.Unlock()
 		}(chk)

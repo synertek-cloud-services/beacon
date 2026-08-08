@@ -138,3 +138,60 @@ func Apply(action string, priorNoAutoUpdate, priorAUOptions *int) Result {
 	}
 	return Result{Applied: true, PriorNoAutoUpdate: v.PriorNoAutoUpdate, PriorAUOptions: v.PriorAUOptions}
 }
+
+// DriftCheckResult reports the AU registry state as currently observed --
+// for drift verification only, never for management itself (Apply above
+// remains the only code path that ever writes anything). Separate from
+// Result, whose Prior* field names read oddly for a call that never writes.
+type DriftCheckResult struct {
+	NoAutoUpdate *int   `json:"no_auto_update,omitempty"`
+	AUOptions    *int   `json:"au_options,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// readOnlyPS reuses the shared readSnippet with no write step at all -- no
+// New-Item/Set-ItemProperty/Remove-ItemProperty anywhere, matching this
+// feature's "do not continuously overwrite a conflicting domain policy"
+// requirement structurally, not just by convention.
+const readOnlyPS = `$ErrorActionPreference = 'Stop'
+try {` + readSnippet + `
+	[PSCustomObject]@{ NoAutoUpdate = $priorNoAutoUpdate; AUOptions = $priorAUOptions; Error = $null } | ConvertTo-Json -Compress
+} catch {
+	[PSCustomObject]@{ NoAutoUpdate = $null; AUOptions = $null; Error = $_.Exception.Message } | ConvertTo-Json -Compress
+}`
+
+// driftPsResult mirrors readOnlyPS's own ConvertTo-Json output -- kept
+// separate from psResult since its PascalCase field names (NoAutoUpdate,
+// not PriorNoAutoUpdate) reflect that nothing here is "prior" to a write.
+type driftPsResult struct {
+	NoAutoUpdate *int   `json:"NoAutoUpdate"`
+	AUOptions    *int   `json:"AUOptions"`
+	Error        string `json:"Error"`
+}
+
+// Read reports the current AU registry state without writing anything.
+// Windows-only, same guard/exec pattern as Apply.
+func Read() DriftCheckResult {
+	if runtime.GOOS != "windows" {
+		return DriftCheckResult{Error: "Windows Update management is Windows-only"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), auconfigTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx,
+		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command", readOnlyPS,
+	).Output()
+	if err != nil {
+		return DriftCheckResult{Error: fmt.Sprintf("running auconfig read script: %v", err)}
+	}
+
+	var v driftPsResult
+	if err := json.Unmarshal(out, &v); err != nil {
+		return DriftCheckResult{Error: fmt.Sprintf("parsing auconfig read output: %v", err)}
+	}
+	if v.Error != "" {
+		return DriftCheckResult{Error: v.Error}
+	}
+	return DriftCheckResult{NoAutoUpdate: v.NoAutoUpdate, AUOptions: v.AUOptions}
+}

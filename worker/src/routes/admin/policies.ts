@@ -8,10 +8,10 @@ import { reconcileOrphanedAlerts, resolveAllOpenAlerts } from '../../lib/alerts'
 
 const policies = new Hono<{ Bindings: Bindings }>();
 
-type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software';
+type CheckType = 'disk_space' | 'offline' | 'cpu_usage' | 'memory_usage' | 'av_status' | 'file_size' | 'ping' | 'process' | 'service' | 'software' | 'windows_update_drift';
 type Priority  = 'critical' | 'high' | 'moderate' | 'low';
 
-const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software'];
+const VALID_CHECK_TYPES: CheckType[] = ['disk_space', 'offline', 'cpu_usage', 'memory_usage', 'av_status', 'file_size', 'ping', 'process', 'service', 'software', 'windows_update_drift'];
 const VALID_PRIORITIES:  Priority[]  = ['critical', 'high', 'moderate', 'low'];
 
 // Fetch policies + their monitors and Targets (Companies/Devices/Groups — see
