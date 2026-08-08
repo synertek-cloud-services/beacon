@@ -95,7 +95,7 @@ function chartData(type: DashboardWidgetType) {
 }
 function chartCenter(type: DashboardWidgetType) { return type === 'online_offline' ? 'approved' : type === 'alerts_by_priority' ? 'alerts' : type === 'offline_by_type' ? 'offline' : type === 'patches_by_severity' ? 'pending' : 'devices'; }
 function formatDate(ts: number | null) { return ts ? new Date(ts * 1000).toLocaleString() : '—'; }
-function categoryLabel(type: string) { return ({ disk_space: 'Disk Space', offline: 'Online Status', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus', file_size: 'File/Folder Size', ping: 'Ping', process: 'Process', service: 'Service', software: 'Software' } as Record<string, string>)[type] ?? type; }
+function categoryLabel(type: string) { return ({ disk_space: 'Disk Space', offline: 'Online Status', cpu_usage: 'CPU', memory_usage: 'Memory', av_status: 'Antivirus', file_size: 'File/Folder Size', ping: 'Ping', process: 'Process', service: 'Service', software: 'Software', windows_update_drift: 'Windows Update Drift' } as Record<string, string>)[type] ?? type; }
 function alertMessage(alert: AlertState) { try { const config = JSON.parse(alert.config) as Record<string, unknown>; if (alert.check_type === 'offline') return (config.direction ?? 'offline') === 'online' ? 'Device came online' : 'Device went offline'; if (alert.check_type === 'cpu_usage') return `CPU usage above ${config.percent_max}%`; if (alert.check_type === 'memory_usage') return `Memory usage above ${config.percent_max}%`; if (alert.check_type === 'ping') return `${config.target} failing ping conditions`; return alert.policy_name; } catch { return alert.check_type; } }
 
 async function onRemove() {

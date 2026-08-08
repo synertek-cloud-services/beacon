@@ -303,6 +303,7 @@ function categoryLabel(ct: string): string {
     case 'process':      return 'Process';
     case 'service':      return 'Service';
     case 'software':     return 'Software';
+    case 'windows_update_drift': return 'Windows Update Drift';
     default:             return ct;
   }
 }
@@ -355,6 +356,7 @@ function alertMessage(a: AlertState): string {
         const verb = mode === 'installed' ? 'was installed' : mode === 'uninstalled' ? 'was uninstalled' : 'changed version';
         return `${cfg.name_pattern} ${verb}`;
       }
+      case 'windows_update_drift': return 'Windows Update management may be overridden by a domain policy or local administrator';
       default: return a.check_type;
     }
   } catch {

@@ -474,6 +474,7 @@
               <span v-if="device.windowsUpdateManaged && device.windowsUpdateManagedAt" class="text-xs text-muted-2" style="margin-left:8px">
                 since {{ absDate(device.windowsUpdateManagedAt) }}
               </span>
+              <span v-if="windowsUpdateDriftAlerting" class="inv-badge-danger" style="margin-left:8px">Drift detected</span>
             </div>
             <div class="ddev-row" style="padding:0 20px 12px">
               <span class="ddev-label">Microsoft Update</span>
@@ -998,6 +999,10 @@ const deviceAlerts        = ref<AlertState[]>([]);
 const deviceAlertsLoading = ref(false);
 const alertsSelected      = reactive<Record<string, boolean>>({});
 const alertsResolving     = ref(false);
+// Drives the Patches section's "Drift detected" badge -- deviceAlerts is
+// already loaded for the Alerts section below, no separate API call needed.
+const windowsUpdateDriftAlerting = computed(() =>
+  deviceAlerts.value.some(a => a.check_type === 'windows_update_drift' && a.is_alerting === 1));
 
 // Policies section (effective monitors for this device)
 const effectiveMonitors        = ref<EffectiveMonitor[]>([]);
@@ -1392,6 +1397,7 @@ function categoryLabel(ct: string): string {
     case 'process':      return 'Process';
     case 'service':      return 'Service';
     case 'software':     return 'Software';
+    case 'windows_update_drift': return 'Windows Update Drift';
     default:             return ct;
   }
 }
@@ -1442,6 +1448,7 @@ function alertMessage(a: AlertState): string {
         const verb = mode === 'installed' ? 'was installed' : mode === 'uninstalled' ? 'was uninstalled' : 'changed version';
         return `${cfg.name_pattern} ${verb}`;
       }
+      case 'windows_update_drift': return 'Windows Update management may be overridden by a domain policy or local administrator';
       default: return a.check_type;
     }
   } catch {

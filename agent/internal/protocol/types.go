@@ -32,16 +32,17 @@ type EnrollResponse struct {
 
 // CheckInRequest is posted to /v1/check-in on every heartbeat.
 type CheckInRequest struct {
-	DeviceID               string           `json:"device_id"`
-	TenantID               string           `json:"tenant_id"`
-	Timestamp              int64            `json:"timestamp"`
-	AgentVersion           string           `json:"agent_version"`
-	Metrics                Metrics          `json:"metrics"`
-	PendingCommandResults  []CommandResult  `json:"pending_command_results"`
-	PendingFileSizeResults []FileSizeResult `json:"pending_file_size_results,omitempty"`
-	PendingPingResults     []PingResult     `json:"pending_ping_results,omitempty"`
-	PendingProcessResults  []ProcessResult  `json:"pending_process_results,omitempty"`
-	PendingServiceResults  []ServiceResult  `json:"pending_service_results,omitempty"`
+	DeviceID                         string                     `json:"device_id"`
+	TenantID                         string                     `json:"tenant_id"`
+	Timestamp                        int64                      `json:"timestamp"`
+	AgentVersion                     string                     `json:"agent_version"`
+	Metrics                          Metrics                    `json:"metrics"`
+	PendingCommandResults            []CommandResult            `json:"pending_command_results"`
+	PendingFileSizeResults           []FileSizeResult           `json:"pending_file_size_results,omitempty"`
+	PendingPingResults               []PingResult               `json:"pending_ping_results,omitempty"`
+	PendingProcessResults            []ProcessResult            `json:"pending_process_results,omitempty"`
+	PendingServiceResults            []ServiceResult            `json:"pending_service_results,omitempty"`
+	PendingWindowsUpdateDriftResults []WindowsUpdateDriftResult `json:"pending_windows_update_drift_results,omitempty"`
 }
 
 // Metrics is the Phase 1 inventory payload. New fields can be added here in
@@ -63,11 +64,12 @@ type Metrics struct {
 
 // CheckInResponse is returned by the server. Commands is omitted when empty.
 type CheckInResponse struct {
-	Commands       []Command       `json:"commands,omitempty"`
-	FileSizeChecks []FileSizeCheck `json:"file_size_checks,omitempty"`
-	PingChecks     []PingCheck     `json:"ping_checks,omitempty"`
-	ProcessChecks  []ProcessCheck  `json:"process_checks,omitempty"`
-	ServiceChecks  []ServiceCheck  `json:"service_checks,omitempty"`
+	Commands                 []Command                 `json:"commands,omitempty"`
+	FileSizeChecks           []FileSizeCheck           `json:"file_size_checks,omitempty"`
+	PingChecks               []PingCheck               `json:"ping_checks,omitempty"`
+	ProcessChecks            []ProcessCheck            `json:"process_checks,omitempty"`
+	ServiceChecks            []ServiceCheck            `json:"service_checks,omitempty"`
+	WindowsUpdateDriftChecks []WindowsUpdateDriftCheck `json:"windows_update_drift_checks,omitempty"`
 }
 
 // FileSizeCheck asks the agent to measure a path for a file_size monitor.
@@ -130,6 +132,26 @@ type ServiceResult struct {
 	Running    bool    `json:"running"`
 	CpuPercent float64 `json:"cpu_percent"`
 	MemPercent float64 `json:"mem_percent"`
+}
+
+// WindowsUpdateDriftCheck asks the agent to read (never write) Windows' own
+// Automatic Updates registry policy for a windows_update_drift monitor,
+// mirroring auconfig.Apply's readSnippet but with no Set-ItemProperty/
+// Remove-ItemProperty anywhere. Reports back via WindowsUpdateDriftResult.
+type WindowsUpdateDriftCheck struct {
+	MonitorID string `json:"monitor_id"`
+}
+
+// WindowsUpdateDriftResult reports the outcome of a previously issued
+// WindowsUpdateDriftCheck. Pointer fields distinguish "the registry value
+// wasn't present" from "not reported" -- Error is set instead on a read
+// failure, which the worker treats as inconclusive, never as evidence of
+// drift.
+type WindowsUpdateDriftResult struct {
+	MonitorID    string `json:"monitor_id"`
+	NoAutoUpdate *int   `json:"no_auto_update,omitempty"`
+	AUOptions    *int   `json:"au_options,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 // Command is a unit of work issued by the server. The agent executes known
