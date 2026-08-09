@@ -10,6 +10,9 @@ dist/
 # scripts/publish-agent.mjs's pre-build step before an actual release, but
 # needs to exist and work correctly for local dev in the meantime.
 !agent/internal/service/embedded/beacon-tray.exe
+# Same exception, same reason, for the Web Remote per-session helper binary
+# embedded via agent/internal/session/screenshare.go.
+!agent/internal/session/embedded/beacon-screenshare.exe
 *.dll
 *.so
 *.dylib

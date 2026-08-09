@@ -1,5 +1,121 @@
 # Beacon — Project Log
 
+## Session: 2026-08-08 — Web Remote: zero-install browser-based remote desktop
+
+Started as a "tunneled RDP" exploration for issue #86 (explicitly framed as
+"not the requirement for v1, but it would be helpful"), and ended somewhere
+more valuable: a real, hand-rolled VNC-style remote-desktop server built
+directly into the agent, chosen as v1's actual "stock" remote tool after a
+long, evidence-based back-and-forth rather than jumping straight to
+implementation.
+
+**The RDP detour, kept but not shipped.** Prototyped a real RDCleanPath-
+terminating proxy in the agent (`agent/internal/rdcleanpath`'s hand-rolled
+DER codec + a `tunnel.go` handler that dials the real RDP target, performs
+the TLS handshake RDP's own security layer requires, and relays decrypted
+bytes) and proved it end-to-end against a real IronRDP WASM client and a
+fake TLS RDP target — a genuine MCS Connect Initial PDU decrypted correctly
+at the far end. This is real, working code, parked on branch
+`spike/86-tunneled-rdp-ironrdp` (checkpoint-committed, not merged) in case
+it's revisited. It was set aside because real RDP always needs Windows
+login credentials up front, which turned out to matter a lot once Datto
+RMM's actual product split was researched properly.
+
+**The research that changed direction.** Fetched Datto's own docs rather
+than assuming: their *Agent Browser* RDP tool is credentialed real RDP but
+lives in a **native, Windows-only app** — technicians on macOS/Linux can't
+use it at all. Their *Web Remote* works from any browser with no pre-auth,
+but isn't RDP — it's their own agent spawning a screen-capture/input-
+injection helper process (`RMM.WebRemote`), confirmed from their docs'
+own wording. Checked RustDesk too (the user's own stated preference for a
+future "Full Remote Control" tier): its "RDP support" is generic TCP
+tunneling plus bring-your-own **locally-installed** native RDP client — the
+exact local-helper pattern already rejected weeks earlier in this same
+exploration — and its real web client only speaks its own proprietary
+protocol, not a generic tunnel. Neither reference product, and no
+third-party tool a hoster might choose, actually delivers "real interactive
+control, zero install, any technician OS." That gap is what got built.
+
+**What shipped**: a hand-rolled Go RFB (VNC, RFC 6143) server
+(`agent/internal/rfb` + `agent/internal/rfbserver`, unit-tested, zero OS
+dependency) run by a new per-session helper binary (`beacon-screenshare.exe`,
+`agent/cmd/beacon-screenshare`) launched into the logged-in console user's
+own session via the already-hardware-verified `usersession.RunAsActiveUser`
+— reusing the tray's exact embed/extract-if-stale precedent. New
+`agent/internal/win32` package (this codebase's first raw Win32 syscalls
+outside `x/sys/windows`'s typed wrappers — confirmed by direct inspection
+that package wraps zero GDI functions and no `SendInput`), backing
+`agent/internal/screencapture` (DPI-aware `BitBlt` capture + cursor
+compositing) and `agent/internal/screeninject` (`SendInput` keyboard/mouse,
+via a new `agent/internal/x11keysym` lookup table). Dashboard: a new
+`WebRemotePage.vue` opened in a genuine new browser tab (`window.open()`,
+the first use of that pattern in this dashboard) using `@novnc/novnc`'s
+`RFB` client class, with a hand-built toolbar since noVNC ships no toolbar
+on npm (confirmed — the familiar Ctrl+Alt+Del/clipboard UI lives only in
+noVNC's own unpublished standalone HTML app). Rides the existing
+`sessions`/`SessionRelay` relay entirely unmodified — the same generic
+byte-agnostic WebSocket pump already proven this session for both a PTY
+shell and a TLS-terminated RDP tunnel.
+
+**Real bugs found while building, not just theorized.** `session.go`'s
+`Handle()` dials the relay unconditionally before its session-type switch —
+folding `screen_share` in as a plain case would have meant both the SYSTEM
+process and the helper dialing as `role=agent` for the same session,
+corrupting RFB's byte stream via the relay's broadcast-to-every-peer
+behavior; fixed by special-casing it before the dial. `rfbserver.Serve`
+initially discarded the client's `SetPixelFormat` the same way it correctly
+ignores `SetEncodings` — reading real noVNC source showed this is wrong:
+noVNC always requests its own format and allocates its render buffer to
+match, so ignoring it corrupts the image. Every captured frame is
+band-chunked into 128-row rectangles from day one (not deferred) after
+checking Cloudflare's real 32 MiB WS message limit against real frame sizes
+at 4K.
+
+**Verified end-to-end against real infrastructure, not just unit tests.** A
+throwaway fake-`Capturer`/`Injector` harness stood in for
+`beacon-screenshare.exe` (same interface, no real GDI) and was dialed into
+a real local `wrangler dev` relay, with a real headless-Chromium
+`WebRemotePage.vue` on the other end using the real `@novnc/novnc` package —
+isolating the Windows-only unknowns to exactly the capture/injection swap.
+Confirmed live: the full RFB handshake completed against real noVNC, the
+canvas rendered real non-blank pixel content, and clicking the toolbar's
+Ctrl+Alt+Del button produced the exact expected `KeyEvent` sequence at the
+fake injector — proving `x11keysym`'s table is correct for the actual
+keysyms noVNC sends, not just self-consistent with its own tests. Found one
+test-harness-only gotcha along the way: the browser must connect to the
+relay *before* the agent/helper does (RFB's server speaks first, and
+`SessionRelay` doesn't buffer a message written before a peer attaches) —
+harmless in real production (the browser always connects first, right after
+`POST /v1/sessions`; the agent attaches later on its next check-in) and
+also harmless for the earlier RDP spike (RDP's client speaks first), but
+worth remembering for any future manual test here.
+
+`sessions.sessionType` turned out to have no actual SQL `CHECK` constraint
+despite being described elsewhere as "a real enum" — `migrations/0075` is
+accordingly a no-op/comment-only file, added for numbering/audit-trail
+consistency rather than a real schema change. (Originally drafted as
+`0074` before a rebase onto main revealed issue #79's own new migration had
+already claimed that number.)
+
+**Not verified on real hardware** — same limitation as most other
+Windows-native work in this codebase. The GDI capture, cursor compositing,
+`SendInput` injection (including a hand-derived 40-byte `INPUT` struct
+layout, flagged as this feature's most fragile piece, same category as the
+SES SigV4 signer), and whether `SetProcessDpiAwarenessContext` actually
+fixes coordinate mapping on a real scaled display could only be
+cross-compile-checked in this session's Linux sandbox. Everything else —
+RFB wire protocol, the relay, the dashboard, real noVNC rendering — is
+fully proven end-to-end above.
+
+**Explicitly deferred, confirmed via AskUserQuestion before building**:
+Windows login/Winlogon-screen capture (needs a structurally different
+SYSTEM-context desktop-attach mechanism, not this per-session helper);
+multi-monitor; any pixel encoding beyond Raw; remote→local clipboard sync;
+RDS/AVD per-session targeting. A hoster's own choice of a fuller Full
+Remote Control tool (Splashtop/AnyDesk/RustDesk) remains a separate, later,
+much simpler integration (install + a deep link) that this work doesn't
+block or compete with.
+
 ## Session: 2026-08-07 — Windows Update management drift detection (#79)
 
 Shipped issue #79, promoted from Icebox: `syncWindowsUpdateManagement` sets

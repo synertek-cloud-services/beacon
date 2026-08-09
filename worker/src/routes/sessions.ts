@@ -17,7 +17,7 @@ sessions.post('/', async (c) => {
   const body = await c.req.json<{
     device_id: string;
     company_id: string;
-    session_type: 'shell' | 'tcp_tunnel';
+    session_type: 'shell' | 'tcp_tunnel' | 'screen_share';
     tcp_port?: number;
   }>();
 

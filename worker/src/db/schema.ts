@@ -270,7 +270,7 @@ export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
   deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
   companyId: text('company_id').notNull().references(() => companies.id),
-  sessionType: text('session_type', { enum: ['shell', 'tcp_tunnel'] }).notNull(),
+  sessionType: text('session_type', { enum: ['shell', 'tcp_tunnel', 'screen_share'] }).notNull(),
   tcpPort: integer('tcp_port'), // for tcp_tunnel
   status: text('status', { enum: ['pending', 'active', 'closed'] }).notNull().default('pending'),
   createdAt: integer('created_at').notNull(),
