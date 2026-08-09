@@ -2,8 +2,40 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
 import { logActivity } from './activityLog';
+import { fetchCompanyVariables } from './companyVariables';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
+
+// ── Credentialed scan payload (issue #78) ───────────────────────────────────
+// Fixed Company Variable key names -- the credential storage/lookup
+// convention this feature uses instead of a new picker UI, matching how
+// CV_/CF_ already work everywhere else in this codebase. A protocol is only
+// included in a scan's payload when it's enabled on the config *and* has
+// its required credential(s) actually present -- a missing credential
+// silently skips just that protocol, never the whole scan.
+interface DiscoveryCredentials {
+  snmp?: { community: string };
+  ssh?: { username: string; password: string };
+}
+
+async function resolveDiscoveryCredentials(
+  DB: D1Database, configEncryptionKey: string, companyId: string,
+  snmpEnabled: boolean, sshEnabled: boolean,
+): Promise<DiscoveryCredentials> {
+  const creds: DiscoveryCredentials = {};
+  if (!snmpEnabled && !sshEnabled) return creds;
+
+  const varsByCompany = await fetchCompanyVariables(DB, configEncryptionKey, [companyId]);
+  const vars = varsByCompany.get(companyId) ?? {};
+
+  if (snmpEnabled && vars['CV_SNMP_COMMUNITY']) {
+    creds.snmp = { community: vars['CV_SNMP_COMMUNITY'] };
+  }
+  if (sshEnabled && vars['CV_SSH_USERNAME'] && vars['CV_SSH_PASSWORD']) {
+    creds.ssh = { username: vars['CV_SSH_USERNAME'], password: vars['CV_SSH_PASSWORD'] };
+  }
+  return creds;
+}
 
 // ── Scheduled dispatch ──────────────────────────────────────────────────────
 // Scans dispatch through the existing commands table -- same one-shot
@@ -13,7 +45,7 @@ type Db = ReturnType<typeof drizzle<typeof schema>>;
 // to dispatchDuePatchPolicies' shape than to any per-monitor check pattern:
 // a config is either due or not, dispatching directly to its one designated
 // probe device, not resolved against a device set.
-export async function dispatchDueDiscoveryScans(DB: D1Database, now: number): Promise<void> {
+export async function dispatchDueDiscoveryScans(DB: D1Database, configEncryptionKey: string, now: number): Promise<void> {
   const db = drizzle(DB, { schema });
 
   const configs = await db.select().from(schema.networkDiscoveryConfigs)
@@ -33,12 +65,14 @@ export async function dispatchDueDiscoveryScans(DB: D1Database, now: number): Pr
       .from(schema.devices).where(eq(schema.devices.id, config.probeDeviceId)).get();
     if (!probe || probe.status !== 'approved' || probe.companyId !== config.companyId) continue;
 
+    const credentials = await resolveDiscoveryCredentials(DB, configEncryptionKey, config.companyId, config.snmpEnabled, config.sshEnabled);
+
     await db.insert(schema.commands).values({
       id: crypto.randomUUID(),
       deviceId: config.probeDeviceId,
       companyId: config.companyId,
       type: 'network_scan',
-      payload: JSON.stringify({ cidr_ranges: JSON.parse(config.cidrRanges) }),
+      payload: JSON.stringify({ cidr_ranges: JSON.parse(config.cidrRanges), ...credentials }),
       status: 'queued',
       createdAt: now,
     });
@@ -53,6 +87,17 @@ export async function dispatchDueDiscoveryScans(DB: D1Database, now: number): Pr
   }
 }
 
+// ── Manual scan-now dispatch ─────────────────────────────────────────────────
+// Shares the same credential-resolution logic as the cron path above --
+// exported so worker/src/routes/admin/companies.ts's scan-now route can
+// build an identical payload rather than re-deriving it.
+export async function buildDiscoveryScanPayload(
+  DB: D1Database, configEncryptionKey: string, config: typeof schema.networkDiscoveryConfigs.$inferSelect,
+): Promise<string> {
+  const credentials = await resolveDiscoveryCredentials(DB, configEncryptionKey, config.companyId, config.snmpEnabled, config.sshEnabled);
+  return JSON.stringify({ cidr_ranges: JSON.parse(config.cidrRanges), ...credentials });
+}
+
 // ── Upsert a scan result's hosts ─────────────────────────────────────────────
 // Called from checkin.ts when a network_scan command completes. Check-then-
 // insert-or-update, not an ON CONFLICT upsert -- matches the established
@@ -61,6 +106,13 @@ export interface DiscoveredHost {
   ip: string;
   mac?: string;
   hostname?: string;
+  // Credentialed Network Discovery (issue #78) -- all optional, only
+  // present when the corresponding probe actually found something.
+  open_ports?: number[];
+  snmp_sys_descr?: string;
+  snmp_sys_name?: string;
+  ssh_banner?: string;
+  ssh_os_info?: string;
 }
 
 export async function recordDiscoveredHosts(db: Db, companyId: string, hosts: DiscoveredHost[], now: number): Promise<void> {
@@ -68,18 +120,28 @@ export async function recordDiscoveredHosts(db: Db, companyId: string, hosts: Di
     const existing = await db.select({
       id: schema.discoveredDevices.id, timesSeen: schema.discoveredDevices.timesSeen,
       macAddress: schema.discoveredDevices.macAddress, hostname: schema.discoveredDevices.hostname,
+      openPorts: schema.discoveredDevices.openPorts, snmpSysDescr: schema.discoveredDevices.snmpSysDescr,
+      snmpSysName: schema.discoveredDevices.snmpSysName, sshBanner: schema.discoveredDevices.sshBanner,
+      sshOsInfo: schema.discoveredDevices.sshOsInfo,
     })
       .from(schema.discoveredDevices)
       .where(and(eq(schema.discoveredDevices.companyId, companyId), eq(schema.discoveredDevices.ipAddress, host.ip)))
       .get();
 
+    // A scan that doesn't resolve a given field this time (e.g. an ARP
+    // cache miss, or this particular scan had no credentials configured)
+    // shouldn't blank out a value a previous scan already found -- only
+    // overwrite when this scan actually found something, same rule for
+    // every field here, not just mac/hostname.
     if (existing) {
-      // A scan that doesn't resolve MAC/hostname this time (e.g. an ARP
-      // cache miss) shouldn't blank out a value a previous scan already
-      // found -- only overwrite when this scan actually found something.
       await db.update(schema.discoveredDevices).set({
         macAddress: host.mac ?? existing.macAddress,
         hostname: host.hostname ?? existing.hostname,
+        openPorts: host.open_ports ? JSON.stringify(host.open_ports) : existing.openPorts,
+        snmpSysDescr: host.snmp_sys_descr ?? existing.snmpSysDescr,
+        snmpSysName: host.snmp_sys_name ?? existing.snmpSysName,
+        sshBanner: host.ssh_banner ?? existing.sshBanner,
+        sshOsInfo: host.ssh_os_info ?? existing.sshOsInfo,
         lastSeenAt: now,
         timesSeen: existing.timesSeen + 1,
       }).where(eq(schema.discoveredDevices.id, existing.id));
@@ -90,6 +152,11 @@ export async function recordDiscoveredHosts(db: Db, companyId: string, hosts: Di
         ipAddress: host.ip,
         macAddress: host.mac ?? null,
         hostname: host.hostname ?? null,
+        openPorts: host.open_ports ? JSON.stringify(host.open_ports) : null,
+        snmpSysDescr: host.snmp_sys_descr ?? null,
+        snmpSysName: host.snmp_sys_name ?? null,
+        sshBanner: host.ssh_banner ?? null,
+        sshOsInfo: host.ssh_os_info ?? null,
         firstSeenAt: now,
         lastSeenAt: now,
         timesSeen: 1,

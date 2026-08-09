@@ -5,6 +5,7 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { sha256hex, generateToken, encryptSecret } from '../../lib/crypto';
 import { requireUser, type Role } from '../../lib/auth';
+import { buildDiscoveryScanPayload } from '../../lib/discovery';
 
 const adminCompanies = new Hono<{ Bindings: Bindings }>();
 
@@ -588,6 +589,8 @@ adminCompanies.post('/:id/discovery', async (c) => {
     cidr_ranges: string[];
     scan_interval_minutes?: number;
     enabled?: boolean;
+    snmp_enabled?: boolean;
+    ssh_enabled?: boolean;
   }>();
 
   if (!body.probe_device_id) return c.json({ error: 'probe_device_id is required' }, 400);
@@ -610,6 +613,12 @@ adminCompanies.post('/:id/discovery', async (c) => {
     enabled: body.enabled ?? true,
     cidrRanges: JSON.stringify(body.cidr_ranges),
     scanIntervalMinutes: body.scan_interval_minutes ?? 360,
+    // Credentialed Network Discovery (issue #78) -- these are just the
+    // per-company opt-in toggles; the actual credentials live in
+    // company_variables under a fixed key-name convention, looked up at
+    // dispatch time (see worker/src/lib/discovery.ts).
+    snmpEnabled: body.snmp_enabled ?? false,
+    sshEnabled: body.ssh_enabled ?? false,
     updatedAt: now,
   };
 
@@ -635,12 +644,14 @@ adminCompanies.post('/:id/discovery/scan-now', async (c) => {
     .where(eq(schema.networkDiscoveryConfigs.companyId, companyId)).get();
   if (!config) return c.json({ error: 'no discovery configuration for this company' }, 404);
 
+  const payload = await buildDiscoveryScanPayload(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, config);
+
   await db.insert(schema.commands).values({
     id: crypto.randomUUID(),
     deviceId: config.probeDeviceId,
     companyId,
     type: 'network_scan',
-    payload: JSON.stringify({ cidr_ranges: JSON.parse(config.cidrRanges) }),
+    payload,
     status: 'queued',
     createdAt: now,
   });

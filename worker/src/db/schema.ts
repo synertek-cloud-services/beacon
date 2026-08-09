@@ -618,6 +618,12 @@ export const networkDiscoveryConfigs = sqliteTable('network_discovery_configs', 
   cidrRanges:          text('cidr_ranges').notNull(), // JSON string[]
   scanIntervalMinutes: integer('scan_interval_minutes').notNull().default(360),
   lastScannedAt:       integer('last_scanned_at'),
+  // Credentialed Network Discovery (issue #78, migration 0076) -- per-company
+  // opt-in toggles only. Credentials themselves live in company_variables
+  // under a fixed key-name convention (CV_SNMP_COMMUNITY, CV_SSH_USERNAME,
+  // CV_SSH_PASSWORD), not here -- see worker/src/lib/discovery.ts.
+  snmpEnabled:         integer('snmp_enabled', { mode: 'boolean' }).notNull().default(false),
+  sshEnabled:          integer('ssh_enabled', { mode: 'boolean' }).notNull().default(false),
   createdAt:           integer('created_at').notNull(),
   updatedAt:           integer('updated_at').notNull(),
 });
@@ -633,6 +639,15 @@ export const discoveredDevices = sqliteTable('discovered_devices', {
   lastSeenAt:   integer('last_seen_at').notNull(),
   timesSeen:    integer('times_seen').notNull().default(1),
   dismissed:    integer('dismissed', { mode: 'boolean' }).notNull().default(false),
+  // Credentialed Network Discovery (issue #78, migration 0076) -- all
+  // nullable, only ever set once a probe actually finds something (never
+  // blanked out by a scan that finds nothing new). See migration 0076's own
+  // comment for what populates each column.
+  openPorts:     text('open_ports'),      // JSON int[]
+  snmpSysDescr:  text('snmp_sys_descr'),
+  snmpSysName:   text('snmp_sys_name'),
+  sshBanner:     text('ssh_banner'),
+  sshOsInfo:     text('ssh_os_info'),
 });
 
 // Device Groups -- static, manually-curated device collections (Datto's

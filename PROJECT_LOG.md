@@ -1,5 +1,57 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Credentialed Network Discovery (issue #78), promoted from the Icebox
+
+Promoted v1 Network Discovery's own deferred item: SNMP v1/v2c + SSH
+(password-only) fingerprinting of hosts the existing ping+ARP sweep already
+finds. WinRM stayed deferred (NTLM/Kerberos complexity, no first-party Go
+client, lower marginal value against an already-mostly-agent-enrolled
+Windows fleet). Scoped via several rounds of AskUserQuestion per the
+issue's own "before promotion, define protocols, credential storage,
+probe selection, timeouts, audit behavior, backward compatibility"
+checklist -- all recommended options chosen: port/response-check gating
+before any credentialed attempt (SSH's real TCP dial doubles as the gate;
+SNMP's GET request *is* the gate, since UDP makes a real port scan
+unreliable anyway), fixed Company-Variable key names for credentials
+(`CV_SNMP_COMMUNITY`/`CV_SSH_USERNAME`/`CV_SSH_PASSWORD`, matching the
+existing `CV_`/`CF_` convention rather than a new picker UI), password-only
+SSH auth.
+
+Real engineering snag worth remembering: `go get gosnmp@latest` and
+`go get golang.org/x/crypto@latest` together force-upgraded `agent/go.mod`'s
+directive from 1.22 to 1.25 and jumped `golang.org/x/sys` by 27 minor
+versions (0.20.0 → 0.47.0) transitively -- an unacceptable blast radius for
+a codebase this dependent on `x/sys/windows`'s exact behavior for its
+syscall-heavy Windows code. Backed out, then pinned each library to the
+newest version whose own `go.mod` still declared `go 1.22` or older
+(`gosnmp v1.40.0`, `golang.org/x/crypto v0.26.0`), landing on a much
+smaller, reviewable `x/sys` bump to 0.23.0 with the project's own `go`
+directive untouched.
+
+Verified for real, not mocked: `probeSSHAddr` against a genuine in-process
+`golang.org/x/crypto/ssh` server (three permanent tests -- successful auth,
+wrong password, closed port, all committed to `discovery_test.go`);
+`probeSNMPAddr` against a real local net-snmp `snmpd` (extracted from its
+`.deb` without root, same no-root-install trick used earlier this session
+for Playwright's Chromium) -- confirmed the real `sysDescr`/`sysName`
+round-trip correctly, kept as a build-tag-gated manual test
+(`snmp_manual_verify_test.go`, `-tags manualsnmp`) rather than a permanent
+one, since a committed test depending on an external `snmpd` process would
+break in any environment without one. Both `probeSNMP`/`probeSSH` gained
+port-parameterized internal variants (`probeSNMPAddr`/`probeSSHAddr`)
+purely for this testability, with the real fixed ports (161/22) still the
+only thing production code ever calls.
+
+Also extracted `fetchCompanyVariables` out of `jobs.ts` into a new shared
+`worker/src/lib/companyVariables.ts` once `discovery.ts` became a second
+real consumer -- same reuse-not-duplicate move this codebase already makes
+elsewhere. Full local verification: `go test ./... -race` clean,
+cross-compiled windows/linux/darwin, worker `tsc --noEmit` clean, dashboard
+`vue-tsc -b` clean, migration `0076` applies cleanly against local D1.
+**Not yet verified against a real third-party network device** (switch,
+printer, UPS) in a real deployment -- same limitation as everything else
+in this codebase that can only be fully proven on real hardware/network.
+
 ## Session: 2026-08-09 — UAC still killed the session on v0.2.27: a second, untouched fatal-error path in input injection
 
 The cursor fix landed well -- confirmed live as a real improvement ("the
