@@ -141,7 +141,7 @@ export default {
     await dispatchDuePatchPolicies(env.DB, now);
     await syncWindowsUpdateManagement(env.DB, now);
     await syncMicrosoftUpdateManagement(env.DB, now);
-    await dispatchDueDiscoveryScans(env.DB, now);
+    await dispatchDueDiscoveryScans(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
     await pruneActivityLog(env.DB, now);
   },
 };

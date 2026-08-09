@@ -173,6 +173,12 @@ export interface NetworkDiscoveryConfig {
   cidrRanges: string[];
   scanIntervalMinutes: number;
   lastScannedAt: number | null;
+  // Credentialed Network Discovery (issue #78) -- per-company opt-in
+  // toggles only; credentials live in Company Variables under a fixed
+  // key-name convention (CV_SNMP_COMMUNITY, CV_SSH_USERNAME,
+  // CV_SSH_PASSWORD), not here.
+  snmpEnabled: boolean;
+  sshEnabled: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -187,6 +193,13 @@ export interface DiscoveredDevice {
   lastSeenAt: number;
   timesSeen: number;
   dismissed: boolean;
+  // Credentialed Network Discovery (issue #78) -- all nullable, only set
+  // once a probe actually finds something.
+  openPorts: number[] | null;
+  snmpSysDescr: string | null;
+  snmpSysName: string | null;
+  sshBanner: string | null;
+  sshOsInfo: string | null;
 }
 
 export interface EnrollmentToken {
@@ -1090,7 +1103,7 @@ export const api = {
     discovery: {
       get: (companyId: string) =>
         request<NetworkDiscoveryConfig | null>('GET', `/v1/admin/companies/${companyId}/discovery`),
-      save: (companyId: string, body: { probe_device_id: string; cidr_ranges: string[]; scan_interval_minutes?: number; enabled?: boolean }) =>
+      save: (companyId: string, body: { probe_device_id: string; cidr_ranges: string[]; scan_interval_minutes?: number; enabled?: boolean; snmp_enabled?: boolean; ssh_enabled?: boolean }) =>
         request<NetworkDiscoveryConfig>('POST', `/v1/admin/companies/${companyId}/discovery`, body),
       scanNow: (companyId: string) =>
         request<{ ok: boolean }>('POST', `/v1/admin/companies/${companyId}/discovery/scan-now`),

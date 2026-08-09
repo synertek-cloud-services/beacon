@@ -1,17 +1,21 @@
 module github.com/synertek-cloud-services/beacon/agent
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.2
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
+	github.com/gosnmp/gosnmp v1.40.0
 	github.com/shirou/gopsutil/v3 v3.24.5
-	golang.org/x/sys v0.20.0
+	golang.org/x/crypto v0.26.0
+	golang.org/x/sys v0.23.0
 )
 
 require (
-	fyne.io/systray v1.12.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect

@@ -245,6 +245,22 @@
                         <input type="checkbox" v-model="discoveryForm.enabled" />
                         <span class="text-sm">Enabled</span>
                       </label>
+                      <div class="field" style="margin-bottom:12px">
+                        <label class="toggle-row">
+                          <input type="checkbox" v-model="discoveryForm.snmpEnabled" />
+                          <span class="text-sm">Enable SNMP Discovery</span>
+                        </label>
+                        <div class="text-xs text-muted-2" style="margin-top:2px">
+                          Requires a Company Variable named <code>CV_SNMP_COMMUNITY</code> — configure it in the Variables tab.
+                        </div>
+                        <label class="toggle-row" style="margin-top:8px">
+                          <input type="checkbox" v-model="discoveryForm.sshEnabled" />
+                          <span class="text-sm">Enable SSH Discovery</span>
+                        </label>
+                        <div class="text-xs text-muted-2" style="margin-top:2px">
+                          Requires Company Variables named <code>CV_SSH_USERNAME</code> and <code>CV_SSH_PASSWORD</code> — configure them in the Variables tab.
+                        </div>
+                      </div>
                       <div v-if="discoveryError" class="error-banner" style="margin-bottom:12px">{{ discoveryError }}</div>
                       <div style="display:flex;align-items:center;gap:8px">
                         <button class="btn btn-primary btn-sm" :disabled="discoverySubmitting" @click="submitDiscoveryConfig">
@@ -276,6 +292,8 @@
                           <th>IP</th>
                           <th>MAC</th>
                           <th>Hostname</th>
+                          <th>Open Ports</th>
+                          <th>Fingerprint</th>
                           <th>First Seen</th>
                           <th>Last Seen</th>
                           <th>Times Seen</th>
@@ -287,6 +305,8 @@
                           <td class="mono text-sm">{{ dd.ipAddress }}</td>
                           <td class="mono text-xs text-muted-2">{{ dd.macAddress ?? '—' }}</td>
                           <td class="text-sm">{{ dd.hostname ?? '—' }}</td>
+                          <td class="mono text-xs text-muted-2">{{ dd.openPorts?.length ? dd.openPorts.join(', ') : '—' }}</td>
+                          <td class="text-xs text-muted-2" style="max-width:220px" :title="fingerprintText(dd)">{{ fingerprintText(dd) ? truncate(fingerprintText(dd), 40) : '—' }}</td>
                           <td class="text-sm text-muted-2">{{ dateLabel(dd.firstSeenAt) }}</td>
                           <td class="text-sm text-muted-2">{{ dateLabel(dd.lastSeenAt) }}</td>
                           <td class="mono text-sm">{{ dd.timesSeen }}</td>
@@ -701,7 +721,7 @@ const variableError      = ref('');
 const variableSubmitting = ref(false);
 
 // Discovery config form
-const discoveryForm       = ref({ probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true });
+const discoveryForm       = ref({ probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true, snmpEnabled: false, sshEnabled: false });
 const discoveryError      = ref('');
 const discoverySubmitting = ref(false);
 const scanningNow         = ref(false);
@@ -1027,8 +1047,8 @@ async function deleteVariable(varId: string) {
 function resetDiscoveryForm() {
   const cfg = discoveryConfig.value;
   discoveryForm.value = cfg
-    ? { probeDeviceId: cfg.probeDeviceId, cidrRanges: [...cfg.cidrRanges], scanIntervalMinutes: cfg.scanIntervalMinutes, enabled: cfg.enabled }
-    : { probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true };
+    ? { probeDeviceId: cfg.probeDeviceId, cidrRanges: [...cfg.cidrRanges], scanIntervalMinutes: cfg.scanIntervalMinutes, enabled: cfg.enabled, snmpEnabled: cfg.snmpEnabled, sshEnabled: cfg.sshEnabled }
+    : { probeDeviceId: '', cidrRanges: [''], scanIntervalMinutes: 360, enabled: true, snmpEnabled: false, sshEnabled: false };
   discoveryError.value = '';
 }
 
@@ -1046,6 +1066,8 @@ async function submitDiscoveryConfig() {
       cidr_ranges: ranges,
       scan_interval_minutes: discoveryForm.value.scanIntervalMinutes,
       enabled: discoveryForm.value.enabled,
+      snmp_enabled: discoveryForm.value.snmpEnabled,
+      ssh_enabled: discoveryForm.value.sshEnabled,
     });
     resetDiscoveryForm();
   } catch (e: any) {
@@ -1143,6 +1165,20 @@ function addressLine(loc: CompanyLocation): string {
 
 function dateLabel(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Credentialed Network Discovery (issue #78) -- SNMP sysDescr and SSH
+// os_info are two independent, sparse fields; a discovered device
+// realistically only ever has one populated (whichever protocol it
+// actually speaks), so one combined column reads better than two mostly-
+// empty ones. Prefers SNMP (more likely on the network-appliance category
+// this feature primarily targets) when somehow both are present.
+function fingerprintText(dd: DiscoveredDevice): string {
+  return dd.snmpSysDescr || dd.sshOsInfo || '';
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
 onMounted(load);

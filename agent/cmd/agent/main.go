@@ -530,8 +530,20 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 				return
 			}
 			if cmd.Type == "network_scan" {
+				// SNMP/SSH are optional, additive fields -- a dispatch from
+				// before Credentialed Network Discovery (issue #78), or one
+				// from a company with no CV_SNMP_COMMUNITY/CV_SSH_USERNAME/
+				// CV_SSH_PASSWORD Company Variables configured, simply omits
+				// them, and discovery.Scan behaves exactly as it always has.
 				var payload struct {
 					CIDRRanges []string `json:"cidr_ranges"`
+					SNMP       *struct {
+						Community string `json:"community"`
+					} `json:"snmp,omitempty"`
+					SSH *struct {
+						Username string `json:"username"`
+						Password string `json:"password"`
+					} `json:"ssh,omitempty"`
 				}
 				status := "completed"
 				var stdout, stderr string
@@ -540,7 +552,15 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					stderr = fmt.Sprintf("invalid payload: %v", err)
 				} else {
 					log.Printf("network_scan received: %d range(s)", len(payload.CIDRRanges))
-					res := discovery.Scan(payload.CIDRRanges)
+					var snmpCommunity, sshUsername, sshPassword string
+					if payload.SNMP != nil {
+						snmpCommunity = payload.SNMP.Community
+					}
+					if payload.SSH != nil {
+						sshUsername = payload.SSH.Username
+						sshPassword = payload.SSH.Password
+					}
+					res := discovery.Scan(payload.CIDRRanges, snmpCommunity, sshUsername, sshPassword)
 					if res.Error != "" {
 						status = "failed"
 						stderr = res.Error

@@ -15,9 +15,13 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
+	"golang.org/x/crypto/ssh"
 )
 
 // A single sweep call is bounded to this many total addresses across every
@@ -44,13 +48,59 @@ const concurrency = 32
 const pingTimeout = 1200 * time.Millisecond
 
 // overallBudget bounds a single Scan call's total runtime, same
-// pathological-run guard as filesize.Measure's walkBudget.
+// pathological-run guard as filesize.Measure's walkBudget. The credentialed
+// enrichment phase below (see enrichHosts) shares this same deadline with
+// the ping sweep rather than getting its own separate budget.
 const overallBudget = 5 * time.Minute
 
+// Credentialed Network Discovery (issue #78) -- SNMP v1/v2c and SSH
+// (password-only) fingerprinting of hosts the ping sweep above already
+// found alive. WinRM is deliberately deferred (higher-risk auth
+// negotiation, no first-party Go client). Both protocols are opt-in: an
+// empty snmpCommunity/sshUsername+sshPassword passed to Scan disables the
+// corresponding protocol entirely, so an agent whose worker never sends
+// credentials (the common case -- these fields ride an optional, additive
+// payload extension, not a wire-protocol requirement) behaves identically
+// to pre-credentialed-discovery Scan.
+const (
+	sshPort  = 22
+	snmpPort = 161
+
+	// enrichConcurrency is smaller than the ping sweep's own concurrency
+	// (32) -- these are heavier per-host operations (a real TCP dial plus
+	// SSH handshake+auth, or an SNMP round trip with a retry), not a
+	// single ICMP packet.
+	enrichConcurrency = 16
+
+	// sshDialTimeout bounds both the plain TCP port-check dial and the
+	// full SSH handshake+auth dial -- generous for a LAN target, short
+	// enough that a closed/filtered port doesn't stall the whole scan.
+	sshDialTimeout = 3 * time.Second
+	// sshCommandTimeout bounds the one fixed post-auth command
+	// (`uname -a`) -- not a configurable command builder, deliberately;
+	// see the doc comment on probeSSH.
+	sshCommandTimeout = 5 * time.Second
+
+	// snmpTimeout is short because a non-responding host (no SNMP agent,
+	// or a wrong community string -- SNMPv1/v2c has no way to distinguish
+	// the two, both just produce silence) is the common case across a
+	// typical subnet, the same "most addresses won't answer" reasoning
+	// pingTimeout above already documents for the ping sweep.
+	snmpTimeout  = 1500 * time.Millisecond
+	snmpRetries  = 1
+	oidSysDescr  = ".1.3.6.1.2.1.1.1.0" // MIB-II System group -- universal across SNMP-speaking devices
+	oidSysName   = ".1.3.6.1.2.1.1.5.0"
+)
+
 type Host struct {
-	IP       string `json:"ip"`
-	MAC      string `json:"mac,omitempty"`
-	Hostname string `json:"hostname,omitempty"`
+	IP           string `json:"ip"`
+	MAC          string `json:"mac,omitempty"`
+	Hostname     string `json:"hostname,omitempty"`
+	OpenPorts    []int  `json:"open_ports,omitempty"`
+	SNMPSysDescr string `json:"snmp_sys_descr,omitempty"`
+	SNMPSysName  string `json:"snmp_sys_name,omitempty"`
+	SSHBanner    string `json:"ssh_banner,omitempty"`
+	SSHOSInfo    string `json:"ssh_os_info,omitempty"`
 }
 
 type Result struct {
@@ -58,7 +108,14 @@ type Result struct {
 	Error string `json:"error,omitempty"`
 }
 
-func Scan(cidrRanges []string) Result {
+// Scan walks cidrRanges for live hosts (ping sweep + ARP/reverse-DNS, as
+// before), then optionally fingerprints each live host via SNMP and/or SSH
+// -- snmpCommunity empty disables SNMP; sshUsername/sshPassword both
+// required (non-empty) to enable SSH. Neither credential is required: an
+// old-shaped dispatch (or a worker that has no CV_SNMP_COMMUNITY/
+// CV_SSH_USERNAME/CV_SSH_PASSWORD Company Variables configured for this
+// company) just gets today's ping+ARP-only behavior.
+func Scan(cidrRanges []string, snmpCommunity, sshUsername, sshPassword string) Result {
 	deadline := time.Now().Add(overallBudget)
 
 	var targets []string
@@ -92,7 +149,176 @@ func Scan(cidrRanges []string) Result {
 		}
 		hosts = append(hosts, h)
 	}
+
+	enrichHosts(hosts, snmpCommunity, sshUsername, sshPassword, deadline)
+
 	return Result{Hosts: hosts}
+}
+
+// enrichHosts runs the credentialed fingerprint phase against every
+// already-alive host, bounded by the same deadline the ping sweep above
+// respects. A no-op (zero extra network traffic) when neither protocol is
+// configured -- checked once here rather than per-host.
+func enrichHosts(hosts []Host, snmpCommunity, sshUsername, sshPassword string, deadline time.Time) {
+	snmpOn := snmpCommunity != ""
+	sshOn := sshUsername != "" && sshPassword != ""
+	if !snmpOn && !sshOn {
+		return
+	}
+
+	sem := make(chan struct{}, enrichConcurrency)
+	var wg sync.WaitGroup
+	for i := range hosts {
+		if time.Now().After(deadline) {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			enrichHost(&hosts[i], snmpOn, snmpCommunity, sshOn, sshUsername, sshPassword)
+		}(i)
+	}
+	wg.Wait()
+}
+
+// enrichHost mutates its own, distinct element of the caller's hosts slice
+// -- safe for concurrent use across goroutines each given a different
+// index, since they never touch the same memory.
+func enrichHost(h *Host, snmpOn bool, snmpCommunity string, sshOn bool, sshUsername, sshPassword string) {
+	var openPorts []int
+	if snmpOn {
+		if descr, name, ok := probeSNMP(h.IP, snmpCommunity); ok {
+			openPorts = append(openPorts, snmpPort)
+			h.SNMPSysDescr = descr
+			h.SNMPSysName = name
+		}
+	}
+	if sshOn {
+		if open, banner, osInfo, ok := probeSSH(h.IP, sshUsername, sshPassword); open {
+			openPorts = append(openPorts, sshPort)
+			if ok {
+				h.SSHBanner = banner
+				h.SSHOSInfo = osInfo
+			}
+		}
+	}
+	h.OpenPorts = openPorts
+}
+
+// probeSNMP is itself the port/response-check for SNMP -- UDP's
+// connectionless nature makes a real port scan unreliable, so a GET
+// request that gets no response within snmpTimeout (across snmpRetries
+// retries) is the signal "no SNMP here," not a distinguishable error.
+// Queries exactly the two universal MIB-II System-group OIDs
+// (oidSysDescr/oidSysName); no custom OID configuration in v1.
+func probeSNMP(ip, community string) (sysDescr, sysName string, ok bool) {
+	return probeSNMPAddr(ip, snmpPort, community)
+}
+
+// probeSNMPAddr is probeSNMP with an injectable port -- the real, fixed
+// snmpPort (161) is always what production actually uses (see probeSNMP);
+// this split exists purely so discovery_test.go can point the real gosnmp
+// client at a real local snmpd instance on an unprivileged test port,
+// rather than needing root to bind 161.
+func probeSNMPAddr(ip string, port uint16, community string) (sysDescr, sysName string, ok bool) {
+	client := &gosnmp.GoSNMP{
+		Target:    ip,
+		Port:      port,
+		Community: community,
+		Version:   gosnmp.Version2c,
+		Timeout:   snmpTimeout,
+		Retries:   snmpRetries,
+	}
+	if err := client.Connect(); err != nil {
+		return "", "", false
+	}
+	defer client.Conn.Close()
+
+	result, err := client.Get([]string{oidSysDescr, oidSysName})
+	if err != nil || len(result.Variables) < 2 {
+		return "", "", false
+	}
+	// Positional, not name-matched -- SNMP GET responses preserve request
+	// order, and matching by position sidesteps any ambiguity in how a
+	// given agent echoes the requested OID string (leading dot or not).
+	if b, isBytes := result.Variables[0].Value.([]byte); isBytes {
+		sysDescr = string(b)
+	}
+	if b, isBytes := result.Variables[1].Value.([]byte); isBytes {
+		sysName = string(b)
+	}
+	return sysDescr, sysName, sysDescr != "" || sysName != ""
+}
+
+// probeSSH first does a plain TCP dial to :22 -- the deliberate
+// port/response-check gate, kept separate from the real credentialed
+// attempt below, so a closed/filtered port never gets a real auth attempt
+// against it. open reports whether that gate passed (worth recording in
+// OpenPorts even if auth then fails -- a wrong password still means "SSH
+// is genuinely running here"); ok reports whether a full authenticated
+// session was established. No host-key pinning (InsecureIgnoreHostKey) --
+// these are ad hoc discovered hosts with no prior trust relationship to
+// pin against. On success, runs exactly one fixed, non-interactive command
+// (`uname -a`) -- not a configurable command builder, deliberately, same
+// "one fixed thing, not a builder" scoping this codebase already applies
+// elsewhere (e.g. the reboot marker's single fixed snooze).
+func probeSSH(ip, username, password string) (open bool, banner, osInfo string, ok bool) {
+	return probeSSHAddr(ip, sshPort, username, password)
+}
+
+// probeSSHAddr is probeSSH with an injectable port -- see probeSNMPAddr's
+// doc comment for why this split exists (testability against a real local
+// server on an unprivileged port, not root-only 22).
+func probeSSHAddr(ip string, port int, username, password string) (open bool, banner, osInfo string, ok bool) {
+	addr := net.JoinHostPort(ip, strconv.Itoa(port))
+
+	probe, err := net.DialTimeout("tcp", addr, sshDialTimeout)
+	if err != nil {
+		return false, "", "", false
+	}
+	probe.Close()
+	open = true
+
+	config := &ssh.ClientConfig{
+		User:            username,
+		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         sshDialTimeout,
+	}
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return open, "", "", false
+	}
+	defer client.Close()
+
+	banner = strings.TrimSpace(string(client.ServerVersion()))
+
+	session, err := client.NewSession()
+	if err != nil {
+		return open, banner, "", true // auth succeeded; the banner alone is still a real result
+	}
+	defer session.Close()
+
+	done := make(chan struct{})
+	var out []byte
+	var runErr error
+	go func() {
+		out, runErr = session.CombinedOutput("uname -a")
+		close(done)
+	}()
+	select {
+	case <-done:
+		if runErr == nil {
+			osInfo = strings.TrimSpace(string(out))
+		}
+	case <-time.After(sshCommandTimeout):
+		// A stuck command leaks this goroutine -- rare and bounded, same
+		// accepted tradeoff as rfbserver.captureWithTimeout.
+	}
+
+	return open, banner, osInfo, true
 }
 
 // hostsInCIDR enumerates every usable host address in a CIDR range,
