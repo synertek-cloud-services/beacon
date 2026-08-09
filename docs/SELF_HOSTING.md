@@ -237,6 +237,24 @@ The installer copies the binary into its system location and starts the Beacon
 service. Approve the pending device in the dashboard when auto-approval is off,
 then confirm that Last Seen and Last Audit advance.
 
+On Windows, if you intend to use Web Remote (browser-based remote desktop,
+see `CLAUDE.md`'s Web Remote section) against this device, add a Windows
+Defender exclusion for the install directory first:
+
+```powershell
+Add-MpPreference -ExclusionPath "C:\Program Files\Beacon"
+```
+
+Confirmed live: Defender can quarantine or kill the per-session
+`beacon-screenshare.exe` helper before it ever connects, since it's an
+unsigned binary doing real-time screen capture and keyboard/mouse
+injection — exactly the behavior signature AV heuristics are built to
+flag. A device without this exclusion will look like Web Remote silently
+never connects, with no useful error anywhere. This is a real cost of the
+current unsigned-binary release process, not a one-off fluke — see
+`CLAUDE.md` for the fuller writeup and why code-signing (not yet done)
+would fix it more durably than a per-device exclusion.
+
 Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
 new self-hosted installation, publish the host-controlled channel in the next
 section and install those binaries instead. An agent cannot switch from one

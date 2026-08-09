@@ -1,5 +1,28 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Root cause found: Windows Defender blocking beacon-screenshare.exe
+
+The actual answer, after the console-session detour, the performance fix,
+and the logging fix: a real Defender popup fired on the test device at the
+exact moment of a connection attempt. `beacon-screenshare.exe` doing raw
+GDI screen capture and `SendInput` injection, unsigned, with zero
+reputation history, is exactly the behavior signature AV heuristics exist
+to catch — Defender can quarantine or kill it before it gets far enough to
+dial the relay or write a single log line, which also explains why the
+logging fix from earlier today turned up nothing: the process likely never
+ran long enough to log anything.
+
+No code fix exists for this — every real remote-access tool pays this same
+cost. Documented both the immediate mitigation (`Add-MpPreference
+-ExclusionPath "C:\Program Files\Beacon"` on any device Web Remote will be
+used from — added to `docs/SELF_HOSTING.md` as a real setup requirement,
+not a footnote) and the durable one that isn't implemented yet: the
+release binaries aren't code-signed with a real Authenticode certificate
+at all today, only Ed25519-signed for Beacon's own self-update
+verification, which Windows/Defender has no knowledge of. That's the
+actual fix worth pursuing later, tracked informally here rather than as a
+separate issue for now.
+
 ## Session: 2026-08-09 — beacon-screenshare.exe had no logging at all
 
 The v0.2.24 performance fix went out, and the very next real connection
