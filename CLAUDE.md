@@ -665,6 +665,8 @@ Fix: capture-and-send now runs on its own dedicated goroutine, signaled via a co
 
 New regression test (`TestInputProcessedWhileCaptureBlocked`) proves the actual property that was broken: a deliberately-held-open `Capture()` call (via a test `Capturer` that blocks until released) no longer prevents a `KeyEvent` sent while it's in flight from being injected immediately — confirms the fix targets the real mechanism, not just "feels faster." Passes clean under `-race`, which also caught a real synchronization bug in the test helper itself (`fakeInjector`'s recorded-events slices needed their own mutex once a test started inspecting them while `Serve`'s goroutines were still concurrently running, rather than only after a full request/response round trip already provided a happens-before edge).
 
+**Released in agent v0.2.26** (both this fix and the UAC-resilience fix above shipped together in the same release).
+
 ### Root cause confirmed: Windows Defender's real-time behavioral protection, not a signature detection
 A Windows Security tray notification appeared on the test device around a connection attempt. The theory (Defender interfering with an unsigned binary doing raw screen capture + `SendInput` injection) was initially written up as confirmed before being properly checked, then retracted here when Windows Security's own Protection History showed no recent entries — but that retraction was itself premature, corrected after a real controlled test: the connection failed before `Add-MpPreference -ExclusionPath "C:\Program Files\Beacon"` was applied, and succeeded immediately after, with nothing else changed in between. That's real causal evidence, not a coincidence.
 
