@@ -250,6 +250,21 @@ func (h *testHarness) readFramebufferUpdate() []rfb.Rectangle {
 
 func (h *testHarness) sendKeyEvent(down bool, keysym uint32) {
 	h.t.Helper()
+	sendKeyEvent(h.t, h.client, down, keysym)
+}
+
+func (h *testHarness) sendPointerEvent(mask uint8, x, y uint16) {
+	h.t.Helper()
+	sendPointerEvent(h.t, h.client, mask, x, y)
+}
+
+// sendKeyEvent/sendPointerEvent are free functions (not just testHarness
+// methods) so a test that needs a custom Injector -- which newTestHarness
+// doesn't support, it always builds its own fakeInjector -- can still send
+// real wire-format input messages, the same precedent already established
+// by sendFramebufferUpdateRequest below for a custom Capturer.
+func sendKeyEvent(t *testing.T, client io.Writer, down bool, keysym uint32) {
+	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteByte(4)
 	if down {
@@ -261,13 +276,13 @@ func (h *testHarness) sendKeyEvent(down bool, keysym uint32) {
 	var ks [4]byte
 	binary.BigEndian.PutUint32(ks[:], keysym)
 	buf.Write(ks[:])
-	if _, err := h.client.Write(buf.Bytes()); err != nil {
-		h.t.Fatalf("client: send KeyEvent: %v", err)
+	if _, err := client.Write(buf.Bytes()); err != nil {
+		t.Fatalf("client: send KeyEvent: %v", err)
 	}
 }
 
-func (h *testHarness) sendPointerEvent(mask uint8, x, y uint16) {
-	h.t.Helper()
+func sendPointerEvent(t *testing.T, client io.Writer, mask uint8, x, y uint16) {
+	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteByte(5)
 	buf.WriteByte(mask)
@@ -276,8 +291,8 @@ func (h *testHarness) sendPointerEvent(mask uint8, x, y uint16) {
 		binary.BigEndian.PutUint16(b[:], v)
 		buf.Write(b[:])
 	}
-	if _, err := h.client.Write(buf.Bytes()); err != nil {
-		h.t.Fatalf("client: send PointerEvent: %v", err)
+	if _, err := client.Write(buf.Bytes()); err != nil {
+		t.Fatalf("client: send PointerEvent: %v", err)
 	}
 }
 
@@ -649,6 +664,112 @@ func TestCaptureErrorDoesNotKillSession(t *testing.T) {
 	rects = readFramebufferUpdateFrom(t, clientSide)
 	if len(rects) == 0 {
 		t.Fatal("expected real content on the second request, session did not recover")
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
+}
+
+// flakyInjector fails its first failCount calls (both KeyEvent and
+// PointerEvent share one counter -- either message type is enough to prove
+// the fix), then behaves like fakeInjector, recording every call that gets
+// past the simulated failure.
+type flakyInjector struct {
+	fakeInjector
+	failMu      sync.Mutex // guards failedSoFar -- deliberately distinct from fakeInjector's own embedded mu, which guards its recorded keys/pointers instead
+	failCount   int
+	failedSoFar int
+}
+
+func (f *flakyInjector) shouldFail() bool {
+	f.failMu.Lock()
+	defer f.failMu.Unlock()
+	if f.failedSoFar < f.failCount {
+		f.failedSoFar++
+		return true
+	}
+	return false
+}
+
+func (f *flakyInjector) KeyEvent(down bool, keysym uint32) error {
+	if f.shouldFail() {
+		return errFakeInjectFailure
+	}
+	return f.fakeInjector.KeyEvent(down, keysym)
+}
+
+func (f *flakyInjector) PointerEvent(mask uint8, x, y uint16) error {
+	if f.shouldFail() {
+		return errFakeInjectFailure
+	}
+	return f.fakeInjector.PointerEvent(mask, x, y)
+}
+
+var errFakeInjectFailure = errors.New("fake SendInput failure (simulated UAC secure-desktop switch)")
+
+// TestInjectorErrorDoesNotKillSession is the regression test for the
+// real-hardware finding that a first version of the UAC-resilience fix was
+// still incomplete: making Capture() errors non-fatal wasn't enough,
+// because the read loop still treated any KeyEvent/PointerEvent injection
+// error as fatal too. A UAC prompt's secure desktop is exactly the kind of
+// condition that can make SendInput fail (this process's input is bound to
+// winsta0\default, not the secure desktop) at the same time a technician,
+// unaware anything changed, keeps clicking/typing -- so an injection
+// failure needs the same "log it, keep going" treatment as a capture
+// failure, not a torn-down connection. Confirms a failed KeyEvent/PointerEvent
+// is dropped without ending the session, and a later successful one (the
+// desktop having switched back) still gets through.
+func TestInjectorErrorDoesNotKillSession(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &fakeCapturer{w: 4, h: 3}
+	inj := &flakyInjector{failCount: 2} // fails the KeyEvent and PointerEvent below
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+
+	doClientHandshake(t, clientSide)
+
+	// Both of these hit the simulated SendInput failure -- must not end
+	// the session (proven below by the connection still being usable).
+	sendKeyEvent(t, clientSide, true, 0xFF0D)
+	sendPointerEvent(t, clientSide, 0x01, 100, 200)
+
+	// Round-trip a FramebufferUpdateRequest to synchronize: by the time
+	// its response arrives, the server has necessarily already processed
+	// (and dropped) both events above -- same synchronization trick
+	// TestInputEventsForwarded already uses.
+	sendFramebufferUpdateRequest(t, clientSide)
+	readFramebufferUpdateFrom(t, clientSide)
+
+	if keys := inj.Keys(); len(keys) != 0 {
+		t.Fatalf("expected the failed KeyEvent to be dropped, recorded %d", len(keys))
+	}
+	if pointers := inj.Pointers(); len(pointers) != 0 {
+		t.Fatalf("expected the failed PointerEvent to be dropped, recorded %d", len(pointers))
+	}
+
+	// Session must still be alive: the simulated failure only affects the
+	// first two calls, so this KeyEvent must get through and be recorded.
+	sendKeyEvent(t, clientSide, false, 0xFF0D)
+	sendFramebufferUpdateRequest(t, clientSide)
+	readFramebufferUpdateFrom(t, clientSide)
+
+	keys := inj.Keys()
+	if len(keys) != 1 || keys[0].down || keys[0].keysym != 0xFF0D {
+		t.Fatalf("expected the recovered KeyEvent to be recorded, got %+v", keys)
 	}
 
 	if closer, ok := clientSide.Writer.(io.Closer); ok {

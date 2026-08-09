@@ -1,5 +1,33 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — UAC still killed the session on v0.2.27: a second, untouched fatal-error path in input injection
+
+The cursor fix landed well -- confirmed live as a real improvement ("the
+mouse thing is a lot better now, this is usable"). UAC did not: "uac still
+kills the session," even with `captureWithTimeout` in place.
+
+The timeout fix genuinely closed the gap it targeted. What it didn't touch:
+`Serve`'s read loop treats a `KeyEvent`/`PointerEvent` injection failure as
+fatal too, a completely separate code path from capture. `SendInput`
+targets whatever's currently the active desktop; a UAC secure desktop is a
+different desktop than the one `beacon-screenshare.exe` is bound to, and a
+technician who doesn't know a prompt just appeared keeps clicking/typing
+right through it -- so an injection failure during that window is exactly
+as real and transient as a capture failure, and was still tearing the
+whole session down. Fixed with the same non-fatal treatment already used
+twice on the capture side (log it, drop the one event, keep going) --
+`TestInjectorErrorDoesNotKillSession` confirms it, using a new
+`flakyInjector` test double and two input-sending helpers extracted into
+free functions so a test with a custom `Injector` (unsupported by the
+existing harness) could still drive real wire messages.
+
+Third time finding a UAC-related fatal-error path one real-hardware report
+at a time (Capture erroring, Capture hanging, now injection erroring) --
+worth remembering that a "non-fatal on X" fix in this file needs auditing
+every other error-propagation path, not just the one a given report
+happened to exercise. Rebuilt the embedded `beacon-screenshare.exe`. Not
+yet re-verified on real hardware.
+
 ## Session: 2026-08-09 — v0.2.26's fixes were real but incomplete: UAC was hanging (not erroring), mouse cursor needed client-side rendering
 
 Both problems the previous session's v0.2.26 release shipped fixes for came
