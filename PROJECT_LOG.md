@@ -1,26 +1,25 @@
 # Beacon — Project Log
 
-## Session: 2026-08-09 — Windows Defender theory raised, then retracted
+## Session: 2026-08-09 — Windows Defender confirmed as the root cause, via a real A/B test
 
-A Windows Security tray notification appeared on the test device around a
-connection attempt, and I wrote it up as a *confirmed* root cause
-(quarantining the unsigned, screen-capture/input-injection
-`beacon-screenshare.exe`) before actually verifying it — jumped from a
-plausible theory straight to permanent documentation, which is exactly the
-kind of thing this project's own conventions exist to prevent. Checked
-live, Windows Security's Protection History (the real event log, not the
-general status page) showed **no recent actions at all** — no
-corroborating record of anything being blocked or quarantined. Corrected
-`CLAUDE.md` back to "raised, then retracted, not confirmed."
+A messier arc than most: raised as a confirmed root cause off a Windows
+Security tray notification, retracted when Protection History showed no
+corroborating entries, then re-confirmed for real — Jeremy ran a genuine
+controlled test (connection failed before applying `Add-MpPreference
+-ExclusionPath "C:\Program Files\Beacon"`, succeeded immediately after,
+nothing else changed) and correctly called out that my retraction didn't
+hold up against that evidence. It didn't. Protection History only logs
+discrete threat *detections*; Defender's real-time *behavioral* protection
+can independently interfere with a process (exactly what screen capture +
+synthetic input injection looks like to that kind of heuristic) without
+generating one of those. The exclusion affects that real-time monitoring
+too, not just file scanning, so it fixing the connection is consistent
+with this even without a log entry to point to.
 
-Net position, honestly: the original "doesn't connect" symptom is still
-unexplained. The Defender exclusion (`Add-MpPreference -ExclusionPath
-"C:\Program Files\Beacon"`) stays documented in `SELF_HOSTING.md` as a
-cheap, harmless precaution, not as a proven fix. The `beacon-screenshare.log`
-logging added earlier today is still the only real lead, and it hasn't
-shipped in a released build yet — the v0.2.25 draft stalled before
-finishing. Getting an actual release out and testing again against real
-log output is the next real step, not further Defender investigation.
+Lesson worth keeping: a direct before/after test is stronger evidence than
+an absence of log entries, and I shouldn't have treated the latter as
+disproof without weighing that. `CLAUDE.md`/`SELF_HOSTING.md` corrected
+again to reflect this as confirmed, not a maybe.
 
 ## Session: 2026-08-09 — beacon-screenshare.exe had no logging at all
 
