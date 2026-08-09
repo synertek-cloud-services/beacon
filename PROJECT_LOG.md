@@ -1,5 +1,52 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Web Remote "Elevate" button: UAC no longer kills the session, but control over an elevated window was blocked until it closed
+
+Real-hardware retest of the PR #122 fix: good news, UAC genuinely doesn't
+kill the session anymore. New finding right behind it -- once a UAC prompt
+is accepted, the technician can see the elevated window but has no input
+control over it until it closes, then control comes right back. Diagnosed
+as Windows UIPI (User Interface Privilege Isolation), not a bug: GDI screen
+capture isn't integrity-gated, but `SendInput` is, and `beacon-screenshare.exe`
+always launches at the user's own Medium integrity level, never elevated.
+
+User confirmed the intended fix matches how other remote-support tools
+handle this: don't run elevated by default (real security-posture cost --
+every session would carry full admin rights the whole time), instead give
+an explicit on-demand "Elevate" button.
+
+Design: elevation opens a *new* session rather than upgrading the running
+one in place -- `SessionRelay` is one DO per session ID, so this needed
+zero RFB protocol changes and no new WebSocket side-channel, just reusing
+the existing session-open plumbing with an added `elevated` flag riding
+`open_session`'s payload (no new `sessions` table column, matching
+`install_patches`'s own `auto_reboot` payload-only precedent). Windows side:
+`golang.org/x/sys/windows` already ships `Token.GetLinkedToken()` as a
+ready-made method -- fetches a split-token admin account's full/elevated
+token, refactored `RunAsSession` into a shared `runAsToken(..., elevated
+bool)` so both paths share the duplicate/env-block/launch logic. A new
+`ErrElevationNotAvailable` sentinel (not an admin, or UAC disabled) gets
+the same non-fatal treatment `ErrNoActiveSession` already has.
+
+Deliberately did *not* build a new failure-reporting round trip for the
+non-admin case -- the worker can't know ahead of time whether elevation
+will work, so it surfaces the same way "no active session" already does:
+the existing 70s connect timeout. Real, acknowledged UX tradeoff (worse
+here since the technician is actively waiting on the click), accepted as
+consistent with this feature's own v1 pattern.
+
+Dashboard: `WebRemotePage.vue`'s connect logic became a reusable
+`connectTo()` so the Elevate button can call it a second time; it
+disconnects the current session, opens a new elevated one, reconnects in
+place, and `router.replace()`s the URL rather than opening a new tab.
+`DeviceDetailPage.vue` now passes `device_id`/`company_id` along so the
+button can request a new session independently.
+
+`go build`/`go vet` clean natively and cross-compiled windows/linux/darwin
+(confirms `GetLinkedToken` really exists at the pinned `x/sys` version),
+worker/dashboard type-checks clean. **Not yet verified on real hardware** --
+same limitation as the rest of this feature area, no Windows box here.
+
 ## Session: 2026-08-09 — Credentialed Network Discovery (issue #78), promoted from the Icebox
 
 Promoted v1 Network Discovery's own deferred item: SNMP v1/v2c + SSH

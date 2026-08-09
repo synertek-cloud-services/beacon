@@ -19,6 +19,11 @@ sessions.post('/', async (c) => {
     company_id: string;
     session_type: 'shell' | 'tcp_tunnel' | 'screen_share';
     tcp_port?: number;
+    // On-demand elevation for screen_share only (the "Elevate" button) --
+    // ignored by the agent for every other session type. Not stored on the
+    // sessions row -- a one-shot dispatch-time instruction, not queryable
+    // session state, same as install_patches' own auto_reboot payload flag.
+    elevated?: boolean;
   }>();
 
   const db = drizzle(c.env.DB, { schema });
@@ -74,6 +79,7 @@ sessions.post('/', async (c) => {
       session_type: body.session_type,
       ws_url: agentWsUrl,
       tcp_port: body.tcp_port ?? 0,
+      elevated: body.elevated ?? false,
     }),
     createdAt: now,
   });

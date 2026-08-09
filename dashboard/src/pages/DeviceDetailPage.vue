@@ -1048,7 +1048,10 @@ async function openWebRemote() {
   if (!device.value) return;
   try {
     const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share');
-    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}`;
+    // device_id/company_id ride along so the Elevate button on
+    // WebRemotePage.vue can independently open a *new* session later
+    // without a round trip back through this page.
+    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}`;
     window.open(url, '_blank');
   } catch (e: any) {
     error.value = e.message;

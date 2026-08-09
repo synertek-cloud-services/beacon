@@ -8,14 +8,28 @@ import "errors"
 // share the same error-handling path regardless of platform.
 var ErrNoActiveSession = errors.New("usersession: not supported on this platform")
 
+// ErrElevationNotAvailable mirrors the Windows build's sentinel, same
+// reason as ErrNoActiveSession above.
+var ErrElevationNotAvailable = errors.New("usersession: not supported on this platform")
+
 // RunAsActiveUser is a no-op stub outside Windows -- there's no equivalent
 // Session 0 Isolation concept on Linux/macOS for this package to bridge.
 func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 	return 0, ErrNoActiveSession
 }
 
+// RunAsActiveUserElevated is a no-op stub outside Windows, matching RunAsActiveUser.
+func RunAsActiveUserElevated(exe string, args []string) (pid uint32, err error) {
+	return 0, ErrNoActiveSession
+}
+
 // RunAsSession is a no-op stub outside Windows, matching RunAsActiveUser.
 func RunAsSession(sessionID uint32, exe string, args []string) (pid uint32, err error) {
+	return 0, ErrNoActiveSession
+}
+
+// RunAsSessionElevated is a no-op stub outside Windows, matching RunAsSession.
+func RunAsSessionElevated(sessionID uint32, exe string, args []string) (pid uint32, err error) {
 	return 0, ErrNoActiveSession
 }
 

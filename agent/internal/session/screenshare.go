@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/sha256"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -27,30 +28,61 @@ var screenShareBinary []byte
 // active console user's own desktop session, passing it the session ID and
 // relay WebSocket URL to dial itself. It never dials the relay from this
 // (SYSTEM-context) process -- see Handle's comment for why.
-func runScreenShare(sessionID, wsURL string) {
+//
+// elevated requests the on-demand "Elevate" escalation: launches with the
+// user's linked (full/elevated) token instead of their standard one, so
+// the helper can interact with (not just see) UAC-elevated windows --
+// Windows' User Interface Privilege Isolation otherwise blocks input from
+// a Medium-integrity process like the non-elevated launch below into a
+// High-integrity one, confirmed as a real, distinct limitation on real
+// hardware (screen capture worked, input didn't, until the elevated
+// window closed). Deliberately not the default -- always launching
+// elevated would mean every Web Remote session runs with full admin
+// rights on the target, a real security-posture cost for a capability
+// most sessions never need.
+func runScreenShare(sessionID, wsURL string, elevated bool) {
 	exePath, err := extractScreenShareIfStale()
 	if err != nil {
 		log.Printf("session %s: screen share: %v", sessionID, err)
 		return
 	}
 
-	pid, err := usersession.RunAsActiveUser(exePath, []string{
+	args := []string{
 		"--session-id=" + sessionID,
 		"--ws-url=" + wsURL,
-	})
+	}
+
+	launch := usersession.RunAsActiveUser
+	if elevated {
+		launch = usersession.RunAsActiveUserElevated
+	}
+
+	pid, err := launch(exePath, args)
 	if err != nil {
-		if err == usersession.ErrNoActiveSession {
+		switch {
+		case errors.Is(err, usersession.ErrNoActiveSession):
 			// Nobody logged in -- expected no-op, matches v1's own scope
 			// (logged-in-user desktop capture only). The browser's own
 			// connect timeout is what surfaces this to the technician;
 			// nothing needs to travel back over this path.
 			log.Printf("session %s: screen share: no active console session", sessionID)
-			return
+		case errors.Is(err, usersession.ErrElevationNotAvailable):
+			// Not an administrator, or UAC disabled -- expected, common,
+			// not a crash. Same "the browser's own connect timeout
+			// surfaces this" reasoning as the no-active-session case
+			// above: there's no way for the worker to have known ahead of
+			// time whether this would work, and building a fast explicit
+			// failure round trip for one button is new protocol machinery
+			// this feature doesn't otherwise need. errors.Is, not direct
+			// equality -- runAsToken wraps this sentinel with %w alongside
+			// the underlying GetLinkedToken error for context.
+			log.Printf("session %s: screen share: elevation not available: %v", sessionID, err)
+		default:
+			log.Printf("session %s: screen share launch: %v", sessionID, err)
 		}
-		log.Printf("session %s: screen share launch: %v", sessionID, err)
 		return
 	}
-	log.Printf("session %s: launched beacon-screenshare pid %d", sessionID, pid)
+	log.Printf("session %s: launched beacon-screenshare pid %d (elevated=%v)", sessionID, pid, elevated)
 }
 
 // extractScreenShareIfStale writes the embedded beacon-screenshare.exe

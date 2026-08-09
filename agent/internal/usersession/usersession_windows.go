@@ -31,6 +31,13 @@ import (
 // Callers should treat this as "nothing to do," not an error condition.
 var ErrNoActiveSession = errors.New("usersession: no active console session")
 
+// ErrElevationNotAvailable means the target user's token has no linked
+// (elevated) token to launch with -- either the account isn't a member of
+// Administrators, or UAC is disabled entirely (no split-token behavior in
+// either case). Expected and common, same non-fatal treatment as
+// ErrNoActiveSession -- callers must not log this as a crash.
+var ErrElevationNotAvailable = errors.New("usersession: elevation not available for this user (not an administrator, or UAC is disabled)")
+
 // RunAsActiveUser launches exe (with args) in the context of whoever is
 // logged into the active *console* session specifically. Kept as a thin
 // wrapper around RunAsSession for agent/tools/usersessiontest and anything
@@ -47,6 +54,20 @@ func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 	return RunAsSession(sessionID, exe, args)
 }
 
+// RunAsActiveUserElevated is RunAsActiveUser's elevated counterpart -- see
+// RunAsSessionElevated. Kept console-only, matching RunAsActiveUser and
+// Web Remote's own existing v1 scoping (no RDS/AVD multi-session
+// elevation) -- there's no reason for the elevated path to diverge from
+// that.
+func RunAsActiveUserElevated(exe string, args []string) (pid uint32, err error) {
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		log.Printf("usersession: no active console session")
+		return 0, ErrNoActiveSession
+	}
+	return RunAsSessionElevated(sessionID, exe, args)
+}
+
 // RunAsSession launches exe (with args) in the context of whoever is logged
 // into the given session ID, using that user's own primary token and
 // environment block -- not the SYSTEM service's own context. On success it
@@ -54,6 +75,31 @@ func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {
 // liveness later (see agent/internal/service's tray supervision logic)
 // don't need to re-derive it themselves.
 func RunAsSession(sessionID uint32, exe string, args []string) (pid uint32, err error) {
+	return runAsToken(sessionID, exe, args, false)
+}
+
+// RunAsSessionElevated is RunAsSession's elevated counterpart -- launches
+// into the same user's session, but using their *linked* (full/elevated)
+// token instead of their standard one, so the launched process can
+// interact with (not just see) UAC-elevated windows, which Windows'
+// User Interface Privilege Isolation otherwise blocks a Medium-integrity
+// process (everything RunAsSession launches) from doing. Confirmed on real
+// hardware to be a real, distinct limitation: a technician could see an
+// elevated window via Web Remote's screen capture (GDI capture isn't
+// integrity-gated) but had no input control over it until it closed.
+//
+// Returns ErrElevationNotAvailable when the target user's token has no
+// linked token to use -- not an administrator, or UAC disabled -- an
+// expected, common outcome, never a crash.
+func RunAsSessionElevated(sessionID uint32, exe string, args []string) (pid uint32, err error) {
+	return runAsToken(sessionID, exe, args, true)
+}
+
+// runAsToken is the shared implementation behind RunAsSession and
+// RunAsSessionElevated -- both differ only in which token (the queried
+// user token itself, or its linked/elevated counterpart) gets duplicated
+// into a primary token and handed to CreateProcessAsUser.
+func runAsToken(sessionID uint32, exe string, args []string, elevated bool) (pid uint32, err error) {
 	var userToken windows.Token
 	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
 		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
@@ -78,12 +124,26 @@ func RunAsSession(sessionID uint32, exe string, args []string) (pid uint32, err 
 	}
 	defer userToken.Close()
 
+	launchToken := userToken
+	if elevated {
+		linkedToken, err := userToken.GetLinkedToken()
+		if err != nil {
+			return 0, fmt.Errorf("%w: %v", ErrElevationNotAvailable, err)
+		}
+		defer linkedToken.Close()
+		launchToken = linkedToken
+	}
+
 	// CreateProcessAsUser specifically requires a primary token, not just an
 	// impersonation-level token -- the most common mistake in a hand-rolled
-	// version of this pattern.
+	// version of this pattern. Duplicated even for the already-elevated
+	// linked token, not just the standard one -- defensive, matching this
+	// function's own existing caution, rather than assuming the linked
+	// token's exact type from documentation alone with no real Windows
+	// hardware here to verify against.
 	var primaryToken windows.Token
 	if err := windows.DuplicateTokenEx(
-		userToken,
+		launchToken,
 		windows.TOKEN_ALL_ACCESS,
 		nil,
 		windows.SecurityImpersonation,
