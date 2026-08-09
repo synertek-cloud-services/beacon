@@ -322,13 +322,29 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			}
 
 		case rfb.KeyEventMsg:
+			// Deliberately non-fatal, same reasoning as the capture-error
+			// handling above: a UAC prompt's secure desktop is a separate
+			// desktop from the one this process's input is bound to
+			// (winsta0\default), and SendInput synthesizing input into a
+			// desktop it can't currently reach is a real, expected,
+			// transient failure -- confirmed live: a first version of this
+			// fix only made *capture* errors survivable, and real-hardware
+			// testing showed UAC still killed the session outright, because
+			// this injection path still treated any SendInput failure
+			// (which real-hardware testing that same UAC prompt very
+			// plausibly also triggers -- the technician has no way to know
+			// a secure desktop just appeared and keeps clicking/typing) as
+			// fatal. Injection failures have nothing to do with whether the
+			// underlying WebSocket connection itself is healthy, unlike a
+			// WriteFramebufferUpdate failure, so treating them as fatal was
+			// never actually justified even outside the UAC case.
 			if err := inj.KeyEvent(m.Down, m.Keysym); err != nil {
-				return fmt.Errorf("rfbserver: key event: %w", err)
+				log.Printf("rfbserver: key event: %v (dropping this event, session stays open)", err)
 			}
 
 		case rfb.PointerEventMsg:
 			if err := inj.PointerEvent(m.ButtonMask, m.X, m.Y); err != nil {
-				return fmt.Errorf("rfbserver: pointer event: %w", err)
+				log.Printf("rfbserver: pointer event: %v (dropping this event, session stays open)", err)
 			}
 
 		case rfb.ClientCutTextMsg:
