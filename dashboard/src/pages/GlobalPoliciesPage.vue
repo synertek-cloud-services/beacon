@@ -467,6 +467,7 @@ function checkLabel(ct: CheckType): string {
     case 'process':      return 'Process';
     case 'service':      return 'Service';
     case 'software':     return 'Software';
+    case 'windows_update_drift': return 'Windows Update Drift';
     default:             return ct;
   }
 }
@@ -523,6 +524,7 @@ function monitorSummary(m: PolicyMonitor): string {
         const verb = mode === 'installed' ? 'is installed' : mode === 'uninstalled' ? 'is uninstalled' : 'changes version';
         return `${cfg.name_pattern} ${verb}`;
       }
+      case 'windows_update_drift': return "fires if Windows' own auto-update is re-enabled while managed";
       default: return m.config;
     }
   } catch { return m.config; }
@@ -740,6 +742,7 @@ function monitorSummary(m: PolicyMonitor): string {
 .chip-process      { background: rgba(240,168,64,.16);   color: var(--color-warning); }
 .chip-service      { background: rgba(200,80,180,.14);   color: #c850b4; }
 .chip-software     { background: rgba(80,180,120,.14);   color: #50b478; }
+.chip-windows_update_drift { background: rgba(58,146,192,.15); color: #3a92c0; }
 
 .pri-badge {
   display: inline-block; padding: 1px 7px; border-radius: 10px;

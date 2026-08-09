@@ -5,7 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
-import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts } from '../lib/alerts';
+import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
 import { recordDiscoveredHosts, type DiscoveredHost } from '../lib/discovery';
@@ -167,6 +167,11 @@ checkin.post('/', async (c) => {
               windowsUpdatePriorState: null,
               windowsUpdateManagedAt: null,
             }).where(eq(schema.devices.id, device.id));
+            // Beacon no longer asserts any AU registry state for this device
+            // -- unconditionally clear any open drift alert, regardless of
+            // maintenance mode or the monitor's own auto_resolve setting.
+            // See resolveWindowsUpdateDriftAlerts's own doc comment.
+            await resolveWindowsUpdateDriftAlerts(c.env.DB, device.id, now);
           }
         } catch {
           // Malformed/failed result shouldn't fail the whole check-in --
@@ -223,8 +228,8 @@ checkin.post('/', async (c) => {
   const inMaintenance = await isDeviceSuppressedNow(db, device, now);
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
-  const { fileSizeChecks, pingChecks, processChecks, serviceChecks } = inMaintenance
-    ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [] }
+  const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
+    ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
     : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now);
 
   if (!inMaintenance) {
@@ -246,6 +251,11 @@ checkin.post('/', async (c) => {
     // Evaluate service measurements the agent took for a prior check-in's assignments
     if (body.pending_service_results?.length) {
       await evaluateServiceAlerts(c.env.DB, c.env, device, body.pending_service_results, now);
+    }
+
+    // Evaluate Windows Update drift measurements the agent took for a prior check-in's assignments
+    if (body.pending_windows_update_drift_results?.length) {
+      await evaluateWindowsUpdateDriftAlerts(c.env.DB, c.env, device, body.pending_windows_update_drift_results, now);
     }
   }
 
@@ -286,6 +296,7 @@ checkin.post('/', async (c) => {
     ping_checks: pingChecks.length ? pingChecks : undefined,
     process_checks: processChecks.length ? processChecks : undefined,
     service_checks: serviceChecks.length ? serviceChecks : undefined,
+    windows_update_drift_checks: windowsUpdateDriftChecks.length ? windowsUpdateDriftChecks : undefined,
   });
 });
 

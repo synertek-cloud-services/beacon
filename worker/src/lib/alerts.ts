@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
 import type { Bindings } from '../index';
-import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult } from './types';
+import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult, WindowsUpdateDriftCheck, WindowsUpdateDriftResult } from './types';
 import { sendEmail } from './email';
 import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
 import { logActivity } from './activityLog';
@@ -188,6 +188,7 @@ export interface CheckinAssignments {
   pingChecks: PingCheck[];
   processChecks: ProcessCheck[];
   serviceChecks: ServiceCheck[];
+  windowsUpdateDriftChecks: WindowsUpdateDriftCheck[];
 }
 
 export async function evaluateCheckinAlerts(
@@ -203,6 +204,7 @@ export async function evaluateCheckinAlerts(
   const pingChecks: PingCheck[] = [];
   const processChecks: ProcessCheck[] = [];
   const serviceChecks: ServiceCheck[] = [];
+  const windowsUpdateDriftChecks: WindowsUpdateDriftCheck[] = [];
   const minuteBucket = Math.floor(now / 60);
 
   for (const monitor of monitors) {
@@ -250,11 +252,23 @@ export async function evaluateCheckinAlerts(
       continue;
     }
 
+    if (monitor.checkType === 'windows_update_drift') {
+      // Measured by the agent (a read-only registry check), not evaluated
+      // from metrics — assign now, evaluate the result it reports on a
+      // later check-in. Skipped entirely (not even assigned) unless Beacon
+      // currently believes it's managing this device -- there's nothing to
+      // verify drift against otherwise, same "skip assignment, not
+      // evaluation" shape as service's boot_delay_minutes gate above.
+      if (!device.windowsUpdateManaged) continue;
+      windowsUpdateDriftChecks.push({ monitor_id: monitor.id });
+      continue;
+    }
+
     const failed = evaluateCheck(monitor, metrics);
     await processAlertState(db, env, device, monitor, failed, now);
   }
 
-  return { fileSizeChecks, pingChecks, processChecks, serviceChecks };
+  return { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks };
 }
 
 // ── File size: results reported by the agent for a prior check-in's assignments
@@ -396,6 +410,48 @@ export async function evaluateServiceAlerts(
       case 'cpu':      failed = result.running && cfg.threshold_pct !== null && result.cpu_percent >= cfg.threshold_pct; break;
       case 'memory':   failed = result.running && cfg.threshold_pct !== null && result.mem_percent >= cfg.threshold_pct; break;
     }
+
+    await processAlertState(db, env, device, monitor, failed, now);
+  }
+}
+
+// ── Windows Update drift: results reported by the agent for a prior
+// check-in's assignments ─────────────────────────────────────────────────
+
+export async function evaluateWindowsUpdateDriftAlerts(
+  DB: D1Database,
+  env: Bindings,
+  device: Device,
+  results: WindowsUpdateDriftResult[],
+  now: number,
+): Promise<void> {
+  const db = drizzle(DB, { schema });
+
+  for (const result of results) {
+    const row = await db.select()
+      .from(schema.policyMonitors)
+      .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
+      .where(eq(schema.policyMonitors.id, result.monitor_id))
+      .get();
+    if (!row || row.policy_monitors.checkType !== 'windows_update_drift') continue; // deleted/changed since assignment
+    // A result can arrive for a check assigned earlier in the same request
+    // that just processed this device's manage_windows_update revert
+    // completion -- the in-memory `device` fetched at the top of checkin.ts
+    // predates that update, so assignment (evaluateCheckinAlerts, above)
+    // can't see it either. Re-checking here, not just at assignment time,
+    // is what actually matters: a stale in-flight result must never reopen
+    // tracking for a device Beacon no longer manages. Confirmed live against
+    // local wrangler dev -- without this guard, a stale result set
+    // condition_first_seen on an alert resolveWindowsUpdateDriftAlerts had
+    // already unconditionally closed moments earlier.
+    if (!device.windowsUpdateManaged) continue;
+
+    const monitor: EffectiveMonitor = { ...row.policy_monitors, policy: row.policies };
+    // A read error is inconclusive, not evidence of an override -- only a
+    // successful read showing the wrong value counts as drift. Beacon's own
+    // management only ever asserts NoAutoUpdate=1; au_options is left
+    // untouched by managePS, so it's irrelevant to what counts as drift.
+    const failed = !result.error && result.no_auto_update !== 1;
 
     await processAlertState(db, env, device, monitor, failed, now);
   }
@@ -890,4 +946,33 @@ export async function resolveAllOpenAlerts(
       inArray(schema.alertState.policyMonitorId, monitorIds),
       eq(schema.alertState.isAlerting, true),
     ));
+}
+
+// Called from checkin.ts's manage_windows_update revert-completion branch.
+// Unconditional, unlike processAlertState(failed=false) -- that path only
+// clears isAlerting when the monitor's own auto_resolve/auto_resolve_after_minutes
+// grace period has elapsed, which governs a different case (still-failing-
+// but-within-grace-period). Once Beacon stops managing a device it has
+// fallen out of this monitor's applicability entirely -- the same framing
+// reconcileOrphanedAlerts itself uses (a device no longer matching what a
+// monitor even applies to), not "administrative" (coverage loss can be
+// system-driven via syncWindowsUpdateManagement's own retargeting, not a
+// technician action). Same deliberate no-notification precedent as
+// reconcileOrphanedAlerts/resolveAllOpenAlerts above -- a coverage change,
+// not a real-time condition transition.
+export async function resolveWindowsUpdateDriftAlerts(DB: D1Database, deviceId: string, now: number): Promise<void> {
+  const db = drizzle(DB, { schema });
+  const rows = await db.select({ id: schema.alertState.id })
+    .from(schema.alertState)
+    .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.id, schema.alertState.policyMonitorId))
+    .where(and(
+      eq(schema.alertState.deviceId, deviceId),
+      eq(schema.policyMonitors.checkType, 'windows_update_drift'),
+      eq(schema.alertState.isAlerting, true),
+    ));
+  for (const row of rows) {
+    await db.update(schema.alertState)
+      .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
+      .where(eq(schema.alertState.id, row.id));
+  }
 }

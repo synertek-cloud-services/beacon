@@ -49,6 +49,9 @@ export interface CheckInRequest {
   pending_process_results?: ProcessResult[];
   // Measurements taken in response to a previous check-in's service_checks.
   pending_service_results?: ServiceResult[];
+  // Measurements taken in response to a previous check-in's
+  // windows_update_drift_checks.
+  pending_windows_update_drift_results?: WindowsUpdateDriftResult[];
 }
 
 // Phase 1 inventory payload — deliberately minimal. Extended in later phases
@@ -91,6 +94,12 @@ export interface CheckInResponse {
   // Windows service names the agent should look up and report back via
   // pending_service_results on its next check-in.
   service_checks?: ServiceCheck[];
+  // Windows Update drift verification the agent should perform (read-only
+  // registry check, no writes) and report back via
+  // pending_windows_update_drift_results on its next check-in. Only ever
+  // assigned to a device with windowsUpdateManaged=true (see
+  // evaluateCheckinAlerts) — there's nothing to verify otherwise.
+  windows_update_drift_checks?: WindowsUpdateDriftCheck[];
 }
 
 // ── File size checks ────────────────────────────────────────────────────────
@@ -147,6 +156,27 @@ export interface ServiceResult {
   running: boolean;
   cpu_percent: number;
   mem_percent: number;
+}
+
+// ── Windows Update drift checks ──────────────────────────────────────────────
+// Read-only verification of Windows' own Automatic Updates registry policy
+// (agent/internal/auconfig.Read) — never writes anything, distinct from the
+// manage_windows_update command that actually sets/reverts it. See
+// CLAUDE.md's Patch Management section (issue #79).
+
+export interface WindowsUpdateDriftCheck {
+  monitor_id: string;
+}
+
+export interface WindowsUpdateDriftResult {
+  monitor_id: string;
+  // Absent (not just 0/false) when the registry value itself is unset --
+  // distinct from a read error, which sets `error` instead and is never
+  // treated as evidence of drift (an inconclusive measurement, not a
+  // confirmed override).
+  no_auto_update?: number;
+  au_options?: number;
+  error?: string;
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
