@@ -49,8 +49,8 @@ unit-tested in this sandbox with zero GDI dependency.
 
 Both fixed, tested (`go test ./... -race`, cross-compiled clean for all
 three platforms), and the embedded `beacon-screenshare.exe` rebuilt.
-**Not yet verified on real hardware** -- needs a real release and a real
-UAC prompt / real mouse drag to confirm.
+**Released in agent v0.2.27; not yet verified on real hardware** -- needs a
+real UAC prompt / real mouse drag to confirm.
 
 ## Session: 2026-08-09 — Two more real-hardware findings: mouse latency, UAC killing sessions
 
