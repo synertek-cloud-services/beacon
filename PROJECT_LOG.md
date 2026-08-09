@@ -1,5 +1,56 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Web Remote performance fix
+
+Jeremy tested v0.2.23's Web Remote on real hardware right after release (see
+below) — it connected and worked, confirming the whole capture/injection
+pipeline for real. But then: "the problem is the connection is horrendously
+slow," and critically, "I am on the local LAN with this device" — ruling out
+network bandwidth as the cause before any code was touched. That single fact
+redirected the whole diagnosis: v1's design (Raw encoding, full-frame-per-
+request, no diffing, no throttling) was explicitly documented as "noticeably
+heavier than a real VNC client on typical broadband," but a LAN connection
+being unusably slow meant the real cost was CPU, not bytes on the wire.
+
+Root cause: `rfbserver.Serve`'s loop is fully synchronous and capture-on-
+request with zero pacing, exactly matching how real noVNC immediately
+re-issues the next `FramebufferUpdateRequest` after every response (verified
+live during the original build). That meant `GDICapturer.Capture()` ran a
+full `BitBlt`+`GetDIBits` *and* `PackRow`'s per-pixel shift/multiply math
+over the entire primary monitor — ~2 million pixels at 1080p — back-to-back,
+as fast as the machine could physically do it, for every single request.
+
+Two fixes:
+1. **`rfb.PackRow` fast path** — real noVNC negotiates one specific, common
+   pixel format (32bpp/little-endian/standard RGB shifts/full range), and at
+   that exact layout the source's own BGRA byte order needs zero math, just
+   a bulk `copy()`. The general per-pixel loop stays for any other format.
+2. **Row-level dirty-rect diffing** — `GDICapturer` now compares each new
+   frame against the previous one (`screencapture/diff.go`) and only packs
+   the row range that actually changed; a static desktop (the common case)
+   returns a zero-height rectangle, which the existing `chunkRectangle`/
+   `WriteFramebufferUpdate` code already turns into a valid empty update
+   with no changes needed elsewhere. Added a ~30fps pacing floor alongside
+   it, since diffing alone doesn't stop the loop from spinning as fast as
+   the client re-requests — GDI still has to capture before it can know
+   nothing changed.
+
+Deliberately kept the diff comparison logic in a build-tag-free file
+(`screencapture/diff.go`, not `capture_windows.go`) specifically so it's
+unit-testable without real GDI — and that paid off immediately: the first
+version of the diff function's mismatched-buffer-size fallback (used for
+every session's very first frame, since there's no previous frame to
+compare against yet) returned a hardcoded `(0, 0, true)` instead of the
+full row range. That would have rendered every session's opening frame as a
+single captured row with the rest of the screen left blank. Caught by
+strengthening the fallback test to check the actual bounds, not just that
+*some* change was reported, before this ever reached real hardware.
+
+Both fixes are fully unit-tested in this sandbox. The actual speedup itself
+— like the rest of `screencapture`/`screeninject` — needs the same
+real-hardware confirmation loop that caught the original slowness in the
+first place.
+
 ## Session: 2026-08-08 — Web Remote: zero-install browser-based remote desktop
 
 Started as a "tunneled RDP" exploration for issue #86 (explicitly framed as
