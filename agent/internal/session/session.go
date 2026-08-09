@@ -13,6 +13,10 @@ type openPayload struct {
 	SessionType string `json:"session_type"`
 	WSURL       string `json:"ws_url"`
 	TCPPort     int    `json:"tcp_port,omitempty"`
+	// Elevated requests the "Elevate" on-demand escalation for screen_share
+	// sessions only -- see screenshare.go's runScreenShare. Ignored by
+	// every other session type.
+	Elevated bool `json:"elevated,omitempty"`
 }
 
 // Handle connects to the session relay DO and dispatches to the correct handler.
@@ -35,7 +39,7 @@ func Handle(cmd protocol.Command) {
 	// session, two agent-role sockets would both receive the browser's
 	// bytes and corrupt RFB's strict single-byte-stream protocol.
 	if p.SessionType == "screen_share" {
-		runScreenShare(p.SessionID, p.WSURL)
+		runScreenShare(p.SessionID, p.WSURL, p.Elevated)
 		log.Printf("session %s: closed", p.SessionID)
 		return
 	}

@@ -4,11 +4,16 @@
       <span class="wr-title">
         Web Remote
         <span v-if="hostname" class="text-xs text-muted-2 mono" style="margin-left:8px;font-weight:400">{{ hostname }}</span>
+        <span v-if="elevated" class="text-xs mono" style="margin-left:8px;font-weight:600;color:var(--color-warning)">Elevated</span>
       </span>
       <div class="wr-actions">
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="rfb?.sendCtrlAltDel()">Ctrl+Alt+Del</button>
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="pasteOpen = !pasteOpen">Paste</button>
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="toggleFullscreen">Fullscreen</button>
+        <button class="btn btn-ghost btn-sm" :disabled="!canElevate || elevating" @click="elevate"
+          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Reconnect with elevated (admin) input control — needed to interact with UAC prompts or other elevated windows, not just see them'">
+          {{ elevating ? 'Elevating…' : 'Elevate' }}
+        </button>
         <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
       </div>
     </div>
@@ -36,16 +41,26 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import RFB from '@novnc/novnc';
+import { api } from '../api';
 
 const route = useRoute();
-const wsUrl = (route.query.ws as string) ?? '';
+const router = useRouter();
 const hostname = (route.query.hostname as string) ?? '';
+// device_id/company_id are only present on links opened after the Elevate
+// feature shipped (see DeviceDetailPage.vue's openWebRemote) -- a stale
+// bookmarked/reloaded link from before that just disables the button below
+// rather than breaking the page.
+const deviceId = (route.query.device_id as string) || '';
+const companyId = (route.query.company_id as string) || '';
+const canElevate = !!deviceId && !!companyId;
 
 type Status = 'connecting' | 'connected' | 'closed' | 'error';
 const status = ref<Status>('connecting');
 const errorMsg = ref('');
+const elevated = ref(route.query.elevated === '1');
+const elevating = ref(false);
 
 const pasteOpen = ref(false);
 const pasteText = ref('');
@@ -85,12 +100,14 @@ function closeTab() {
   window.close();
 }
 
-onMounted(() => {
-  if (!wsUrl) {
-    status.value = 'error';
-    errorMsg.value = 'Missing session connection details.';
-    return;
-  }
+// Shared by the initial onMounted connect and the Elevate handler below --
+// both need identical event wiring (connect/disconnect listeners, the 70s
+// timeout), the only difference is which WebSocket URL and which starting
+// status.value they begin from.
+function connectTo(wsUrl: string) {
+  if (connectTimeout !== null) window.clearTimeout(connectTimeout);
+  status.value = 'connecting';
+  errorMsg.value = '';
 
   rfb.value = new RFB(screenEl.value!, wsUrl, {});
 
@@ -115,6 +132,52 @@ onMounted(() => {
     errorMsg.value = 'The agent did not connect within 70 seconds. Confirm the device is online, a user is logged in, and its agent supports Web Remote.';
     rfb.value?.disconnect();
   }, CONNECT_TIMEOUT_MS);
+}
+
+// Elevation is a *new* session, not an in-place upgrade of this one --
+// SessionRelay is one Durable Object per session ID, so a fresh session ID
+// is a fully independent relay with no risk of corrupting the running
+// one's RFB byte stream. The old (non-elevated) beacon-screenshare.exe
+// process tears down cleanly once its own connection closes below, the
+// same way closing this tab normally already does.
+//
+// If the target user isn't an administrator (or UAC is disabled), the
+// elevated helper simply never launches agent-side -- there's no way for
+// the worker to know that ahead of time, so this surfaces the same way
+// "no active session" already does: the 70s connect timeout above, not a
+// distinct error message. A real, known UX tradeoff (worse here than for
+// the original connect, since the technician is actively waiting on this
+// click), accepted for v1 rather than building a new failure-reporting
+// round trip for one button.
+async function elevate() {
+  if (!canElevate || elevating.value || elevated.value) return;
+  elevating.value = true;
+  try {
+    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', true);
+    rfb.value?.disconnect();
+    elevated.value = true;
+    connectTo(client_ws_url);
+    router.replace(
+      `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
+      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}&elevated=1`
+    );
+  } catch (e: any) {
+    status.value = 'error';
+    errorMsg.value = e.message;
+    elevated.value = false;
+  } finally {
+    elevating.value = false;
+  }
+}
+
+onMounted(() => {
+  const wsUrl = (route.query.ws as string) ?? '';
+  if (!wsUrl) {
+    status.value = 'error';
+    errorMsg.value = 'Missing session connection details.';
+    return;
+  }
+  connectTo(wsUrl);
 });
 
 onUnmounted(() => {
