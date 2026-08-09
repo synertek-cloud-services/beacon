@@ -9,6 +9,8 @@ package rfbserver
 import (
 	"fmt"
 	"io"
+	"log"
+	"sync"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfb"
 )
@@ -51,6 +53,18 @@ func defaultPixelFormat() rfb.PixelFormat {
 // FramebufferUpdateRequest/KeyEvent/PointerEvent messages until the client
 // disconnects or a fatal I/O error occurs. It blocks until the session
 // ends; callers run it in its own goroutine per connection.
+//
+// FramebufferUpdateRequest handling (capture, which is deliberately paced
+// -- see screencapture's minCaptureInterval -- and can take real time even
+// unpaced) runs on its own goroutine, decoupled from the read loop below.
+// Real-hardware testing found that serializing capture and input through
+// one sequential loop made mouse movement feel laggy: noVNC sends
+// PointerEvent messages far more often than FramebufferUpdateRequests, and
+// any that arrived while a capture was in flight had to wait for it to
+// finish before the loop could even read them, let alone inject them.
+// KeyEvent/PointerEvent still update via the caller's Injector immediately
+// and in-order as the read loop sees them -- only the (slower, one-way)
+// capture-and-send path was ever the bottleneck.
 func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	if err := rfb.WriteProtocolVersion(rw); err != nil {
 		return fmt.Errorf("rfbserver: write protocol version: %w", err)
@@ -76,7 +90,58 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	}
 
 	width, height := cap.Size()
+
+	var pfMu sync.Mutex
 	pf := defaultPixelFormat()
+
+	// updateRequested coalesces pending FramebufferUpdateRequests: a
+	// buffered channel of size 1 where a send is dropped (not blocked) if
+	// one is already pending. The capture goroutine only ever needs to
+	// know "there's at least one outstanding request to satisfy," not how
+	// many arrived while it was busy -- coalescing keeps a burst of
+	// requests (noVNC's own immediate-re-request behavior) from queuing
+	// up redundant captures.
+	updateRequested := make(chan struct{}, 1)
+	captureErr := make(chan error, 1)
+
+	go func() {
+		defer close(captureErr)
+		for range updateRequested {
+			pfMu.Lock()
+			currentPF := pf
+			pfMu.Unlock()
+
+			full, err := cap.Capture(currentPF)
+			if err != nil {
+				// Deliberately non-fatal: a Capture() failure is often a
+				// transient, expected condition, not a dead session --
+				// found live when a UAC prompt appeared mid-session and
+				// killed the whole connection. UAC runs on Windows' secure
+				// desktop, a different desktop than the one
+				// beacon-screenshare.exe is bound to (winsta0\default, see
+				// usersession.RunAsSession), so GDI capture calls can
+				// plausibly fail for as long as the secure desktop is
+				// active. Log and answer with an empty update instead of
+				// tearing down an otherwise-healthy connection -- the next
+				// FramebufferUpdateRequest naturally retries once the
+				// desktop switches back. A write failure below is still
+				// treated as fatal: that's a real connection problem, not
+				// a transient capture one.
+				log.Printf("rfbserver: capture: %v (skipping this update, session stays open)", err)
+				if werr := rfb.WriteFramebufferUpdate(rw, nil); werr != nil {
+					captureErr <- fmt.Errorf("rfbserver: write empty framebuffer update after capture error: %w", werr)
+					return
+				}
+				continue
+			}
+			if err := rfb.WriteFramebufferUpdate(rw, chunkRectangle(full, currentPF, bandHeight)); err != nil {
+				captureErr <- fmt.Errorf("rfbserver: write framebuffer update: %w", err)
+				return
+			}
+		}
+	}()
+	defer close(updateRequested)
+
 	if err := rfb.WriteServerInit(rw, width, height, pf, "Beacon Web Remote"); err != nil {
 		return fmt.Errorf("rfbserver: write server init: %w", err)
 	}
@@ -90,6 +155,18 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			return fmt.Errorf("rfbserver: read client message: %w", err)
 		}
 
+		// Surface a capture-goroutine failure promptly rather than only
+		// noticing it once the next read also happens to fail -- a write
+		// error there doesn't necessarily unblock a concurrent read on
+		// the same connection right away.
+		select {
+		case err := <-captureErr:
+			if err != nil {
+				return err
+			}
+		default:
+		}
+
 		switch m := msg.(type) {
 		case rfb.SetPixelFormatMsg:
 			// Must be honored, not discarded (unlike SetEncodings below):
@@ -97,19 +174,18 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			// format it requests immediately after ServerInit, and
 			// continuing to send a different byte layout corrupts the
 			// image client-side.
+			pfMu.Lock()
 			pf = m.PixelFormat
+			pfMu.Unlock()
 
 		case rfb.SetEncodingsMsg:
 			// This server only ever sends Raw regardless of what's
 			// offered/negotiated here -- deliberately ignored for v1.
 
 		case rfb.FramebufferUpdateRequestMsg:
-			full, err := cap.Capture(pf)
-			if err != nil {
-				return fmt.Errorf("rfbserver: capture: %w", err)
-			}
-			if err := rfb.WriteFramebufferUpdate(rw, chunkRectangle(full, pf, bandHeight)); err != nil {
-				return fmt.Errorf("rfbserver: write framebuffer update: %w", err)
+			select {
+			case updateRequested <- struct{}{}:
+			default: // one already pending -- coalesce, don't queue a second
 			}
 
 		case rfb.KeyEventMsg:

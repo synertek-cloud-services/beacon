@@ -3,7 +3,9 @@ package rfbserver
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,18 +51,45 @@ type recordedPointerEvent struct {
 	x, y uint16
 }
 
+// fakeInjector is safe for concurrent access: with Serve's capture work now
+// running on its own goroutine (see server.go), a test can legitimately
+// want to inspect recorded events while Serve's read-loop goroutine is
+// still concurrently writing to them (TestInputProcessedWhileCaptureBlocked
+// does exactly this, deliberately, to prove input isn't stuck behind an
+// in-flight capture) -- that requires real synchronization, not just the
+// happens-before chain a full request/response round trip already
+// provides for the other tests here.
 type fakeInjector struct {
+	mu       sync.Mutex
 	keys     []recordedKeyEvent
 	pointers []recordedPointerEvent
 }
 
 func (f *fakeInjector) KeyEvent(down bool, keysym uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.keys = append(f.keys, recordedKeyEvent{down, keysym})
 	return nil
 }
 func (f *fakeInjector) PointerEvent(mask uint8, x, y uint16) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.pointers = append(f.pointers, recordedPointerEvent{mask, x, y})
 	return nil
+}
+
+// Keys and Pointers return snapshots under lock -- the safe way to inspect
+// recorded events from a test goroutine that isn't otherwise synchronized
+// with Serve's own goroutines via a channel/pipe happens-before edge.
+func (f *fakeInjector) Keys() []recordedKeyEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]recordedKeyEvent(nil), f.keys...)
+}
+func (f *fakeInjector) Pointers() []recordedPointerEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]recordedPointerEvent(nil), f.pointers...)
 }
 
 // testHarness wires a Serve() goroutine to a synchronous client-side driver
@@ -102,51 +131,59 @@ func newTestHarness(t *testing.T, w, h uint16) *testHarness {
 // exactly the sequence Serve performs server-side.
 func (h *testHarness) clientHandshake() {
 	h.t.Helper()
+	doClientHandshake(h.t, h.client)
+}
 
-	if _, err := rfb.ReadProtocolVersion(h.client); err != nil {
-		h.t.Fatalf("client: read protocol version: %v", err)
+// doClientHandshake is the free-function form, reused directly by tests
+// that don't go through the fakeCapturer-based testHarness (e.g. tests
+// exercising a different Capturer implementation).
+func doClientHandshake(t *testing.T, client io.ReadWriter) {
+	t.Helper()
+
+	if _, err := rfb.ReadProtocolVersion(client); err != nil {
+		t.Fatalf("client: read protocol version: %v", err)
 	}
-	if err := rfb.WriteProtocolVersion(h.client); err != nil {
-		h.t.Fatalf("client: write protocol version: %v", err)
+	if err := rfb.WriteProtocolVersion(client); err != nil {
+		t.Fatalf("client: write protocol version: %v", err)
 	}
 
 	// Read security type list: count(1) + types(count).
 	var countB [1]byte
-	if _, err := io.ReadFull(h.client, countB[:]); err != nil {
-		h.t.Fatalf("client: read security count: %v", err)
+	if _, err := io.ReadFull(client, countB[:]); err != nil {
+		t.Fatalf("client: read security count: %v", err)
 	}
 	types := make([]byte, countB[0])
-	if _, err := io.ReadFull(h.client, types); err != nil {
-		h.t.Fatalf("client: read security types: %v", err)
+	if _, err := io.ReadFull(client, types); err != nil {
+		t.Fatalf("client: read security types: %v", err)
 	}
-	if _, err := h.client.Write([]byte{types[0]}); err != nil {
-		h.t.Fatalf("client: write security choice: %v", err)
+	if _, err := client.Write([]byte{types[0]}); err != nil {
+		t.Fatalf("client: write security choice: %v", err)
 	}
 
 	var result [4]byte
-	if _, err := io.ReadFull(h.client, result[:]); err != nil {
-		h.t.Fatalf("client: read security result: %v", err)
+	if _, err := io.ReadFull(client, result[:]); err != nil {
+		t.Fatalf("client: read security result: %v", err)
 	}
 	if binary.BigEndian.Uint32(result[:]) != 0 {
-		h.t.Fatalf("client: security handshake failed")
+		t.Fatalf("client: security handshake failed")
 	}
 
-	if _, err := h.client.Write([]byte{1}); err != nil { // ClientInit, shared=1
-		h.t.Fatalf("client: write client init: %v", err)
+	if _, err := client.Write([]byte{1}); err != nil { // ClientInit, shared=1
+		t.Fatalf("client: write client init: %v", err)
 	}
 
 	// ServerInit: width(2) height(2) PixelFormat(16) name-len(4) name(...)
 	var hdr [20]byte
-	if _, err := io.ReadFull(h.client, hdr[:]); err != nil {
-		h.t.Fatalf("client: read server init header: %v", err)
+	if _, err := io.ReadFull(client, hdr[:]); err != nil {
+		t.Fatalf("client: read server init header: %v", err)
 	}
 	var nameLen [4]byte
-	if _, err := io.ReadFull(h.client, nameLen[:]); err != nil {
-		h.t.Fatalf("client: read server init name length: %v", err)
+	if _, err := io.ReadFull(client, nameLen[:]); err != nil {
+		t.Fatalf("client: read server init name length: %v", err)
 	}
 	name := make([]byte, binary.BigEndian.Uint32(nameLen[:]))
-	if _, err := io.ReadFull(h.client, name); err != nil {
-		h.t.Fatalf("client: read server init name: %v", err)
+	if _, err := io.ReadFull(client, name); err != nil {
+		t.Fatalf("client: read server init name: %v", err)
 	}
 }
 
@@ -380,17 +417,19 @@ func TestInputEventsForwarded(t *testing.T) {
 	// every message sent before it (RFB messages are handled in order).
 	h.requestUpdate()
 
-	if len(h.inj.keys) != 2 {
-		t.Fatalf("recorded %d key events, want 2", len(h.inj.keys))
+	keys := h.inj.Keys()
+	if len(keys) != 2 {
+		t.Fatalf("recorded %d key events, want 2", len(keys))
 	}
-	if !h.inj.keys[0].down || h.inj.keys[0].keysym != 0xFF0D {
-		t.Fatalf("key[0] = %+v", h.inj.keys[0])
+	if !keys[0].down || keys[0].keysym != 0xFF0D {
+		t.Fatalf("key[0] = %+v", keys[0])
 	}
-	if h.inj.keys[1].down || h.inj.keys[1].keysym != 0xFF0D {
-		t.Fatalf("key[1] = %+v", h.inj.keys[1])
+	if keys[1].down || keys[1].keysym != 0xFF0D {
+		t.Fatalf("key[1] = %+v", keys[1])
 	}
-	if len(h.inj.pointers) != 1 || h.inj.pointers[0] != (recordedPointerEvent{0x01, 100, 200}) {
-		t.Fatalf("pointers = %+v", h.inj.pointers)
+	pointers := h.inj.Pointers()
+	if len(pointers) != 1 || pointers[0] != (recordedPointerEvent{0x01, 100, 200}) {
+		t.Fatalf("pointers = %+v", pointers)
 	}
 
 	h.closeAndWaitClean()
@@ -399,4 +438,228 @@ func TestInputEventsForwarded(t *testing.T) {
 func TestCleanDisconnectReturnsNilError(t *testing.T) {
 	h := newTestHarness(t, 4, 3)
 	h.closeAndWaitClean() // asserts Serve returned nil, not just that it returned
+}
+
+// blockingCapturer's Capture blocks until the test explicitly releases it,
+// letting a test deterministically hold a capture "in flight" for as long
+// as needed -- standing in for a real GDI capture taking real time
+// (including screencapture's own pacing floor).
+type blockingCapturer struct {
+	w, h    uint16
+	started chan struct{} // closed once Capture is entered
+	proceed chan struct{} // closed by the test to let Capture finish
+}
+
+func (b *blockingCapturer) Size() (uint16, uint16) { return b.w, b.h }
+
+func (b *blockingCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	close(b.started)
+	<-b.proceed
+	return rfb.Rectangle{X: 0, Y: 0, W: b.w, H: b.h, Pixels: make([]byte, int(b.w)*int(b.h)*4)}, nil
+}
+
+// TestInputProcessedWhileCaptureBlocked is the regression test for the
+// real-hardware-reported "mouse feels laggy" bug: before Serve split
+// capture handling onto its own goroutine, a slow (or paced) Capture()
+// call blocked the same loop that reads and injects KeyEvent/PointerEvent
+// messages, so any input arriving while a capture was in flight had to
+// wait for it to finish before it was even read, let alone injected. This
+// proves the opposite: input sent *while* a capture is deliberately held
+// open is injected immediately, not after the capture completes.
+func TestInputProcessedWhileCaptureBlocked(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &blockingCapturer{w: 4, h: 3, started: make(chan struct{}), proceed: make(chan struct{})}
+	inj := &fakeInjector{}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+
+	doClientHandshake(t, clientSide)
+
+	// Trigger a capture and wait for it to actually be in flight (blocked
+	// inside Capture(), holding the goroutine that would otherwise be free
+	// -- this is exactly the state a real paced/slow GDI capture puts the
+	// old single-loop design into).
+	sendFramebufferUpdateRequest(t, clientSide)
+	select {
+	case <-cap.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("capture never started")
+	}
+
+	// While the capture is still blocked, send a KeyEvent and confirm it's
+	// injected without waiting for the capture to finish.
+	var keyMsg bytes.Buffer
+	keyMsg.WriteByte(4) // KeyEvent
+	keyMsg.WriteByte(1) // down
+	keyMsg.Write([]byte{0, 0})
+	var ks [4]byte
+	binary.BigEndian.PutUint32(ks[:], 0x0061) // 'a'
+	keyMsg.Write(ks[:])
+	if _, err := clientSide.Write(keyMsg.Bytes()); err != nil {
+		t.Fatalf("client: send KeyEvent: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	var keys []recordedKeyEvent
+	for len(keys) == 0 {
+		keys = inj.Keys()
+		if len(keys) > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("KeyEvent was not injected while capture was still blocked -- input is stuck behind capture again")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if keys[0].keysym != 0x0061 {
+		t.Fatalf("injected keysym = %#x, want 0x61", keys[0].keysym)
+	}
+
+	// Now release the capture and confirm the update still arrives
+	// (proves the goroutine split doesn't drop or hang the response).
+	close(cap.proceed)
+	rects := readFramebufferUpdateFrom(t, clientSide)
+	if len(rects) == 0 {
+		t.Fatal("expected at least one rectangle after releasing the blocked capture")
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
+}
+
+// readFramebufferUpdateFrom mirrors testHarness.readFramebufferUpdate but
+// as a free function, for tests (like the one above) not built on
+// newTestHarness's fakeCapturer-shaped harness.
+// sendFramebufferUpdateRequest writes a non-incremental FramebufferUpdateRequest
+// for the full (0,0,0,0-encoded -- i.e. server decides the extent) area.
+func sendFramebufferUpdateRequest(t *testing.T, client io.Writer) {
+	t.Helper()
+	var req bytes.Buffer
+	req.WriteByte(3) // FramebufferUpdateRequest
+	req.WriteByte(0) // non-incremental
+	for _, v := range []uint16{0, 0, 0, 0} {
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], v)
+		req.Write(b[:])
+	}
+	if _, err := client.Write(req.Bytes()); err != nil {
+		t.Fatalf("client: send FramebufferUpdateRequest: %v", err)
+	}
+}
+
+func readFramebufferUpdateFrom(t *testing.T, client io.Reader) []rfb.Rectangle {
+	t.Helper()
+	var hdr [4]byte
+	if _, err := io.ReadFull(client, hdr[:]); err != nil {
+		t.Fatalf("client: read FramebufferUpdate header: %v", err)
+	}
+	if hdr[0] != 0 {
+		t.Fatalf("client: expected FramebufferUpdate (type 0), got %d", hdr[0])
+	}
+	n := binary.BigEndian.Uint16(hdr[2:4])
+	rects := make([]rfb.Rectangle, n)
+	for i := range rects {
+		var rb [12]byte
+		if _, err := io.ReadFull(client, rb[:]); err != nil {
+			t.Fatalf("client: read rect header %d: %v", i, err)
+		}
+		w := binary.BigEndian.Uint16(rb[4:6])
+		h := binary.BigEndian.Uint16(rb[6:8])
+		pixels := make([]byte, int(w)*int(h)*4)
+		if _, err := io.ReadFull(client, pixels); err != nil {
+			t.Fatalf("client: read rect %d pixels: %v", i, err)
+		}
+		rects[i] = rfb.Rectangle{W: w, H: h, Pixels: pixels}
+	}
+	return rects
+}
+
+// flakyCapturer fails its first N Capture calls, then succeeds -- standing
+// in for a real GDI capture failing transiently while a UAC prompt has
+// switched the active desktop away from the one beacon-screenshare.exe is
+// bound to.
+type flakyCapturer struct {
+	w, h        uint16
+	failCount   int
+	failedSoFar int
+}
+
+func (f *flakyCapturer) Size() (uint16, uint16) { return f.w, f.h }
+
+func (f *flakyCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	if f.failedSoFar < f.failCount {
+		f.failedSoFar++
+		return rfb.Rectangle{}, errFakeCaptureFailure
+	}
+	n := int(f.w) * int(f.h) * 4
+	return rfb.Rectangle{X: 0, Y: 0, W: f.w, H: f.h, Pixels: make([]byte, n)}, nil
+}
+
+var errFakeCaptureFailure = errors.New("fake capture failure (simulated UAC secure-desktop switch)")
+
+// TestCaptureErrorDoesNotKillSession is the regression test for the other
+// real-hardware finding: a UAC prompt appearing mid-session (which switches
+// the active desktop away from the one beacon-screenshare.exe is bound to)
+// used to kill the entire connection, because any Capture() error was
+// treated as fatal. Confirms a failed capture now answers with an empty
+// update and keeps serving -- the session survives, and a later successful
+// capture (the desktop having switched back) still delivers real content.
+func TestCaptureErrorDoesNotKillSession(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &flakyCapturer{w: 4, h: 3, failCount: 1}
+	inj := &fakeInjector{}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+
+	doClientHandshake(t, clientSide)
+
+	// First request hits the simulated capture failure -- must come back
+	// as a valid, empty (zero-rectangle) update, not silence or a closed
+	// connection.
+	sendFramebufferUpdateRequest(t, clientSide)
+	rects := readFramebufferUpdateFrom(t, clientSide)
+	if len(rects) != 0 {
+		t.Fatalf("expected an empty update after a capture error, got %d rectangles", len(rects))
+	}
+
+	// Session must still be alive: a second request should now succeed
+	// (the simulated failure only affects the first call) and deliver
+	// real content.
+	sendFramebufferUpdateRequest(t, clientSide)
+	rects = readFramebufferUpdateFrom(t, clientSide)
+	if len(rects) == 0 {
+		t.Fatal("expected real content on the second request, session did not recover")
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
 }
