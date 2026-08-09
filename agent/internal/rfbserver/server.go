@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfb"
 )
@@ -31,12 +32,80 @@ type Injector interface {
 	PointerEvent(mask uint8, x, y uint16) error
 }
 
+// CursorShapeProvider is an optional Capturer capability: a fixed (v1 is
+// non-animated -- one hardcoded arrow shape, not real per-icon Windows
+// cursor tracking) cursor shape to advertise via the RFB Cursor
+// pseudo-encoding, once a connecting client signals support for it (RFC
+// 6143 §7.7.2, encoding -239). A client that supports this renders the
+// cursor locally, at its own tracked mouse position, once it has the
+// shape -- real-hardware testing found mouse movement felt "choppy"
+// because every bit of visible cursor movement otherwise requires a full
+// capture-and-send round trip (the cursor is normally baked directly into
+// the captured pixels); this is the actual fix, not just a nice-to-have.
+// Optional because the fake Capturer used by this package's own tests has
+// no real cursor to report.
+type CursorShapeProvider interface {
+	// CursorShape returns one rfb.NewCursorRectangle-built Rectangle, with
+	// pixel data packed to pf (the client's currently negotiated
+	// PixelFormat -- the same one passed to Capture, and for the same
+	// reason: the shape's pixel bytes must match whatever byte layout the
+	// client already allocated its render buffer for). Called at most once
+	// per session (v1's shape never changes), so it's fine for this to do
+	// real work rather than returning a precomputed constant.
+	CursorShape(pf rfb.PixelFormat) rfb.Rectangle
+}
+
+// CursorCompositingToggle is an optional Capturer capability: lets Serve
+// tell a capturer to stop baking the OS cursor into captured frame pixels
+// once the connecting client supports the Cursor pseudo-encoding --
+// otherwise a supporting client would show two overlapping cursors (its
+// own locally-rendered one, plus the server's baked-in one). A Capturer
+// that doesn't implement this (e.g. the test fakes) is simply never asked.
+type CursorCompositingToggle interface {
+	SetCursorCompositingEnabled(enabled bool)
+}
+
 // bandHeight is the number of framebuffer rows sent per FramebufferUpdate
 // rectangle. Splitting into bands (rather than one giant rectangle per
 // frame) keeps a single WebSocket message comfortably under any message-
 // size ceiling regardless of monitor resolution -- RFB already supports
 // multiple rectangles per update for exactly this reason.
 const bandHeight = 128
+
+// captureTimeout bounds how long a single Capture() call is allowed to
+// block. Generous relative to a normal capture (well under a second even
+// on real hardware), but bounded so a GDI call that hangs outright --
+// rather than cleanly returning an error -- can't take the whole session
+// down with it. Known, deliberate tradeoff: Go has no way to forcibly
+// cancel an arbitrary blocking call, so a timed-out Capture() leaves its
+// goroutine permanently stuck (a small, bounded leak) rather than actually
+// stopping the hung syscall -- acceptable because this only fires for a
+// rare, bounded condition (a UAC prompt or similar desktop switch), not
+// continuously, and a session that survives with a leaked goroutine per
+// occurrence is a clear improvement over one that hangs forever.
+const captureTimeout = 3 * time.Second
+
+// captureWithTimeout runs cap.Capture(pf) with a bounded timeout, since a
+// desktop-switch condition (see the UAC comment where this is called) has
+// been observed to hang a GDI call outright rather than return a clean
+// error.
+func captureWithTimeout(cap Capturer, pf rfb.PixelFormat, timeout time.Duration) (rfb.Rectangle, error) {
+	type result struct {
+		rect rfb.Rectangle
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rect, err := cap.Capture(pf)
+		done <- result{rect, err}
+	}()
+	select {
+	case r := <-done:
+		return r.rect, r.err
+	case <-time.After(timeout):
+		return rfb.Rectangle{}, fmt.Errorf("capture timed out after %s", timeout)
+	}
+}
 
 // defaultPixelFormat is the format advertised in ServerInit before any
 // client SetPixelFormat negotiation -- 32bpp truecolor, matching what a
@@ -91,8 +160,21 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 
 	width, height := cap.Size()
 
-	var pfMu sync.Mutex
+	cursorShaper, _ := cap.(CursorShapeProvider)
+	cursorToggle, _ := cap.(CursorCompositingToggle)
+
+	var stateMu sync.Mutex
 	pf := defaultPixelFormat()
+	// cursorEncodingSupported is set from the client's SetEncodings message
+	// (read loop, below) and consumed by the capture goroutine, which is
+	// the one place that actually acts on it -- see the comment at its use
+	// site for why this is handled there rather than immediately upon
+	// receipt.
+	cursorEncodingSupported := false
+	// cursorHandled tracks whether the capture goroutine has already
+	// disabled server-side cursor compositing and sent the one-time cursor
+	// shape rectangle for this session, so it only ever does so once.
+	cursorHandled := false
 
 	// updateRequested coalesces pending FramebufferUpdateRequests: a
 	// buffered channel of size 1 where a send is dropped (not blocked) if
@@ -107,34 +189,73 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	go func() {
 		defer close(captureErr)
 		for range updateRequested {
-			pfMu.Lock()
+			stateMu.Lock()
 			currentPF := pf
-			pfMu.Unlock()
+			needsCursorHandling := cursorEncodingSupported && !cursorHandled
+			if needsCursorHandling {
+				cursorHandled = true
+			}
+			stateMu.Unlock()
 
-			full, err := cap.Capture(currentPF)
+			var cursorRect *rfb.Rectangle
+			if needsCursorHandling {
+				// Order matters: disable compositing *before* capturing the
+				// next frame, so that frame (and every one after) stops
+				// baking the cursor into the pixels -- the client is about
+				// to start rendering it locally instead. A capturer that
+				// doesn't support toggling (e.g. this package's own test
+				// fakes) is simply left alone.
+				if cursorToggle != nil {
+					cursorToggle.SetCursorCompositingEnabled(false)
+				}
+				if cursorShaper != nil {
+					rect := cursorShaper.CursorShape(currentPF)
+					cursorRect = &rect
+				}
+			}
+
+			full, err := captureWithTimeout(cap, currentPF, captureTimeout)
 			if err != nil {
-				// Deliberately non-fatal: a Capture() failure is often a
-				// transient, expected condition, not a dead session --
-				// found live when a UAC prompt appeared mid-session and
-				// killed the whole connection. UAC runs on Windows' secure
-				// desktop, a different desktop than the one
-				// beacon-screenshare.exe is bound to (winsta0\default, see
-				// usersession.RunAsSession), so GDI capture calls can
-				// plausibly fail for as long as the secure desktop is
-				// active. Log and answer with an empty update instead of
-				// tearing down an otherwise-healthy connection -- the next
+				// Deliberately non-fatal: a Capture() failure or hang is
+				// often a transient, expected condition, not a dead
+				// session -- found live when a UAC prompt appeared
+				// mid-session and killed the whole connection. UAC runs on
+				// Windows' secure desktop, a different desktop than the
+				// one beacon-screenshare.exe is bound to (winsta0\default,
+				// see usersession.RunAsSession), so GDI capture calls can
+				// plausibly fail *or block indefinitely* for as long as
+				// the secure desktop is active -- captureWithTimeout
+				// covers both, not just a cleanly-returned error (a first
+				// version of this fix only handled the error case, and
+				// real-hardware testing showed the session still died,
+				// consistent with a hang rather than a clean failure). Log
+				// and answer with an empty update instead of tearing down
+				// an otherwise-healthy connection -- the next
 				// FramebufferUpdateRequest naturally retries once the
 				// desktop switches back. A write failure below is still
 				// treated as fatal: that's a real connection problem, not
 				// a transient capture one.
 				log.Printf("rfbserver: capture: %v (skipping this update, session stays open)", err)
-				if werr := rfb.WriteFramebufferUpdate(rw, nil); werr != nil {
+				// Still deliver a pending cursor shape even though the
+				// screen capture itself failed/timed out -- cursorHandled
+				// was already latched true above, so this is the only
+				// chance this session gets to send it before compositing
+				// stays permanently disabled with no shape ever rendered.
+				var rects []rfb.Rectangle
+				if cursorRect != nil {
+					rects = []rfb.Rectangle{*cursorRect}
+				}
+				if werr := rfb.WriteFramebufferUpdate(rw, rects); werr != nil {
 					captureErr <- fmt.Errorf("rfbserver: write empty framebuffer update after capture error: %w", werr)
 					return
 				}
 				continue
 			}
-			if err := rfb.WriteFramebufferUpdate(rw, chunkRectangle(full, currentPF, bandHeight)); err != nil {
+			rects := chunkRectangle(full, currentPF, bandHeight)
+			if cursorRect != nil {
+				rects = append([]rfb.Rectangle{*cursorRect}, rects...)
+			}
+			if err := rfb.WriteFramebufferUpdate(rw, rects); err != nil {
 				captureErr <- fmt.Errorf("rfbserver: write framebuffer update: %w", err)
 				return
 			}
@@ -174,13 +295,25 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			// format it requests immediately after ServerInit, and
 			// continuing to send a different byte layout corrupts the
 			// image client-side.
-			pfMu.Lock()
+			stateMu.Lock()
 			pf = m.PixelFormat
-			pfMu.Unlock()
+			stateMu.Unlock()
 
 		case rfb.SetEncodingsMsg:
-			// This server only ever sends Raw regardless of what's
-			// offered/negotiated here -- deliberately ignored for v1.
+			// This server only ever sends Raw for ordinary screen content
+			// regardless of what's offered/negotiated here -- the one
+			// exception is checking for Cursor pseudo-encoding (-239)
+			// support, which the capture goroutine acts on (see its own
+			// comment) rather than this read loop, since only that
+			// goroutine is allowed to write to rw.
+			for _, enc := range m.Encodings {
+				if enc == rfb.EncodingCursorPseudo {
+					stateMu.Lock()
+					cursorEncodingSupported = true
+					stateMu.Unlock()
+					break
+				}
+			}
 
 		case rfb.FramebufferUpdateRequestMsg:
 			select {

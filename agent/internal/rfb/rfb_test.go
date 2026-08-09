@@ -508,3 +508,96 @@ func TestPackRowFastPathMatchesGeneralPath(t *testing.T) {
 		t.Fatalf("fast path = %x, general formula = %x", fast, general)
 	}
 }
+
+func TestNewCursorRectangleBasics(t *testing.T) {
+	pixels := []byte{1, 2, 3, 4, 5, 6, 7, 8} // 2 fake pixels, arbitrary bytes
+	rect := NewCursorRectangle(5, 7, 2, 1, pixels, func(col, row uint16) bool { return true })
+
+	if rect.Encoding != EncodingCursorPseudo {
+		t.Fatalf("Encoding = %d, want %d", rect.Encoding, EncodingCursorPseudo)
+	}
+	if rect.X != 5 || rect.Y != 7 || rect.W != 2 || rect.H != 1 {
+		t.Fatalf("rect dims = %+v, want hotspot (5,7) size 2x1", rect)
+	}
+	// maskRowBytes = ceil(2/8) = 1, 1 row -> 1 mask byte appended after the
+	// 8 pixel bytes.
+	if len(rect.Pixels) != 8+1 {
+		t.Fatalf("Pixels length = %d, want 9 (8 pixel bytes + 1 mask byte)", len(rect.Pixels))
+	}
+	if !bytes.Equal(rect.Pixels[:8], pixels) {
+		t.Fatalf("pixel portion = %x, want %x", rect.Pixels[:8], pixels)
+	}
+	// Both columns opaque -> top two bits set (MSB-first): 1100 0000 = 0xC0.
+	if rect.Pixels[8] != 0xC0 {
+		t.Fatalf("mask byte = %#x, want 0xC0 (both columns opaque)", rect.Pixels[8])
+	}
+}
+
+func TestNewCursorRectangleMaskBitPattern(t *testing.T) {
+	// 3-wide cursor: only the middle column opaque. Width 3 needs
+	// ceil(3/8)=1 mask byte per row -- confirms row padding to a whole
+	// byte even when width isn't a multiple of 8.
+	pixels := make([]byte, 3*4) // 3 pixels, arbitrary content
+	rect := NewCursorRectangle(0, 0, 3, 1, pixels, func(col, row uint16) bool { return col == 1 })
+
+	if len(rect.Pixels) != 12+1 {
+		t.Fatalf("Pixels length = %d, want 13", len(rect.Pixels))
+	}
+	// MSB-first: col0->bit7, col1->bit6, col2->bit5. Only col1 opaque -> 0100 0000 = 0x40.
+	if rect.Pixels[12] != 0x40 {
+		t.Fatalf("mask byte = %#x, want 0x40 (only middle column opaque)", rect.Pixels[12])
+	}
+}
+
+func TestNewCursorRectangleMultiRowMask(t *testing.T) {
+	// 2 rows x 9 columns -> maskRowBytes = ceil(9/8) = 2 bytes/row, so this
+	// also confirms multi-row indexing, not just single-row packing.
+	w, h := uint16(9), uint16(2)
+	pixels := make([]byte, int(w)*int(h)*4)
+	// Row 0: column 8 opaque only. Row 1: column 0 opaque only.
+	rect := NewCursorRectangle(0, 0, w, h, pixels, func(col, row uint16) bool {
+		if row == 0 {
+			return col == 8
+		}
+		return col == 0
+	})
+
+	maskRowBytes := 2
+	if len(rect.Pixels) != int(w)*int(h)*4+maskRowBytes*int(h) {
+		t.Fatalf("Pixels length = %d, want %d", len(rect.Pixels), int(w)*int(h)*4+maskRowBytes*int(h))
+	}
+	maskStart := int(w) * int(h) * 4
+	row0 := rect.Pixels[maskStart : maskStart+2]
+	row1 := rect.Pixels[maskStart+2 : maskStart+4]
+	// Row 0: column 8 is the first bit of the second byte (MSB) -> 0x80.
+	if row0[0] != 0x00 || row0[1] != 0x80 {
+		t.Fatalf("row0 mask = %x, want [0x00 0x80]", row0)
+	}
+	// Row 1: column 0 is the first bit of the first byte (MSB) -> 0x80.
+	if row1[0] != 0x80 || row1[1] != 0x00 {
+		t.Fatalf("row1 mask = %x, want [0x80 0x00]", row1)
+	}
+}
+
+func TestWriteFramebufferUpdateWithCursorRectangle(t *testing.T) {
+	var buf bytes.Buffer
+	pixels := []byte{1, 2, 3, 4}
+	cursor := NewCursorRectangle(1, 2, 1, 1, pixels, func(col, row uint16) bool { return true })
+	if err := WriteFramebufferUpdate(&buf, []Rectangle{cursor}); err != nil {
+		t.Fatalf("WriteFramebufferUpdate: %v", err)
+	}
+
+	b := buf.Bytes()
+	rectHdr := b[4:16]
+	if binary.BigEndian.Uint16(rectHdr[0:2]) != 1 || binary.BigEndian.Uint16(rectHdr[2:4]) != 2 {
+		t.Fatalf("hotspot = (%d,%d), want (1,2)", binary.BigEndian.Uint16(rectHdr[0:2]), binary.BigEndian.Uint16(rectHdr[2:4]))
+	}
+	gotEncoding := int32(binary.BigEndian.Uint32(rectHdr[8:12]))
+	if gotEncoding != EncodingCursorPseudo {
+		t.Fatalf("encoding = %d, want %d (EncodingCursorPseudo)", gotEncoding, EncodingCursorPseudo)
+	}
+	// 4 pixel bytes + 1 mask byte (ceil(1/8)=1 row byte * 1 row).
+	if len(b[16:]) != 5 {
+		t.Fatalf("payload length = %d, want 5", len(b[16:]))
+	}
+}

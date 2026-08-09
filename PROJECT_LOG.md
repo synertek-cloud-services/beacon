@@ -1,5 +1,57 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — v0.2.26's fixes were real but incomplete: UAC was hanging (not erroring), mouse cursor needed client-side rendering
+
+Both problems the previous session's v0.2.26 release shipped fixes for came
+back, reported live: "mouse still choppy as all hell" and "uac still kills
+the remote." Neither was a regression -- both earlier fixes were correct as
+far as they went, they just didn't cover the actual full failure mode.
+
+**UAC**: the v0.2.26 fix only handled `Capture()` cleanly returning an
+error. The real failure on the secure-desktop switch a UAC prompt causes is
+a **hang** -- a GDI call that never returns at all -- which looks identical
+to a dead session from the client's side regardless of whether the call
+technically "errored." Fixed with `captureWithTimeout` (3s bound via
+`select`/`time.After`, wrapping `cap.Capture` in its own goroutine) --
+routes a timeout through the exact same non-fatal path the v0.2.26 fix
+already built. Known tradeoff, stated in the code: Go can't force-cancel a
+blocking syscall, so a timed-out call leaks its goroutine -- accepted,
+since this only fires for a rare, bounded condition and a leak-per-UAC-
+prompt beats a session that hangs forever. `TestCaptureTimeoutDoesNotHangSession`
+(a `Capturer` that blocks forever) confirms the session survives.
+
+**Mouse**: the goroutine-split fix only stopped input from being *blocked*
+behind capture -- it never addressed why cursor movement specifically felt
+tied to latency even once that contention was gone. Root cause: the cursor
+is baked directly into the captured pixels (`DrawIconEx`), so every bit of
+visible movement requires a full capture-and-send round trip. The real fix
+is RFB's Cursor pseudo-encoding (RFC 6143 §7.7.2, `-239`) -- a supporting
+client (confirmed against noVNC's own source) renders the cursor locally,
+at its own already-tracked mouse position, once it has the shape, making
+position rendering independent of round-trip time entirely rather than
+just faster. Built the wire format in `agent/internal/rfb` first (`Rectangle`
+gained an `Encoding` field, `NewCursorRectangle` builds a spec-correct
+hotspot+pixels+MSB-first-bitmask rectangle), fully unit-tested including
+the trickiest part (mask bit-packing, row padding for non-8-multiple
+widths) before touching `rfbserver` at all. Integration: two new optional
+`Capturer` capabilities (`CursorShapeProvider`, `CursorCompositingToggle`),
+checked via type assertion so the existing test fakes need no changes; the
+capture goroutine (not the read loop, which isn't allowed to write) does a
+one-time handoff once `SetEncodings` signals client support -- disables
+`GDICapturer`'s pixel-baked cursor, sends the shape once. Shipped a fixed
+placeholder arrow shape rather than extracting the real OS cursor icon
+(real per-icon decoding -- color+alpha vs. legacy AND/XOR mask -- is real
+complexity with no real Windows hardware here to verify it against); a
+fixed shape still solves the actual latency problem, since what matters is
+the client rendering *any* shape locally, not tracking the exact icon. The
+shape-building code itself is deliberately not Windows-only, so it's fully
+unit-tested in this sandbox with zero GDI dependency.
+
+Both fixed, tested (`go test ./... -race`, cross-compiled clean for all
+three platforms), and the embedded `beacon-screenshare.exe` rebuilt.
+**Not yet verified on real hardware** -- needs a real release and a real
+UAC prompt / real mouse drag to confirm.
+
 ## Session: 2026-08-09 — Two more real-hardware findings: mouse latency, UAC killing sessions
 
 With Defender no longer blocking the connection (both exclusions applied),
