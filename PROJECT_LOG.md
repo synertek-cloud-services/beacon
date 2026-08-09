@@ -44,8 +44,9 @@ button can request a new session independently.
 
 `go build`/`go vet` clean natively and cross-compiled windows/linux/darwin
 (confirms `GetLinkedToken` really exists at the pinned `x/sys` version),
-worker/dashboard type-checks clean. **Not yet verified on real hardware** --
-same limitation as the rest of this feature area, no Windows box here.
+worker/dashboard type-checks clean. **Released in agent v0.2.29; not yet
+verified on real hardware** -- same limitation as the rest of this feature
+area, no Windows box here.
 
 ## Session: 2026-08-09 — Credentialed Network Discovery (issue #78), promoted from the Icebox
 
