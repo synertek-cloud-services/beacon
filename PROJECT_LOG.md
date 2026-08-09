@@ -1,5 +1,44 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Two more real-hardware findings: mouse latency, UAC killing sessions
+
+With Defender no longer blocking the connection (both exclusions applied),
+testing turned up two more real, distinct problems, both in
+`rfbserver.Serve`'s architecture rather than anything Windows-specific.
+
+**Mouse felt laggy while everything else was fast.** Cause: `Serve` handled
+every message -- capture requests *and* input -- on one sequential read
+loop. noVNC sends `PointerEvent` far more often than
+`FramebufferUpdateRequest`, and handling one of the latter (GDI capture +
+the ~30fps pacing floor) takes real time, during which any buffered
+`PointerEvent` had to wait for it to finish before the loop could even read
+it. Fixed by moving capture-and-send onto its own goroutine, signaled via a
+coalescing channel -- the read loop now only ever reads and dispatches,
+never blocks on GDI work. Added `TestInputProcessedWhileCaptureBlocked`
+(a `Capturer` that blocks until released) as the real regression test, not
+just a "feels faster" claim. Running the suite under `-race` caught a
+second, smaller bug in the test helper itself (`fakeInjector` needed its
+own mutex once a test started inspecting it while `Serve`'s goroutines were
+still concurrently running) -- good reminder that `-race` earns its keep
+even in test-only code.
+
+**A UAC prompt killed the whole session.** UAC runs on Windows' separate
+secure desktop; `beacon-screenshare.exe` is bound to `winsta0\default`, so
+GDI capture calls plausibly fail for as long as the prompt is up -- and any
+`Capture()` error was treated as fatal, tearing down an otherwise-healthy
+connection over a transient, expected condition. Fixed in the same pass:
+log and answer with an empty update instead of ending the session; only a
+real write/connection failure still ends it. `TestCaptureErrorDoesNotKillSession`
+confirms the session survives a failed capture and recovers on the next
+successful one.
+
+Also answered two device-shape questions along the way, both real,
+documented limitations rather than bugs: Web Remote only captures/controls
+the **primary monitor** today (multi-monitor is a tracked fast-follow, issue
+#117), and login/Winlogon-screen capture remains out of scope -- UAC prompts
+mid-session are now at least non-fatal, but still not visible/interactable,
+which is a different, still-open problem from "doesn't crash."
+
 ## Session: 2026-08-09 — Windows Defender confirmed as the root cause, via a real A/B test
 
 A messier arc than most: raised as a confirmed root cause off a Windows

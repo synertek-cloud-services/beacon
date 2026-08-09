@@ -237,25 +237,32 @@ The installer copies the binary into its system location and starts the Beacon
 service. Approve the pending device in the dashboard when auto-approval is off,
 then confirm that Last Seen and Last Audit advance.
 
-On Windows, if you intend to use Web Remote (browser-based remote desktop,
-see `CLAUDE.md`'s Web Remote section) against this device, add a Windows
-Defender exclusion for the install directory first:
+On Windows, add Windows Defender exclusions for **both** Beacon
+directories before relying on this device for anything — the install
+directory (where the agent/tray/Web Remote binaries live) and the
+separate `%PROGRAMDATA%\Beacon` directory (`credential.Dir()` — where
+`credential.json` and `agent.log` live, a genuinely different path from
+the install directory, easy to miss if you only exclude one):
 
 ```powershell
 Add-MpPreference -ExclusionPath "C:\Program Files\Beacon"
+Add-MpPreference -ExclusionPath "C:\ProgramData\Beacon"
 ```
 
-Confirmed via a real controlled test, not just a plausible guess: a
-connection failed before this exclusion was applied and succeeded
-immediately after, with nothing else changed. `beacon-screenshare.exe` is
-an unsigned binary doing real-time screen capture and keyboard/mouse
+Confirmed via real controlled tests, not just a plausible guess: excluding
+only the install directory fixed Web Remote connecting (`beacon-screenshare.exe`
+lives there) but left `agent.log` itself still silent across every
+subsequent agent update, since that file lives under `%PROGRAMDATA%\Beacon`
+instead, a path that was never excluded. `beacon-screenshare.exe` is an
+unsigned binary doing real-time screen capture and keyboard/mouse
 injection — exactly the behavior signature Defender's real-time behavioral
 protection is built to interfere with, independent of whether it shows up
 as a discrete "threat" in Windows Security's own history (it didn't, in
-this case). Treat this exclusion as required for Web Remote on Windows,
-not optional. See `CLAUDE.md`'s Web Remote section for the fuller writeup,
-and why code-signing the release binaries (not yet done) would be the more
-durable, per-device-exclusion-free fix.
+this case) — and the same interference plausibly extends to an RMM
+agent's log writes more generally. Treat both exclusions as required for
+Windows devices, not optional. See `CLAUDE.md`'s Web Remote section for
+the fuller writeup, and why code-signing the release binaries (not yet
+done) would be the more durable, per-device-exclusion-free fix.
 
 Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
 new self-hosted installation, publish the host-controlled channel in the next
