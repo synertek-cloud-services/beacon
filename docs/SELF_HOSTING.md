@@ -245,15 +245,17 @@ Defender exclusion for the install directory first:
 Add-MpPreference -ExclusionPath "C:\Program Files\Beacon"
 ```
 
-Confirmed live: Defender can quarantine or kill the per-session
-`beacon-screenshare.exe` helper before it ever connects, since it's an
-unsigned binary doing real-time screen capture and keyboard/mouse
-injection — exactly the behavior signature AV heuristics are built to
-flag. A device without this exclusion will look like Web Remote silently
-never connects, with no useful error anywhere. This is a real cost of the
-current unsigned-binary release process, not a one-off fluke — see
-`CLAUDE.md` for the fuller writeup and why code-signing (not yet done)
-would fix it more durably than a per-device exclusion.
+This is a precaution, not a confirmed-necessary step: `beacon-screenshare.exe`
+is an unsigned binary doing real-time screen capture and keyboard/mouse
+injection, exactly the behavior signature AV heuristics are built to flag,
+so Defender quarantining or killing it before it ever connects is
+plausible — but this has not actually been confirmed against a real
+Defender detection log (Windows Security's Protection History showed
+nothing when checked). The exclusion costs nothing to apply, so it's
+listed here regardless; see `CLAUDE.md`'s Web Remote section for the full,
+honest state of this investigation, and why code-signing the release
+binaries (not yet done) would be the durable fix if this does turn out to
+be a real factor.
 
 Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
 new self-hosted installation, publish the host-controlled channel in the next

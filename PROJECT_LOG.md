@@ -1,27 +1,26 @@
 # Beacon — Project Log
 
-## Session: 2026-08-09 — Root cause found: Windows Defender blocking beacon-screenshare.exe
+## Session: 2026-08-09 — Windows Defender theory raised, then retracted
 
-The actual answer, after the console-session detour, the performance fix,
-and the logging fix: a real Defender popup fired on the test device at the
-exact moment of a connection attempt. `beacon-screenshare.exe` doing raw
-GDI screen capture and `SendInput` injection, unsigned, with zero
-reputation history, is exactly the behavior signature AV heuristics exist
-to catch — Defender can quarantine or kill it before it gets far enough to
-dial the relay or write a single log line, which also explains why the
-logging fix from earlier today turned up nothing: the process likely never
-ran long enough to log anything.
+A Windows Security tray notification appeared on the test device around a
+connection attempt, and I wrote it up as a *confirmed* root cause
+(quarantining the unsigned, screen-capture/input-injection
+`beacon-screenshare.exe`) before actually verifying it — jumped from a
+plausible theory straight to permanent documentation, which is exactly the
+kind of thing this project's own conventions exist to prevent. Checked
+live, Windows Security's Protection History (the real event log, not the
+general status page) showed **no recent actions at all** — no
+corroborating record of anything being blocked or quarantined. Corrected
+`CLAUDE.md` back to "raised, then retracted, not confirmed."
 
-No code fix exists for this — every real remote-access tool pays this same
-cost. Documented both the immediate mitigation (`Add-MpPreference
--ExclusionPath "C:\Program Files\Beacon"` on any device Web Remote will be
-used from — added to `docs/SELF_HOSTING.md` as a real setup requirement,
-not a footnote) and the durable one that isn't implemented yet: the
-release binaries aren't code-signed with a real Authenticode certificate
-at all today, only Ed25519-signed for Beacon's own self-update
-verification, which Windows/Defender has no knowledge of. That's the
-actual fix worth pursuing later, tracked informally here rather than as a
-separate issue for now.
+Net position, honestly: the original "doesn't connect" symptom is still
+unexplained. The Defender exclusion (`Add-MpPreference -ExclusionPath
+"C:\Program Files\Beacon"`) stays documented in `SELF_HOSTING.md` as a
+cheap, harmless precaution, not as a proven fix. The `beacon-screenshare.log`
+logging added earlier today is still the only real lead, and it hasn't
+shipped in a released build yet — the v0.2.25 draft stalled before
+finishing. Getting an actual release out and testing again against real
+log output is the next real step, not further Defender investigation.
 
 ## Session: 2026-08-09 — beacon-screenshare.exe had no logging at all
 
