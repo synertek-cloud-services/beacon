@@ -264,6 +264,26 @@ Windows devices, not optional. See `CLAUDE.md`'s Web Remote section for
 the fuller writeup, and why code-signing the release binaries (not yet
 done) would be the more durable, per-device-exclusion-free fix.
 
+**Windows Smart App Control can block the agent service from starting at
+all after a self-update**, confirmed via a real device: after a self-update
+swapped in a new agent binary, the Beacon RMM Agent service failed to
+start with `Error 4551: An Application Control policy has blocked this
+file`. Turning Smart App Control off (**Windows Security → App & browser
+control → Smart App Control**) let the service start immediately,
+confirming it as the cause. This is a materially worse failure than the
+Defender exclusions above — the agent process doesn't run at all, so the
+device stops checking in entirely and every command queued for it sits
+stuck until someone fixes this by hand, at the keyboard, on that device;
+there is no remote recovery path once this happens. Same underlying reason
+as the Defender findings above: the agent's release binaries are Ed25519-signed
+internally (verified by the agent itself before accepting an update) but not
+Authenticode-signed, and every release is a brand-new file hash with zero
+prior reputation — exactly what Smart App Control is designed to flag,
+especially on a fresh or Insider-channel Windows build. If a target fleet
+has Smart App Control enabled (check before deploying, not after a self-update
+fails), turn it off, or expect updates to intermittently strand devices until
+the release binaries are Authenticode-signed.
+
 Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
 new self-hosted installation, publish the host-controlled channel in the next
 section and install those binaries instead. An agent cannot switch from one

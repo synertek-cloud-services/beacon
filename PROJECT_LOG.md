@@ -49,8 +49,38 @@ unit-tested in this sandbox with zero GDI dependency.
 
 Both fixed, tested (`go test ./... -race`, cross-compiled clean for all
 three platforms), and the embedded `beacon-screenshare.exe` rebuilt.
-**Released in agent v0.2.27; not yet verified on real hardware** -- needs a
-real UAC prompt / real mouse drag to confirm.
+**Released in agent v0.2.27.** The self-update itself triggered a separate,
+unrelated incident first -- see the next entry (Smart App Control blocked
+the service from starting at all). Once past that, the cursor fix was
+confirmed for real: "the mouse thing is a lot better now. This is usable."
+The UAC timeout fix has not yet been separately re-triggered/confirmed.
+
+## Session: 2026-08-09 — Windows Smart App Control blocked the v0.2.27 self-update from starting the service at all
+
+Right after the v0.2.27 self-update, the device went completely dark --
+every command queued after that point sat stuck at `queued`/`sent` forever.
+The cause showed up directly on the device's own screen, not through log
+digging: `services.msc` reported "Windows could not start the Beacon RMM
+Agent service on Local Computer. Error 4551: An Application Control policy
+has blocked this file." The update itself worked correctly (downloaded,
+verified, swapped the binary); Windows' own code-integrity subsystem then
+refused to let the service manager launch the new file at all, so the
+process never came back up.
+
+Confirmed via the same direct fix-and-effect standard as the earlier
+Defender findings: turning off Windows Security -> App & browser control ->
+Smart App Control let the service start immediately, and the device
+resumed checking in and picked up its stuck commands right after -- Jeremy
+confirmed this live ("its checking in again and my commands did send").
+Worse failure mode than the Defender exclusions: those interfered with
+specific behavior from an already-running process; this blocks the
+executable from launching at all, so there's no remote recovery path once
+it happens -- someone has to be at the keyboard. Root cause is the same
+underlying gap already named in the Agent release process section: the
+binaries are Ed25519-signed internally but not Authenticode-signed, and a
+self-updating binary handing itself a brand-new, zero-reputation file hash
+is exactly what Smart App Control is built to catch. Documented in
+`docs/SELF_HOSTING.md` as a required pre-deployment check.
 
 ## Session: 2026-08-09 — Two more real-hardware findings: mouse latency, UAC killing sessions
 
