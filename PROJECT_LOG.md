@@ -1,5 +1,23 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Elevate button's first real click: a stale-event race, not an agent bug
+
+Reported live on the very first try: "elevate goes back to trying to
+connect then fails." Traced to `WebRemotePage.vue`, not the agent --
+`elevate()` disconnects the old RFB instance and immediately calls
+`connectTo()` again, which synchronously sets `status.value =
+'connecting'` for the new one. The old instance's own `disconnect` event
+fires asynchronously a moment later, and by then `status.value` already
+reads `'connecting'` again (from the *new* connection) -- so the stale
+handler's `if (status.value === 'connecting')` check, written for the
+ordinary single-connection case, wrongly concluded the new connection had
+failed and overwrote it with `'error'`. Fixed with a `connectionSeq`
+generation counter: each `connectTo()` call captures its own sequence
+number, and every closure it registers checks it against the live one
+before touching shared state -- a superseded instance's events are now
+inert once a newer connection exists. `vue-tsc -b` clean. Dashboard-only
+fix, no new agent release needed.
+
 ## Session: 2026-08-09 — Web Remote "Elevate" button: UAC no longer kills the session, but control over an elevated window was blocked until it closed
 
 Real-hardware retest of the PR #122 fix: good news, UAC genuinely doesn't
