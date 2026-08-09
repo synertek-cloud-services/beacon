@@ -1,5 +1,37 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — beacon-screenshare.exe had no logging at all
+
+The v0.2.24 performance fix went out, and the very next real connection
+attempt hit the exact same 70-second browser timeout the first console-
+session bug produced — but this time with genuinely nothing to go on:
+`agent.log` showed no activity since the 4th, and Jeremy had already
+confirmed (firmly, after I asked the wrong follow-up question twice) that
+the device itself is checking in fine. Two separate things were going on:
+`agent.log` itself has some still-unexplained recurrence of the exact
+lost-startup-race class `setupLogging` exists to fix, and — the part
+actually worth fixing right now — `beacon-screenshare.exe` never had any
+logging of its own to begin with. It's a `-H=windowsgui` binary with no
+console, so every `log.Fatal`/`log.Printf` call was writing to a default
+`os.Stderr` that goes nowhere. Any dial failure, capturer-init failure, or
+outright panic in that process has been completely invisible since it was
+first built.
+
+Fixed by giving it the identical `setupLogging` pattern already proven for
+the main agent, but writing to its own `beacon-screenshare.log` rather than
+sharing `agent.log`'s path — since that path was *already* observed stuck
+silent on this exact device, reusing it risked the same race a second
+time. Also added a `recover()` wrapper around `main()`'s body that logs any
+panic (with a stack trace) before exiting, since an unrecovered panic would
+have been exactly as invisible as the unlogged `log.Fatal` calls, for the
+identical underlying reason.
+
+This is purely diagnostic instrumentation — it doesn't explain the original
+connection failure by itself. The point is that the *next* real attempt
+will actually leave evidence in a file that isn't already known to be
+stuck, instead of the investigation dead-ending again at "nothing anywhere
+says why."
+
 ## Session: 2026-08-09 — Web Remote performance fix
 
 Jeremy tested v0.2.23's Web Remote on real hardware right after release (see
