@@ -29,8 +29,18 @@ const (
 
 	serverMsgFramebufferUpdate = 0
 
-	// EncodingRaw is the only encoding this server ever advertises or sends.
+	// EncodingRaw is the encoding used for ordinary screen-content
+	// rectangles -- the only one this server sends for those.
 	EncodingRaw int32 = 0
+
+	// EncodingCursorPseudo (RFC 6143 §7.7.2, pseudo-encoding -239) lets the
+	// server tell a supporting client what the cursor looks like, so the
+	// client can render it locally at the user's own mouse position --
+	// zero network round-trip for cursor movement, instead of every pixel
+	// of movement requiring a full capture-and-send cycle. Only sent to a
+	// client that declared support for it via SetEncodings; see
+	// agent/internal/rfbserver.
+	EncodingCursorPseudo int32 = -239
 )
 
 // PixelFormat mirrors RFC 6143 §7.4's 16-byte PIXEL_FORMAT structure.
@@ -281,16 +291,48 @@ func ReadClientMessage(r io.Reader) (ClientMessage, error) {
 	}
 }
 
-// Rectangle is one Raw-encoded FramebufferUpdate rectangle: Pixels must
-// already be packed to match the PixelFormat negotiated with the client
-// (see PackRow), and its length must equal W*H*bytesPerPixel.
+// Rectangle is one FramebufferUpdate rectangle. Encoding defaults to Raw
+// (its zero value, 0, equals EncodingRaw) -- ordinary screen-content
+// rectangles never need to set it explicitly. Pixels must already be
+// packed to match the wire format Encoding implies: for EncodingRaw, the
+// negotiated PixelFormat with length W*H*bytesPerPixel (see PackRow); for
+// EncodingCursorPseudo, pixel data immediately followed by the shape
+// bitmask (see NewCursorRectangle, which builds this correctly rather than
+// requiring a caller to hand-assemble it).
 type Rectangle struct {
 	X, Y, W, H uint16
+	Encoding   int32
 	Pixels     []byte
 }
 
+// NewCursorRectangle builds a Rectangle for EncodingCursorPseudo. x/y are
+// the cursor's hotspot (not top-left -- RFC 6143 §7.7.2), pixels is w*h
+// pixel values already packed to the negotiated PixelFormat (see
+// PackRow), and opaque reports whether a given (col, row) pixel is part of
+// the visible cursor shape (true) or transparent (false); it's packed into
+// the mask bitmask this function builds, so callers never hand-assemble
+// that format themselves.
+func NewCursorRectangle(hotspotX, hotspotY, w, h uint16, pixels []byte, opaque func(col, row uint16) bool) Rectangle {
+	maskRowBytes := int(w+7) / 8
+	mask := make([]byte, maskRowBytes*int(h))
+	for row := uint16(0); row < h; row++ {
+		for col := uint16(0); col < w; col++ {
+			if !opaque(col, row) {
+				continue
+			}
+			// MSB-first within each byte, per RFC 6143 §7.7.2.
+			mask[int(row)*maskRowBytes+int(col)/8] |= 0x80 >> (col % 8)
+		}
+	}
+	return Rectangle{
+		X: hotspotX, Y: hotspotY, W: w, H: h,
+		Encoding: EncodingCursorPseudo,
+		Pixels:   append(append([]byte(nil), pixels...), mask...),
+	}
+}
+
 // WriteFramebufferUpdate sends a FramebufferUpdate message containing the
-// given rectangles, all Raw-encoded (encoding-type 0).
+// given rectangles, each using its own Encoding.
 func WriteFramebufferUpdate(w io.Writer, rects []Rectangle) error {
 	bw := bufio.NewWriter(w)
 
@@ -308,7 +350,7 @@ func WriteFramebufferUpdate(w io.Writer, rects []Rectangle) error {
 		binary.BigEndian.PutUint16(rb[2:4], rect.Y)
 		binary.BigEndian.PutUint16(rb[4:6], rect.W)
 		binary.BigEndian.PutUint16(rb[6:8], rect.H)
-		binary.BigEndian.PutUint32(rb[8:12], uint32(EncodingRaw))
+		binary.BigEndian.PutUint32(rb[8:12], uint32(rect.Encoding))
 		if _, err := bw.Write(rb[:]); err != nil {
 			return err
 		}

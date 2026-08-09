@@ -32,10 +32,21 @@ var _ rfbserver.Capturer = (*GDICapturer)(nil)
 // of that fix.
 const minCaptureInterval = 33 * time.Millisecond
 
+var (
+	_ rfbserver.CursorShapeProvider     = (*GDICapturer)(nil)
+	_ rfbserver.CursorCompositingToggle = (*GDICapturer)(nil)
+)
+
 // GDICapturer captures the primary monitor via BitBlt. Implements
 // rfbserver.Capturer.
 type GDICapturer struct {
 	width, height int32
+
+	// cursorCompositingEnabled starts true (bake the OS cursor into
+	// captured frames, matching pre-Cursor-pseudo-encoding behavior) and
+	// is set false by rfbserver.Serve once a connecting client signals
+	// Cursor pseudo-encoding support -- see SetCursorCompositingEnabled.
+	cursorCompositingEnabled bool
 
 	lastCaptureAt time.Time
 	// prevRaw holds the previous call's raw (pre-PackRow, 32bpp BGRA)
@@ -68,7 +79,25 @@ func NewGDICapturer() (*GDICapturer, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("screencapture: invalid primary monitor dimensions %dx%d", width, height)
 	}
-	return &GDICapturer{width: width, height: height}, nil
+	return &GDICapturer{width: width, height: height, cursorCompositingEnabled: true}, nil
+}
+
+// SetCursorCompositingEnabled implements rfbserver.CursorCompositingToggle.
+// Called (at most once, from false's own only caller) once a connecting
+// client has signaled support for the Cursor pseudo-encoding, so this
+// capturer stops baking the OS cursor into captured pixels -- the client
+// is about to start rendering its own locally-tracked cursor instead, and
+// leaving compositing on would show two overlapping cursors.
+func (c *GDICapturer) SetCursorCompositingEnabled(enabled bool) {
+	c.cursorCompositingEnabled = enabled
+}
+
+// CursorShape implements rfbserver.CursorShapeProvider. v1 sends a fixed
+// placeholder arrow (see cursorshape.go's own doc comment for why this
+// isn't a real extraction of the OS's actual cursor icon) rather than
+// reading anything from this capturer's own GDI state.
+func (c *GDICapturer) CursorShape(pf rfb.PixelFormat) rfb.Rectangle {
+	return arrowCursorRectangle(pf)
 }
 
 // Size returns the primary monitor's dimensions.
@@ -121,9 +150,16 @@ func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	// without a visible pointer. Deliberately done before the diff below,
 	// not after -- the cursor moving is itself a real, visible change a
 	// technician needs to see, same as any other on-screen content.
-	if ci, err := win32.GetCursorInfo(); err == nil && ci.CursorVisible() {
-		if err := win32.DrawIconEx(memDC, ci.ScreenPos.X, ci.ScreenPos.Y, ci.CursorHandle); err != nil {
-			log.Printf("screencapture: draw cursor: %v", err)
+	//
+	// Skipped once a connecting client has signaled Cursor pseudo-encoding
+	// support (see SetCursorCompositingEnabled) -- that client is
+	// rendering its own cursor locally now, and baking one in here too
+	// would show two overlapping cursors.
+	if c.cursorCompositingEnabled {
+		if ci, err := win32.GetCursorInfo(); err == nil && ci.CursorVisible() {
+			if err := win32.DrawIconEx(memDC, ci.ScreenPos.X, ci.ScreenPos.Y, ci.CursorHandle); err != nil {
+				log.Printf("screencapture: draw cursor: %v", err)
+			}
 		}
 	}
 

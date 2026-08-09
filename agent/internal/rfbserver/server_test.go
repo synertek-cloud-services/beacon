@@ -663,3 +663,63 @@ func TestCaptureErrorDoesNotKillSession(t *testing.T) {
 		t.Fatal("Serve did not return after client disconnect")
 	}
 }
+
+// hangingCapturer's Capture never returns -- standing in for a GDI call
+// that blocks outright (rather than cleanly erroring) when the active
+// desktop switches away from the one beacon-screenshare.exe is bound to,
+// e.g. a UAC prompt. A first version of the UAC-resilience fix only
+// handled Capture() returning an error and real-hardware testing showed
+// the session still died, consistent with a hang rather than a clean
+// failure -- this is the regression test for that.
+type hangingCapturer struct{ w, h uint16 }
+
+func (h *hangingCapturer) Size() (uint16, uint16) { return h.w, h.h }
+func (h *hangingCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	select {} // blocks forever, deliberately
+}
+
+func TestCaptureTimeoutDoesNotHangSession(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &hangingCapturer{w: 4, h: 3}
+	inj := &fakeInjector{}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+
+	doClientHandshake(t, clientSide)
+	sendFramebufferUpdateRequest(t, clientSide)
+
+	// A hung Capture() must still produce a bounded response (an empty
+	// update) within roughly captureTimeout, not hang the test (or a real
+	// session) forever.
+	done := make(chan struct{})
+	var rects []rfb.Rectangle
+	go func() {
+		rects = readFramebufferUpdateFrom(t, clientSide)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(captureTimeout + 2*time.Second):
+		t.Fatal("session did not respond within captureTimeout + margin -- a hung Capture() is blocking the session again")
+	}
+	if len(rects) != 0 {
+		t.Fatalf("expected an empty update after a capture timeout, got %d rectangles", len(rects))
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
+}
