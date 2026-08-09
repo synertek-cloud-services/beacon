@@ -320,12 +320,46 @@ func WriteFramebufferUpdate(w io.Writer, rects []Rectangle) error {
 	return bw.Flush()
 }
 
+// isIdentityBGRA32 reports whether pf is byte-for-byte identical to the
+// source's own 32bpp little-endian BGRA layout -- i.e. packing would be a
+// pixel = (R<<16)|(G<<8)|B computation written little-endian, which lands
+// R/G/B in exactly the same byte positions the BGRA source already has
+// them in. This is the format real noVNC actually negotiates in practice
+// (confirmed live), so it's worth a dedicated bulk-copy fast path rather
+// than running every pixel through PackRow's general shift/multiply loop.
+func isIdentityBGRA32(pf PixelFormat) bool {
+	return pf.BitsPerPixel == 32 && !pf.BigEndian &&
+		pf.RedMax == 255 && pf.GreenMax == 255 && pf.BlueMax == 255 &&
+		pf.RedShift == 16 && pf.GreenShift == 8 && pf.BlueShift == 0
+}
+
 // PackRow packs one row of src (4 bytes per pixel, BGRA byte order -- the
 // layout GetDIBits produces for a 32bpp BI_RGB bitmap) into dst according
 // to pf. dst must be pre-sized to (len(src)/4)*pf.BitsPerPixel/8 bytes.
 // Written generally, not just for the one 32bpp/depth-24 format real noVNC
-// happens to negotiate, so it can be table-tested against several formats.
+// happens to negotiate, so it can be table-tested against several formats
+// -- but that common case gets a dedicated bulk-copy fast path (see
+// isIdentityBGRA32) instead of running every pixel through the shift/
+// multiply loop below, since per-pixel Go math over a full 1080p+ frame on
+// every single FramebufferUpdateRequest was the dominant CPU cost behind
+// real-hardware-observed Web Remote lag (see CLAUDE.md's Web Remote
+// section) -- confirmed by a LAN test where network bandwidth was never
+// the bottleneck.
 func PackRow(dst []byte, pf PixelFormat, src []byte) {
+	if isIdentityBGRA32(pf) {
+		// Bulk copy (a single memmove, not a per-pixel loop) since B/G/R
+		// already land in the exact byte positions this pf's shifts would
+		// compute anyway. The 4th source byte (alpha) is zeroed to match
+		// what the general path below always produces there (it never has
+		// any shift landing in that byte) -- a cheap strided write, still
+		// far less work than the multiply/shift math it replaces.
+		copy(dst, src)
+		for i := 3; i < len(dst); i += 4 {
+			dst[i] = 0
+		}
+		return
+	}
+
 	bytesPerPixel := int(pf.BitsPerPixel) / 8
 	pixelCount := len(src) / 4
 

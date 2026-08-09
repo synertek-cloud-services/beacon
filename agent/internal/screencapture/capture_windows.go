@@ -10,6 +10,7 @@ package screencapture
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfb"
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
@@ -18,10 +19,35 @@ import (
 
 var _ rfbserver.Capturer = (*GDICapturer)(nil)
 
+// minCaptureInterval bounds Capture() to roughly 30fps. rfbserver.Serve's
+// loop is capture-on-request with no throttling of its own -- real noVNC
+// re-issues a FramebufferUpdateRequest immediately after every response,
+// so without a floor here this would BitBlt/GetDIBits back-to-back as fast
+// as the machine allows, burning CPU on captures nobody can perceive the
+// difference of. 30fps is smooth enough for a remote-support/admin session
+// (not video/gaming) and bounds worst-case churn regardless of how fast
+// the client re-requests -- confirmed necessary by a real-hardware report
+// of "horrendously slow" performance even on a LAN, where bandwidth was
+// never the bottleneck; see the diffing comment below for the other half
+// of that fix.
+const minCaptureInterval = 33 * time.Millisecond
+
 // GDICapturer captures the primary monitor via BitBlt. Implements
 // rfbserver.Capturer.
 type GDICapturer struct {
 	width, height int32
+
+	lastCaptureAt time.Time
+	// prevRaw holds the previous call's raw (pre-PackRow, 32bpp BGRA)
+	// frame, compared against the newly captured one to find which rows
+	// actually changed -- see diffChangedRowRange. Only that row range is
+	// packed and returned; an unchanged frame returns a zero-height
+	// Rectangle (rfbserver/chunkRectangle already treat H==0 as "send no
+	// rectangles," an empty FramebufferUpdate, no code change needed
+	// there). Not a copy-on-write scheme: each call allocates a fresh raw
+	// buffer, so simply keeping the previous call's buffer around and
+	// swapping the pointer is safe with no aliasing risk.
+	prevRaw []byte
 }
 
 // NewGDICapturer enables per-monitor DPI awareness (must happen once,
@@ -50,9 +76,16 @@ func (c *GDICapturer) Size() (uint16, uint16) {
 	return uint16(c.width), uint16(c.height)
 }
 
-// Capture takes one full-frame screenshot of the primary monitor, packed
-// to match pf.
+// Capture takes a screenshot of the primary monitor and returns only the
+// rows that changed since the previous call, packed to match pf -- an
+// unchanged frame returns a zero-height Rectangle rather than the whole
+// screen. Paced to at most ~30fps (see minCaptureInterval).
 func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	if wait := minCaptureInterval - time.Since(c.lastCaptureAt); wait > 0 {
+		time.Sleep(wait)
+	}
+	c.lastCaptureAt = time.Now()
+
 	screenDC, err := win32.GetDC(0) // 0 = the whole screen
 	if err != nil {
 		return rfb.Rectangle{}, fmt.Errorf("screencapture: GetDC: %w", err)
@@ -85,7 +118,9 @@ func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	// captures it (it's a separate system overlay, not part of any
 	// window's device context). Best-effort: a failed cursor read/draw
 	// shouldn't fail the whole capture, it just means one frame renders
-	// without a visible pointer.
+	// without a visible pointer. Deliberately done before the diff below,
+	// not after -- the cursor moving is itself a real, visible change a
+	// technician needs to see, same as any other on-screen content.
 	if ci, err := win32.GetCursorInfo(); err == nil && ci.CursorVisible() {
 		if err := win32.DrawIconEx(memDC, ci.ScreenPos.X, ci.ScreenPos.Y, ci.CursorHandle); err != nil {
 			log.Printf("screencapture: draw cursor: %v", err)
@@ -98,13 +133,26 @@ func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 		return rfb.Rectangle{}, fmt.Errorf("screencapture: GetDIBits: %w", err)
 	}
 
-	bytesPerPixel := int(pf.BitsPerPixel) / 8
 	rowBytesIn := int(c.width) * 4
-	rowBytesOut := int(c.width) * bytesPerPixel
-	out := make([]byte, rowBytesOut*int(c.height))
-	for y := 0; y < int(c.height); y++ {
-		rfb.PackRow(out[y*rowBytesOut:(y+1)*rowBytesOut], pf, raw[y*rowBytesIn:(y+1)*rowBytesIn])
+	minY, maxY, changed := diffChangedRowRange(c.prevRaw, raw, rowBytesIn)
+	c.prevRaw = raw
+	if !changed {
+		// rfbserver's chunkRectangle already treats H==0 as "nothing to
+		// send" (returns no rectangles), and WriteFramebufferUpdate
+		// correctly writes an empty, valid FramebufferUpdate for zero
+		// rectangles -- no changes needed in either of those to make this
+		// case work.
+		return rfb.Rectangle{}, nil
 	}
 
-	return rfb.Rectangle{X: 0, Y: 0, W: uint16(c.width), H: uint16(c.height), Pixels: out}, nil
+	bytesPerPixel := int(pf.BitsPerPixel) / 8
+	changedRows := maxY - minY + 1
+	rowBytesOut := int(c.width) * bytesPerPixel
+	out := make([]byte, rowBytesOut*changedRows)
+	for y := 0; y < changedRows; y++ {
+		srcRow := raw[(minY+y)*rowBytesIn : (minY+y+1)*rowBytesIn]
+		rfb.PackRow(out[y*rowBytesOut:(y+1)*rowBytesOut], pf, srcRow)
+	}
+
+	return rfb.Rectangle{X: 0, Y: uint16(minY), W: uint16(c.width), H: uint16(changedRows), Pixels: out}, nil
 }

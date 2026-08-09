@@ -459,3 +459,52 @@ func TestPackRowMultiplePixels(t *testing.T) {
 		}
 	}
 }
+
+func TestIsIdentityBGRA32(t *testing.T) {
+	if !isIdentityBGRA32(testPixelFormat()) {
+		t.Fatal("testPixelFormat() should match the identity fast path -- it's the exact format real noVNC negotiates")
+	}
+
+	nonIdentity := []PixelFormat{
+		{BitsPerPixel: 32, BigEndian: true, RedMax: 255, GreenMax: 255, BlueMax: 255, RedShift: 16, GreenShift: 8, BlueShift: 0},
+		{BitsPerPixel: 16, RedMax: 31, GreenMax: 63, BlueMax: 31, RedShift: 11, GreenShift: 5, BlueShift: 0},
+		{BitsPerPixel: 32, RedMax: 255, GreenMax: 255, BlueMax: 255, RedShift: 0, GreenShift: 8, BlueShift: 16}, // reversed shifts (BGR order)
+	}
+	for i, pf := range nonIdentity {
+		if isIdentityBGRA32(pf) {
+			t.Errorf("case %d: %+v incorrectly matched the identity fast path", i, pf)
+		}
+	}
+}
+
+// TestPackRowFastPathMatchesGeneralPath forces the general (non-fast-path)
+// computation by hand for the identity format and confirms it produces the
+// same R/G/B bytes as the real PackRow's fast path -- guards against the
+// fast path silently drifting from what the general formula would have
+// produced, for exactly the format real noVNC actually negotiates.
+func TestPackRowFastPathMatchesGeneralPath(t *testing.T) {
+	pf := testPixelFormat() // matches isIdentityBGRA32
+	src := []byte{
+		0x00, 0x00, 0x00, 0xFF,
+		0xFF, 0xFF, 0xFF, 0x00,
+		0x12, 0x34, 0x56, 0x78,
+		0xAB, 0xCD, 0xEF, 0x99,
+	}
+	fast := make([]byte, len(src))
+	PackRow(fast, pf, src)
+
+	// Hand-compute the general per-pixel formula (mirrors the loop body
+	// PackRow falls through to for any non-identity format) to confirm the
+	// fast path's shortcut agrees with it pixel-for-pixel.
+	general := make([]byte, len(src))
+	for i := 0; i < len(src)/4; i++ {
+		s := src[i*4 : i*4+4]
+		b, g, r := uint32(s[0]), uint32(s[1]), uint32(s[2])
+		pixel := (r << pf.RedShift) | (g << pf.GreenShift) | (b << pf.BlueShift)
+		binary.LittleEndian.PutUint32(general[i*4:i*4+4], pixel)
+	}
+
+	if !bytes.Equal(fast, general) {
+		t.Fatalf("fast path = %x, general formula = %x", fast, general)
+	}
+}
