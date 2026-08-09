@@ -100,22 +100,43 @@ function closeTab() {
   window.close();
 }
 
+// connectionSeq guards against a real race introduced by the Elevate
+// handler below: it disconnects the *old* RFB instance and immediately
+// calls connectTo() again for the new one. That old instance's own
+// 'disconnect' event doesn't fire synchronously -- it arrives a moment
+// later, asynchronously, by which point status.value already reads
+// 'connecting' again (set by the *new* connectTo() call). Without this
+// guard, the stale old instance's disconnect handler sees "connecting"
+// and incorrectly concludes the *new* connection failed
+// ("status.value === 'connecting'" -> 'error'/"Failed to connect."),
+// even when the new connection is fine -- exactly the real bug reported
+// live ("elevate goes back to trying to connect then fails"). Each
+// connectTo() call captures the sequence number current at its own
+// start; every listener/timeout closure it registers checks that number
+// against the live one before touching any shared ref, so a superseded
+// instance's events are inert no-ops once a newer connection exists.
+let connectionSeq = 0;
+
 // Shared by the initial onMounted connect and the Elevate handler below --
 // both need identical event wiring (connect/disconnect listeners, the 70s
 // timeout), the only difference is which WebSocket URL and which starting
 // status.value they begin from.
 function connectTo(wsUrl: string) {
+  const mySeq = ++connectionSeq;
   if (connectTimeout !== null) window.clearTimeout(connectTimeout);
   status.value = 'connecting';
   errorMsg.value = '';
 
-  rfb.value = new RFB(screenEl.value!, wsUrl, {});
+  const instance = new RFB(screenEl.value!, wsUrl, {});
+  rfb.value = instance;
 
-  rfb.value.addEventListener('connect', () => {
+  instance.addEventListener('connect', () => {
+    if (mySeq !== connectionSeq) return; // superseded by a newer connectTo() call
     if (connectTimeout !== null) window.clearTimeout(connectTimeout);
     status.value = 'connected';
   });
-  rfb.value.addEventListener('disconnect', (e: any) => {
+  instance.addEventListener('disconnect', (e: any) => {
+    if (mySeq !== connectionSeq) return; // the old, intentionally-torn-down instance -- see connectionSeq's doc comment
     if (connectTimeout !== null) window.clearTimeout(connectTimeout);
     if (status.value === 'connecting') {
       status.value = 'error';
@@ -127,10 +148,11 @@ function connectTo(wsUrl: string) {
   });
 
   connectTimeout = window.setTimeout(() => {
+    if (mySeq !== connectionSeq) return;
     if (status.value !== 'connecting') return;
     status.value = 'error';
     errorMsg.value = 'The agent did not connect within 70 seconds. Confirm the device is online, a user is logged in, and its agent supports Web Remote.';
-    rfb.value?.disconnect();
+    instance.disconnect();
   }, CONNECT_TIMEOUT_MS);
 }
 
