@@ -445,6 +445,12 @@
                       <span class="sw-name text-sm">{{ sw.name }}</span>
                       <span class="sw-ver mono text-xs text-muted-2">{{ sw.version || '—' }}</span>
                       <span v-if="sw.publisher" class="sw-pub text-xs text-muted-2">{{ sw.publisher }}</span>
+                      <button
+                        v-if="softwareUninstallEligible(sw)"
+                        class="btn btn-danger btn-sm sw-uninstall-btn"
+                        :disabled="device.status !== 'approved'"
+                        @click="uninstallSoftware(device.id, sw.name)"
+                      >Uninstall</button>
                     </div>
                     <div v-if="filteredSoftware.length === 0" class="inv-empty-row">No matches</div>
                   </div>
@@ -914,7 +920,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue, type DeviceCommand } from '../api';
+import { api, type Device, type Component, type DeviceAudit, type AlertState, type EffectiveMonitor, type DeviceCustomFieldValue, type DeviceCommand, type SoftwareItem } from '../api';
 import { hasRole } from '../auth';
 import ComponentVariablePrompt from '../components/ComponentVariablePrompt.vue';
 import RemoteShellModal from '../components/RemoteShellModal.vue';
@@ -1800,6 +1806,30 @@ async function updateSoftware(deviceId: string) {
   }
 }
 
+// Mirrors worker/src/routes/admin/devices.ts's resolveUninstallCommand --
+// duplicated client-side purely so the button doesn't appear for an entry
+// that would only ever get rejected; the worker independently re-derives
+// this at dispatch time and is the real authority, not this check. Only an
+// MSI-based install or one exposing QuietUninstallString gets a button at
+// all -- anything else can't be uninstalled silently/unattended (the agent
+// dispatches this SYSTEM-context with no visible desktop, so a non-silent
+// installer's UI would render nowhere anyone could ever answer it).
+function softwareUninstallEligible(sw: SoftwareItem): boolean {
+  if (sw.quiet_uninstall_string) return true;
+  return !!sw.uninstall_string && /msiexec/i.test(sw.uninstall_string);
+}
+
+async function uninstallSoftware(deviceId: string, softwareName: string) {
+  if (!confirm(`Silently uninstall "${softwareName}" from this device? This runs immediately and cannot be undone remotely.`)) return;
+  try {
+    await api.devices.commands.create(deviceId, { type: 'uninstall_software', software_name: softwareName });
+    showJobQueued();
+    loadDeviceCommands();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
 function showJobQueued() {
   jobQueued.value = true;
   setTimeout(() => { jobQueued.value = false; }, 4000);
@@ -2309,6 +2339,7 @@ function shellLabel(shell: string): string {
 .sw-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .sw-ver  { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .sw-pub  { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-uninstall-btn { flex-shrink: 0; margin-left: auto; }
 .inv-empty-row { padding: 10px 20px; font-size: 12px; color: var(--color-text-muted); }
 .svc-list { border-top: 1px solid var(--color-border); }
 .svc-row { display: flex; align-items: center; gap: 8px; padding: 5px 20px; border-bottom: 1px solid rgba(255,255,255,.03); }

@@ -1,5 +1,52 @@
 # Beacon — Project Log
 
+## Session: 2026-08-10 — Software Uninstall: the existing read-only Software list gains a real action
+
+Third pick from the fresh Datto RMM gap-analysis pass. The Device Detail
+Software section (already existing, registry-audit-backed) was display-only
+-- a technician could see what's installed but never act on it. Datto's own
+real Software card supports exactly this: uninstall directly from the
+device summary, a silent removal not visible to the end user. Confirmed via
+research before building, not assumed.
+
+Eligibility is deliberately narrow, matching a real, documented Datto
+limitation rather than inventing a lesser feature -- their own docs say
+outright that uninstall isn't available for every application if they can't
+resolve a real uninstall command. `agent/internal/audit/software.go`'s
+Windows collector now also captures each registry Uninstall entry's
+`UninstallString`/`QuietUninstallString`. An entry is only offered for
+uninstall with a `QuietUninstallString` (vendor-supplied, already silent)
+or an `msiexec`-based `UninstallString` (where `/qn /norestart` can be
+reliably appended) -- anything else gets no button at all, since the agent
+dispatches this SYSTEM-context with no visible desktop, and a non-silent
+installer's UI would render nowhere anyone could ever answer it.
+
+No new agent command type needed -- the resolved command gets wrapped in a
+small PowerShell script and dispatched as an ordinary `run_script`, reusing
+the agent's existing generic executor entirely. The worker independently
+re-derives eligibility server-side rather than trusting the dashboard (same
+defense-in-depth precedent `install_patches` already established) --
+verified directly via `curl`, bypassing the UI: the ineligible entry
+correctly 400s, an unknown software name correctly 404s.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via Playwright
+with realistic seeded data (three synthetic software entries inserted
+directly into a real `device_audits` row covering all three eligibility
+cases): the Uninstall button renders for exactly the two eligible entries;
+clicking it dispatches the correct request; and the actual dispatched
+`run_script` payload, read back from the real D1 row, correctly shows
+`/qn /norestart` appended to the MSI entry's uninstall string. `go build`
+clean, worker `tsc --noEmit` and dashboard `vue-tsc -b --force` both
+clean. The actual silent-uninstall execution on a real machine is
+unverified -- same sandbox limitation as the rest of this session's
+Windows-dependent work.
+
+Committed as a second commit on `feature/software-management` rather than
+its own branch -- unlike the prior three features (Elevate, Company Detail
+Page, Reports), this one genuinely extends Software Management itself
+(same dispatch route, same type union, adjacent kebab menu), so stacking it
+is the more correct git hygiene here, not less.
+
 ## Session: 2026-08-10 — Software Management: third-party app updates via winget
 
 Second pick from the fresh Datto RMM gap-analysis pass, after Reports.
