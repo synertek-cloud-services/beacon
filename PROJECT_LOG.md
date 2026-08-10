@@ -1,5 +1,44 @@
 # Beacon — Project Log
 
+## Session: 2026-08-09 — Dedicated Company detail page (issue #77), promoted from the Icebox
+
+While the Elevate credential-fallback work sat waiting on real hardware,
+picked up the next non-hardware-blocked item: `CompaniesPage.vue` managed
+Contacts/Locations/Tokens/Variables/Discovery entirely through an inline
+expandable table row -- exactly the "unwieldy" state the issue's own
+promotion trigger named once Company Variables and Network Discovery both
+became real tabs alongside the original three.
+
+`CompaniesPage.vue` is now list-only (row click -> `/companies/:id`,
+matching the established "list only, row click navigates" convention from
+`ComponentsPage.vue`/`GroupsPage.vue`); everything from the old inline
+expand row -- the 5-tab bar and its Contact/Location/Variable/Token/Install
+modals -- moved verbatim into a new `CompanyDetailPage.vue`. Company
+create/edit deliberately stayed a modal on the list page rather than moving
+or being extracted into a shared component -- small form, no nested
+sub-resources at creation time, not worth a full-page form or the
+duplication of splitting it across two files for no real benefit. No new
+backend route either -- the detail page reuses the existing company-list
+endpoint and finds the row client-side, same "cheap at this scale" call
+already made for a few other things in this codebase. Deliberately kept
+the existing click-swap tab bar rather than porting `DeviceDetailPage.vue`'s
+scroll-spy continuous-page pattern -- that pattern was a real, hard-won
+lesson for a 13-section page; forcing it onto a 5-tab page that already had
+known-good, working tab code would've been risk for no clear payoff.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via standalone
+Playwright (no MCP browser tool this session; reused the no-root Chromium
+trick from earlier in this repo's history -- `apt-get download`/`dpkg -x`
+for libnspr4/libnss3/libasound2t64, `LD_LIBRARY_PATH` pointed at the
+extracted `.so`s) against real pre-existing seed data: list -> detail
+navigation, all 5 tabs switching, a real contact add/list/delete round
+trip, and -- the actual point of a "dedicated page" -- a fresh page load
+directly at the detail URL (not just client-side nav) correctly
+reconstructing full state. Both the list page's new "Devices" row action
+and the detail page's own "View Devices" button land on the same filtered
+device list the old row-click-to-devices behavior used to. 19/19 automated
+checks passed; `vue-tsc -b --force` clean.
+
 ## Session: 2026-08-09 — Elevate's credential-prompt fallback: the split-token path only ever covered half of real UAC
 
 Live report right after PR #125's fix: "elevate worked as designed. UAC
