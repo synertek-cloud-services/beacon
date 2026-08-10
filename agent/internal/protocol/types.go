@@ -287,6 +287,13 @@ type SoftwareItem struct {
 	Version     string `json:"version"`
 	Publisher   string `json:"publisher"`
 	InstalledAt string `json:"installed_at"`
+	// UninstallString/QuietUninstallString are the same registry values
+	// Windows' own "Programs and Features" reads (HKLM...\Uninstall\<key>) --
+	// Windows-only, both empty on Linux/macOS. See CLAUDE.md's Software
+	// Uninstall section for how the worker uses these to decide whether a
+	// silent, unattended uninstall is actually possible for a given entry.
+	UninstallString      string `json:"uninstall_string,omitempty"`
+	QuietUninstallString string `json:"quiet_uninstall_string,omitempty"`
 }
 
 type ServiceItem struct {

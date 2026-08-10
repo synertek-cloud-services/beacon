@@ -611,7 +611,16 @@ export interface HardwareInfo {
   // empty on bare metal or when undetectable.
   virtualization?: string
 }
-export interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
+export interface SoftwareItem {
+  name: string; version: string; publisher: string; installed_at: string;
+  // Windows-only, both empty on Linux/macOS/an old pre-upgrade agent build.
+  // See DeviceDetailPage.vue's softwareUninstallEligible() for how these
+  // decide whether the Uninstall button even appears -- the worker
+  // independently re-derives the same eligibility at dispatch time, this is
+  // just for not showing a button that would only ever get rejected.
+  uninstall_string?: string;
+  quiet_uninstall_string?: string;
+}
 export interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }
 export interface AVEntry      { name: string; enabled: boolean; up_to_date: boolean }
 export interface SecurityInfo { antivirus: AVEntry[]; firewall_enabled: boolean }
@@ -1361,7 +1370,7 @@ export const api = {
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[] }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[]; software_name?: string }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
     },
     maintenance: {

@@ -106,7 +106,7 @@ func collectSoftwareWindows() ([]protocol.SoftwareItem, error) {
 		'HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
 	) | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } |
 	Where-Object { $_.DisplayName } |
-	Select-Object DisplayName,DisplayVersion,Publisher,InstallDate |
+	Select-Object DisplayName,DisplayVersion,Publisher,InstallDate,UninstallString,QuietUninstallString |
 	ConvertTo-Json -Compress`
 
 	out, err := exec.CommandContext(ctx,
@@ -124,10 +124,12 @@ func collectSoftwareWindows() ([]protocol.SoftwareItem, error) {
 	}
 
 	type psItem struct {
-		DisplayName    string `json:"DisplayName"`
-		DisplayVersion string `json:"DisplayVersion"`
-		Publisher      string `json:"Publisher"`
-		InstallDate    string `json:"InstallDate"`
+		DisplayName          string `json:"DisplayName"`
+		DisplayVersion       string `json:"DisplayVersion"`
+		Publisher            string `json:"Publisher"`
+		InstallDate          string `json:"InstallDate"`
+		UninstallString      string `json:"UninstallString"`
+		QuietUninstallString string `json:"QuietUninstallString"`
 	}
 
 	var items []psItem
@@ -152,10 +154,12 @@ func collectSoftwareWindows() ([]protocol.SoftwareItem, error) {
 		}
 		seen[strings.ToLower(name)] = true
 		result = append(result, protocol.SoftwareItem{
-			Name:        name,
-			Version:     strings.TrimSpace(it.DisplayVersion),
-			Publisher:   strings.TrimSpace(it.Publisher),
-			InstalledAt: strings.TrimSpace(it.InstallDate),
+			Name:                 name,
+			Version:              strings.TrimSpace(it.DisplayVersion),
+			Publisher:            strings.TrimSpace(it.Publisher),
+			InstalledAt:          strings.TrimSpace(it.InstallDate),
+			UninstallString:      strings.TrimSpace(it.UninstallString),
+			QuietUninstallString: strings.TrimSpace(it.QuietUninstallString),
 		})
 	}
 	return result, nil

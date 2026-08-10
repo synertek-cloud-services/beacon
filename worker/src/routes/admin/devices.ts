@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc, and, inArray, isNull } from 'drizzle-orm';
+import { eq, desc, and, inArray, isNull, isNotNull } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
@@ -196,11 +196,13 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
     update_ids?: string[];
+    package_ids?: string[];
+    software_name?: string;
   }>();
 
   let cmdType = 'run_script';
@@ -247,6 +249,44 @@ adminDevices.post('/:id/commands', async (c) => {
     if (!approved.length) return c.json({ error: 'none of the given update_ids are approved' }, 400);
     cmdType = 'install_patches';
     payload = { update_ids: approved.map(a => a.updateId) };
+  } else if (body.type === 'manage_software') {
+    // No worker-side package-ID catalog/validation -- there's no catalog at
+    // all (see wingetupdate's own doc comment for why: winget's own package
+    // database does that job, Beacon doesn't maintain one). A bad ID just
+    // fails that one winget invocation with real winget error output the
+    // technician reads back in Command History, same as a bad run_script
+    // command would. The only real guard here is a sanity cap against a
+    // mistakenly huge paste, not injection prevention -- args reach the
+    // agent's exec.CommandContext as a slice, never a shell, so there's no
+    // shell-interpolation risk to defend against in the first place.
+    const packageIds = (body.package_ids ?? []).map(id => id.trim()).filter(Boolean);
+    if (packageIds.length > 50) return c.json({ error: 'too many package_ids (max 50)' }, 400);
+    cmdType = 'manage_software';
+    payload = { package_ids: packageIds };
+  } else if (body.type === 'uninstall_software') {
+    // Re-fetches the device's own latest audit server-side rather than
+    // trusting a raw uninstall command from the dashboard -- same "the
+    // dashboard only ever offers eligible ones, but this is a real,
+    // consequential action on a live machine, worth defense in depth"
+    // reasoning install_patches already established. software_name is the
+    // only thing the caller supplies; the actual command is looked up here.
+    if (!body.software_name) return c.json({ error: 'software_name is required' }, 400);
+    const audit = await db.select({ software: schema.deviceAudits.software })
+      .from(schema.deviceAudits)
+      .where(and(eq(schema.deviceAudits.deviceId, deviceId), isNotNull(schema.deviceAudits.software)))
+      .orderBy(desc(schema.deviceAudits.createdAt))
+      .limit(1)
+      .get();
+    let items: { name: string; uninstall_string?: string; quiet_uninstall_string?: string }[] = [];
+    try { items = audit?.software ? JSON.parse(audit.software) : []; } catch { /* fall through to not-found below */ }
+    const item = items.find(i => i.name === body.software_name);
+    if (!item) return c.json({ error: 'software entry not found in the latest audit' }, 404);
+    const uninstallCommand = resolveUninstallCommand(item);
+    if (!uninstallCommand) {
+      return c.json({ error: 'no silent/quiet uninstall command is available for this software -- Beacon only offers unattended uninstall for MSI-based installs or ones exposing a QuietUninstallString' }, 400);
+    }
+    cmdType = 'run_script';
+    payload = { shell: 'powershell', script: buildUninstallScript(uninstallCommand), timeout_seconds: 600 };
   } else if (body.type === 'uninstall_agent') {
     // Agent dispatches on this literal command type (agent/cmd/agent/main.go)
     // -- service.SelfUninstall() removes the service registration and the
@@ -361,5 +401,42 @@ adminDevices.get('/:id/audit/changes', async (c) => {
 
   return c.json(rows);
 });
+
+// resolveUninstallCommand decides whether an unattended, silent uninstall is
+// actually possible for a given software entry -- matches Datto RMM's own
+// documented real limitation ("the option to uninstall will not be
+// available for certain applications if Datto RMM was unable to resolve
+// the uninstall command"), not a lesser feature. Anything without a
+// QuietUninstallString and not msiexec-based is refused outright, since the
+// agent dispatches this as a SYSTEM-context/Session-0 command with no
+// visible desktop -- a non-silent installer's UI would render nowhere
+// anyone could ever answer it, potentially hanging indefinitely.
+function resolveUninstallCommand(item: { uninstall_string?: string; quiet_uninstall_string?: string }): string | null {
+  if (item.quiet_uninstall_string) return item.quiet_uninstall_string;
+  if (item.uninstall_string && /msiexec/i.test(item.uninstall_string)) {
+    const alreadyQuiet = /\/qn\b|\/quiet\b/i.test(item.uninstall_string);
+    return alreadyQuiet ? item.uninstall_string : `${item.uninstall_string} /qn /norestart`;
+  }
+  return null;
+}
+
+// buildUninstallScript wraps the resolved command in a small PowerShell
+// script (dispatched as a normal run_script, reusing the agent's existing
+// executor rather than a new command type) -- cmd.exe /c is what actually
+// runs it, since a registry UninstallString's own syntax already assumes
+// cmd-style invocation (the same mechanism Windows' own Programs and
+// Features uses). The command reaches cmd.exe via a single PowerShell
+// string variable, not string-concatenated into the script text directly,
+// so only PowerShell's own single-quote escaping (doubling '') is needed --
+// no outer shell-argument quoting to worry about, since writeTempScript
+// (agent-side) writes this as real file content, never a command-line arg.
+function buildUninstallScript(command: string): string {
+  const escaped = command.replace(/'/g, "''");
+  return [
+    `$cmd = '${escaped}'`,
+    `$p = Start-Process -FilePath cmd.exe -ArgumentList '/c', $cmd -Wait -PassThru -WindowStyle Hidden`,
+    `exit $p.ExitCode`,
+  ].join('\n');
+}
 
 export default adminDevices;

@@ -1,5 +1,106 @@
 # Beacon — Project Log
 
+## Session: 2026-08-10 — Software Uninstall: the existing read-only Software list gains a real action
+
+Third pick from the fresh Datto RMM gap-analysis pass. The Device Detail
+Software section (already existing, registry-audit-backed) was display-only
+-- a technician could see what's installed but never act on it. Datto's own
+real Software card supports exactly this: uninstall directly from the
+device summary, a silent removal not visible to the end user. Confirmed via
+research before building, not assumed.
+
+Eligibility is deliberately narrow, matching a real, documented Datto
+limitation rather than inventing a lesser feature -- their own docs say
+outright that uninstall isn't available for every application if they can't
+resolve a real uninstall command. `agent/internal/audit/software.go`'s
+Windows collector now also captures each registry Uninstall entry's
+`UninstallString`/`QuietUninstallString`. An entry is only offered for
+uninstall with a `QuietUninstallString` (vendor-supplied, already silent)
+or an `msiexec`-based `UninstallString` (where `/qn /norestart` can be
+reliably appended) -- anything else gets no button at all, since the agent
+dispatches this SYSTEM-context with no visible desktop, and a non-silent
+installer's UI would render nowhere anyone could ever answer it.
+
+No new agent command type needed -- the resolved command gets wrapped in a
+small PowerShell script and dispatched as an ordinary `run_script`, reusing
+the agent's existing generic executor entirely. The worker independently
+re-derives eligibility server-side rather than trusting the dashboard (same
+defense-in-depth precedent `install_patches` already established) --
+verified directly via `curl`, bypassing the UI: the ineligible entry
+correctly 400s, an unknown software name correctly 404s.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via Playwright
+with realistic seeded data (three synthetic software entries inserted
+directly into a real `device_audits` row covering all three eligibility
+cases): the Uninstall button renders for exactly the two eligible entries;
+clicking it dispatches the correct request; and the actual dispatched
+`run_script` payload, read back from the real D1 row, correctly shows
+`/qn /norestart` appended to the MSI entry's uninstall string. `go build`
+clean, worker `tsc --noEmit` and dashboard `vue-tsc -b --force` both
+clean. The actual silent-uninstall execution on a real machine is
+unverified -- same sandbox limitation as the rest of this session's
+Windows-dependent work.
+
+Committed as a second commit on `feature/software-management` rather than
+its own branch -- unlike the prior three features (Elevate, Company Detail
+Page, Reports), this one genuinely extends Software Management itself
+(same dispatch route, same type union, adjacent kebab menu), so stacking it
+is the more correct git hygiene here, not less.
+
+## Session: 2026-08-10 — Software Management: third-party app updates via winget
+
+Second pick from the fresh Datto RMM gap-analysis pass, after Reports.
+Datto's real Software Management module patches common third-party apps
+(Chrome, Firefox, Adobe Reader, etc.) beyond Patch Management's
+Windows-Update-only scope.
+
+The real fork, confirmed via AskUserQuestion: **winget-based, not a
+hand-rolled catalog**. Datto's own approach maintains an internal ~200+ app
+catalog with per-app installer/version-detection logic -- real, ongoing
+maintenance burden Beacon would otherwise own forever. Windows Package
+Manager (built into modern Windows 10/11) already has a huge, externally-
+maintained package database with its own detection (`winget upgrade`) and
+silent-install (`winget upgrade --id <id> --silent`) support, so Beacon
+leans on that instead of building a parallel one. **Simple opt-in sweep,
+no new policy type** -- v1 is one dispatched action reusing the existing
+`commands` mechanism directly (same one-shot shape `install_patches`/
+`network_scan` already use), not a new Software-Policy table/cron/UI. A
+scheduled/targeted policy is a natural fast-follow, mirroring how Patch
+Policy itself came after plain manual patch approval.
+
+One more real design call: **no structured per-package result parsing**.
+`wuinstall` gets away with PowerShell+`ConvertTo-Json`, a real reliable
+structured-output contract -- winget is a plain CLI with no guaranteed
+stable machine-readable mode across every installed version, and this
+sandbox has no winget install to verify a hand-parsed format against.
+`agent/internal/wingetupdate.Upgrade()` surfaces winget's own real output
+verbatim through the existing generic Command History Stdout display
+instead of guessing at a schema.
+
+New `manage_software` command type, wired through `agent/cmd/agent/main.go`
+(same shape as `install_patches`/`manage_windows_update`) and
+`POST /v1/admin/devices/:id/commands` (optional `package_ids`, no
+worker-side catalog validation -- there's no catalog to validate against --
+just a sanity cap against a mistakenly huge paste, not an injection
+guard, since argv reaches `exec.CommandContext` as a slice, never a
+shell). `DeviceDetailPage.vue`'s kebab menu gained "Update Software
+(winget)," shown only for Windows devices, no allowlist UI yet.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via
+standalone Playwright: the kebab item's Windows-only gating, the real
+dispatched request body, and the resulting Command History row all
+confirmed against real D1. `go build`/cross-compile clean for
+windows/linux/darwin, worker `tsc --noEmit` and dashboard
+`vue-tsc -b --force` both clean. The actual `winget upgrade` execution
+itself is unverified -- no real Windows machine (with or without winget)
+in this sandbox.
+
+Committed on its own `feature/software-management` branch off a clean
+`main`, same discipline as Reports and the two prior features -- four
+independent branches now exist locally (`feature/elevate-credential-
+fallback`, `feature/company-detail-page`, `feature/reports`,
+`feature/software-management`), none pushed, `main` untouched throughout.
+
 ## Session: 2026-08-10 — Reports: on-demand CSV exports (Device Inventory, Patch Compliance, Alert History)
 
 Ran a fresh gap-analysis pass against Datto RMM's current feature set (real
