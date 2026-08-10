@@ -11,7 +11,7 @@
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="pasteOpen = !pasteOpen">Paste</button>
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="toggleFullscreen">Fullscreen</button>
         <button class="btn btn-ghost btn-sm" :disabled="!canElevate || elevating" @click="elevate"
-          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Reconnect with elevated (admin) input control — needed to interact with UAC prompts or other elevated windows, not just see them'">
+          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Reconnect with elevated (admin) input control — needed to interact with UAC prompts or other elevated windows, not just see them. Uses the logged-in user\'s own admin rights if they have any, otherwise falls back to this company\'s CV_LOCAL_ADMIN_USERNAME/CV_LOCAL_ADMIN_PASSWORD Company Variables if configured.'">
           {{ elevating ? 'Elevating…' : 'Elevate' }}
         </button>
         <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
