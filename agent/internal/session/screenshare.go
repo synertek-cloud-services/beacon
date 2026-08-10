@@ -40,7 +40,12 @@ var screenShareBinary []byte
 // elevated would mean every Web Remote session runs with full admin
 // rights on the target, a real security-posture cost for a capability
 // most sessions never need.
-func runScreenShare(sessionID, wsURL string, elevated bool) {
+//
+// adminUsername/adminPassword are the fallback for the realistic common
+// case where the logged-in user isn't a split-token administrator at all
+// (no linked token to escalate with, ErrElevationNotAvailable) -- see
+// launchScreenShare.
+func runScreenShare(sessionID, wsURL string, elevated bool, adminUsername, adminPassword string) {
 	exePath, err := extractScreenShareIfStale()
 	if err != nil {
 		log.Printf("session %s: screen share: %v", sessionID, err)
@@ -52,12 +57,7 @@ func runScreenShare(sessionID, wsURL string, elevated bool) {
 		"--ws-url=" + wsURL,
 	}
 
-	launch := usersession.RunAsActiveUser
-	if elevated {
-		launch = usersession.RunAsActiveUserElevated
-	}
-
-	pid, err := launch(exePath, args)
+	pid, err := launchScreenShare(exePath, args, elevated, adminUsername, adminPassword)
 	if err != nil {
 		switch {
 		case errors.Is(err, usersession.ErrNoActiveSession):
@@ -67,22 +67,56 @@ func runScreenShare(sessionID, wsURL string, elevated bool) {
 			// nothing needs to travel back over this path.
 			log.Printf("session %s: screen share: no active console session", sessionID)
 		case errors.Is(err, usersession.ErrElevationNotAvailable):
-			// Not an administrator, or UAC disabled -- expected, common,
-			// not a crash. Same "the browser's own connect timeout
-			// surfaces this" reasoning as the no-active-session case
-			// above: there's no way for the worker to have known ahead of
-			// time whether this would work, and building a fast explicit
-			// failure round trip for one button is new protocol machinery
-			// this feature doesn't otherwise need. errors.Is, not direct
-			// equality -- runAsToken wraps this sentinel with %w alongside
-			// the underlying GetLinkedToken error for context.
+			// Not an administrator, or UAC disabled, and no fallback
+			// credentials were available either -- expected, common, not a
+			// crash. Same "the browser's own connect timeout surfaces
+			// this" reasoning as the no-active-session case above: there's
+			// no way for the worker to have known ahead of time whether
+			// this would work, and building a fast explicit failure round
+			// trip for one button is new protocol machinery this feature
+			// doesn't otherwise need. errors.Is, not direct equality --
+			// runAsToken wraps this sentinel with %w alongside the
+			// underlying GetLinkedToken error for context.
 			log.Printf("session %s: screen share: elevation not available: %v", sessionID, err)
+		case errors.Is(err, usersession.ErrInvalidCredentials):
+			// The configured CV_LOCAL_ADMIN_USERNAME/PASSWORD were rejected
+			// by Windows -- stale/misconfigured, not a crash. Same
+			// non-fatal treatment, same connect-timeout surfacing.
+			log.Printf("session %s: screen share: configured admin credentials rejected: %v", sessionID, err)
 		default:
 			log.Printf("session %s: screen share launch: %v", sessionID, err)
 		}
 		return
 	}
 	log.Printf("session %s: launched beacon-screenshare pid %d (elevated=%v)", sessionID, pid, elevated)
+}
+
+// launchScreenShare picks the right usersession launch path. For an
+// elevated request it tries the free split-token path first
+// (RunAsActiveUserElevated -- Windows' UAC *consent*-prompt equivalent,
+// instant, no credentials needed) since an already-admin logged-in user is
+// the cheapest, most common case. Only when that specifically reports
+// ErrElevationNotAvailable, and an admin username/password were actually
+// supplied (resolved server-side from that device's Company Variables,
+// CV_LOCAL_ADMIN_USERNAME/CV_LOCAL_ADMIN_PASSWORD -- see
+// worker/src/routes/sessions.ts), does it fall back to
+// RunAsActiveUserWithCredentials, Beacon's equivalent of the UAC
+// *credential* prompt a standard, non-admin user actually sees. A
+// standard-user device with no configured fallback credentials still fails
+// exactly as it did before this fallback existed.
+func launchScreenShare(exePath string, args []string, elevated bool, adminUsername, adminPassword string) (uint32, error) {
+	if !elevated {
+		return usersession.RunAsActiveUser(exePath, args)
+	}
+	pid, err := usersession.RunAsActiveUserElevated(exePath, args)
+	if err == nil || !errors.Is(err, usersession.ErrElevationNotAvailable) {
+		return pid, err
+	}
+	if adminUsername == "" || adminPassword == "" {
+		return 0, err
+	}
+	log.Printf("screen share: no linked token available, falling back to configured admin credentials")
+	return usersession.RunAsActiveUserWithCredentials(exePath, args, adminUsername, adminPassword)
 }
 
 // extractScreenShareIfStale writes the embedded beacon-screenshare.exe

@@ -5,6 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { generateToken, sha256hex } from '../lib/crypto';
+import { fetchCompanyVariables } from '../lib/companyVariables';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
 
@@ -68,6 +69,26 @@ sessions.post('/', async (c) => {
     clientAuthHash: await sha256hex(clientAuthToken),
   });
 
+  // Credential-based elevation fallback: for the realistic common case
+  // where the logged-in user isn't a split-token administrator at all (no
+  // linked token for the agent's free GetLinkedToken path), resolve a
+  // configured fallback admin account from this device's Company
+  // Variables/Secrets — fixed key names, same CV_ convention as
+  // Credentialed Network Discovery's CV_SNMP_COMMUNITY/CV_SSH_* rather
+  // than a new picker UI. Only looked up when actually requested — most
+  // Elevate clicks never need this. Resolved and decrypted here, then
+  // embedded in cleartext in the queued command's payload — same
+  // exposure window CV_ secrets already have for Job dispatch
+  // (insertJobCommands), not a new pattern.
+  let elevateAdminUsername: string | undefined;
+  let elevateAdminPassword: string | undefined;
+  if (body.elevated && body.session_type === 'screen_share') {
+    const companyVars = await fetchCompanyVariables(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, [body.company_id]);
+    const vars = companyVars.get(body.company_id) ?? {};
+    elevateAdminUsername = vars['CV_LOCAL_ADMIN_USERNAME'];
+    elevateAdminPassword = vars['CV_LOCAL_ADMIN_PASSWORD'];
+  }
+
   // Signal the agent via the existing command channel — agent picks it up on next check-in
   await db.insert(schema.commands).values({
     id: crypto.randomUUID(),
@@ -80,6 +101,9 @@ sessions.post('/', async (c) => {
       ws_url: agentWsUrl,
       tcp_port: body.tcp_port ?? 0,
       elevated: body.elevated ?? false,
+      ...(elevateAdminUsername && elevateAdminPassword
+        ? { elevate_admin_username: elevateAdminUsername, elevate_admin_password: elevateAdminPassword }
+        : {}),
     }),
     createdAt: now,
   });

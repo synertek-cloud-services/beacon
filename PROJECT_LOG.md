@@ -101,6 +101,119 @@ independent branches now exist locally (`feature/elevate-credential-
 fallback`, `feature/company-detail-page`, `feature/reports`,
 `feature/software-management`), none pushed, `main` untouched throughout.
 
+## Session: 2026-08-09 — Dedicated Company detail page (issue #77), promoted from the Icebox
+
+While the Elevate credential-fallback work sat waiting on real hardware,
+picked up the next non-hardware-blocked item: `CompaniesPage.vue` managed
+Contacts/Locations/Tokens/Variables/Discovery entirely through an inline
+expandable table row -- exactly the "unwieldy" state the issue's own
+promotion trigger named once Company Variables and Network Discovery both
+became real tabs alongside the original three.
+
+`CompaniesPage.vue` is now list-only (row click -> `/companies/:id`,
+matching the established "list only, row click navigates" convention from
+`ComponentsPage.vue`/`GroupsPage.vue`); everything from the old inline
+expand row -- the 5-tab bar and its Contact/Location/Variable/Token/Install
+modals -- moved verbatim into a new `CompanyDetailPage.vue`. Company
+create/edit deliberately stayed a modal on the list page rather than moving
+or being extracted into a shared component -- small form, no nested
+sub-resources at creation time, not worth a full-page form or the
+duplication of splitting it across two files for no real benefit. No new
+backend route either -- the detail page reuses the existing company-list
+endpoint and finds the row client-side, same "cheap at this scale" call
+already made for a few other things in this codebase. Deliberately kept
+the existing click-swap tab bar rather than porting `DeviceDetailPage.vue`'s
+scroll-spy continuous-page pattern -- that pattern was a real, hard-won
+lesson for a 13-section page; forcing it onto a 5-tab page that already had
+known-good, working tab code would've been risk for no clear payoff.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via standalone
+Playwright (no MCP browser tool this session; reused the no-root Chromium
+trick from earlier in this repo's history -- `apt-get download`/`dpkg -x`
+for libnspr4/libnss3/libasound2t64, `LD_LIBRARY_PATH` pointed at the
+extracted `.so`s) against real pre-existing seed data: list -> detail
+navigation, all 5 tabs switching, a real contact add/list/delete round
+trip, and -- the actual point of a "dedicated page" -- a fresh page load
+directly at the detail URL (not just client-side nav) correctly
+reconstructing full state. Both the list page's new "Devices" row action
+and the detail page's own "View Devices" button land on the same filtered
+device list the old row-click-to-devices behavior used to. 19/19 automated
+checks passed; `vue-tsc -b --force` clean.
+
+## Session: 2026-08-09 — Elevate's credential-prompt fallback: the split-token path only ever covered half of real UAC
+
+Live report right after PR #125's fix: "elevate worked as designed. UAC
+prompted the user and when they accept the tech gets control of the admin
+powershell. The problem is the user is [not] typically going to be an
+admin -- the technician needs to be prompted for admin creds." A real,
+structural scope gap, not a bug -- Windows UAC actually has two distinct
+prompts, and `RunAsSessionElevated`'s `GetLinkedToken` path only ever
+implemented the **consent** (Yes/No) prompt a split-token administrator
+sees. A standard, non-admin logged-in user -- the realistic common case for
+a managed endpoint -- has no linked token at all (`ErrElevationNotAvailable`)
+and would see Windows' own **credential** prompt instead (a *different*
+admin account's username+password). Beacon had no equivalent of that
+second prompt.
+
+Scoped via AskUserQuestion before building, both recommended defaults
+picked: admin credentials live in Company Variables/Secrets (new fixed keys
+`CV_LOCAL_ADMIN_USERNAME`/`CV_LOCAL_ADMIN_PASSWORD`, same fixed-key
+convention as Credentialed Network Discovery's `CV_SNMP_COMMUNITY`/
+`CV_SSH_*` rather than a per-click prompt), and the fallback is automatic
+-- always try the free `GetLinkedToken` path first, only fall back to
+configured credentials on `ErrElevationNotAvailable`.
+
+New mechanism, not a variant of the existing one: `usersession.
+RunAsSessionWithCredentials` obtains a token via `LogonUserW` against the
+supplied credentials instead of `WTSQueryUserToken`. Deliberately not
+`CreateProcessWithLogonW` (what "Run as different user" itself calls) --
+that API expects to run from an already-interactive process inside the
+target session and has real documented desktop-attachment failure modes
+called from a Session-0 service. Instead it reuses `launchWithToken`, the
+exact `DuplicateTokenEx`/`CreateEnvironmentBlock`/`CreateProcessAsUser`
+sequence already proven on real hardware for the non-credential paths
+(extracted out of `runAsToken` verbatim, zero behavior change for the
+already-verified callers) -- with one addition: a `LogonUserW` token isn't
+tied to any Terminal Services session the way `WTSQueryUserToken`'s result
+already is, so its `TokenSessionId` is explicitly overwritten via
+`SetTokenInformation`, which needs `SE_TCB_NAME` explicitly *enabled*
+first (`enableTcbPrivilege`, standard `OpenProcessToken`/
+`LookupPrivilegeValue`/`AdjustTokenPrivileges` sequence) -- a distinct
+requirement from whatever internal check `WTSQueryUserToken` already
+passes without that call. `LogonUserW` itself isn't wrapped by
+`golang.org/x/sys/windows` (confirmed by inspecting the pinned v0.23.0
+source), so it's called via the same `NewLazySystemDLL`/`NewProc` pattern
+already established for GDI/`SendInput` in `agent/internal/win32` -- kept
+local to `usersession_windows.go` instead of added to that package, since
+`win32`'s own doc comment scopes it to screen-capture/injection
+specifically.
+
+Wire-through: `open_session` payload gained `elevate_admin_username`/
+`elevate_admin_password` (omitempty, always together); `POST /v1/sessions`
+resolves them from Company Variables via the existing `fetchCompanyVariables`
+helper only when `elevated && session_type === 'screen_share'`, same
+plaintext-briefly-in-`commands.payload` exposure window Company Variable
+secrets already accept for Job dispatch, not a new pattern. No new
+`sessions` table column -- same one-shot-dispatch-instruction reasoning as
+`elevated` itself. `ErrInvalidCredentials` (wrong password, unknown/
+disabled account) gets the same non-fatal, connect-timeout-surfaces-it
+treatment as the two existing sentinels. `WebRemotePage.vue`'s Elevate
+button tooltip now mentions the fallback for discoverability -- no natural
+settings-tab home for this the way Network Discovery's toggles have one.
+
+**GENUINELY FRAGILE, not yet verified on real hardware** -- same category
+as the SES SigV4 signer and the `SendInput` `INPUT` struct layout, same
+sandbox limitation as the rest of this feature area. The `TokenSessionId`
+override is the piece most likely to need revisiting if this doesn't work
+in practice. Verified what's checkable: `go build`/`go vet` clean natively
+and cross-compiled windows/linux/darwin (confirms `LogonUserW`/
+`SetTokenInformation`/`AdjustTokenPrivileges` all resolve against the
+pinned `x/sys/windows` surface), the `runAsToken`→`launchWithToken`
+extraction is byte-for-byte unchanged from the already-hardware-verified
+sequence, worker `tsc --noEmit` clean, dashboard `vue-tsc -b` clean. No
+embedded-binary rebuild needed -- `beacon-screenshare.exe` itself is
+unchanged, only launched via a different token.
+
 ## Session: 2026-08-09 — Elevate button's first real click: a stale-event race, not an agent bug
 
 Reported live on the very first try: "elevate goes back to trying to
