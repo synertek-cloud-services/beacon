@@ -1,5 +1,59 @@
 # Beacon — Project Log
 
+## Session: 2026-08-10 — Software Management: third-party app updates via winget
+
+Second pick from the fresh Datto RMM gap-analysis pass, after Reports.
+Datto's real Software Management module patches common third-party apps
+(Chrome, Firefox, Adobe Reader, etc.) beyond Patch Management's
+Windows-Update-only scope.
+
+The real fork, confirmed via AskUserQuestion: **winget-based, not a
+hand-rolled catalog**. Datto's own approach maintains an internal ~200+ app
+catalog with per-app installer/version-detection logic -- real, ongoing
+maintenance burden Beacon would otherwise own forever. Windows Package
+Manager (built into modern Windows 10/11) already has a huge, externally-
+maintained package database with its own detection (`winget upgrade`) and
+silent-install (`winget upgrade --id <id> --silent`) support, so Beacon
+leans on that instead of building a parallel one. **Simple opt-in sweep,
+no new policy type** -- v1 is one dispatched action reusing the existing
+`commands` mechanism directly (same one-shot shape `install_patches`/
+`network_scan` already use), not a new Software-Policy table/cron/UI. A
+scheduled/targeted policy is a natural fast-follow, mirroring how Patch
+Policy itself came after plain manual patch approval.
+
+One more real design call: **no structured per-package result parsing**.
+`wuinstall` gets away with PowerShell+`ConvertTo-Json`, a real reliable
+structured-output contract -- winget is a plain CLI with no guaranteed
+stable machine-readable mode across every installed version, and this
+sandbox has no winget install to verify a hand-parsed format against.
+`agent/internal/wingetupdate.Upgrade()` surfaces winget's own real output
+verbatim through the existing generic Command History Stdout display
+instead of guessing at a schema.
+
+New `manage_software` command type, wired through `agent/cmd/agent/main.go`
+(same shape as `install_patches`/`manage_windows_update`) and
+`POST /v1/admin/devices/:id/commands` (optional `package_ids`, no
+worker-side catalog validation -- there's no catalog to validate against --
+just a sanity cap against a mistakenly huge paste, not an injection
+guard, since argv reaches `exec.CommandContext` as a slice, never a
+shell). `DeviceDetailPage.vue`'s kebab menu gained "Update Software
+(winget)," shown only for Windows devices, no allowlist UI yet.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via
+standalone Playwright: the kebab item's Windows-only gating, the real
+dispatched request body, and the resulting Command History row all
+confirmed against real D1. `go build`/cross-compile clean for
+windows/linux/darwin, worker `tsc --noEmit` and dashboard
+`vue-tsc -b --force` both clean. The actual `winget upgrade` execution
+itself is unverified -- no real Windows machine (with or without winget)
+in this sandbox.
+
+Committed on its own `feature/software-management` branch off a clean
+`main`, same discipline as Reports and the two prior features -- four
+independent branches now exist locally (`feature/elevate-credential-
+fallback`, `feature/company-detail-page`, `feature/reports`,
+`feature/software-management`), none pushed, `main` untouched throughout.
+
 ## Session: 2026-08-09 — Elevate button's first real click: a stale-event race, not an agent bug
 
 Reported live on the very first try: "elevate goes back to trying to

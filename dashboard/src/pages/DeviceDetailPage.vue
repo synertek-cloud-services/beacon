@@ -119,6 +119,12 @@
               </svg>
               Install Approved Patches ({{ eligiblePatchInstallIds.length }})
             </button>
+            <button v-if="isWindows(device)" class="kebab-item" :disabled="device.status !== 'approved'" @click="updateSoftware(device.id)" title="Runs winget upgrade --all on this device">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Update Software (winget)
+            </button>
             <button v-if="isInMaintenance(device)" class="kebab-item" @click="endMaintenance(device.id)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="9"/>
@@ -1770,6 +1776,23 @@ async function installApprovedPatches(deviceId: string) {
   if (!eligiblePatchInstallIds.value.length) return;
   try {
     await api.devices.commands.create(deviceId, { type: 'install_patches', update_ids: eligiblePatchInstallIds.value });
+    showJobQueued();
+    loadDeviceCommands();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+}
+
+// Simple opt-in sweep, no catalog/allowlist UI, no new policy type --
+// confirmed via AskUserQuestion. Always upgrades every out-of-date winget
+// package on the device; the underlying command does accept a
+// package_ids allowlist (see worker/src/routes/admin/devices.ts), but v1
+// has no dashboard surface for it, matching "simple opt-in sweep" over a
+// full Software Policy.
+async function updateSoftware(deviceId: string) {
+  menuOpen.value = false;
+  try {
+    await api.devices.commands.create(deviceId, { type: 'manage_software' });
     showJobQueued();
     loadDeviceCommands();
   } catch (e: any) {

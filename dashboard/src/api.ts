@@ -1335,7 +1335,7 @@ export const api = {
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[] }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[] }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
     },
     maintenance: {

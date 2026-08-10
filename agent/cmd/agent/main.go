@@ -28,6 +28,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/session"
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/updater"
+	"github.com/synertek-cloud-services/beacon/agent/internal/wingetupdate"
 	"github.com/synertek-cloud-services/beacon/agent/internal/wuinstall"
 )
 
@@ -611,6 +612,42 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 					summary, _ := json.Marshal(res)
 					stdout = string(summary)
 					log.Printf("manage_windows_update finished: applied=%v", res.Applied)
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if cmd.Type == "manage_software" {
+				var payload struct {
+					PackageIDs []string `json:"package_ids"`
+				}
+				status := "completed"
+				var stdout, stderr string
+				if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("invalid payload: %v", err)
+				} else {
+					log.Printf("manage_software received: %d package id(s)", len(payload.PackageIDs))
+					res := wingetupdate.Upgrade(payload.PackageIDs)
+					if res.Error != "" {
+						status = "failed"
+						stderr = res.Error
+					} else if !res.AllOK {
+						status = "failed"
+						stderr = "one or more winget invocations failed -- see stdout for the full output"
+					}
+					stdout = res.Output
+					log.Printf("manage_software finished: all_ok=%v", res.AllOK)
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{
