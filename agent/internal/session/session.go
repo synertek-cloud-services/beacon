@@ -17,6 +17,16 @@ type openPayload struct {
 	// sessions only -- see screenshare.go's runScreenShare. Ignored by
 	// every other session type.
 	Elevated bool `json:"elevated,omitempty"`
+	// AdminUsername/AdminPassword are the fallback credential-based
+	// elevation path, used only when Elevated is true and the logged-in
+	// user has no linked (split-token admin) token to escalate with --
+	// resolved and decrypted server-side from that device's Company
+	// Variables (CV_LOCAL_ADMIN_USERNAME/CV_LOCAL_ADMIN_PASSWORD) before
+	// this payload is ever built, see worker/src/routes/sessions.ts. Empty
+	// when unset -- most elevation requests never need this, since a
+	// split-token admin's linked token is free and instant.
+	AdminUsername string `json:"elevate_admin_username,omitempty"`
+	AdminPassword string `json:"elevate_admin_password,omitempty"`
 }
 
 // Handle connects to the session relay DO and dispatches to the correct handler.
@@ -39,7 +49,7 @@ func Handle(cmd protocol.Command) {
 	// session, two agent-role sockets would both receive the browser's
 	// bytes and corrupt RFB's strict single-byte-stream protocol.
 	if p.SessionType == "screen_share" {
-		runScreenShare(p.SessionID, p.WSURL, p.Elevated)
+		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.AdminUsername, p.AdminPassword)
 		log.Printf("session %s: closed", p.SessionID)
 		return
 	}

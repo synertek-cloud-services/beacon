@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -35,8 +36,35 @@ var ErrNoActiveSession = errors.New("usersession: no active console session")
 // (elevated) token to launch with -- either the account isn't a member of
 // Administrators, or UAC is disabled entirely (no split-token behavior in
 // either case). Expected and common, same non-fatal treatment as
-// ErrNoActiveSession -- callers must not log this as a crash.
+// ErrNoActiveSession -- callers must not log this as a crash. This is
+// Beacon's equivalent of the Windows UAC *consent* (Yes/No) prompt, which
+// only a split-token administrator ever sees -- RunAsSessionWithCredentials
+// below is the equivalent of the *credential* prompt a standard user sees
+// instead, for when this sentinel is what comes back.
 var ErrElevationNotAvailable = errors.New("usersession: elevation not available for this user (not an administrator, or UAC is disabled)")
+
+// ErrInvalidCredentials means the admin username/password supplied to
+// RunAsSessionWithCredentials were rejected by LogonUserW -- wrong
+// password, unknown account, disabled/locked account, etc. Expected and
+// common (a stale or misconfigured credential), same non-fatal treatment
+// as the two sentinels above -- never a crash.
+var ErrInvalidCredentials = errors.New("usersession: admin credentials rejected")
+
+// golang.org/x/sys/windows wraps neither LogonUserW nor the seclogon-free
+// credential-elevation path this file needs (confirmed by direct
+// inspection of the pinned v0.23.0 source, the same check already made
+// before building agent/internal/win32 for GDI/SendInput) -- so this is
+// the second place this codebase calls a raw Win32 API outside that
+// package's typed wrappers, via the same NewLazySystemDLL/NewProc pattern.
+var (
+	modadvapi32    = windows.NewLazySystemDLL("advapi32.dll")
+	procLogonUserW = modadvapi32.NewProc("LogonUserW")
+)
+
+const (
+	logon32LogonInteractive = 2
+	logon32ProviderDefault  = 0
+)
 
 // RunAsActiveUser launches exe (with args) in the context of whoever is
 // logged into the active *console* session specifically. Kept as a thin
@@ -134,13 +162,193 @@ func runAsToken(sessionID uint32, exe string, args []string, elevated bool) (pid
 		launchToken = linkedToken
 	}
 
+	return launchWithToken(launchToken, exe, args, sessionID)
+}
+
+// RunAsActiveUserWithCredentials is RunAsActiveUser's credential-based
+// counterpart -- see RunAsSessionWithCredentials. Kept console-only,
+// matching RunAsActiveUser/RunAsActiveUserElevated and Web Remote's own
+// existing v1 scoping.
+func RunAsActiveUserWithCredentials(exe string, args []string, username, password string) (pid uint32, err error) {
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		log.Printf("usersession: no active console session")
+		return 0, ErrNoActiveSession
+	}
+	return RunAsSessionWithCredentials(sessionID, exe, args, username, password)
+}
+
+// RunAsSessionWithCredentials launches exe (with args) inside sessionID's
+// desktop under an explicitly-supplied administrator account, rather than
+// whoever is actually logged into that session -- Beacon's equivalent of
+// the Windows UAC *credential* prompt (enter an admin's username+password),
+// for the realistic common case where the logged-in user is a standard,
+// non-admin account and RunAsSessionElevated's GetLinkedToken path has no
+// linked token to use at all (ErrElevationNotAvailable). A split-token
+// admin instead sees a *consent* (Yes/No) prompt -- RunAsSessionElevated
+// already covers that case, and callers should try it first.
+//
+// username may be a bare local account name (treated as `.\username`,
+// i.e. this machine) or `DOMAIN\username` -- LogonUserW's own documented
+// format, so no separate domain parameter is exposed here.
+//
+// Deliberately does NOT use CreateProcessWithLogonW, the API "Run as
+// different user" itself calls under the hood -- that API is designed to
+// be invoked from an already-interactive process running inside the
+// target session (e.g. explorer.exe), and has real, documented
+// desktop-attachment failure modes when called from a Session-0 service
+// like this one. Instead this reuses launchWithToken, the exact
+// DuplicateTokenEx/CreateEnvironmentBlock/CreateProcessAsUser sequence
+// already proven on real hardware by RunAsSession/RunAsSessionElevated
+// above, with one necessary addition: a token WTSQueryUserToken returns is
+// already tied to its session, but a token LogonUserW returns is not --
+// its TokenSessionId is explicitly overwritten to sessionID via
+// SetTokenInformation before duplication. See enableTcbPrivilege's doc
+// comment for why that call needs SE_TCB_NAME explicitly enabled first,
+// separately from whatever implicit privilege check WTSQueryUserToken
+// performs internally elsewhere in this file.
+//
+// GENUINELY FRAGILE, not yet verified on real hardware -- same category as
+// this codebase's other hand-derived Windows internals (the SES SigV4
+// signer, the SendInput INPUT struct layout). If credential-based
+// elevation doesn't work in practice, the TokenSessionId override below is
+// the first thing to re-examine.
+func RunAsSessionWithCredentials(sessionID uint32, exe string, args []string, username, password string) (pid uint32, err error) {
+	domain, user := splitDomainUsername(username)
+	token, err := logonUser(user, domain, password)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrInvalidCredentials, err)
+	}
+	defer token.Close()
+
+	if err := enableTcbPrivilege(); err != nil {
+		return 0, fmt.Errorf("usersession: enable SE_TCB_NAME: %w", err)
+	}
+
+	sid := sessionID
+	if err := windows.SetTokenInformation(
+		token,
+		windows.TokenSessionId,
+		(*byte)(unsafe.Pointer(&sid)),
+		uint32(unsafe.Sizeof(sid)),
+	); err != nil {
+		return 0, fmt.Errorf("usersession: set token session: %w", err)
+	}
+
+	return launchWithToken(token, exe, args, sessionID)
+}
+
+// splitDomainUsername parses LogonUserW's documented `DOMAIN\username`
+// convention, defaulting to "." (this machine) for a bare local account
+// name -- keeps CV_LOCAL_ADMIN_USERNAME a single Company Variable rather
+// than needing a second CV_ key just for domain, matching this codebase's
+// "no more config than needed" convention (e.g. Credentialed Network
+// Discovery's own fixed CV_SNMP_COMMUNITY/CV_SSH_* keys).
+func splitDomainUsername(raw string) (domain, username string) {
+	if idx := strings.IndexByte(raw, '\\'); idx >= 0 {
+		return raw[:idx], raw[idx+1:]
+	}
+	return ".", raw
+}
+
+// logonUser wraps the raw LogonUserW Win32 call with LOGON32_LOGON_INTERACTIVE
+// (a real interactive-equivalent logon, so the resulting token behaves like
+// a normal console logon -- including profile-loading eligibility --
+// rather than a lesser network-logon token) and LOGON32_PROVIDER_DEFAULT.
+func logonUser(username, domain, password string) (windows.Token, error) {
+	u, err := windows.UTF16PtrFromString(username)
+	if err != nil {
+		return 0, fmt.Errorf("encode username: %w", err)
+	}
+	d, err := windows.UTF16PtrFromString(domain)
+	if err != nil {
+		return 0, fmt.Errorf("encode domain: %w", err)
+	}
+	p, err := windows.UTF16PtrFromString(password)
+	if err != nil {
+		return 0, fmt.Errorf("encode password: %w", err)
+	}
+	var token windows.Token
+	r1, _, callErr := procLogonUserW.Call(
+		uintptr(unsafe.Pointer(u)),
+		uintptr(unsafe.Pointer(d)),
+		uintptr(unsafe.Pointer(p)),
+		uintptr(logon32LogonInteractive),
+		uintptr(logon32ProviderDefault),
+		uintptr(unsafe.Pointer(&token)),
+	)
+	if r1 == 0 {
+		return 0, fmt.Errorf("LogonUserW: %w", callErr)
+	}
+	return token, nil
+}
+
+// seTcbPrivilegeName is SE_TCB_NAME, "Act as part of the operating
+// system" -- golang.org/x/sys/windows defines the TokenSessionId info
+// class and SetTokenInformation itself but, like every other named
+// privilege constant, not this string; Windows privilege names are always
+// looked up by name via LookupPrivilegeValue, there is no numeric
+// alternative.
+const seTcbPrivilegeName = "SeTcbPrivilege"
+
+// enableTcbPrivilege enables SE_TCB_NAME on the calling process's own
+// token. The agent's SYSTEM account holds this privilege, but Windows
+// doesn't enable every held privilege by default even for SYSTEM --
+// SetTokenInformation's TokenSessionId check is against the *enabled*
+// privilege list of the calling process's own token, a distinct
+// requirement from whatever internal, separately-privileged check
+// WTSQueryUserToken performs elsewhere in this file (which needs no
+// explicit AdjustTokenPrivileges call to succeed).
+func enableTcbPrivilege() error {
+	self, err := windows.GetCurrentProcess()
+	if err != nil {
+		return fmt.Errorf("get current process: %w", err)
+	}
+	var procToken windows.Token
+	if err := windows.OpenProcessToken(self, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &procToken); err != nil {
+		return fmt.Errorf("open process token: %w", err)
+	}
+	defer procToken.Close()
+
+	namePtr, err := windows.UTF16PtrFromString(seTcbPrivilegeName)
+	if err != nil {
+		return fmt.Errorf("encode privilege name: %w", err)
+	}
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, namePtr, &luid); err != nil {
+		return fmt.Errorf("lookup privilege value: %w", err)
+	}
+
+	tp := windows.Tokenprivileges{
+		PrivilegeCount: 1,
+		Privileges: [1]windows.LUIDAndAttributes{
+			{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED},
+		},
+	}
+	if err := windows.AdjustTokenPrivileges(procToken, false, &tp, 0, nil, nil); err != nil {
+		return fmt.Errorf("adjust token privileges: %w", err)
+	}
+	return nil
+}
+
+// launchWithToken is the shared tail end of runAsToken and
+// RunAsSessionWithCredentials: duplicate the given token into a primary
+// token, build its environment block, and CreateProcessAsUser onto
+// sessionID's desktop. token is expected to already be scoped to
+// sessionID -- WTSQueryUserToken's result always is;
+// RunAsSessionWithCredentials forces this via SetTokenInformation before
+// calling in here. This is byte-for-byte the same sequence
+// RunAsSession/RunAsSessionElevated already used before this function was
+// extracted out of runAsToken -- their own real-hardware verification
+// still covers it.
+func launchWithToken(launchToken windows.Token, exe string, args []string, sessionID uint32) (pid uint32, err error) {
 	// CreateProcessAsUser specifically requires a primary token, not just an
 	// impersonation-level token -- the most common mistake in a hand-rolled
-	// version of this pattern. Duplicated even for the already-elevated
-	// linked token, not just the standard one -- defensive, matching this
-	// function's own existing caution, rather than assuming the linked
-	// token's exact type from documentation alone with no real Windows
-	// hardware here to verify against.
+	// version of this pattern. Duplicated even for an already-elevated
+	// linked token, not just a standard one -- defensive, matching this
+	// function's own existing caution, rather than assuming a token's exact
+	// type from documentation alone with no real Windows hardware here to
+	// verify against.
 	var primaryToken windows.Token
 	if err := windows.DuplicateTokenEx(
 		launchToken,
