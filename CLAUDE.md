@@ -1041,6 +1041,30 @@ So "everything that happens" doesn't depend on remembering to instrument every r
 ### Dashboard: the first genuinely unbounded, account-wide-forever table in this codebase
 Every other "unbounded" list page (`DeviceChangeLogPage.vue`, `JobsPage.vue`) is actually bounded-by-cap client-side pagination over a server `LIMIT`. `GET /v1/admin/activity-log` does real server-side filtering (`company_id`/`actor_id`/`category`/`entity_type`/`entity_id`/`from`/`to`) + pagination (plain `LIMIT`/`OFFSET` + a matching `COUNT(*)`, not keyset/cursor — this project's self-hosted scale doesn't need keyset's complexity, and `LIMIT`/`OFFSET` lets `ActivityLogPage.vue` (`/global/activity`) reuse the existing numbered `.pagination` bar's UI/interaction unchanged, just fetching per-page from the server on every filter/page change instead of pre-loading everything into a `computed()`).
 
+## Reports
+
+On-demand CSV exports, researched against Datto RMM's real Reports feature (PDF reports + CSV exports, both emailed, scheduled or on-demand, generated from the Reports page, a device list, or a device's own summary page) and deliberately reduced for v1, matching this codebase's established pattern of scoping down from Datto's exact feature shape when it doesn't add real value yet.
+
+### Scope decisions (confirmed via AskUserQuestion before implementation)
+- **CSV only, no PDF** — the load-bearing constraint: Cloudflare Workers has no filesystem or Node APIs, so "generate a PDF" isn't a one-liner the way it is in a normal Node backend; it would need a Workers-compatible pure-JS PDF library picked and wired in as new, real scope. CSV is the half of Datto's own reports-vs-exports split that already covers the highest-value case (get fleet data into a spreadsheet) and needs zero new dependency — `worker/src/lib/csv.ts` is a ~15-line RFC 4180 writer, not a library.
+- **On-demand only, no scheduling/email delivery** — Datto's reports can be scheduled and emailed; building that here would need new cron dispatch infra (a `dispatchDueReports`-shaped function, mirroring Patch Policy/Job scheduling) *and* attachment support added to the existing alert-email provider architecture (`worker/src/lib/email/`), which today only ever sends plain HTML/text. Both are natural fast-follows once the report *definitions* themselves prove out, not day-one scope.
+- **Three report types**: Device Inventory, Patch Compliance, Alert History — chosen because each already has a proven, mostly-reusable query shape elsewhere in this codebase (Device Inventory mirrors `DevicesPage.vue`'s own device+company join; Patch Compliance reuses `admin/patches.ts`'s per-approved-device latest-audit fetch loop, aggregated per-device instead of per-update_id; Alert History reuses `admin/alerts.ts`'s exact raw-SQL device/company/monitor/policy join, filtered to a date range instead of "active only"/"last 30 days"). **Software Inventory was considered and deferred** — the largest and sparsest of the four candidate reports (every device's full installed-software list), a real row-count concern at scale that didn't clear the bar for a first pass.
+
+### Worker (`worker/src/routes/admin/reports.ts`, mounted at `/v1/admin/reports`)
+Three `readonly`-role GET routes, matching this codebase's own "GET/list → readonly" convention (this is a read/export surface, not a mutation):
+- `GET /device-inventory?company_id=` — hostname, company, OS, class, agent version, last seen, uptime (from `inventory` JSON's `uptime_seconds`, same field `dashboardData.ts` already reads), external IP, enrolled date. Approved devices only.
+- `GET /patch-compliance?company_id=` — per-device pending/approved-pending/unapproved/driver counts, reboot-required, and Windows Update Management status. Cross-references `patch_approvals` the same way the Patches page's own fleet view does, just aggregated by device instead of by `update_id`.
+- `GET /alert-history?company_id=&from=&to=` — alerts triggered within a date range (unix seconds, same `from`/`to` convention Activity Log already established; defaults to the last 30 days when omitted, mirroring `admin/alerts.ts`'s own `since30d` default for `status=all`). Includes both active and resolved alerts within the window.
+
+Each route builds a CSV string via `toCsv()` and returns it with `Content-Type: text/csv` and a `Content-Disposition: attachment; filename="<type>-<date>.csv"` header — the filename alone is what makes it download as a file rather than render inline, no separate "generate then fetch" step.
+
+### Dashboard (`ReportsPage.vue`, `/reports`, in the sidebar's Global section alongside Activity Log)
+A shared company filter (All Companies + list) applies to all three reports; Alert History additionally gets its own range selector (7/30/90 days, same dropdown-of-day-counts convention `ActivityLogPage.vue`'s own date filter already uses, rather than raw from/to date pickers). Each report is a row with a description and a "Download CSV" button — no preview/table view in the dashboard itself, matching the "on-demand export" framing rather than building a second read surface that duplicates the Devices/Patches/Alerts pages that already exist.
+
+**A real mechanical problem, not just styling**: a plain `<a href>` can't carry the `Authorization: Bearer <token>` header these routes require the way the public, unauthenticated `/v1/agent/download` link (`CompanyDetailPage.vue`'s install one-liner) gets away with. `api.ts` gained `downloadFile()` — fetches the CSV with the auth header attached like any other API call, then hands the resulting `Blob` to the browser via a synthetic `<a download>` + `URL.createObjectURL`, reading the real filename back out of the response's own `Content-Disposition` header rather than hardcoding it client-side.
+
+**Verified against a real local `wrangler dev`/`vite dev` pair via standalone Playwright**, not just type-checking: all three "Download CSV" buttons produce real browser download events with correctly-prefixed filenames; the downloaded files were read back off disk and confirmed to contain correct headers *and* correct real data (two real seeded devices' hostnames/OS/uptime in Device Inventory, a real `windows_update_drift` alert with matching alerted/resolved timestamps in Alert History); and changing the company filter was confirmed, via network interception, to actually add `company_id=` to the request URL. 15/15 automated checks passed. Worker `tsc --noEmit` clean, dashboard `vue-tsc -b --force` clean.
+
 ## Key backend routes
 
 ```
@@ -1164,6 +1188,10 @@ POST /v1/sessions                            Open a remote session (shell, tcp_t
 GET  /v1/sessions/:id/ws?role=agent|client   WebSocket upgrade, proxied to the SessionRelay Durable Object
 
 GET  /v1/admin/activity-log                  Server-side filtered + paginated audit log (company_id/actor_id/category/entity_type/entity_id/from/to/limit/offset)
+
+GET  /v1/admin/reports/device-inventory      CSV export: device fleet inventory (company_id)
+GET  /v1/admin/reports/patch-compliance      CSV export: per-device pending patch counts (company_id)
+GET  /v1/admin/reports/alert-history         CSV export: alerts within a date range (company_id/from/to)
 ```
 
 ## Dashboard routes
@@ -1197,6 +1225,7 @@ GET  /v1/admin/activity-log                  Server-side filtered + paginated au
 /global/patch-policies/new  PatchPolicyFormPage  (create — full page form)
 /global/patch-policies/:id  PatchPolicyFormPage  (edit — full page form)
 /global/activity        ActivityLogPage     (server-side filtered + paginated master audit log — see Activity Log above)
+/reports                ReportsPage         (on-demand CSV exports — see Reports above)
 /settings/users        UsersPage           (admin only)
 /settings/users/new    UserFormPage        (admin only)
 /settings/users/:id    UserFormPage        (admin only)
@@ -1212,7 +1241,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 - **Dashboards** section: one link per dashboard (`v-for` over the live list, see Shared Dashboards above), no fixed "Overview" link anymore
 - **Companies** section: "All Companies" link + active-client block (appears when a company is selected via `?company=` query, persists until cleared)
 - **Devices** section: Device Approvals, All, Device Groups
-- **Global** section: Alerts, Policies, Maintenance Policies, Patches, Patch Policies, Activity Log
+- **Global** section: Alerts, Policies, Maintenance Policies, Patches, Patch Policies, Activity Log, Reports
 - **Automation** section: Jobs, Components
 - **Settings** section (admin role only, `v-if="hasRole('admin')"`): Users, Single Sign-On, Custom Fields, Branding, Notifications
 - Sidebar footer shows the signed-in user's name/role above the Sign out button
