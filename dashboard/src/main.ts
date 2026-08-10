@@ -10,6 +10,7 @@ import DeviceDetailPage from './pages/DeviceDetailPage.vue';
 import DeviceChangeLogPage from './pages/DeviceChangeLogPage.vue';
 import WebRemotePage from './pages/WebRemotePage.vue';
 import CompaniesPage from './pages/CompaniesPage.vue';
+import CompanyDetailPage from './pages/CompanyDetailPage.vue';
 import JobsPage from './pages/JobsPage.vue';
 import JobFormPage from './pages/JobFormPage.vue';
 import JobDetailPage from './pages/JobDetailPage.vue';
@@ -64,6 +65,7 @@ const router = createRouter({
     { path: '/groups/new', component: GroupFormPage },
     { path: '/groups/:id', component: GroupFormPage },
     { path: '/companies', component: CompaniesPage },
+    { path: '/companies/:id', component: CompanyDetailPage },
     { path: '/jobs', component: JobsPage },
     { path: '/jobs/new', component: JobFormPage },
     { path: '/jobs/:id', component: JobDetailPage },
