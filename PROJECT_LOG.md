@@ -101,6 +101,58 @@ independent branches now exist locally (`feature/elevate-credential-
 fallback`, `feature/company-detail-page`, `feature/reports`,
 `feature/software-management`), none pushed, `main` untouched throughout.
 
+## Session: 2026-08-10 — Reports: on-demand CSV exports (Device Inventory, Patch Compliance, Alert History)
+
+Ran a fresh gap-analysis pass against Datto RMM's current feature set (real
+research this time -- their docs/feature pages, not just memory) to find
+what's missing that's actually worth having. Reports came out as the
+highest-leverage categorical gap: Beacon had zero export capability
+anywhere despite sitting on rich data (device audits, patches, alerts).
+
+Scoped down hard from Datto's real model (PDF + CSV, scheduled + emailed)
+via AskUserQuestion, all recommended defaults picked: **CSV only** --
+Cloudflare Workers has no filesystem/Node APIs, so PDF generation would've
+meant picking and wiring in a new Workers-compatible library as real scope,
+where CSV needs nothing but a ~15-line RFC 4180 writer
+(`worker/src/lib/csv.ts`). **On-demand only, no scheduling/email** --
+matches how Patch Policy came after plain patch approval rather than
+bundled with it; scheduling would need new cron dispatch infra plus
+attachment support the existing alert-email provider architecture doesn't
+have today. **Three report types** (Device Inventory, Patch Compliance,
+Alert History), each reusing an already-proven query shape elsewhere in
+this codebase rather than inventing new ones -- Patch Compliance in
+particular is the exact same per-approved-device latest-audit loop
+`admin/patches.ts` already uses, just aggregated per-device instead of
+per-`update_id`. Software Inventory was considered and dropped -- the
+largest, sparsest of the four candidates, a real row-count concern with no
+clear v1 payoff.
+
+The one real mechanical wrinkle: a plain `<a href>` can't carry the
+`Authorization` header these admin-authenticated routes need, unlike the
+public unauthenticated agent-download link that already works that way.
+`api.ts` gained a `downloadFile()` helper -- fetches with the auth header
+like any other API call, then hands the response `Blob` to the browser via
+a synthetic `<a download>` + `URL.createObjectURL`, reading the real
+filename back out of the response's own `Content-Disposition` header.
+
+Verified against a real local `wrangler dev`/`vite dev` pair via
+standalone Playwright, not just type-checking: all three downloads produce
+real browser download events, and the downloaded files were read back off
+disk and checked for correct headers *and* correct real data (two real
+seeded devices' hostnames/OS/uptime in Device Inventory; a real
+`windows_update_drift` alert with matching timestamps in Alert History).
+The company filter was confirmed, via network interception, to actually
+land in the request URL. 15/15 automated checks passed; worker
+`tsc --noEmit` and dashboard `vue-tsc -b --force` both clean.
+
+Committed on its own `feature/reports` branch off a clean `main` --
+deliberately not stacked on the still-unmerged Elevate credential-fallback
+or Company Detail Page work from the prior session, per the user's own
+explicit caution that that work hasn't been merged yet. Those two are
+themselves now cleanly split onto their own branches
+(`feature/elevate-credential-fallback`, `feature/company-detail-page`)
+rather than sitting as uncommitted changes on `main`.
+
 ## Session: 2026-08-09 — Dedicated Company detail page (issue #77), promoted from the Icebox
 
 While the Elevate credential-fallback work sat waiting on real hardware,
