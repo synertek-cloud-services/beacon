@@ -5,6 +5,32 @@ function token(): string {
   return sessionStorage.getItem('beacon_emergency_token') ?? localStorage.getItem('beacon_token') ?? '';
 }
 
+// Triggers a real browser download for an authenticated (Bearer-token) CSV
+// endpoint -- a plain <a href> can't carry the Authorization header the way
+// the public /v1/agent/download link (CompaniesPage.vue's install one-liner)
+// gets away with, so this fetches the bytes directly and hands them to the
+// browser via a synthetic anchor + object URL instead.
+async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
+  const res = await fetch(`${baseUrl}${path}`, { headers: { 'Authorization': `Bearer ${token()}` } });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${text}`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match?.[1] ?? fallbackFilename;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function uploadFile<T>(path: string, file: File): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
@@ -1363,5 +1389,14 @@ export const api = {
         device_id: deviceId, company_id: companyId, session_type: sessionType,
         ...(elevated ? { elevated: true } : {}),
       }),
+  },
+  reports: {
+    // On-demand CSV only, v1 -- see worker/src/routes/admin/reports.ts.
+    download: (type: 'device-inventory' | 'patch-compliance' | 'alert-history', params: Record<string, string | undefined>) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+      const query = qs.toString();
+      return downloadFile(`/v1/admin/reports/${type}${query ? `?${query}` : ''}`, `${type}.csv`);
+    },
   },
 };
