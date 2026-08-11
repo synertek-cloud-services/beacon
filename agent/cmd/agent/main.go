@@ -28,6 +28,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/session"
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/updater"
+	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 	"github.com/synertek-cloud-services/beacon/agent/internal/wingetupdate"
 	"github.com/synertek-cloud-services/beacon/agent/internal/wuinstall"
 )
@@ -587,6 +588,38 @@ func checkIn(client *protocol.Client, cred *credential.Stored) (time.Duration, e
 					summary, _ := json.Marshal(res)
 					stdout = string(summary)
 					log.Printf("network_scan finished: %d host(s) found", len(res.Hosts))
+				}
+				pendingMu.Lock()
+				pendingResults = append(pendingResults, protocol.CommandResult{
+					CommandID: cmd.CommandID,
+					Status:    status,
+					Stdout:    stdout,
+					Stderr:    stderr,
+				})
+				pendingMu.Unlock()
+				select {
+				case triggerCheckin <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if cmd.Type == "list_remote_sessions" {
+				// Windows-only, matching install_msi_other.go/
+				// run_as_user_other.go's mixed-OS-fleet convention: fails
+				// clearly with real stderr rather than silently reporting
+				// an empty list, which would misleadingly read as
+				// "confirmed zero active sessions." No payload needed --
+				// this is a pure query, not configured per-dispatch.
+				status := "completed"
+				var stdout, stderr string
+				sessions, err := usersession.ActiveSessionDetails()
+				if err != nil {
+					status = "failed"
+					stderr = fmt.Sprintf("list remote sessions: %v", err)
+				} else {
+					out, _ := json.Marshal(sessions)
+					stdout = string(out)
+					log.Printf("list_remote_sessions: %d active session(s)", len(sessions))
 				}
 				pendingMu.Lock()
 				pendingResults = append(pendingResults, protocol.CommandResult{

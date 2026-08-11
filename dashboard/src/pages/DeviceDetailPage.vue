@@ -927,6 +927,38 @@
       </div>
     </div>
 
+    <!-- Choose Session modal (Server-class Windows devices only) -->
+    <div v-if="sessionPickerOpen" class="modal-backdrop" @click.self="sessionPickerOpen = false">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-header">
+          <span class="modal-title">Choose Session</span>
+          <button class="btn-icon" @click="sessionPickerOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" style="padding:20px">
+          <div v-if="sessionPickerLoading" style="display:flex;align-items:center;gap:10px;color:var(--color-text-muted);font-size:13px">
+            <div class="sp-spinner"></div>
+            <span>Waiting for the device to respond… this can take up to a minute.</span>
+          </div>
+          <div v-else-if="sessionPickerError" class="error-banner">{{ sessionPickerError }}</div>
+          <div v-else style="display:flex;flex-direction:column;gap:8px">
+            <label v-for="s in sessionPickerSessions" :key="s.session_id"
+              style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--color-border)">
+              <input type="radio" v-model="sessionPickerSelected" :value="s.session_id" />
+              {{ sessionPickerLabel(s) }}
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="sessionPickerOpen = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="sessionPickerSelected === null" @click="connectFromSessionPicker">
+            Connect
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Remote Shell modal -->
     <RemoteShellModal
       v-if="remoteShellOpen && device"
@@ -1079,18 +1111,116 @@ const remoteShellOpen = ref(false);
 // (Datto RMM's Web Remote also opens a new browser tab). The session is
 // created here so a failure to reach the worker surfaces immediately in
 // this page rather than inside a half-opened tab.
+//
+// Server-class Windows devices get an extra step first: a "Choose Session"
+// picker (below) lets a technician pick console or a specific logged-in
+// RDS/AVD session, since a server is much more likely to have more than
+// one real candidate. Client-class devices (workstation/laptop) skip the
+// picker entirely and shadow the console session directly, unchanged from
+// before this existed. Windows-only gating too -- list_remote_sessions has
+// no non-Windows implementation, matching how the feature itself is
+// Windows-only under the hood.
 async function openWebRemote() {
   if (!device.value) return;
+  if (effectiveClass(device.value) === 'server' && isWindows(device.value)) {
+    openSessionPicker();
+    return;
+  }
+  await connectWebRemote();
+}
+
+// connectWebRemote does the actual session-open + new-tab dance shared by
+// both the direct (client-class) path above and the session-picker's own
+// Connect button below. targetSessionId is undefined for the direct path
+// (console session, today's only behavior) or a specific WTS session ID
+// chosen from the picker.
+async function connectWebRemote(targetSessionId?: number) {
+  if (!device.value) return;
   try {
-    const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share');
+    const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share', { targetSessionId });
     // device_id/company_id ride along so the Elevate button on
     // WebRemotePage.vue can independently open a *new* session later
-    // without a round trip back through this page.
-    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}`;
+    // without a round trip back through this page; target_session_id rides
+    // along the same way so an Elevate reconnect stays on the same session
+    // instead of silently resetting to console.
+    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}` +
+      (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '');
     window.open(url, '_blank');
+    sessionPickerOpen.value = false;
   } catch (e: any) {
     error.value = e.message;
   }
+}
+
+// ── Choose Session picker (Server-class Windows devices only) ──────────
+const sessionPickerOpen = ref(false);
+const sessionPickerLoading = ref(false);
+const sessionPickerError = ref('');
+const sessionPickerSessions = ref<{ session_id: number; username: string; is_console: boolean }[]>([]);
+const sessionPickerSelected = ref<number | null>(null);
+
+// Dispatches list_remote_sessions (arms Fast Poll for free, same as any
+// direct device command) then polls Command History for its result --
+// same "commands table, not the check-in wire protocol" pattern this
+// codebase already uses for network_scan, just read back here instead of
+// only in the Command History table. Up to ~70s worst case on a cold
+// device (matches Web Remote's own existing connect-timeout framing) --
+// only the first dispatch against a cold device pays that cost; the
+// second dispatch (the actual session open, once a session is picked)
+// lands in the already-armed 15s Fast Poll window.
+async function openSessionPicker() {
+  if (!device.value) return;
+  sessionPickerOpen.value = true;
+  sessionPickerLoading.value = true;
+  sessionPickerError.value = '';
+  sessionPickerSessions.value = [];
+  sessionPickerSelected.value = null;
+  try {
+    const { id: commandId } = await api.devices.commands.create(device.value.id, { type: 'list_remote_sessions' });
+    for (let i = 0; i < 35; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (!sessionPickerOpen.value) return; // modal closed while waiting
+      const commands = await api.devices.commands.list(device.value.id);
+      const cmd = commands.find(c => c.id === commandId);
+      if (!cmd) continue;
+      if (cmd.status === 'completed') {
+        const result = cmd.result ? JSON.parse(cmd.result) : { stdout: '[]' };
+        const sessions = JSON.parse(result.stdout || '[]') as { session_id: number; username: string; is_console: boolean }[];
+        sessionPickerSessions.value = sessions;
+        if (sessions.length === 0) {
+          sessionPickerError.value = 'No active sessions were found on this device.';
+        } else {
+          // Default to Console when present, otherwise the first entry --
+          // saves a click for the common case.
+          const consoleSession = sessions.find(s => s.is_console);
+          sessionPickerSelected.value = (consoleSession ?? sessions[0]).session_id;
+        }
+        sessionPickerLoading.value = false;
+        return;
+      }
+      if (cmd.status === 'failed') {
+        const result = cmd.result ? JSON.parse(cmd.result) : { stderr: '' };
+        sessionPickerError.value = result.stderr || 'Failed to list sessions on this device.';
+        sessionPickerLoading.value = false;
+        return;
+      }
+    }
+    sessionPickerError.value = 'The device did not respond in time. Confirm it is online and try again.';
+  } catch (e: any) {
+    sessionPickerError.value = e.message;
+  } finally {
+    sessionPickerLoading.value = false;
+  }
+}
+
+function sessionPickerLabel(s: { session_id: number; username: string; is_console: boolean }): string {
+  if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : '');
+  return (s.username || 'Unknown user') + ` (Session ${s.session_id})`;
+}
+
+function connectFromSessionPicker() {
+  if (sessionPickerSelected.value === null) return;
+  connectWebRemote(sessionPickerSelected.value);
 }
 
 // Maintenance modal
@@ -2130,6 +2260,11 @@ function shellLabel(shell: string): string {
   position: fixed; inset: 0; background: rgba(0,0,0,.65);
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
+.sp-spinner {
+  width: 18px; height: 18px; border: 2px solid var(--color-border-strong); border-top-color: var(--color-primary);
+  border-radius: 50%; animation: sp-spin .8s linear infinite; flex-shrink: 0;
+}
+@keyframes sp-spin { to { transform: rotate(360deg); } }
 .modal {
   background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 10px;
   width: 440px; box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden;

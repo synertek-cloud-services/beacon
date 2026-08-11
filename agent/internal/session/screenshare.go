@@ -24,10 +24,10 @@ import (
 //go:embed embedded/beacon-screenshare.exe
 var screenShareBinary []byte
 
-// runScreenShare launches the embedded beacon-screenshare.exe into the
-// active console user's own desktop session, passing it the session ID and
-// relay WebSocket URL to dial itself. It never dials the relay from this
-// (SYSTEM-context) process -- see Handle's comment for why.
+// runScreenShare launches the embedded beacon-screenshare.exe into a
+// target desktop session, passing it the session ID and relay WebSocket
+// URL to dial itself. It never dials the relay from this (SYSTEM-context)
+// process -- see Handle's comment for why.
 //
 // elevated requests the "Elevate" escalation: launches beacon-screenshare
 // with the agent service's own SYSTEM token instead of the logged-in
@@ -40,7 +40,13 @@ var screenShareBinary []byte
 // default -- always launching as SYSTEM would mean every Web Remote
 // session carries full, unrestricted machine access on the target, a real
 // security-posture cost for a capability most sessions never need.
-func runScreenShare(sessionID, wsURL string, elevated bool) {
+//
+// targetSessionID picks which Windows Terminal Services session to launch
+// into -- nil means the active console session (today's only behavior,
+// and the only one client-class devices ever use); a non-nil value is a
+// specific RDS/AVD session ID a technician picked from a Server-class
+// device's session list (see the worker's list_remote_sessions flow).
+func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uint32) {
 	exePath, err := extractScreenShareIfStale()
 	if err != nil {
 		log.Printf("session %s: screen share: %v", sessionID, err)
@@ -52,29 +58,43 @@ func runScreenShare(sessionID, wsURL string, elevated bool) {
 		"--ws-url=" + wsURL,
 	}
 
-	pid, err := launchScreenShare(exePath, args, elevated)
+	pid, err := launchScreenShare(exePath, args, elevated, targetSessionID)
 	if err != nil {
 		if errors.Is(err, usersession.ErrNoActiveSession) {
-			// Nobody logged in -- expected no-op, matches v1's own scope
-			// (logged-in-user desktop capture only). The browser's own
+			// Nobody logged in (or, for a specific targetSessionID, that
+			// session isn't active) -- expected no-op. The browser's own
 			// connect timeout is what surfaces this to the technician;
 			// nothing needs to travel back over this path.
-			log.Printf("session %s: screen share: no active console session", sessionID)
+			log.Printf("session %s: screen share: no active session", sessionID)
 		} else {
 			log.Printf("session %s: screen share launch: %v", sessionID, err)
 		}
 		return
 	}
-	log.Printf("session %s: launched beacon-screenshare pid %d (elevated=%v)", sessionID, pid, elevated)
+	log.Printf("session %s: launched beacon-screenshare pid %d (elevated=%v, targetSessionID=%v)", sessionID, pid, elevated, targetSessionID)
 }
 
 // launchScreenShare picks the right usersession launch path: the logged-in
 // user's own token for a plain session, or the agent service's own SYSTEM
-// token (relocated to the same session) for an elevated one. No credential
-// resolution happens here at all -- unlike the Administrator-token
-// mechanism this replaced, SYSTEM needs nothing beyond the token the
+// token (relocated to the target session) for an elevated one. No
+// credential resolution happens here at all -- unlike the Administrator-
+// token mechanism this replaced, SYSTEM needs nothing beyond the token the
 // calling process already holds.
-func launchScreenShare(exePath string, args []string, elevated bool) (uint32, error) {
+//
+// A nil targetSessionID (every caller before this option existed, and
+// every client-class device today) resolves to the active console session
+// exactly as before -- this branch is unchanged from the original,
+// already-real-hardware-relevant behavior. A non-nil value launches into
+// that specific session instead, reusing usersession.RunAsSession/
+// RunAsSessionAsSystem's own general (non-console-only) form, which
+// already accepts an arbitrary session ID.
+func launchScreenShare(exePath string, args []string, elevated bool, targetSessionID *uint32) (uint32, error) {
+	if targetSessionID != nil {
+		if !elevated {
+			return usersession.RunAsSession(*targetSessionID, exePath, args)
+		}
+		return usersession.RunAsSessionAsSystem(*targetSessionID, exePath, args)
+	}
 	if !elevated {
 		return usersession.RunAsActiveUser(exePath, args)
 	}
