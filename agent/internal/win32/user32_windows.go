@@ -288,3 +288,104 @@ func SendKeybdInput(vk uint16, down bool) error {
 	}
 	return nil
 }
+
+// RECT mirrors the Win32 RECT structure. Coordinates are virtual-desktop-
+// relative, not screen-local -- a monitor positioned above or left of the
+// primary has genuinely negative Left/Top values, by Windows' own design
+// (the primary monitor's own origin is always (0,0)).
+type RECT struct {
+	Left, Top, Right, Bottom int32
+}
+
+// HMONITOR mirrors the Win32 HMONITOR handle type.
+type HMONITOR uintptr
+
+// monitorInfoEx mirrors the Win32 MONITORINFOEXW structure -- the extended
+// variant carrying szDevice (CCHDEVICENAME=32 wide chars, e.g.
+// `\\.\DISPLAY1`), not just the base MONITORINFO's rcMonitor/rcWork/
+// dwFlags. Unexported: EnumMonitors below is the only consumer, nothing
+// else needs the raw GetMonitorInfoW shape.
+type monitorInfoEx struct {
+	cbSize    uint32
+	rcMonitor RECT
+	rcWork    RECT
+	dwFlags   uint32
+	szDevice  [32]uint16
+}
+
+// monitorInfoFPrimary is MONITORINFOF_PRIMARY, the dwFlags bit marking the
+// system's primary display.
+const monitorInfoFPrimary = 0x00000001
+
+const (
+	SM_XVIRTUALSCREEN  = 76
+	SM_YVIRTUALSCREEN  = 77
+	SM_CXVIRTUALSCREEN = 78
+	SM_CYVIRTUALSCREEN = 79
+
+	// MouseEventFVirtualDesk normalizes SendInput's absolute coordinates
+	// against the full virtual desktop (SM_C/XVIRTUALSCREEN above) instead
+	// of just the primary monitor -- required for correct absolute-
+	// coordinate targeting of any non-primary or negative-offset monitor.
+	// Standard, documented Win32 technique, but genuinely unexercised in
+	// this codebase until now (zero prior references) -- flagged with the
+	// same "needs real-hardware verification" honesty as this package's
+	// other hand-derived Windows internals (the SendInput INPUT struct
+	// layout): if clicks land in the wrong place on a secondary or
+	// negative-offset monitor, this is the first thing to re-examine.
+	MouseEventFVirtualDesk = 0x4000
+)
+
+var (
+	procEnumDisplayMonitors = moduser32.NewProc("EnumDisplayMonitors")
+	procGetMonitorInfoW     = moduser32.NewProc("GetMonitorInfoW")
+)
+
+// MonitorInfo is one display returned by EnumMonitors.
+type MonitorInfo struct {
+	// DeviceName is the real GDI display identity (e.g. `\\.\DISPLAY1`) --
+	// stable, meaningful identity to key off of, unlike a recomputed
+	// enumeration index (which silently points at a different physical
+	// monitor if topology changes between two separate EnumMonitors calls
+	// in two different processes -- the actual reason this codebase
+	// deliberately picked szDevice over a sorted-index scheme).
+	DeviceName string
+	Rect       RECT
+	Primary    bool
+}
+
+// EnumMonitors returns every display attached to this machine, in
+// virtual-desktop coordinates (negative Left/Top for a monitor positioned
+// above/left of the primary). This is this codebase's first use of
+// windows.NewCallback -- EnumDisplayMonitors is a real Win32 enumeration
+// API that invokes a caller-supplied function pointer once per monitor,
+// unlike every other win32 wrapper in this package, which are simple
+// one-shot calls.
+func EnumMonitors() ([]MonitorInfo, error) {
+	var monitors []MonitorInfo
+	cb := windows.NewCallback(func(hMonitor uintptr, _ uintptr, _ uintptr, _ uintptr) uintptr {
+		var mi monitorInfoEx
+		mi.cbSize = uint32(unsafe.Sizeof(mi))
+		r1, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi)))
+		if r1 == 0 {
+			return 1 // this one monitor's info failed to resolve -- keep enumerating the rest
+		}
+		monitors = append(monitors, MonitorInfo{
+			DeviceName: windows.UTF16ToString(mi.szDevice[:]),
+			Rect:       mi.rcMonitor,
+			Primary:    mi.dwFlags&monitorInfoFPrimary != 0,
+		})
+		return 1 // BOOL TRUE -- continue enumeration
+	})
+
+	// hdc=0, lprcClip=0: enumerate every monitor on the system rather than
+	// clipping to a particular device context's visible region.
+	r1, _, err := procEnumDisplayMonitors.Call(0, 0, cb, 0)
+	if r1 == 0 {
+		return nil, fmt.Errorf("win32: EnumDisplayMonitors: %w", err)
+	}
+	if len(monitors) == 0 {
+		return nil, fmt.Errorf("win32: EnumDisplayMonitors returned no monitors")
+	}
+	return monitors, nil
+}
