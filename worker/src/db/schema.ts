@@ -292,6 +292,12 @@ export const sessions = sqliteTable('sessions', {
   // reported by the same call above -- read back by
   // GET /v1/sessions/:id/displays for the dashboard's monitor switcher.
   displays: text('displays'),
+  // The real GDI device name of the monitor the dashboard most recently
+  // asked this session to switch to (see .../switch-monitor). The
+  // already-running beacon-screenshare.exe helper polls this and applies
+  // an in-place switch -- a plain "last requested" pointer, not a queue,
+  // since only the latest request ever matters.
+  pendingMonitor: text('pending_monitor'),
 });
 
 export const deviceAudits = sqliteTable('device_audits', {

@@ -129,10 +129,110 @@ func main() {
 	log.Printf("beacon-screenshare: session %s: capturer ready (%dx%d)", *sessionID, width, height)
 	inj := screeninject.NewForMonitor(targetRect)
 
-	if err := rfbserver.Serve(newWSByteStream(conn), cap, inj); err != nil {
+	// switchRequests feeds rfbserver.Serve's in-place monitor-switch
+	// mechanism (see agent/internal/rfbserver's SwitchRequest) -- this
+	// replaced Web Remote's original monitor-switch design (opening a
+	// whole new session per switch) once real-hardware testing found that
+	// took 10+ seconds. Only wired up when a report token is present:
+	// without one, this process has no way to authenticate a poll against
+	// the worker anyway (see reportDisplays' own reasoning), and a nil
+	// channel is exactly what Serve expects from a caller that never
+	// switches.
+	var switchRequests chan rfbserver.SwitchRequest
+	if *reportToken != "" {
+		switchRequests = make(chan rfbserver.SwitchRequest, 1)
+		go pollSwitchMonitor(*sessionID, *wsURL, *reportToken, monitors, *monitorFlag, switchRequests)
+	}
+
+	if err := rfbserver.Serve(newWSByteStream(conn), cap, inj, switchRequests); err != nil {
 		log.Printf("beacon-screenshare: session %s: Serve: %v", *sessionID, err)
 	}
 	log.Printf("beacon-screenshare: session %s: closed", *sessionID)
+}
+
+// switchPollInterval is deliberately much shorter than a check-in cycle --
+// there's no cold-device-polling-cost concern here the way Fast Poll has
+// to worry about for the main agent (see worker/src/lib/fastPoll.ts's own
+// doc comment): this poll only exists while one specific Web Remote
+// session is already open, against the one worker this device is already
+// talking to, not a whole fleet.
+const switchPollInterval = 1 * time.Second
+
+// pollSwitchMonitor polls GET .../switch-monitor and, on a change from
+// whatever monitor is currently active, builds a fresh Capturer/Injector
+// for the newly-requested monitor and hands it to Serve via
+// switchRequests -- Serve does the actual in-place swap and pushes the RFB
+// DesktopSize update; this function only ever decides *when* a switch is
+// needed and *what* to switch to.
+func pollSwitchMonitor(sessionID, wsURLStr, reportToken string, monitors []win32.MonitorInfo, initialMonitor string, switchRequests chan<- rfbserver.SwitchRequest) {
+	pollURL, err := deriveSessionURL(wsURLStr, sessionID, "switch-monitor")
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: poll switch-monitor: bad ws-url: %v", sessionID, err)
+		return
+	}
+
+	current := initialMonitor // "" means the primary monitor, matching --monitor's own default
+	for {
+		time.Sleep(switchPollInterval)
+
+		req, err := http.NewRequest(http.MethodGet, pollURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+reportToken)
+		resp, err := reportClient.Do(req)
+		if err != nil {
+			continue // transient network blip -- try again next tick
+		}
+		var body struct {
+			Monitor string `json:"monitor"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		if decodeErr != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		if body.Monitor == "" || body.Monitor == current {
+			continue // nothing new requested, or already applied
+		}
+
+		rect, found := monitorRectByName(monitors, body.Monitor)
+		if !found {
+			// Same "still capturing something beats refusing" reasoning as
+			// the startup --monitor fallback above -- a stale request
+			// (e.g. the technician's client sent an old device name from
+			// before a topology change) shouldn't be a hard failure.
+			log.Printf("beacon-screenshare: session %s: switch requested to unknown monitor %q, ignoring", sessionID, body.Monitor)
+			current = body.Monitor // don't keep retrying the same bad request every tick
+			continue
+		}
+
+		newCap, err := screencapture.NewGDICapturerForMonitor(rect)
+		if err != nil {
+			log.Printf("beacon-screenshare: session %s: switch to %q: new capturer: %v", sessionID, body.Monitor, err)
+			continue
+		}
+		newInj := screeninject.NewForMonitor(rect)
+		current = body.Monitor
+		log.Printf("beacon-screenshare: session %s: switching to monitor %q", sessionID, body.Monitor)
+		switchRequests <- rfbserver.SwitchRequest{Capturer: newCap, Injector: newInj}
+	}
+}
+
+// monitorRectByName looks up a monitor's rect by its real GDI device name
+// out of an already-enumerated list -- shared by both the startup
+// --monitor flag handling and pollSwitchMonitor, though kept inline at
+// startup (a one-time lookup with different fallback logging) rather than
+// routed through this helper there, to avoid disturbing that
+// already-working, already-logged code path for this change.
+func monitorRectByName(monitors []win32.MonitorInfo, deviceName string) (win32.RECT, bool) {
+	for _, m := range monitors {
+		if m.DeviceName == deviceName {
+			return m.Rect, true
+		}
+	}
+	return win32.RECT{}, false
 }
 
 // primaryMonitorRect picks the primary monitor's rect out of an
@@ -178,7 +278,7 @@ var reportClient = &http.Client{Timeout: 10 * time.Second}
 // agent, so only a narrowly-scoped, session-specific token is ever handed
 // to it.
 func reportDisplays(sessionID, wsURLStr, reportToken string, monitors []win32.MonitorInfo) {
-	reportURL, err := deriveReportURL(wsURLStr, sessionID)
+	reportURL, err := deriveSessionURL(wsURLStr, sessionID, "displays")
 	if err != nil {
 		log.Printf("beacon-screenshare: session %s: report displays: bad ws-url: %v", sessionID, err)
 		return
@@ -223,12 +323,13 @@ func reportDisplays(sessionID, wsURLStr, reportToken string, monitors []win32.Mo
 	}
 }
 
-// deriveReportURL builds the displays-report endpoint from the same
+// deriveSessionURL builds a same-session HTTP API endpoint from the same
 // relay WebSocket URL this process was already given (--ws-url), rather
 // than needing a separate worker-URL flag -- wss://host/v1/sessions/<id>/ws
-// becomes https://host/v1/sessions/<id>/displays (ws/wss -> http/https,
-// same host, sessionID already known independently).
-func deriveReportURL(wsURLStr, sessionID string) (string, error) {
+// becomes https://host/v1/sessions/<id>/<endpoint> (ws/wss -> http/https,
+// same host, sessionID already known independently). Shared by
+// reportDisplays ("displays") and pollSwitchMonitor ("switch-monitor").
+func deriveSessionURL(wsURLStr, sessionID, endpoint string) (string, error) {
 	u, err := url.Parse(wsURLStr)
 	if err != nil {
 		return "", err
@@ -237,7 +338,7 @@ func deriveReportURL(wsURLStr, sessionID string) (string, error) {
 	if u.Scheme == "ws" {
 		scheme = "http"
 	}
-	return fmt.Sprintf("%s://%s/v1/sessions/%s/displays", scheme, u.Host, sessionID), nil
+	return fmt.Sprintf("%s://%s/v1/sessions/%s/%s", scheme, u.Host, sessionID, endpoint), nil
 }
 
 // setupLogging mirrors agent/cmd/agent/main.go's function of the same name

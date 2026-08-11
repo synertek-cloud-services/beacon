@@ -41,6 +41,22 @@ const (
 	// client that declared support for it via SetEncodings; see
 	// agent/internal/rfbserver.
 	EncodingCursorPseudo int32 = -239
+
+	// EncodingDesktopSize (RFC 6143 §7.7.4, pseudo-encoding -223) tells an
+	// already-connected client the framebuffer dimensions just changed --
+	// carries zero pixel data, just a rectangle header with the new W/H
+	// (X/Y are ignored by the spec and always sent as 0). A real client
+	// (confirmed against noVNC's own source) resizes its canvas and
+	// continues issuing FramebufferUpdateRequests against the new size,
+	// with no reconnect. Like EncodingCursorPseudo above, only send this to
+	// a client that declared support via SetEncodings -- confirmed noVNC's
+	// own _sendEncodings() always includes it, but this server still gates
+	// on the client's actual declared list rather than assuming, same
+	// discipline as the cursor encoding; see agent/internal/rfbserver's
+	// desktopSizeEncodingSupported flag. This is what lets Web Remote's
+	// Displays switcher swap which monitor is being captured without
+	// dropping and reopening the whole RFB session.
+	EncodingDesktopSize int32 = -223
 )
 
 // PixelFormat mirrors RFC 6143 §7.4's 16-byte PIXEL_FORMAT structure.
@@ -329,6 +345,13 @@ func NewCursorRectangle(hotspotX, hotspotY, w, h uint16, pixels []byte, opaque f
 		Encoding: EncodingCursorPseudo,
 		Pixels:   append(append([]byte(nil), pixels...), mask...),
 	}
+}
+
+// NewDesktopSizeRectangle builds a Rectangle for EncodingDesktopSize -- no
+// pixel data, X/Y always 0 per RFC 6143 §7.7.4, just the new W/H in the
+// rectangle header.
+func NewDesktopSizeRectangle(width, height uint16) Rectangle {
+	return Rectangle{W: width, H: height, Encoding: EncodingDesktopSize}
 }
 
 // WriteFramebufferUpdate sends a FramebufferUpdate message containing the

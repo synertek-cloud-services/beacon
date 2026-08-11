@@ -1,0 +1,20 @@
+-- Live in-place monitor switching for Web Remote's Displays switcher.
+-- Superseded the original design (opening a brand-new session per switch,
+-- via sessions.displays/report_token_hash from migration 0078) once
+-- real-hardware testing found that mechanism took 10+ seconds per switch
+-- -- an inherent floor from a new relay Durable Object plus the
+-- check-in-cycle-bound open_session dispatch, unacceptable for what
+-- should be a near-instant local operation once the per-session helper
+-- and RFB connection already exist.
+--
+-- pending_monitor: the real GDI device name (e.g. \\.\DISPLAY2, as
+-- reported via POST .../displays) the dashboard most recently requested
+-- for this session. Set by POST /v1/sessions/:id/switch-monitor
+-- (technician-facing) and polled by the already-running
+-- beacon-screenshare.exe helper via GET on the same route
+-- (report-token-authenticated, same auth model as the existing
+-- .../displays routes) at a short interval -- the helper tracks the last
+-- value it actually applied itself and only acts on a change, so this
+-- column is a plain "last requested" pointer, not a queue, and needs no
+-- separate applied/consumed flag.
+ALTER TABLE sessions ADD COLUMN pending_monitor TEXT;

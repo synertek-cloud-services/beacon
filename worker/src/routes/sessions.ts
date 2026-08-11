@@ -211,6 +211,65 @@ sessions.get('/:id/displays', async (c) => {
   return c.json({ displays });
 });
 
+// POST /v1/sessions/:id/switch-monitor — technician-facing: requests an
+// in-place monitor switch on an already-open screen_share session, without
+// tearing it down. Replaces this feature's original design (opening a
+// brand-new session per switch, via the report_token/displays machinery
+// above), which real-hardware testing found took 10+ seconds per switch --
+// an inherent floor from a fresh relay Durable Object plus the
+// check-in-cycle-bound open_session dispatch. This route is just a cheap
+// pointer write; the actual switch happens when the already-running
+// beacon-screenshare.exe helper (see GET below) notices the change on its
+// own short poll interval and swaps its live Capturer/Injector in place
+// (agent/internal/rfbserver's SwitchRequest), pushing an RFB DesktopSize
+// pseudo-encoding update so the already-connected noVNC client resizes
+// without reconnecting.
+sessions.post('/:id/switch-monitor', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const body = await c.req.json<{ monitor: string }>();
+  if (!body.monitor) return c.json({ error: 'monitor is required' }, 400);
+
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, c.req.param('id')))
+    .get();
+  if (!row) return c.json({ error: 'session not found' }, 404);
+
+  await db.update(schema.sessions)
+    .set({ pendingMonitor: body.monitor })
+    .where(eq(schema.sessions.id, c.req.param('id')));
+
+  return c.json({ ok: true });
+});
+
+// GET /v1/sessions/:id/switch-monitor — agent-facing: the already-running
+// screen_share helper polls this at a short interval (much faster than a
+// check-in cycle -- see the route above) to notice a requested switch.
+// Authenticated the same way as GET/POST .../displays -- the per-session
+// report_token, not requireUser or the device's own long-lived credential.
+// Always returns the current pointer verbatim, even if the helper already
+// applied it -- the helper, not this route, tracks "did I already apply
+// this," so there's nothing here to consume/clear.
+sessions.get('/:id/switch-monitor', async (c) => {
+  const auth = c.req.header('Authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : undefined;
+  if (!token) return c.json({ error: 'unauthorized' }, 401);
+
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select({ hash: schema.sessions.reportTokenHash, monitor: schema.sessions.pendingMonitor })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, c.req.param('id')))
+    .get();
+  if (!row?.hash || (await sha256hex(token)) !== row.hash) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+
+  return c.json({ monitor: row.monitor ?? '' });
+});
+
 // GET /v1/sessions/:id/ws — WebSocket upgrade, proxied to the SessionRelay DO
 sessions.get('/:id/ws', async (c) => {
   const role = c.req.query('role');

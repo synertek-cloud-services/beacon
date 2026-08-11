@@ -120,7 +120,7 @@ func newTestHarness(t *testing.T, w, h uint16) *testHarness {
 	}
 
 	go func() {
-		h1.serveErr <- Serve(serverSide, h1.cap, h1.inj)
+		h1.serveErr <- Serve(serverSide, h1.cap, h1.inj, nil)
 	}()
 
 	h1.clientHandshake()
@@ -517,7 +517,7 @@ func TestInputProcessedWhileCaptureBlocked(t *testing.T) {
 	inj := &fakeInjector{}
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
 
 	doClientHandshake(t, clientSide)
 
@@ -660,7 +660,7 @@ func TestCaptureErrorDoesNotKillSession(t *testing.T) {
 	inj := &fakeInjector{}
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
 
 	doClientHandshake(t, clientSide)
 
@@ -754,7 +754,7 @@ func TestInjectorErrorDoesNotKillSession(t *testing.T) {
 	inj := &flakyInjector{failCount: 2} // fails the KeyEvent and PointerEvent below
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
 
 	doClientHandshake(t, clientSide)
 
@@ -876,7 +876,7 @@ func TestDesktopFollowerCalledBeforeCaptureAndInjection(t *testing.T) {
 	inj := &desktopFollowingInjector{}
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
 
 	doClientHandshake(t, clientSide)
 
@@ -913,7 +913,7 @@ func TestCaptureTimeoutDoesNotHangSession(t *testing.T) {
 	inj := &fakeInjector{}
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
 
 	doClientHandshake(t, clientSide)
 	sendFramebufferUpdateRequest(t, clientSide)
@@ -934,6 +934,157 @@ func TestCaptureTimeoutDoesNotHangSession(t *testing.T) {
 	}
 	if len(rects) != 0 {
 		t.Fatalf("expected an empty update after a capture timeout, got %d rectangles", len(rects))
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
+}
+
+// sendSetEncodings sends a raw SetEncodings client message declaring
+// support for the given pseudo-encodings -- no testHarness/free-function
+// precedent existed for this before (no prior test exercised either
+// pseudo-encoding's SetEncodings gating), so this builds the wire format
+// directly from rfb.ReadClientMessage's own documented layout: type(1) +
+// padding(1) + count(2, big-endian) + count*int32(big-endian).
+func sendSetEncodings(t *testing.T, client io.Writer, encodings ...int32) {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteByte(2) // SetEncodings message type
+	buf.WriteByte(0) // padding
+	var count [2]byte
+	binary.BigEndian.PutUint16(count[:], uint16(len(encodings)))
+	buf.Write(count[:])
+	for _, enc := range encodings {
+		var eb [4]byte
+		binary.BigEndian.PutUint32(eb[:], uint32(enc))
+		buf.Write(eb[:])
+	}
+	if _, err := client.Write(buf.Bytes()); err != nil {
+		t.Fatalf("client: send SetEncodings: %v", err)
+	}
+}
+
+// readFramebufferUpdateRects reads one FramebufferUpdate and returns each
+// rectangle's header fields plus, for EncodingRaw only, its pixel bytes --
+// unlike readFramebufferUpdateFrom (which assumes every rectangle is Raw,
+// true for every test written before this one), this tolerates a mix of
+// encodings in the same update, which a post-SwitchRequest update
+// genuinely has (a DesktopSize pseudo-encoding rectangle, carrying zero
+// pixel bytes per RFC 6143 §7.7.4, followed by ordinary Raw content).
+func readFramebufferUpdateRects(t *testing.T, client io.Reader) []rfb.Rectangle {
+	t.Helper()
+	var hdr [4]byte
+	if _, err := io.ReadFull(client, hdr[:]); err != nil {
+		t.Fatalf("client: read FramebufferUpdate header: %v", err)
+	}
+	if hdr[0] != 0 {
+		t.Fatalf("client: expected FramebufferUpdate (type 0), got %d", hdr[0])
+	}
+	n := binary.BigEndian.Uint16(hdr[2:4])
+	rects := make([]rfb.Rectangle, n)
+	for i := range rects {
+		var rb [12]byte
+		if _, err := io.ReadFull(client, rb[:]); err != nil {
+			t.Fatalf("client: read rect header %d: %v", i, err)
+		}
+		x := binary.BigEndian.Uint16(rb[0:2])
+		y := binary.BigEndian.Uint16(rb[2:4])
+		w := binary.BigEndian.Uint16(rb[4:6])
+		h := binary.BigEndian.Uint16(rb[6:8])
+		enc := int32(binary.BigEndian.Uint32(rb[8:12]))
+		rect := rfb.Rectangle{X: x, Y: y, W: w, H: h, Encoding: enc}
+		if enc == rfb.EncodingRaw {
+			pixels := make([]byte, int(w)*int(h)*4)
+			if _, err := io.ReadFull(client, pixels); err != nil {
+				t.Fatalf("client: read rect %d pixels: %v", i, err)
+			}
+			rect.Pixels = pixels
+		}
+		// EncodingDesktopSize (and any other pseudo-encoding this test
+		// doesn't exercise) carries no pixel body to consume.
+		rects[i] = rect
+	}
+	return rects
+}
+
+// TestSwitchRequestResizesInPlace proves the actual property Web Remote's
+// Displays switcher depends on: sending a SwitchRequest swaps the live
+// Capturer/Injector without tearing down the connection, and the client
+// learns about the new dimensions via an EncodingDesktopSize rectangle on
+// the very next update -- with no new FramebufferUpdateRequest from the
+// client needed in between, confirming the self-nudge described in
+// Serve's own doc comment actually fires rather than waiting on the
+// client's own next request.
+func TestSwitchRequestResizesInPlace(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap1 := &fakeCapturer{w: 4, h: 3}
+	inj1 := &fakeInjector{}
+	switchRequests := make(chan SwitchRequest, 1)
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap1, inj1, switchRequests) }()
+
+	doClientHandshake(t, clientSide)
+	sendSetEncodings(t, clientSide, rfb.EncodingDesktopSize)
+
+	// Baseline: an ordinary request against the original 4x3 capturer.
+	sendFramebufferUpdateRequest(t, clientSide)
+	baseline := readFramebufferUpdateRects(t, clientSide)
+	if len(baseline) != 1 || baseline[0].Encoding != rfb.EncodingRaw || baseline[0].W != 4 || baseline[0].H != 3 {
+		t.Fatalf("baseline update: got %+v, want one 4x3 Raw rect", baseline)
+	}
+
+	cap2 := &fakeCapturer{w: 8, h: 6}
+	inj2 := &fakeInjector{}
+	switchRequests <- SwitchRequest{Capturer: cap2, Injector: inj2}
+
+	// Deliberately no sendFramebufferUpdateRequest here -- the switch
+	// itself must produce an update on its own.
+	rects := readFramebufferUpdateRects(t, clientSide)
+
+	var sawDesktopSize, sawNewContent bool
+	for _, r := range rects {
+		if r.Encoding == rfb.EncodingDesktopSize {
+			sawDesktopSize = true
+			if r.W != 8 || r.H != 6 {
+				t.Fatalf("DesktopSize rect: got %dx%d, want 8x6", r.W, r.H)
+			}
+		}
+		if r.Encoding == rfb.EncodingRaw && r.W == 8 && r.H == 6 {
+			sawNewContent = true
+		}
+	}
+	if !sawDesktopSize {
+		t.Fatalf("post-switch update had no EncodingDesktopSize rectangle: %+v", rects)
+	}
+	if !sawNewContent {
+		t.Fatalf("post-switch update had no Raw content from the new 8x6 capturer: %+v", rects)
+	}
+	if cap1.captures == 0 {
+		t.Fatal("expected at least one capture from the original capturer before the switch")
+	}
+	if cap2.captures == 0 {
+		t.Fatal("expected at least one capture from the new capturer after the switch")
+	}
+
+	// Input must now reach the new injector, not the old one.
+	sendKeyEvent(t, clientSide, true, 0x61)
+	waitFor(t, time.Second, func() bool { return len(inj2.Keys()) == 1 }, "new injector never received the post-switch KeyEvent")
+	if len(inj1.Keys()) != 0 {
+		t.Fatalf("old injector received a KeyEvent after the switch: %+v", inj1.Keys())
 	}
 
 	if closer, ok := clientSide.Writer.(io.Closer); ok {
