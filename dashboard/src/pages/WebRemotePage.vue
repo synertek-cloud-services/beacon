@@ -222,7 +222,7 @@ const rfb = shallowRef<RFB | null>(null); // shallowRef: an opaque external clas
 let connectTimeout: ReturnType<typeof window.setTimeout> | null = null;
 const CONNECT_TIMEOUT_MS = 70_000;
 
-// Shared by both new RFB() call sites (the initial connect and the Elevate
+// Applied to both new RFB() call sites (the initial connect and the Elevate
 // reconnect) so windowed and fullscreen behave identically -- fullscreen is
 // just the same target element growing to fill the screen (toggleFullscreen
 // below calls requestFullscreen() on its wrapping .wr-screen-wrap), so one
@@ -231,7 +231,24 @@ const CONNECT_TIMEOUT_MS = 70_000;
 // the remote framebuffer at real pixel size with scrollbars/centering
 // instead of fitting the window -- reported directly: "It should be scaled
 // down to fit the window... [and] Full screen has it fit fully."
-const RFB_OPTIONS = { scaleViewport: true, clipViewport: true };
+//
+// Deliberately NOT passed as the RFB() constructor's third argument -- a
+// real bug in the first attempt at this fix, confirmed live on real
+// hardware via a screenshot showing scrollbars still present after the
+// "fix" had already been merged and deployed. Traced through noVNC's own
+// source (core/rfb.js) rather than guessed: the constructor only ever
+// reads options.credentials/shared/repeaterID/wsProtocols from its third
+// argument -- scaleViewport/clipViewport are documented under "Properties"
+// in API.md, a separate list, and are only actually applied via their
+// setters (`set scaleViewport(...)`/`set clipViewport(...)`), which run
+// _updateClip()/_updateScale() as a side effect. Passing them in the
+// constructor options object is silently ignored -- no error, no warning,
+// just never taking effect, which is exactly why the first attempt looked
+// correct in code review and type-checked clean but did nothing live.
+function applyDisplayOptions(instance: RFB) {
+  instance.scaleViewport = true;
+  instance.clipViewport = true;
+}
 
 // Elevate modal state
 const elevateModalOpen = ref(false);
@@ -299,7 +316,8 @@ function connectTo(wsUrl: string, target: 'a' | 'b') {
   errorMsg.value = '';
   activeTarget.value = target;
 
-  const instance = new RFB(targetEl(target), wsUrl, RFB_OPTIONS);
+  const instance = new RFB(targetEl(target), wsUrl, {});
+  applyDisplayOptions(instance);
   rfb.value = instance;
 
   instance.addEventListener('connect', () => {
@@ -363,7 +381,8 @@ function closeElevateModal() {
 // left nothing behind.
 function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b'): Promise<RFB> {
   return new Promise((resolve, reject) => {
-    const instance = new RFB(targetEl(target), wsUrl, RFB_OPTIONS);
+    const instance = new RFB(targetEl(target), wsUrl, {});
+    applyDisplayOptions(instance);
     let settled = false;
     const timeout = window.setTimeout(() => {
       if (settled) return;
