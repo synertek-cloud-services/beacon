@@ -314,51 +314,63 @@
             <h2 class="ddev-section-heading">Command History</h2>
             <div class="inv-tab-body">
               <div class="inv-toolbar">
-                <span class="text-xs text-muted-2">Last 50 direct commands (reboot, restart agent, update check, patches, etc.). Commands run as part of a Job are shown on that Job's own detail page instead.</span>
+                <span class="text-xs text-muted-2">Last 200 direct commands (reboot, restart agent, update check, patches, etc.). Commands run as part of a Job are shown on that Job's own detail page instead.</span>
               </div>
               <div v-if="deviceCommandsLoading" class="inv-empty">Loading commands…</div>
               <div v-else-if="deviceCommands.length === 0" class="inv-empty">No direct commands have been sent to this device yet.</div>
-              <table v-else class="cmd-mini-table">
-                <thead>
-                  <tr>
-                    <th>Command</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Completed</th>
-                    <th>Output</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template v-for="cmd in deviceCommands" :key="cmd.id">
+              <template v-else>
+                <table class="cmd-mini-table">
+                  <thead>
                     <tr>
-                      <td class="text-sm">{{ commandTypeLabel(cmd.type) }}</td>
-                      <td><span :class="CMD_STATUS_BADGE[cmd.status] ?? 'inv-badge-muted'">{{ capitalize(cmd.status) }}</span></td>
-                      <td class="mono text-xs text-muted-2">{{ absDate(cmd.createdAt) }}</td>
-                      <td class="mono text-xs text-muted-2">{{ cmd.completedAt ? absDate(cmd.completedAt) : '—' }}</td>
-                      <td>
-                        <template v-if="parseCommandResult(cmd)">
-                          <button v-if="parseCommandResult(cmd)!.stdout" class="cmd-out-btn"
-                            @click="toggleCmdOutput(cmd.id, 'stdout', parseCommandResult(cmd)!.stdout!)">StdOut</button>
-                          <button v-if="parseCommandResult(cmd)!.stderr" class="cmd-out-btn cmd-out-err"
-                            @click="toggleCmdOutput(cmd.id, 'stderr', parseCommandResult(cmd)!.stderr!)">StdErr</button>
-                        </template>
-                        <span v-else class="text-xs text-muted-2">—</span>
-                      </td>
+                      <th>Command</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th>Completed</th>
+                      <th>Output</th>
                     </tr>
-                    <tr v-if="expandedCmdOutput?.cmdId === cmd.id" class="cmd-output-row">
-                      <td colspan="5">
-                        <div class="cmd-output-wrap">
-                          <div class="cmd-output-label">
-                            {{ expandedCmdOutput.type === 'stdout' ? 'Standard Output' : 'Standard Error' }}
-                            <button class="cmd-output-close" @click="expandedCmdOutput = null">×</button>
+                  </thead>
+                  <tbody>
+                    <template v-for="cmd in pagedCommands" :key="cmd.id">
+                      <tr>
+                        <td class="text-sm">{{ commandTypeLabel(cmd.type) }}</td>
+                        <td><span :class="CMD_STATUS_BADGE[cmd.status] ?? 'inv-badge-muted'">{{ capitalize(cmd.status) }}</span></td>
+                        <td class="mono text-xs text-muted-2">{{ absDate(cmd.createdAt) }}</td>
+                        <td class="mono text-xs text-muted-2">{{ cmd.completedAt ? absDate(cmd.completedAt) : '—' }}</td>
+                        <td>
+                          <template v-if="parseCommandResult(cmd)">
+                            <button v-if="parseCommandResult(cmd)!.stdout" class="cmd-out-btn"
+                              @click="toggleCmdOutput(cmd.id, 'stdout', parseCommandResult(cmd)!.stdout!)">StdOut</button>
+                            <button v-if="parseCommandResult(cmd)!.stderr" class="cmd-out-btn cmd-out-err"
+                              @click="toggleCmdOutput(cmd.id, 'stderr', parseCommandResult(cmd)!.stderr!)">StdErr</button>
+                          </template>
+                          <span v-else class="text-xs text-muted-2">—</span>
+                        </td>
+                      </tr>
+                      <tr v-if="expandedCmdOutput?.cmdId === cmd.id" class="cmd-output-row">
+                        <td colspan="5">
+                          <div class="cmd-output-wrap">
+                            <div class="cmd-output-label">
+                              {{ expandedCmdOutput.type === 'stdout' ? 'Standard Output' : 'Standard Error' }}
+                              <button class="cmd-output-close" @click="expandedCmdOutput = null">×</button>
+                            </div>
+                            <pre class="cmd-output-pre">{{ expandedCmdOutput.content }}</pre>
                           </div>
-                          <pre class="cmd-output-pre">{{ expandedCmdOutput.content }}</pre>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="inv-pagination">
+                  <select v-model="cmdPageSize" class="pag-size-select">
+                    <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }} per page</option>
+                  </select>
+                  <template v-if="commandsPageCount > 1">
+                    <button class="pag-btn" :disabled="commandsPage === 0" @click="commandsPage--">‹</button>
+                    <span class="pag-info text-xs text-muted-2">{{ commandsPage + 1 }} / {{ commandsPageCount }}</span>
+                    <button class="pag-btn" :disabled="commandsPage >= commandsPageCount - 1" @click="commandsPage++">›</button>
                   </template>
-                </tbody>
-              </table>
+                </div>
+              </template>
             </div>
           </section>
 
@@ -1038,6 +1050,7 @@ const effectiveMonitorsLoading = ref(false);
 const deviceCommands        = ref<DeviceCommand[]>([]);
 const deviceCommandsLoading = ref(false);
 const expandedCmdOutput     = ref<{ cmdId: string; type: 'stdout' | 'stderr'; content: string } | null>(null);
+const commandsPage          = ref(0);
 
 // Custom fields — manual entry only (see migrations/0029). Definitions are
 // managed globally under Settings → Custom Fields; values are per-device.
@@ -1052,6 +1065,7 @@ const patchApprovalMap = ref<Record<string, 'approved' | 'ignored'>>({});
 const swPageSize      = ref(20);
 const patchPageSize   = ref(20);
 const svcPageSize     = ref(20);
+const cmdPageSize     = ref(20);
 const PAGE_SIZES      = [20, 50, 100];
 
 // Toolbar state
@@ -1265,6 +1279,7 @@ async function onIdChange(id: string | undefined) {
   softwarePage.value = 0;
   patchesPage.value  = 0;
   servicesPage.value = 0;
+  commandsPage.value = 0;
 
   await loadDevice(id);
   loading.value = false;
@@ -1683,11 +1698,14 @@ const patchesPageCount  = computed(() => Math.ceil((auditData.value?.patches?.le
 const pagedPatches      = computed(() => (auditData.value?.patches ?? []).slice(patchesPage.value * patchPageSize.value, (patchesPage.value + 1) * patchPageSize.value));
 const servicesPageCount = computed(() => Math.ceil((auditData.value?.services?.length ?? 0) / svcPageSize.value));
 const pagedServices     = computed(() => (auditData.value?.services ?? []).slice(servicesPage.value * svcPageSize.value, (servicesPage.value + 1) * svcPageSize.value));
+const commandsPageCount = computed(() => Math.ceil(deviceCommands.value.length / cmdPageSize.value));
+const pagedCommands     = computed(() => deviceCommands.value.slice(commandsPage.value * cmdPageSize.value, (commandsPage.value + 1) * cmdPageSize.value));
 
 watch(softwareSearch, () => { softwarePage.value = 0; });
 watch(swPageSize,     () => { softwarePage.value = 0; });
 watch(patchPageSize,  () => { patchesPage.value = 0; });
 watch(svcPageSize,    () => { servicesPage.value = 0; });
+watch(cmdPageSize,    () => { commandsPage.value = 0; });
 
 async function runAuditNow(deviceId: string) {
   try {

@@ -165,6 +165,15 @@ adminDevices.delete('/:id/maintenance', async (c) => {
 // actions (reboot, restart_agent, force_update, install_patches,
 // uninstall_agent) and single-device Quick Job runs had no UI surface at
 // all before this, even though they were always being recorded.
+//
+// Capped at 200 (bumped from an original 50 once real usage showed 50 was
+// too tight) rather than genuine server-side offset pagination — matches
+// this codebase's existing "bounded-by-cap client-side pagination" pattern
+// (DeviceChangeLogPage.vue's own 500-row audit-changes fetch, JobsPage.vue's
+// 200-row jobs list), not Activity Log's real LIMIT/OFFSET pagination. The
+// dashboard paginates the returned rows client-side (DeviceDetailPage.vue's
+// Command History section) so the page itself doesn't render 200 rows at
+// once.
 adminDevices.get('/:id/commands', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const db = drizzle(c.env.DB, { schema });
@@ -174,7 +183,7 @@ adminDevices.get('/:id/commands', async (c) => {
     .from(schema.commands)
     .where(and(eq(schema.commands.deviceId, c.req.param('id')), isNull(schema.commands.jobId)))
     .orderBy(desc(schema.commands.createdAt))
-    .limit(50)
+    .limit(200)
     .all();
 
   return c.json(cmds);
