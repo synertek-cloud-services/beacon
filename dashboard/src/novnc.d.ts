@@ -7,6 +7,7 @@ declare module '@novnc/novnc' {
   export default class RFB extends EventTarget {
     constructor(target: Element, urlOrChannel: string, options?: Record<string, unknown>);
     sendCtrlAltDel(): void;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
     clipboardPasteFrom(text: string): void;
     disconnect(): void;
   }

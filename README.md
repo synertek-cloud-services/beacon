@@ -33,6 +33,7 @@ Data flow: agents enroll against the Worker API, then check in once a minute wit
 - **Policy-based monitoring** — global or per-company policies, each made of one or more monitors (disk space, CPU/memory usage, antivirus health, device online/offline, file size, ping reachability/latency/packet-loss, process state, Windows service state, software install/uninstall/version-change)
 - **Alerting** — sustained-condition debounce, auto-resolve, email and webhook notification
 - **Remote shell & TCP tunnel sessions** — browser-based, no agent-side listening port
+- **Web Remote** — zero-install, browser-based remote desktop (no client software or open ports); one-click Elevate for full administrator access, including an on-screen admin tool menu — see [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) for what it does and doesn't cover
 - **Scripted automation** — reusable components, variables/secrets, one-off and scheduled jobs, and detailed command results
 - **Inventory auditing** — full hardware/software/services snapshot on enrollment, every 24h, or on demand
 - **Windows patch management** — scan, approve/ignore, policy scheduling, reboot prompts, and optional Windows Update management

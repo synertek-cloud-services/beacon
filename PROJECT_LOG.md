@@ -1,5 +1,72 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — Elevated shell becomes a real TUI menu; Web Remote toolbar redesigned around icons
+
+Two follow-up asks from the same conversation as the Elevate admin-toolset
+work below, both from real usability concerns rather than bugs: "not
+everyone is going to know what all the commands are for the different
+control panels," and separately, the flat text-button toolbar "all look too
+close to the same thing... I'm sure we can figure out an icon bar including
+drop down ones."
+
+**Elevated shell menu** (`agent/internal/session/screenshare.go`):
+`launchElevatedShell` now writes a fixed PowerShell `menu` function to a
+well-known temp path and launches it via `-File` instead of a one-line
+`-Command` banner. The menu lists ten common admin destinations by name
+(Task Manager, Control Panel, Services, Device Manager, Event Viewer, Disk
+Management, Programs and Features, Network Connections, System Properties,
+File Explorer) so a technician picks a number instead of needing to already
+know `services.msc` or `control appwiz.cpl` by heart. Shows automatically on
+open, re-invokable any time by typing `menu` -- the window underneath stays
+a completely normal, fully capable elevated prompt throughout. Hit one real
+build error before this compiled: a literal UTF-8 BOM byte sequence (not the
+`﻿` escape sequence) landed in the Go source itself via a typing
+round-trip, which `go build` correctly rejects as an illegal mid-file
+byte-order mark -- fixed via a small Python script that wrote the literal
+escape-sequence text unambiguously.
+
+**Toolbar redesign** (`dashboard/src/pages/WebRemotePage.vue`): rebuilt
+around hand-rolled inline SVG icons (this codebase's existing convention,
+no new dependency) instead of five same-looking text buttons. A new
+Keyboard dropdown (reusing `DeviceDetailPage.vue`'s kebab-menu
+toggle/outside-click-close pattern) replaces the standalone Ctrl+Alt+Del
+button and adds seven more real shortcuts: Task Manager, Alt+Tab, Alt+F4,
+and the four common Windows-key combos, via a new `sendCombo()` helper built
+on `RFB.sendKey()` -- a real public noVNC method that just wasn't yet in
+this codebase's own hand-maintained `src/novnc.d.ts` ambient-type shim
+(added the missing declaration). Paste/Fullscreen became plain icon
+buttons; Elevate kept a visible label with a shield icon and warning-amber
+styling specifically because it's a meaningfully different, security-
+relevant action, not just another utility click; Disconnect became an
+icon-only danger-red button matching `RemoteShellModal.vue`'s existing
+icon-only-close precedent.
+
+**Copy simplified, detail moved to public docs** -- directly requested:
+"there is a ton of text. That needs to be simplified and then we will have
+to make sure the public documentation gives the details." The Elevate
+modal's description dropped from ~420 characters enumerating every admin
+tool to ~120; the "Elevated" badge shrank from a full sentence to a short
+label with detail moved into its tooltip. Full detail -- what Elevate does,
+its two silent authentication paths, the admin-menu window, and what it
+still can't do (the secure-desktop limitation) -- now lives in
+`docs/SELF_HOSTING.md`'s new "Using Web Remote and Elevate" section, plus a
+one-line `README.md` feature bullet pointing at it (Web Remote had no
+README mention at all before this).
+
+Verified visually via a real standalone-Playwright pass against local
+`vite dev` (reused this repo's own established no-root-Chromium extraction
+trick) -- confirmed all five toolbar buttons render distinctly, the
+Keyboard dropdown opens with all 8 shortcuts in order and closes on an
+outside click, the Elevate modal description is genuinely ~120 characters,
+and the "Elevated" badge is correctly absent pre-elevation. Screenshots
+confirmed the actual visual differentiation, not just DOM structure. `go
+build`/`go vet` clean natively and cross-compiled windows/linux/darwin,
+dashboard `vue-tsc -b --force` clean. **Not verified on real hardware** --
+the PowerShell menu script's `-File`/`-NoExit` function-scope behavior and
+the real key-combo delivery are standard, well-documented Windows/RFB
+patterns, not guessed, but unconfirmed against a real Windows session in
+this sandbox.
+
 ## Session: 2026-08-11 — Elevate now delivers a real admin toolset (mandatory for v1)
 
 User pushback, directly: "v1 of Beacon RMM needs to ship with a fully
