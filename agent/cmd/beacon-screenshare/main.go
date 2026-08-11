@@ -33,6 +33,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
 	"github.com/synertek-cloud-services/beacon/agent/internal/screencapture"
 	"github.com/synertek-cloud-services/beacon/agent/internal/screeninject"
+	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 	"github.com/synertek-cloud-services/beacon/agent/internal/win32"
 )
 
@@ -129,10 +130,420 @@ func main() {
 	log.Printf("beacon-screenshare: session %s: capturer ready (%dx%d)", *sessionID, width, height)
 	inj := screeninject.NewForMonitor(targetRect)
 
-	if err := rfbserver.Serve(newWSByteStream(conn), cap, inj); err != nil {
+	// switchRequests feeds rfbserver.Serve's in-place monitor-switch
+	// mechanism (see agent/internal/rfbserver's SwitchRequest) -- this
+	// replaced Web Remote's original monitor-switch design (opening a
+	// whole new session per switch) once real-hardware testing found that
+	// took 10+ seconds. Only wired up when a report token is present:
+	// without one, this process has no way to authenticate a poll against
+	// the worker anyway (see reportDisplays' own reasoning), and a nil
+	// channel is exactly what Serve expects from a caller that never
+	// switches.
+	var switchRequests chan rfbserver.SwitchRequest
+	if *reportToken != "" {
+		switchRequests = make(chan rfbserver.SwitchRequest, 1)
+		go pollSwitchMonitor(*sessionID, *wsURL, *reportToken, monitors, *monitorFlag, switchRequests)
+		go pollFileRequests(*sessionID, *wsURL, *reportToken)
+	}
+
+	if err := rfbserver.Serve(newWSByteStream(conn), cap, inj, switchRequests); err != nil {
 		log.Printf("beacon-screenshare: session %s: Serve: %v", *sessionID, err)
 	}
 	log.Printf("beacon-screenshare: session %s: closed", *sessionID)
+}
+
+// switchPollInterval is deliberately much shorter than a check-in cycle --
+// there's no cold-device-polling-cost concern here the way Fast Poll has
+// to worry about for the main agent (see worker/src/lib/fastPoll.ts's own
+// doc comment): this poll only exists while one specific Web Remote
+// session is already open, against the one worker this device is already
+// talking to, not a whole fleet.
+const switchPollInterval = 1 * time.Second
+
+// pollSwitchMonitor polls GET .../switch-monitor and, on a change from
+// whatever monitor is currently active, builds a fresh Capturer/Injector
+// for the newly-requested monitor and hands it to Serve via
+// switchRequests -- Serve does the actual in-place swap and pushes the RFB
+// DesktopSize update; this function only ever decides *when* a switch is
+// needed and *what* to switch to.
+func pollSwitchMonitor(sessionID, wsURLStr, reportToken string, monitors []win32.MonitorInfo, initialMonitor string, switchRequests chan<- rfbserver.SwitchRequest) {
+	pollURL, err := deriveSessionURL(wsURLStr, sessionID, "switch-monitor")
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: poll switch-monitor: bad ws-url: %v", sessionID, err)
+		return
+	}
+
+	current := initialMonitor // "" means the primary monitor, matching --monitor's own default
+	for {
+		time.Sleep(switchPollInterval)
+
+		req, err := http.NewRequest(http.MethodGet, pollURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+reportToken)
+		resp, err := reportClient.Do(req)
+		if err != nil {
+			continue // transient network blip -- try again next tick
+		}
+		var body struct {
+			Monitor string `json:"monitor"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		if decodeErr != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		if body.Monitor == "" || body.Monitor == current {
+			continue // nothing new requested, or already applied
+		}
+
+		rect, found := monitorRectByName(monitors, body.Monitor)
+		if !found {
+			// Same "still capturing something beats refusing" reasoning as
+			// the startup --monitor fallback above -- a stale request
+			// (e.g. the technician's client sent an old device name from
+			// before a topology change) shouldn't be a hard failure.
+			log.Printf("beacon-screenshare: session %s: switch requested to unknown monitor %q, ignoring", sessionID, body.Monitor)
+			current = body.Monitor // don't keep retrying the same bad request every tick
+			continue
+		}
+
+		newCap, err := screencapture.NewGDICapturerForMonitor(rect)
+		if err != nil {
+			log.Printf("beacon-screenshare: session %s: switch to %q: new capturer: %v", sessionID, body.Monitor, err)
+			continue
+		}
+		newInj := screeninject.NewForMonitor(rect)
+		current = body.Monitor
+		log.Printf("beacon-screenshare: session %s: switching to monitor %q", sessionID, body.Monitor)
+		switchRequests <- rfbserver.SwitchRequest{Capturer: newCap, Injector: newInj}
+	}
+}
+
+// monitorRectByName looks up a monitor's rect by its real GDI device name
+// out of an already-enumerated list -- shared by both the startup
+// --monitor flag handling and pollSwitchMonitor, though kept inline at
+// startup (a one-time lookup with different fallback logging) rather than
+// routed through this helper there, to avoid disturbing that
+// already-working, already-logged code path for this change.
+func monitorRectByName(monitors []win32.MonitorInfo, deviceName string) (win32.RECT, bool) {
+	for _, m := range monitors {
+		if m.DeviceName == deviceName {
+			return m.Rect, true
+		}
+	}
+	return win32.RECT{}, false
+}
+
+// ── Web Remote file transfer ────────────────────────────────────────────
+// Toolbar icon -> Upload/Download -> a file picker, same shape described
+// directly from real Datto RMM usage. Same poll-for-work shape as
+// pollSwitchMonitor above, against worker/src/routes/sessions.ts's
+// .../file-requests routes -- see that file's own doc comment for the
+// full request/result shapes this mirrors.
+
+const fileRequestPollInterval = 1 * time.Second
+
+type fileRequestEntry struct {
+	Name       string `json:"name"`
+	IsDir      bool   `json:"is_dir"`
+	SizeBytes  int64  `json:"size_bytes"`
+	ModifiedAt int64  `json:"modified_at"`
+}
+
+// pollFileRequests polls GET .../file-requests/next for a browse/download/
+// upload request and services it -- runs for the life of the process,
+// same as pollSwitchMonitor.
+func pollFileRequests(sessionID, wsURLStr, reportToken string) {
+	nextURL, err := deriveSessionURL(wsURLStr, sessionID, "file-requests/next")
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: poll file-requests: bad ws-url: %v", sessionID, err)
+		return
+	}
+
+	for {
+		time.Sleep(fileRequestPollInterval)
+
+		req, err := http.NewRequest(http.MethodGet, nextURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+reportToken)
+		resp, err := reportClient.Do(req)
+		if err != nil {
+			continue
+		}
+		var next struct {
+			ID      string          `json:"id"`
+			Type    string          `json:"type"`
+			Request json.RawMessage `json:"request"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&next)
+		resp.Body.Close()
+		if decodeErr != nil || resp.StatusCode != http.StatusOK || next.ID == "" {
+			continue // nothing pending, or a transient error -- try again next tick
+		}
+
+		switch next.Type {
+		case "browse":
+			handleBrowseRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
+		case "upload":
+			handleUploadRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
+		case "download":
+			handleDownloadRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
+		default:
+			log.Printf("beacon-screenshare: session %s: file-request %s: unknown type %q", sessionID, next.ID, next.Type)
+		}
+	}
+}
+
+// postFileRequestResult reports a 'browse' listing or an 'upload' outcome
+// back to the worker. A non-empty errMsg marks the request failed; result
+// is only meaningful otherwise.
+func postFileRequestResult(sessionID, wsURLStr, reportToken, reqID string, result any, errMsg string) {
+	resultURL, err := deriveSessionURL(wsURLStr, sessionID, fmt.Sprintf("file-requests/%s/result", reqID))
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: file-request %s: bad ws-url: %v", sessionID, reqID, err)
+		return
+	}
+	body, err := json.Marshal(struct {
+		Result any    `json:"result,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}{Result: result, Error: errMsg})
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: file-request %s: marshal result: %v", sessionID, reqID, err)
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, resultURL, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+reportToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := reportClient.Do(req)
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: file-request %s: report result: %v", sessionID, reqID, err)
+		return
+	}
+	resp.Body.Close()
+}
+
+// handleBrowseRequest lists a directory (or, for an empty path, the
+// available drive roots -- the same starting point a normal Windows file
+// browser shows) and reports the listing back.
+func handleBrowseRequest(sessionID, wsURLStr, reportToken, reqID string, rawRequest json.RawMessage) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(rawRequest, &req); err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "malformed request")
+		return
+	}
+
+	var entries []fileRequestEntry
+	if req.Path == "" {
+		entries = listDriveRoots()
+	} else {
+		dirEntries, err := os.ReadDir(req.Path)
+		if err != nil {
+			postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+			return
+		}
+		for _, de := range dirEntries {
+			info, err := de.Info()
+			if err != nil {
+				continue // a file that vanished/errored between ReadDir and Info -- skip, not fatal
+			}
+			entries = append(entries, fileRequestEntry{
+				Name:       de.Name(),
+				IsDir:      de.IsDir(),
+				SizeBytes:  info.Size(),
+				ModifiedAt: info.ModTime().Unix(),
+			})
+		}
+	}
+	postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, struct {
+		Entries []fileRequestEntry `json:"entries"`
+	}{Entries: entries}, "")
+}
+
+// listDriveRoots enumerates existing drive letters C: through Z: (A/B
+// skipped -- legacy floppy-drive letters, never real on a modern machine)
+// by simply stat-ing each one, the same "known, simple default, not a
+// WMI/WNetEnumResource enumeration" scoping-down convention this codebase
+// applies elsewhere rather than a more thorough but heavier volume
+// enumeration API.
+func listDriveRoots() []fileRequestEntry {
+	var entries []fileRequestEntry
+	for letter := 'C'; letter <= 'Z'; letter++ {
+		root := fmt.Sprintf("%c:\\", letter)
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			entries = append(entries, fileRequestEntry{Name: root, IsDir: true})
+		}
+	}
+	return entries
+}
+
+// handleUploadRequest fetches the file bytes the technician already
+// uploaded to the worker and writes them to the target session's real
+// logged-on user's Desktop -- resolved via this process's own WTS session
+// ID (see usersession.CurrentSessionID's doc comment for why that's
+// always correct here regardless of whether this helper is running under
+// the user's own token or a relocated SYSTEM one).
+func handleUploadRequest(sessionID, wsURLStr, reportToken, reqID string, rawRequest json.RawMessage) {
+	var req struct {
+		Filename  string `json:"filename"`
+		SizeBytes int64  `json:"size_bytes"`
+	}
+	if err := json.Unmarshal(rawRequest, &req); err != nil || req.Filename == "" {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "malformed request")
+		return
+	}
+
+	destDir, err := resolveDesktopPath()
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("resolve desktop path: %v", err))
+		return
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("create desktop path: %v", err))
+		return
+	}
+
+	blobURL, err := deriveSessionURL(wsURLStr, sessionID, fmt.Sprintf("files/%s/blob", reqID))
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "bad ws-url")
+		return
+	}
+	getReq, err := http.NewRequest(http.MethodGet, blobURL, nil)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	getReq.Header.Set("Authorization", "Bearer "+reportToken)
+	resp, err := reportClient.Do(getReq)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("worker returned %d", resp.StatusCode))
+		return
+	}
+
+	destPath := filepath.Join(destDir, filepath.Base(req.Filename))
+	f, err := os.Create(destPath)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	_, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, copyErr.Error())
+		return
+	}
+	if closeErr != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, closeErr.Error())
+		return
+	}
+	log.Printf("beacon-screenshare: session %s: file-request %s: wrote %s", sessionID, reqID, destPath)
+	postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, struct{}{}, "")
+}
+
+// resolveDesktopPath resolves the real logged-on user's Desktop folder for
+// this process's own session -- C:\Users\<username>\Desktop, the standard
+// non-redirected-profile path. Known, accepted limitation, stated
+// directly rather than silently assumed: a domain environment with
+// folder redirection (Desktop pointed at a network share via Group
+// Policy) resolves to the wrong, nonexistent local path -- real per-user
+// profile-folder resolution needs SHGetKnownFolderPath against that
+// user's own profile, a heavier mechanism not built here, matching this
+// codebase's existing "known default path, not the fully general case"
+// convention (e.g. the reboot marker's fixed path, the elevated menu
+// script's fixed temp path).
+func resolveDesktopPath() (string, error) {
+	sessionID, err := usersession.CurrentSessionID()
+	if err != nil {
+		return "", err
+	}
+	username, err := usersession.UsernameForSession(sessionID)
+	if err != nil || username == "" {
+		return "", fmt.Errorf("resolve username for session %d: %w", sessionID, err)
+	}
+	return filepath.Join(`C:\Users`, username, "Desktop"), nil
+}
+
+// handleDownloadRequest reads the requested remote file and streams it to
+// the worker's .../upload-result endpoint (raw bytes, not a JSON result --
+// this is the one file-request type that carries real file content
+// through the worker), which stores it in R2 for the technician's browser
+// to then download.
+func handleDownloadRequest(sessionID, wsURLStr, reportToken, reqID string, rawRequest json.RawMessage) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(rawRequest, &req); err != nil || req.Path == "" {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "malformed request")
+		return
+	}
+
+	info, err := os.Stat(req.Path)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	if info.IsDir() {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "path is a directory, not a file")
+		return
+	}
+	f, err := os.Open(req.Path)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	defer f.Close()
+
+	resultURL, err := deriveSessionURL(wsURLStr, sessionID, fmt.Sprintf("file-requests/%s/upload-result", reqID))
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, "bad ws-url")
+		return
+	}
+	putReq, err := http.NewRequest(http.MethodPost, resultURL, f)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	putReq.Header.Set("Authorization", "Bearer "+reportToken)
+	putReq.Header.Set("X-File-Name", url.QueryEscape(filepath.Base(req.Path)))
+	putReq.Header.Set("X-File-Size", fmt.Sprintf("%d", info.Size()))
+	putReq.Header.Set("Content-Type", "application/octet-stream")
+	putReq.ContentLength = info.Size()
+
+	// A dedicated, longer-timeout client -- reportClient's 10s budget
+	// (fine for the small JSON/metadata calls it otherwise handles) isn't
+	// enough for a real file transfer, which can legitimately take longer
+	// than that up to the 100 MiB cap the worker enforces.
+	uploadClient := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := uploadClient.Do(putReq)
+	if err != nil {
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("worker returned %d: %s", resp.StatusCode, body))
+		return
+	}
+	log.Printf("beacon-screenshare: session %s: file-request %s: uploaded %s (%d bytes)", sessionID, reqID, req.Path, info.Size())
+	// The worker's own upload-result handler already marks the request
+	// completed on a 200 -- no separate .../result call needed here,
+	// unlike browse/upload above (which have no bytes of their own to
+	// send, so .../result is their only report-back mechanism).
 }
 
 // primaryMonitorRect picks the primary monitor's rect out of an
@@ -178,7 +589,7 @@ var reportClient = &http.Client{Timeout: 10 * time.Second}
 // agent, so only a narrowly-scoped, session-specific token is ever handed
 // to it.
 func reportDisplays(sessionID, wsURLStr, reportToken string, monitors []win32.MonitorInfo) {
-	reportURL, err := deriveReportURL(wsURLStr, sessionID)
+	reportURL, err := deriveSessionURL(wsURLStr, sessionID, "displays")
 	if err != nil {
 		log.Printf("beacon-screenshare: session %s: report displays: bad ws-url: %v", sessionID, err)
 		return
@@ -223,12 +634,13 @@ func reportDisplays(sessionID, wsURLStr, reportToken string, monitors []win32.Mo
 	}
 }
 
-// deriveReportURL builds the displays-report endpoint from the same
+// deriveSessionURL builds a same-session HTTP API endpoint from the same
 // relay WebSocket URL this process was already given (--ws-url), rather
 // than needing a separate worker-URL flag -- wss://host/v1/sessions/<id>/ws
-// becomes https://host/v1/sessions/<id>/displays (ws/wss -> http/https,
-// same host, sessionID already known independently).
-func deriveReportURL(wsURLStr, sessionID string) (string, error) {
+// becomes https://host/v1/sessions/<id>/<endpoint> (ws/wss -> http/https,
+// same host, sessionID already known independently). Shared by
+// reportDisplays ("displays") and pollSwitchMonitor ("switch-monitor").
+func deriveSessionURL(wsURLStr, sessionID, endpoint string) (string, error) {
 	u, err := url.Parse(wsURLStr)
 	if err != nil {
 		return "", err
@@ -237,7 +649,7 @@ func deriveReportURL(wsURLStr, sessionID string) (string, error) {
 	if u.Scheme == "ws" {
 		scheme = "http"
 	}
-	return fmt.Sprintf("%s://%s/v1/sessions/%s/displays", scheme, u.Host, sessionID), nil
+	return fmt.Sprintf("%s://%s/v1/sessions/%s/%s", scheme, u.Host, sessionID, endpoint), nil
 }
 
 // setupLogging mirrors agent/cmd/agent/main.go's function of the same name

@@ -162,6 +162,41 @@ type injectionEvent struct {
 	x, y   uint16
 }
 
+// SwitchRequest asks Serve to swap the live Capturer/Injector pair without
+// tearing down the RFB connection -- e.g. Web Remote's Displays switcher
+// picking a different monitor mid-session. Both fields are used together;
+// there's no supported way to swap just one. See Serve's own doc comment
+// for how this is applied (folded into the next FramebufferUpdate cycle,
+// carrying an EncodingDesktopSize rectangle so an already-connected client
+// resizes in place instead of needing a fresh connection).
+type SwitchRequest struct {
+	Capturer Capturer
+	Injector Injector
+}
+
+// injectorHolder lets the capture goroutine swap the live Injector (on a
+// SwitchRequest) while runInjectionLoop -- running independently on its
+// own goroutine/OS thread -- always reads whichever one is current. A
+// plain mutex, not atomic.Value: a switch happens at most a handful of
+// times per session, not per input event, so this is nowhere near a hot
+// path worth the sharper edges atomic.Value has around interface values.
+type injectorHolder struct {
+	mu  sync.Mutex
+	inj Injector
+}
+
+func (h *injectorHolder) get() Injector {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.inj
+}
+
+func (h *injectorHolder) set(inj Injector) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.inj = inj
+}
+
 // runInjectionLoop processes queued input events on its own OS thread,
 // locked for the whole connection's lifetime -- kept entirely independent
 // of captureWithTimeout's own per-call locked goroutine above: each
@@ -169,14 +204,17 @@ type injectionEvent struct {
 // onto one shared thread would reintroduce the exact "injection blocks on
 // capture" regression this codebase already fixed once by splitting
 // capture out of the read loop into its own goroutine in the first place.
-// Runs until events is closed (Serve returning).
-func runInjectionLoop(inj Injector, events <-chan injectionEvent) {
+// Runs until events is closed (Serve returning). Re-reads holder.get() on
+// every event rather than once up front, so a mid-session SwitchRequest
+// (see above) takes effect on the very next event with no extra
+// synchronization needed here.
+func runInjectionLoop(holder *injectorHolder, events <-chan injectionEvent) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	follower, _ := inj.(DesktopFollower)
-
 	for ev := range events {
+		inj := holder.get()
+		follower, _ := inj.(DesktopFollower)
 		if follower != nil {
 			if err := follower.FollowInputDesktop(); err != nil {
 				log.Printf("rfbserver: injection: follow input desktop: %v (continuing on current desktop)", err)
@@ -231,7 +269,21 @@ func defaultPixelFormat() rfb.PixelFormat {
 // blocking the other -- the read loop itself only ever reads a message
 // and either mutates local state or forwards it on, never performing the
 // actual capture/GDI/SendInput work.
-func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
+//
+// switchRequests lets a caller swap the live Capturer/Injector pair
+// without tearing down the connection -- e.g. Web Remote's Displays
+// switcher picking a different monitor mid-session (see SwitchRequest).
+// A nil channel is fine (every existing call site that never switches --
+// this package's own tests, and any future single-monitor-only caller --
+// passes nil; a nil channel's select case simply never fires, so it costs
+// nothing to leave wired in unconditionally). This was deliberately built
+// as an in-place swap rather than reusing the "open a whole new session"
+// mechanism Elevate uses for its own reconnect: opening a new session
+// means a new relay Durable Object and a fresh check-in-cycle-bound
+// dispatch, which real-hardware testing found made switching monitors
+// take 10+ seconds -- unacceptable for what should be a near-instant
+// local operation once the helper process and connection already exist.
+func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan SwitchRequest) error {
 	if err := rfb.WriteProtocolVersion(rw); err != nil {
 		return fmt.Errorf("rfbserver: write protocol version: %w", err)
 	}
@@ -257,9 +309,6 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 
 	width, height := cap.Size()
 
-	cursorShaper, _ := cap.(CursorShapeProvider)
-	cursorToggle, _ := cap.(CursorCompositingToggle)
-
 	var stateMu sync.Mutex
 	pf := defaultPixelFormat()
 	// cursorEncodingSupported is set from the client's SetEncodings message
@@ -268,6 +317,11 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	// site for why this is handled there rather than immediately upon
 	// receipt.
 	cursorEncodingSupported := false
+	// desktopSizeEncodingSupported is the same latch, for EncodingDesktopSize
+	// (-223) -- see rfb.EncodingDesktopSize's own doc comment for why this
+	// server still gates on it rather than assuming every client supports
+	// it.
+	desktopSizeEncodingSupported := false
 	// cursorHandled tracks whether the capture goroutine has already
 	// disabled server-side cursor compositing and sent the one-time cursor
 	// shape rectangle for this session, so it only ever does so once.
@@ -283,9 +337,88 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	updateRequested := make(chan struct{}, 1)
 	captureErr := make(chan error, 1)
 
+	injHolder := &injectorHolder{inj: inj}
+
 	go func() {
 		defer close(captureErr)
-		for range updateRequested {
+
+		// cap, cursorShaper, and cursorToggle are all owned exclusively by
+		// this goroutine (re-derived on every SwitchRequest, below) --
+		// unlike inj (shared with runInjectionLoop via injHolder), nothing
+		// else ever reads or writes them, so no mutex is needed here.
+		cursorShaper, _ := cap.(CursorShapeProvider)
+		cursorToggle, _ := cap.(CursorCompositingToggle)
+		// pendingDesktopSizeRect is set by a SwitchRequest and consumed on
+		// this goroutine's very next iteration -- folded into the same
+		// FramebufferUpdate as that iteration's regular capture, rather
+		// than written out-of-band immediately, so this server keeps its
+		// existing invariant of only ever writing to rw from inside this
+		// one loop, in direct response to updateRequested. A SwitchRequest
+		// self-nudges updateRequested (below) so that next iteration
+		// happens immediately rather than waiting on the client's own next
+		// request -- in practice noVNC re-requests within milliseconds of
+		// every update anyway, but there's no reason to wait even that
+		// long for something server-initiated.
+		var pendingDesktopSizeRect *rfb.Rectangle
+
+		for {
+			select {
+			case req, ok := <-switchRequests:
+				if !ok {
+					switchRequests = nil // don't spin on a closed channel
+					continue
+				}
+				cap = req.Capturer
+				injHolder.set(req.Injector)
+				cursorShaper, _ = cap.(CursorShapeProvider)
+				cursorToggle, _ = cap.(CursorCompositingToggle)
+
+				stateMu.Lock()
+				cursorAlreadySupported := cursorEncodingSupported
+				desktopSizeSupported := desktopSizeEncodingSupported
+				stateMu.Unlock()
+
+				// If this client already switched cursor rendering local
+				// (an earlier update on the *previous* capturer), the new
+				// capturer defaults to compositing the cursor back into
+				// its own pixels (screencapture.GDICapturer starts
+				// enabled) -- disable it immediately so the very first
+				// frame off the new monitor doesn't show a double cursor.
+				// The shape itself never needs resending: it's a fixed
+				// placeholder (see CursorShapeProvider's own doc comment),
+				// not something that changes per monitor.
+				if cursorAlreadySupported && cursorToggle != nil {
+					cursorToggle.SetCursorCompositingEnabled(false)
+				}
+
+				if desktopSizeSupported {
+					newW, newH := cap.Size()
+					rect := rfb.NewDesktopSizeRectangle(newW, newH)
+					pendingDesktopSizeRect = &rect
+				} else {
+					// Known, accepted limitation: a client that never
+					// declared EncodingDesktopSize support (none observed
+					// in practice -- real noVNC always does) has no way to
+					// learn the new dimensions in-band. It'll keep
+					// rendering raw content rects against its old canvas
+					// size, which can clip or misalign until it
+					// reconnects. Not solved here -- documented, not
+					// silently swallowed.
+					log.Printf("rfbserver: switch requested but client never declared DesktopSize support -- proceeding without resize notice")
+				}
+
+				select {
+				case updateRequested <- struct{}{}:
+				default:
+				}
+				continue
+
+			case _, ok := <-updateRequested:
+				if !ok {
+					return // Serve is tearing down this connection
+				}
+			}
+
 			stateMu.Lock()
 			currentPF := pf
 			needsCursorHandling := cursorEncodingSupported && !cursorHandled
@@ -333,14 +466,18 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 				// treated as fatal: that's a real connection problem, not
 				// a transient capture one.
 				log.Printf("rfbserver: capture: %v (skipping this update, session stays open)", err)
-				// Still deliver a pending cursor shape even though the
-				// screen capture itself failed/timed out -- cursorHandled
-				// was already latched true above, so this is the only
-				// chance this session gets to send it before compositing
-				// stays permanently disabled with no shape ever rendered.
+				// Still deliver a pending cursor shape or desktop-size
+				// notice even though the screen capture itself
+				// failed/timed out -- both were already latched above, so
+				// this is the only chance this session gets to send them
+				// before either goes permanently unsent.
 				var rects []rfb.Rectangle
+				if pendingDesktopSizeRect != nil {
+					rects = append(rects, *pendingDesktopSizeRect)
+					pendingDesktopSizeRect = nil
+				}
 				if cursorRect != nil {
-					rects = []rfb.Rectangle{*cursorRect}
+					rects = append(rects, *cursorRect)
 				}
 				if werr := rfb.WriteFramebufferUpdate(rw, rects); werr != nil {
 					captureErr <- fmt.Errorf("rfbserver: write empty framebuffer update after capture error: %w", werr)
@@ -351,6 +488,10 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			rects := chunkRectangle(full, currentPF, bandHeight)
 			if cursorRect != nil {
 				rects = append([]rfb.Rectangle{*cursorRect}, rects...)
+			}
+			if pendingDesktopSizeRect != nil {
+				rects = append([]rfb.Rectangle{*pendingDesktopSizeRect}, rects...)
+				pendingDesktopSizeRect = nil
 			}
 			if err := rfb.WriteFramebufferUpdate(rw, rects); err != nil {
 				captureErr <- fmt.Errorf("rfbserver: write framebuffer update: %w", err)
@@ -369,7 +510,7 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	// arrival rates given injection itself is normally sub-millisecond
 	// work, so this should essentially never actually block the read loop.
 	injectionEvents := make(chan injectionEvent, 16)
-	go runInjectionLoop(inj, injectionEvents)
+	go runInjectionLoop(injHolder, injectionEvents)
 	defer close(injectionEvents)
 
 	if err := rfb.WriteServerInit(rw, width, height, pf, "Beacon Web Remote"); err != nil {
@@ -410,19 +551,22 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 
 		case rfb.SetEncodingsMsg:
 			// This server only ever sends Raw for ordinary screen content
-			// regardless of what's offered/negotiated here -- the one
-			// exception is checking for Cursor pseudo-encoding (-239)
-			// support, which the capture goroutine acts on (see its own
-			// comment) rather than this read loop, since only that
-			// goroutine is allowed to write to rw.
+			// regardless of what's offered/negotiated here -- the two
+			// exceptions are checking for Cursor pseudo-encoding (-239) and
+			// DesktopSize pseudo-encoding (-223) support, both acted on by
+			// the capture goroutine (see its own comments) rather than
+			// this read loop, since only that goroutine is allowed to
+			// write to rw.
+			stateMu.Lock()
 			for _, enc := range m.Encodings {
 				if enc == rfb.EncodingCursorPseudo {
-					stateMu.Lock()
 					cursorEncodingSupported = true
-					stateMu.Unlock()
-					break
+				}
+				if enc == rfb.EncodingDesktopSize {
+					desktopSizeEncodingSupported = true
 				}
 			}
+			stateMu.Unlock()
 
 		case rfb.FramebufferUpdateRequestMsg:
 			select {

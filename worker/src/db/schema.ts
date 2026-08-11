@@ -292,6 +292,29 @@ export const sessions = sqliteTable('sessions', {
   // reported by the same call above -- read back by
   // GET /v1/sessions/:id/displays for the dashboard's monitor switcher.
   displays: text('displays'),
+  // The real GDI device name of the monitor the dashboard most recently
+  // asked this session to switch to (see .../switch-monitor). The
+  // already-running beacon-screenshare.exe helper polls this and applies
+  // an in-place switch -- a plain "last requested" pointer, not a queue,
+  // since only the latest request ever matters.
+  pendingMonitor: text('pending_monitor'),
+});
+
+// Web Remote file upload/download -- one row per browse/download/upload
+// request, following the same "technician requests something, the
+// already-running beacon-screenshare.exe helper polls for it and reports
+// a result" shape as sessions.pendingMonitor above. See migration 0080's
+// own comment for the exact request/result JSON shapes per type.
+export const sessionFileRequests = sqliteTable('session_file_requests', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  type: text('type', { enum: ['browse', 'download', 'upload'] }).notNull(),
+  status: text('status', { enum: ['pending', 'completed', 'failed'] }).notNull().default('pending'),
+  request: text('request').notNull(), // JSON
+  result: text('result'), // JSON, set once completed
+  error: text('error'),
+  createdAt: integer('created_at').notNull(),
+  completedAt: integer('completed_at'),
 });
 
 export const deviceAudits = sqliteTable('device_audits', {

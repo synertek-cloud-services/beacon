@@ -52,3 +52,17 @@ type SessionDetail struct {
 func ActiveSessionDetails() ([]SessionDetail, error) {
 	return nil, ErrNoActiveSession
 }
+
+// CurrentSessionID is a no-op stub outside Windows -- there's no WTS
+// session concept to resolve. beacon-screenshare.exe itself is a
+// Windows-only binary; this stub exists purely so the usersession package
+// as a whole stays cross-platform buildable for its other, genuinely
+// cross-platform callers (agent/cmd/agent, agent/tools/usersessiontest).
+func CurrentSessionID() (uint32, error) {
+	return 0, ErrNoActiveSession
+}
+
+// UsernameForSession is a no-op stub outside Windows, matching CurrentSessionID.
+func UsernameForSession(sessionID uint32) (string, error) {
+	return "", ErrNoActiveSession
+}

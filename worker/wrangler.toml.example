@@ -34,6 +34,12 @@ bucket_name = "beacon-logos"
 binding = "COMPONENT_FILES"
 bucket_name = "beacon-component-files"
 
+# Private Web Remote file-transfer uploads/downloads (transient, per-session
+# -- see migration 0080). Do not expose through a public/custom domain.
+[[r2_buckets]]
+binding = "SESSION_FILES"
+bucket_name = "beacon-session-files"
+
 [triggers]
 crons = ["*/2 * * * *"]
 

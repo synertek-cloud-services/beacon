@@ -401,6 +401,13 @@ export interface SessionDisplay {
   y: number;
 }
 
+export interface SessionFileEntry {
+  name: string;
+  is_dir: boolean;
+  size_bytes: number;
+  modified_at: number;
+}
+
 export interface ActivityLogEntry {
   id: string;
   createdAt: number;
@@ -1435,6 +1442,48 @@ export const api = {
     // connection, see worker/src/routes/sessions.ts.
     displays: (sessionId: string) =>
       request<{ displays: SessionDisplay[] }>('GET', `/v1/sessions/${sessionId}/displays`),
+    // Requests an in-place monitor switch on an already-open screen_share
+    // session -- no reconnect, see worker/src/routes/sessions.ts's own
+    // doc comment for why this replaced opening a whole new session.
+    switchMonitor: (sessionId: string, monitor: string) =>
+      request<{ ok: boolean }>('POST', `/v1/sessions/${sessionId}/switch-monitor`, { monitor }),
+    // File transfer -- toolbar icon -> Upload/Download -> a file picker,
+    // matching Datto RMM's own flow. fileRequests covers the two
+    // directions with no file bytes of their own (a directory listing,
+    // or requesting a specific remote file be fetched); files.upload/
+    // download are the two calls that actually move bytes through the
+    // worker. See worker/src/routes/sessions.ts's own "Web Remote file
+    // transfer" section for the full request/result shapes.
+    fileRequests: {
+      create: (sessionId: string, type: 'browse' | 'download', path: string) =>
+        request<{ id: string }>('POST', `/v1/sessions/${sessionId}/file-requests`, { type, path }),
+      get: (sessionId: string, reqId: string) =>
+        request<{ status: 'pending' | 'completed' | 'failed'; result: any; error: string | null }>(
+          'GET', `/v1/sessions/${sessionId}/file-requests/${reqId}`,
+        ),
+    },
+    files: {
+      // A dedicated inline fetch (not the generic uploadFile helper above)
+      // since this needs the same X-File-Name/X-File-Size headers
+      // Application Components' own upload call already established, which
+      // uploadFile doesn't set.
+      upload: async (sessionId: string, file: File): Promise<{ id: string }> => {
+        const res = await fetch(`${baseUrl}/v1/sessions/${sessionId}/files/upload`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token()}`,
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+            'X-File-Size': String(file.size),
+          },
+          body: file,
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => res.statusText)}`);
+        return res.json();
+      },
+      download: (sessionId: string, reqId: string, filename: string) =>
+        downloadFile(`/v1/sessions/${sessionId}/files/${reqId}/download`, filename),
+    },
   },
   reports: {
     // On-demand CSV only, v1 -- see worker/src/routes/admin/reports.ts.

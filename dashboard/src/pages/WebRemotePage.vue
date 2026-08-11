@@ -41,6 +41,29 @@
           </div>
         </div>
 
+        <!-- Transfer Files dropdown -- Upload/Download, matching the
+             toolbar-icon-then-choice flow described directly from real
+             Datto RMM usage. Upload triggers the hidden file input below
+             immediately (a browser's own local file picker); Download
+             opens the remote directory browser modal. -->
+        <div class="wr-kbd-wrap">
+          <button class="wr-tbtn" :disabled="status !== 'connected'" title="Transfer files" @click="toggleFilesMenu">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </button>
+          <div v-if="filesMenuOpen" class="wr-kbd-dropdown">
+            <button class="wr-kbd-item" @click="filesMenuOpen = false; fileInput?.click()">
+              <span>Upload File…</span>
+            </button>
+            <button class="wr-kbd-item" @click="filesMenuOpen = false; openBrowseModal()">
+              <span>Download File…</span>
+            </button>
+          </div>
+        </div>
+        <input ref="fileInput" type="file" style="display:none" @change="onUploadFileChosen" />
+
         <button class="wr-tbtn" :disabled="status !== 'connected'" title="Paste text into the remote session" @click="pasteOpen = !pasteOpen">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="4" width="12" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/>
@@ -73,6 +96,9 @@
     </div>
 
     <div v-if="displaysError" class="wr-toast" @click="displaysError = ''">{{ displaysError }} (click to dismiss)</div>
+    <div v-if="fileTransferStatus" class="wr-toast" :class="{ 'wr-toast-ok': !fileTransferError }" @click="fileTransferStatus = ''; fileTransferError = false">
+      {{ fileTransferStatus }} (click to dismiss)
+    </div>
 
     <div v-if="pasteOpen" class="wr-paste-bar">
       <input v-model="pasteText" class="wr-paste-input" placeholder="Text to paste into the remote session…" @keydown.enter="sendPaste" />
@@ -118,6 +144,37 @@
         </div>
       </div>
     </div>
+
+    <!-- ── Download: remote directory browser modal ── -->
+    <div v-if="browseOpen" class="modal-backdrop" @click.self="browseOpen = false">
+      <div class="modal wr-browse-modal">
+        <div class="modal-head">
+          <span class="modal-title">Download File</span>
+        </div>
+        <div class="modal-body">
+          <div class="wr-browse-path">
+            <button class="btn btn-ghost btn-sm" :disabled="browsePath === ''" @click="browseUp">↑ Up</button>
+            <span class="mono text-xs text-muted-2" style="margin-left:8px">{{ browsePath || 'Drives' }}</span>
+          </div>
+          <div v-if="browseLoading" class="wr-browse-loading">
+            <div class="wr-spinner"></div>
+          </div>
+          <div v-else-if="browseError" class="error-banner">{{ browseError }}</div>
+          <div v-else class="wr-browse-list">
+            <div v-if="browseEntries.length === 0" class="text-xs text-muted-2" style="padding:12px">Empty.</div>
+            <button v-for="e in browseEntries" :key="e.name" class="wr-browse-row" @click="onBrowseEntryClick(e)">
+              <svg v-if="e.is_dir" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span>{{ e.name }}</span>
+              <span v-if="!e.is_dir" class="text-xs text-muted-2" style="margin-left:auto">{{ formatBytes(e.size_bytes) }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="browseOpen = false">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -126,7 +183,7 @@ import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import RFB from '@novnc/novnc';
 import { api } from '../api';
-import type { SessionDisplay } from '../api';
+import type { SessionDisplay, SessionFileEntry } from '../api';
 
 const route = useRoute();
 const router = useRouter();
@@ -209,6 +266,153 @@ async function pollDisplaysFor(sessionId: string) {
     } catch {
       return; // e.g. a superseded session id -- stop polling silently
     }
+  }
+}
+
+// ── File transfer (Upload/Download) ─────────────────────────────────────
+// Toolbar icon -> Upload/Download -> a file picker, matching Datto RMM's
+// own flow described directly from real usage. Upload is a straight
+// browser file picker + POST, landing on the target session's logged-on
+// user's Desktop server-side (see beacon-screenshare.exe's own
+// resolveDesktopPath) -- no destination picker needed. Download needs a
+// remote directory browser (browseOpen and friends below), since there's
+// no other way to know what files exist on a machine the technician isn't
+// physically at.
+const filesMenuOpen = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+const fileTransferStatus = ref('');
+const fileTransferError = ref(false);
+
+function toggleFilesMenu() {
+  if (filesMenuOpen.value) {
+    filesMenuOpen.value = false;
+  } else {
+    filesMenuOpen.value = true;
+    setTimeout(() => document.addEventListener('click', closeFilesMenuOnce, { once: true }), 0);
+  }
+}
+function closeFilesMenuOnce() { filesMenuOpen.value = false; }
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+// pollFileRequest polls GET .../file-requests/:id until it's no longer
+// pending -- shared by both the browse (directory listing) and download
+// (fetch a specific file) flows below, both of which go through the same
+// technician-facing request/poll/result shape (see
+// worker/src/routes/sessions.ts's own "Web Remote file transfer" section).
+async function pollFileRequest(sessionId: string, reqId: string): Promise<{ result: any }> {
+  for (let i = 0; i < 30; i++) {
+    const r = await api.sessions.fileRequests.get(sessionId, reqId);
+    if (r.status === 'completed') return { result: r.result };
+    if (r.status === 'failed') throw new Error(r.error || 'request failed');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error('timed out waiting for the device to respond');
+}
+
+async function onUploadFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ''; // allow re-selecting the same file next time
+  if (!file) return;
+
+  fileTransferError.value = false;
+  fileTransferStatus.value = `Uploading ${file.name}…`;
+  try {
+    const sessionId = route.params.sessionId as string;
+    const { id } = await api.sessions.files.upload(sessionId, file);
+    await pollFileRequest(sessionId, id);
+    fileTransferStatus.value = `${file.name} uploaded to the remote Desktop.`;
+  } catch (e: any) {
+    fileTransferError.value = true;
+    fileTransferStatus.value = `Upload failed: ${e.message}`;
+  }
+}
+
+// ── Download: remote directory browser ──────────────────────────────────
+const browseOpen = ref(false);
+const browsePath = ref('');
+const browseEntries = ref<SessionFileEntry[]>([]);
+const browseLoading = ref(false);
+const browseError = ref('');
+
+function openBrowseModal() {
+  browseOpen.value = true;
+  browsePath.value = '';
+  loadBrowseEntries('');
+}
+
+async function loadBrowseEntries(path: string) {
+  browseLoading.value = true;
+  browseError.value = '';
+  try {
+    const sessionId = route.params.sessionId as string;
+    const { id } = await api.sessions.fileRequests.create(sessionId, 'browse', path);
+    const { result } = await pollFileRequest(sessionId, id);
+    const entries: SessionFileEntry[] = result?.entries ?? [];
+    // Directories first, then files, alphabetically within each group --
+    // matches how a normal OS file browser sorts.
+    entries.sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : a.is_dir ? -1 : 1));
+    browseEntries.value = entries;
+  } catch (e: any) {
+    browseError.value = e.message;
+  } finally {
+    browseLoading.value = false;
+  }
+}
+
+// joinPath mirrors Windows' own backslash-joined path convention (this
+// feature is Windows-only, matching every other agent capability in this
+// codebase's screencapture/screeninject/rfbserver chain). Drive-root
+// entries (e.g. "C:\") already carry a trailing separator, so joining at
+// the true root is just the entry name itself, not root + "\" + name.
+function joinPath(base: string, name: string): string {
+  if (base === '') return name;
+  return base.replace(/\\+$/, '') + '\\' + name;
+}
+
+function onBrowseEntryClick(entry: SessionFileEntry) {
+  const fullPath = joinPath(browsePath.value, entry.name);
+  if (entry.is_dir) {
+    browsePath.value = fullPath;
+    loadBrowseEntries(fullPath);
+    return;
+  }
+  downloadRemoteFile(fullPath, entry.name);
+}
+
+function browseUp() {
+  if (browsePath.value === '') return;
+  // Strip exactly one trailing path component. Stripping any trailing
+  // backslash first before searching handles a drive root ("C:\") for
+  // free: trimming it down to "C:" leaves lastIndexOf('\\') at -1, and
+  // slice(0, -1 + 1) is slice(0, 0) = "" -- the true root (drive list) --
+  // with no separate special case needed for that specific depth.
+  const trimmed = browsePath.value.replace(/\\+$/, '');
+  const idx = trimmed.lastIndexOf('\\');
+  const parent = trimmed.slice(0, idx + 1);
+  browsePath.value = parent;
+  loadBrowseEntries(parent);
+}
+
+async function downloadRemoteFile(path: string, filename: string) {
+  browseOpen.value = false;
+  fileTransferError.value = false;
+  fileTransferStatus.value = `Fetching ${filename} from the remote machine…`;
+  try {
+    const sessionId = route.params.sessionId as string;
+    const { id } = await api.sessions.fileRequests.create(sessionId, 'download', path);
+    await pollFileRequest(sessionId, id);
+    await api.sessions.files.download(sessionId, id, filename);
+    fileTransferStatus.value = `${filename} downloaded.`;
+  } catch (e: any) {
+    fileTransferError.value = true;
+    fileTransferStatus.value = `Download failed: ${e.message}`;
   }
 }
 
@@ -482,81 +686,41 @@ async function elevate() {
   }
 }
 
-// switchDisplay reconnects to a different monitor on the same device --
-// deliberately a separate function from elevate()/attemptElevatedConnect,
-// not a shared/unified helper, even though the underlying mechanism
-// (dual-target background-connect-then-swap) is the same one elevate()
-// already proved out. Both are real, subtle, already-debugged reconnect
-// flows -- elevate()'s own history includes a live regression around
-// exactly the connectionSeq race its correctness depends on -- so
-// unifying them is deliberately deferred to its own later, behavior-
-// preserving cleanup pass, once each has independent real-hardware soak
-// time, rather than risking a "safe-looking" shared abstraction
-// reintroducing a race a fresh read wouldn't catch. Carries forward the
-// current elevated/targetSessionId state -- only the requested monitor
-// differs.
+// switchDisplay requests an in-place monitor switch on the *same*,
+// already-open session -- no reconnect, no new session, no dual-target
+// swap. Supersedes the original design (opening a whole new session per
+// switch, reusing elevate()'s own dual-target reconnect mechanism) --
+// real-hardware testing found that took 10+ seconds per switch, an
+// inherent floor from a fresh relay Durable Object plus the
+// check-in-cycle-bound open_session dispatch, unacceptable for what
+// should be a near-instant local operation. The already-running
+// beacon-screenshare.exe helper polls for this change on its own ~1s
+// interval and swaps its live Capturer/Injector, pushing an RFB
+// DesktopSize update the existing RFB connection already open in this tab
+// picks up automatically -- see agent/internal/rfbserver's SwitchRequest
+// and worker/src/routes/sessions.ts's own doc comment on
+// POST .../switch-monitor.
+//
+// route.params.sessionId is read live (not cached in a local var) so this
+// keeps working correctly after an Elevate reconnect, which does still
+// change the session ID via its own router.replace().
 async function switchDisplay(deviceName: string) {
   if (switchingDisplay.value) return;
   switchingDisplay.value = true;
   displaysMenuOpen.value = false;
   displaysError.value = '';
-  const pendingTarget = otherTarget(activeTarget.value);
   try {
-    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', {
-      elevated: elevated.value, targetSessionId, monitor: deviceName,
-    });
-
-    const newInstance = await new Promise<RFB>((resolve, reject) => {
-      const instance = new RFB(targetEl(pendingTarget), client_ws_url, {});
-      applyDisplayOptions(instance);
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        instance.disconnect();
-        reject(new Error('Did not connect within 70 seconds.'));
-      }, CONNECT_TIMEOUT_MS);
-      instance.addEventListener('connect', () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve(instance);
-      });
-      instance.addEventListener('disconnect', (e: any) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        reject(new Error(e.detail?.clean ? 'Connection closed before the switch completed.' : 'Failed to connect.'));
-      });
-    });
-
-    // Proven working -- only now retire the old connection, same
-    // connectionSeq-bump-before-disconnect discipline elevate() already
-    // established (see its own doc comment for why the ordering matters).
-    connectionSeq++;
-    rfb.value?.disconnect();
-
-    rfb.value = newInstance;
-    activeTarget.value = pendingTarget;
-    status.value = 'connected';
-    errorMsg.value = '';
-    const mySeq = connectionSeq;
-    newInstance.addEventListener('disconnect', (e: any) => {
-      if (mySeq !== connectionSeq) return;
-      status.value = e.detail?.clean ? 'closed' : 'error';
-      if (!e.detail?.clean) errorMsg.value = 'Connection lost.';
-    });
-
-    router.replace(
-      `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
-      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}` +
-      (elevated.value ? '&elevated=1' : '') +
-      (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '')
-    );
-    pollDisplaysFor(session_id);
+    await api.sessions.switchMonitor(route.params.sessionId as string, deviceName);
+    // No reliable client-side "the resize actually landed" signal exists
+    // to wait on -- confirmed by reading noVNC's own source (core/rfb.js's
+    // _resize()) that it dispatches no public event for this. The real
+    // round trip (this POST, then the helper's own poll interval, then a
+    // fresh capture, then the WS message arriving) is well under this
+    // window in practice; a fixed, generous "Switching…" indicator is a
+    // known, accepted tradeoff rather than a second polling loop just to
+    // confirm something the technician can already see happen on screen.
+    await new Promise(resolve => setTimeout(resolve, 2500));
   } catch (e: any) {
-    // The original connection was never touched -- stays fully connected
-    // and interactive, same as a failed Elevate attempt.
     displaysError.value = e.message;
   } finally {
     switchingDisplay.value = false;
@@ -636,6 +800,14 @@ onUnmounted(() => {
   color: var(--color-danger); font-size: 12px; padding: 8px 14px; border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,.4); cursor: pointer;
 }
+/* File-transfer status reuses .wr-toast for both success and failure --
+   this modifier just swaps the danger-red styling for success (upload
+   complete/download complete), since not every file-transfer status is
+   an error the way displaysError above always is. */
+.wr-toast-ok {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
 
 .wr-paste-bar {
   display: flex; gap: 8px; align-items: center; padding: 8px 16px;
@@ -684,4 +856,19 @@ onUnmounted(() => {
    duration of the attempt, which can take up to CONNECT_TIMEOUT_MS. */
 .wr-elevate-loading { display: flex; flex-direction: column; align-items: center; padding: 28px 20px; text-align: center; }
 .wr-elevate-loading .wr-spinner { margin-bottom: 10px; }
+
+/* ── Download: remote directory browser modal ── */
+.wr-browse-modal { width: 520px; }
+.wr-browse-path { display: flex; align-items: center; margin-bottom: 10px; }
+.wr-browse-loading { display: flex; justify-content: center; padding: 24px; }
+.wr-browse-list {
+  max-height: 320px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 8px;
+}
+.wr-browse-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px;
+  background: none; border: none; border-bottom: 1px solid var(--color-border); color: var(--color-text-primary);
+  font-size: 12px; font-family: var(--font); cursor: pointer; text-align: left; transition: background .1s;
+}
+.wr-browse-row:last-child { border-bottom: none; }
+.wr-browse-row:hover { background: var(--color-surface-raised); }
 </style>
