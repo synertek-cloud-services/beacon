@@ -1,5 +1,32 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — Disconnect icon corrected, remote screen now scales to fit the window
+
+Two more direct corrections to `WebRemotePage.vue`, both from real usage:
+
+**Disconnect's power icon was actively misleading** -- "that just indicates
+that the remote machine is being powered off," which it never did; it only
+ends the browser-side viewing session. Swapped to a plain X, matching
+`RemoteShellModal.vue`'s existing close-icon convention rather than
+inventing a new glyph, plus an explicit tooltip clarifying it doesn't touch
+the remote machine's power state.
+
+**The remote screen never scaled to fit the window.** Neither `new RFB(...)`
+call site set any scaling option, so noVNC's own default (`scaleViewport:
+false`) showed the framebuffer at real pixel size with scrollbars/centering
+instead of fitting the container, in both the normal view and fullscreen.
+Fixed with one shared `RFB_OPTIONS = { scaleViewport: true, clipViewport:
+true }` constant used at both construction sites -- since `toggleFullscreen()`
+just makes the same wrapping element bigger via the Fullscreen API, one
+setting handles both windowed and fullscreen fit-to-window behavior, the
+same behavior cited from Devolutions RDM as the reference.
+
+Verified visually via Playwright that the disconnect icon is genuinely an X
+now, not the old power-icon path, with the updated tooltip. The actual
+scaling is real noVNC library behavior behind a documented public option,
+not hand-rolled -- not independently re-verified against a live RFB
+connection in this sandbox. `vue-tsc -b --force` clean.
+
 ## Session: 2026-08-11 — Real hardware found a genuine execution-policy bug affecting Job scripts too, not just Elevate
 
 The very next real-hardware test of the previous session's elevated-menu
