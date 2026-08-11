@@ -102,15 +102,18 @@
     <div v-if="elevateModalOpen" class="modal-backdrop" @click.self="closeElevateModal">
       <div class="modal">
         <div class="modal-head"><span class="modal-title">Elevate</span></div>
-        <div class="modal-body">
-          <p class="text-sm" style="margin:0 0 12px">
-            Reconnects with full SYSTEM-level access to the machine — the same privilege level the agent itself runs with — including any secure Windows prompts (e.g. UAC) for the rest of this session. No credentials are needed.
+        <div v-if="elevating" class="modal-body wr-elevate-loading">
+          <div class="wr-spinner"></div>
+          <p class="text-sm text-muted-2">Elevating… this can take up to a minute.</p>
+        </div>
+        <div v-else class="modal-body">
+          <p class="text-sm" style="margin:0">
+            Full SYSTEM-level access for the rest of this session, including secure Windows prompts like UAC. No credentials needed.
           </p>
-
-          <div v-if="elevateError" class="error-banner">{{ elevateError }}</div>
+          <div v-if="elevateError" class="error-banner" style="margin-top:12px">{{ elevateError }}</div>
         </div>
         <div class="modal-foot">
-          <button class="btn btn-ghost" @click="closeElevateModal">Cancel</button>
+          <button class="btn btn-ghost" :disabled="elevating" @click="closeElevateModal">Cancel</button>
           <button class="btn btn-primary" :disabled="elevating" @click="elevate">{{ elevating ? 'Elevating…' : 'Elevate' }}</button>
         </div>
       </div>
@@ -673,4 +676,12 @@ onUnmounted(() => {
 .modal-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
 .modal-body { padding: 20px; overflow-y: auto; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+
+/* Real in-modal loading state for Elevate -- reported directly as "it just
+   looks like it hangs" when the only feedback was the button's own label
+   changing to "Elevating…". Replaces the body text with a spinner (the
+   same .wr-spinner already used by the main connect overlay) for the
+   duration of the attempt, which can take up to CONNECT_TIMEOUT_MS. */
+.wr-elevate-loading { display: flex; flex-direction: column; align-items: center; padding: 28px 20px; text-align: center; }
+.wr-elevate-loading .wr-spinner { margin-bottom: 10px; }
 </style>
