@@ -1,5 +1,64 @@
 # Beacon — Project Log
 
+## Session: 2026-08-10 — Elevate: real visibility instead of guessing, and don't lose the working connection
+
+First real-hardware test of the credential fallback (merged as part of #126)
+reported "I see no change at all" -- correctly explained as expected (a
+local administrator was tested, so GetLinkedToken already succeeds and the
+fallback code never runs), but the user pushed back on the premise
+directly: Beacon shouldn't assume the logged-in user is an admin in the
+first place, and there has to be a real indicator instead of finding out
+the hard way. That surfaced a second, independently real problem in the
+same conversation: `elevate()` disconnected the working non-elevated
+session *before* confirming the new elevated one would succeed, so a
+failed attempt (no admin rights, no configured credentials) left the
+technician with nothing at all.
+
+Two fixes, confirmed via AskUserQuestion:
+
+**Real visibility.** `usersession.ActiveUserCanElevate()` runs the exact
+same WTSQueryUserToken->GetLinkedToken check RunAsSessionElevated already
+does internally, but read-only -- wired into the existing audit flow
+(`HardwareInfo.ConsoleUserCanElevate`, rides the existing hardware JSON
+blob, no migration) so DeviceDetailPage.vue can show a real "Administrator"
+/"Standard User" badge on the Last User row, before anyone ever opens Web
+Remote. A parallel `GET .../elevation-status` endpoint (readonly, unlike
+the admin-only Variables list it draws from) answers "are fallback
+credentials configured" as a bare boolean, letting a technician get a real
+answer without being allowed to browse Company Variables directly.
+
+**Elevate became a confirmation modal.** Always shows both indicators plus
+optional one-time username/password fields (never persisted, sent directly
+in the request, preferred over any saved CV_ variables) -- self-serve
+immediately, no admin pre-configuration required. The bigger fix underneath
+it: WebRemotePage.vue's screen container now has two targets instead of
+one; a new `attemptElevatedConnect()` connects a background instance
+against the inactive target and only resolves once actually connected,
+deliberately never touching the shared status refs that drive the main
+overlay while in flight. Only on success does the old connection get
+disconnected and the target swapped; on failure the original session is
+completely untouched and the error surfaces inside the still-open modal.
+Reuses the existing connectionSeq guard (already proven for the original
+PR #125 stale-event race) for its real intended purpose here -- retiring
+the old instance's lingering disconnect handler before it can fire and
+clobber the newly-set status.
+
+Verified against a real local wrangler dev/vite dev pair with real seeded
+D1 data: a seeded `console_user_can_elevate: false` correctly renders the
+Standard User badge; a real CV_LOCAL_ADMIN_USERNAME/PASSWORD pair (created
+via the real API, properly encrypted) makes the elevation-status endpoint
+correctly return true; the modal shows both real indicators; typing
+credentials and clicking Elevate dispatches the exact right request body.
+11/11 checks passed. go build/cross-compile clean, worker tsc and dashboard
+vue-tsc both clean. Not independently verified: whether a failed elevation
+attempt really preserves a *working* prior connection end-to-end -- this
+sandbox has no way to establish a real initial RFB connection to test the
+before/after swap against; the code path was reviewed carefully but that's
+not the same as a live test.
+
+Committed on its own `feature/elevate-modal-and-visibility` branch off a
+clean `main`, same discipline as every other feature this session.
+
 ## Session: 2026-08-10 — Software Uninstall: the existing read-only Software list gains a real action
 
 Third pick from the fresh Datto RMM gap-analysis pass. The Device Detail

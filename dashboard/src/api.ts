@@ -610,6 +610,12 @@ export interface HardwareInfo {
   // Detected virtualization platform (e.g. "WSL2", "Hyper-V", "VMware") —
   // empty on bare metal or when undetectable.
   virtualization?: string
+  // Whether the console user's token has a linked (elevated) token
+  // available -- Windows-only, undefined when nobody is logged in, on
+  // non-Windows, or a query failure (never a confirmed answer either way).
+  // Drives DeviceDetailPage.vue's Summary status row and the Elevate modal
+  // on WebRemotePage.vue.
+  console_user_can_elevate?: boolean
 }
 export interface SoftwareItem {
   name: string; version: string; publisher: string; installed_at: string;
@@ -1081,6 +1087,11 @@ export const api = {
 
   companies: {
     list:   () => request<Company[]>('GET', '/v1/admin/companies'),
+    // Readonly-safe (unlike variables.list below, which is admin-only) --
+    // a bare boolean, never the actual credential values or even whether
+    // other, unrelated variables exist. See worker/src/routes/admin/companies.ts.
+    elevationStatus: (companyId: string) =>
+      request<{ hasElevationCredentials: boolean }>('GET', `/v1/admin/companies/${companyId}/elevation-status`),
     create: (body: {
       name: string;
       auto_approve_default?: boolean;
@@ -1393,10 +1404,17 @@ export const api = {
     },
   },
   sessions: {
-    open: (deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share', elevated?: boolean) =>
+    open: (
+      deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share', elevated?: boolean,
+      // One-time credentials typed into the Elevate modal -- never
+      // persisted, takes precedence over any saved CV_LOCAL_ADMIN_*
+      // Company Variables. See worker/src/routes/sessions.ts.
+      adminUsername?: string, adminPassword?: string,
+    ) =>
       request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
         device_id: deviceId, company_id: companyId, session_type: sessionType,
         ...(elevated ? { elevated: true } : {}),
+        ...(adminUsername && adminPassword ? { elevate_admin_username: adminUsername, elevate_admin_password: adminPassword } : {}),
       }),
   },
   reports: {

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { sha256hex, generateToken, encryptSecret } from '../../lib/crypto';
@@ -451,6 +451,29 @@ function shapeVariable(row: typeof schema.companyVariables.$inferSelect) {
     updatedAt: row.updatedAt,
   };
 }
+
+// GET /:id/elevation-status — readonly (not admin), unlike the variables
+// list above: a technician needs to know *whether* Web Remote's Elevate
+// credential fallback is configured before clicking Elevate, but must not
+// be able to enumerate the full Variables/Secrets namespace to find out
+// (that stays admin-only). Returns a bare boolean, never the values
+// themselves or even the fact that other, unrelated variables exist.
+adminCompanies.get('/:id/elevation-status', async (c) => {
+  if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+
+  const rows = await db
+    .select({ key: schema.companyVariables.key })
+    .from(schema.companyVariables)
+    .where(and(
+      eq(schema.companyVariables.companyId, c.req.param('id')),
+      inArray(schema.companyVariables.key, ['LOCAL_ADMIN_USERNAME', 'LOCAL_ADMIN_PASSWORD']),
+    ))
+    .all();
+
+  const keys = new Set(rows.map(r => r.key));
+  return c.json({ hasElevationCredentials: keys.has('LOCAL_ADMIN_USERNAME') && keys.has('LOCAL_ADMIN_PASSWORD') });
+});
 
 adminCompanies.get('/:id/variables', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);

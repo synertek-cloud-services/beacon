@@ -16,6 +16,12 @@ var ErrElevationNotAvailable = errors.New("usersession: not supported on this pl
 // as ErrNoActiveSession above.
 var ErrInvalidCredentials = errors.New("usersession: not supported on this platform")
 
+// ActiveUserCanElevate is a no-op stub outside Windows -- there's no
+// equivalent split-token/UAC concept on Linux/macOS.
+func ActiveUserCanElevate() (bool, error) {
+	return false, ErrNoActiveSession
+}
+
 // RunAsActiveUser is a no-op stub outside Windows -- there's no equivalent
 // Session 0 Isolation concept on Linux/macOS for this package to bridge.
 func RunAsActiveUser(exe string, args []string) (pid uint32, err error) {

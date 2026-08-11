@@ -66,6 +66,40 @@ const (
 	logon32ProviderDefault  = 0
 )
 
+// ActiveUserCanElevate reports whether the currently logged-in console
+// user's token has a linked (elevated) token available -- the exact same
+// check RunAsSessionElevated performs internally (WTSQueryUserToken then
+// GetLinkedToken) before ever launching anything, exposed here as a
+// read-only query with no process launch. Feeds an audit-collected field
+// (see agent/internal/audit's console-user collector) so a technician can
+// see, ahead of time, whether Web Remote's Elevate button will need the
+// CV_LOCAL_ADMIN_USERNAME/PASSWORD credential fallback -- instead of only
+// finding out after a failed elevation attempt, which was the real
+// motivation for building this (see PROJECT_LOG.md).
+//
+// Returns (false, ErrNoActiveSession) when nobody is logged into the
+// console -- not applicable, not a "no" answer. Returns (false, nil) when
+// someone is logged in but isn't a split-token administrator (or UAC is
+// disabled) -- a real, confirmed answer, not an error.
+func ActiveUserCanElevate() (bool, error) {
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		return false, ErrNoActiveSession
+	}
+	var userToken windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
+		return false, ErrNoActiveSession
+	}
+	defer userToken.Close()
+
+	linkedToken, err := userToken.GetLinkedToken()
+	if err != nil {
+		return false, nil
+	}
+	defer linkedToken.Close()
+	return true, nil
+}
+
 // RunAsActiveUser launches exe (with args) in the context of whoever is
 // logged into the active *console* session specifically. Kept as a thin
 // wrapper around RunAsSession for agent/tools/usersessiontest and anything

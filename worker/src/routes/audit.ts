@@ -32,6 +32,10 @@ interface HardwareInfo {
   architecture?: string; system?: SystemInfo; display_adapters?: string[]
   domain?: string; windows_display_version?: string; windows_installation_type?: string
   virtualization?: string
+  // Whether the console user's token has a linked (elevated) token
+  // available -- Windows-only, absent when nobody is logged in or on
+  // non-Windows. See agent/internal/protocol/types.go's own doc comment.
+  console_user_can_elevate?: boolean
 }
 interface SoftwareItem { name: string; version: string; publisher: string; installed_at: string }
 interface ServiceItem  { name: string; display_name: string; status: string; start_type: string }

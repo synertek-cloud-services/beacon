@@ -218,6 +218,13 @@ type HardwareInfo struct {
 	Network          []NetworkInfo `json:"network"`
 	BIOS             *BIOSInfo     `json:"bios,omitempty"`
 	LastLoggedInUser string        `json:"last_logged_in_user,omitempty"`
+	// ConsoleUserCanElevate reports whether the current console user's
+	// token has a linked (elevated) token available -- Windows-only. Nil
+	// when nobody is logged in, on non-Windows, or a query failure --
+	// distinct from a confirmed false. Feeds Web Remote's Elevate flow so
+	// a technician can see ahead of time whether the CV_LOCAL_ADMIN_
+	// USERNAME/PASSWORD credential fallback will be needed.
+	ConsoleUserCanElevate *bool `json:"console_user_can_elevate,omitempty"`
 	// Architecture is runtime.GOARCH — trivially known at compile time, no
 	// platform-specific collection needed.
 	Architecture    string      `json:"architecture,omitempty"`
