@@ -209,7 +209,12 @@ func launchElevatedShell(sessionID, adminUsername, adminPassword string) {
 		log.Printf("session %s: elevated shell: write menu script: %v", sessionID, err)
 		return
 	}
-	args := []string{"-NoProfile", "-NoExit", "-File", scriptPath}
+	// -ExecutionPolicy Bypass: see the identical comment on the SYSTEM-context
+	// path in executor/run.go -- confirmed on real hardware via a real
+	// UnauthorizedAccess error ("running scripts is disabled on this
+	// system") on a Windows client machine, whose default execution policy
+	// (Restricted) blocks -File regardless of which account launches it.
+	args := []string{"-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath}
 
 	pid, err := usersession.RunAsActiveUserElevated("powershell.exe", args)
 	if err != nil && errors.Is(err, usersession.ErrElevationNotAvailable) {

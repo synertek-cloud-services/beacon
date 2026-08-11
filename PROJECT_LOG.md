@@ -1,5 +1,38 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — Real hardware found a genuine execution-policy bug affecting Job scripts too, not just Elevate
+
+The very next real-hardware test of the previous session's elevated-menu
+work hit a real PowerShell error: "running scripts is disabled on this
+system... UnauthorizedAccess" trying to load `beacon-elevated-menu.ps1`.
+Root cause: Windows client editions (10/11) default PowerShell's execution
+policy to `Restricted`, which blocks loading any local `.ps1` file via
+`-File` regardless of account -- Windows Server defaults to `RemoteSigned`,
+which already allows it. `-Command` (inline strings) is unaffected either
+way.
+
+Grepped every `powershell.exe`/`-File` call site in the agent and found
+three, all with the identical gap -- not just the new elevated-menu script.
+`agent/internal/executor/run.go`'s SYSTEM-context path (every `run_script`
+Job/Component dispatch) and `agent/internal/executor/run_as_user_windows.go`'s
+run-as-user path are the more serious finding: real Job script execution has
+plausibly been silently failing this whole time on any Windows client device
+that never had its execution policy manually loosened. Likely invisible
+until now because prior real-hardware verification skewed toward
+server-class test devices (Nebuchadnezzar, CDNX-LT-001) -- this was
+probably the first genuine client-desktop test of a `-File` PowerShell path
+in this project's history.
+
+Fixed identically at all three sites: added `-ExecutionPolicy Bypass`
+immediately before `-File` -- overrides only that one process's own
+session-scoped check, never the machine's actual configured policy. `go
+build`/`go vet`/`gofmt` clean natively and cross-compiled windows/linux/
+darwin; `go test ./internal/executor/...` still passes. **Not yet
+re-verified on the real hardware that surfaced this** -- needs a fresh
+agent release and another real Elevate click, plus ideally a real
+`run_script` Job dispatch against the same client machine, to confirm the
+fix actually resolves it rather than just that the reasoning holds.
+
 ## Session: 2026-08-11 — Elevated shell becomes a real TUI menu; Web Remote toolbar redesigned around icons
 
 Two follow-up asks from the same conversation as the Elevate admin-toolset

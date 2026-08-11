@@ -67,8 +67,11 @@ func runScriptAsUser(cmd protocol.Command, p runScriptPayload) protocol.CommandR
 	}
 	defer os.Remove(scriptPath)
 
+	// -ExecutionPolicy Bypass: see the identical comment on the SYSTEM-context
+	// path in run.go -- Windows client editions default to Restricted, which
+	// blocks -File regardless of which account launches it.
 	pid, err := usersession.RunAsSession(sessionID, "powershell.exe",
-		[]string{"-NoProfile", "-NonInteractive", "-File", scriptPath})
+		[]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath})
 	if err != nil {
 		result.Stderr = fmt.Sprintf("launching in user session: %v", err)
 		return result
