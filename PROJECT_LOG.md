@@ -1,5 +1,37 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — The scaling fix from the previous entry didn't work; root-caused and actually fixed
+
+Real hardware, immediately: a screenshot of a laptop connected to a
+higher-resolution remote desktop, scrollbars clearly visible, right after
+the scaling fix below had been merged and deployed. The first attempt
+(`RFB_OPTIONS = { scaleViewport: true, clipViewport: true }` passed as the
+`new RFB(...)` constructor's third argument) type-checked clean and read
+correctly in review, but was completely inert.
+
+Root-caused by reading noVNC's actual source (`core/rfb.js`) instead of
+re-guessing: the constructor only ever reads
+`options.credentials`/`shared`/`repeaterID`/`wsProtocols` from its third
+argument. `scaleViewport`/`clipViewport` are real, documented properties
+(API.md's separate "Properties" section) that only take effect through
+their own setters -- passing them as constructor options is silently
+ignored, no error, no warning.
+
+Fixed with a new `applyDisplayOptions(instance)` helper that assigns
+`instance.scaleViewport = true`/`instance.clipViewport = true` directly on
+the live RFB instance immediately after construction, at both call sites.
+`src/novnc.d.ts` gained both as typed instance properties.
+
+Verified this time at the actual library level, not just by type-checking:
+a Playwright script imported the real bundled `core/rfb.js` in-page,
+constructed one instance with the old (broken) constructor-options
+approach and confirmed `scaleViewport` read back `false` -- reproducing the
+exact bug -- then set the same properties directly on the instance and
+confirmed they read back `true`. `vue-tsc -b --force` clean. Not yet
+re-confirmed against a live RFB connection on real hardware, but the actual
+mechanism is now proven correct at the point the previous attempt silently
+failed.
+
 ## Session: 2026-08-11 — Disconnect icon corrected, remote screen now scales to fit the window
 
 Two more direct corrections to `WebRemotePage.vue`, both from real usage:
