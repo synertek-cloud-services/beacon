@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
@@ -9,6 +9,27 @@ import { extendFastPoll } from '../lib/fastPoll';
 import { logActivity } from '../lib/activityLog';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
+
+// Matches Application Components' own per-file cap (worker/src/routes/admin/components.ts) --
+// same reasoning, no need for a different number for a structurally similar upload.
+const MAX_SESSION_FILE_BYTES = 100 * 1024 * 1024;
+
+// verifyReportToken is shared by every agent-facing Web Remote route below
+// (file-requests/next, .../result, .../blob, .../upload-result) plus the
+// pre-existing GET/POST .../displays and GET .../switch-monitor -- all
+// check the same per-session report_token, never requireUser or the
+// device's own long-lived credential (see POST / above for why). Kept as
+// a small local helper rather than exported/shared more widely: this
+// file is the only consumer, and the check is three lines.
+async function verifyReportToken(db: ReturnType<typeof drizzle<typeof schema>>, sessionId: string, authHeader: string | undefined): Promise<boolean> {
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined;
+  if (!token) return false;
+  const row = await db.select({ hash: schema.sessions.reportTokenHash })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, sessionId))
+    .get();
+  return !!row?.hash && (await sha256hex(token)) === row.hash;
+}
 
 // POST /v1/sessions — create a session and queue open_session for the agent
 sessions.post('/', async (c) => {
@@ -268,6 +289,273 @@ sessions.get('/:id/switch-monitor', async (c) => {
   }
 
   return c.json({ monitor: row.monitor ?? '' });
+});
+
+// ── Web Remote file transfer ────────────────────────────────────────────
+// Toolbar icon -> Upload/Download -> a file picker, same shape described
+// directly from real Datto RMM usage. Upload always lands on the
+// logged-on target user's Desktop (see beacon-screenshare.exe's own
+// resolution of that path); Download needs a remote directory browser,
+// since there's no other way for a technician to know what files exist
+// on a machine they aren't physically at. All three request types
+// (browse/download/upload) share one small table and the same
+// assign-then-poll-then-report shape this file's switch-monitor routes
+// above (and the Two-Tier Policy System's file_size/ping/process/service
+// checks, further afield) already established -- see migration 0080's
+// own comment for the exact request/result JSON shapes.
+
+// POST /v1/sessions/:id/file-requests — technician-facing: request a
+// remote directory listing (type: 'browse') or a specific file's contents
+// (type: 'download'). Returns immediately with the new request's id; the
+// technician-facing GET below is polled for the result.
+sessions.post('/:id/file-requests', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const body = await c.req.json<{ type: string; path: string }>();
+  if (body.type !== 'browse' && body.type !== 'download') {
+    return c.json({ error: "type must be 'browse' or 'download'" }, 400);
+  }
+  if (!body.path) return c.json({ error: 'path is required' }, 400);
+
+  const db = drizzle(c.env.DB, { schema });
+  const session = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.id, c.req.param('id'))).get();
+  if (!session) return c.json({ error: 'session not found' }, 404);
+
+  const id = crypto.randomUUID();
+  await db.insert(schema.sessionFileRequests).values({
+    id,
+    sessionId: c.req.param('id'),
+    type: body.type as 'browse' | 'download',
+    status: 'pending',
+    request: JSON.stringify({ path: body.path }),
+    createdAt: Math.floor(Date.now() / 1000),
+  });
+  return c.json({ id }, 201);
+});
+
+// GET /v1/sessions/:id/file-requests/:reqId — technician-facing: poll for
+// a browse/download/upload request's result. Registered ahead of the
+// agent-facing GET .../file-requests/next below is unnecessary here (the
+// literal segments "next" vs. a real UUID never collide in Hono's
+// routing), unlike the ComStore-before-:id ordering rule documented
+// elsewhere in this codebase.
+sessions.get('/:id/file-requests/:reqId', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
+    .get();
+  if (!row) return c.json({ error: 'request not found' }, 404);
+
+  let result: unknown = null;
+  try { result = row.result ? JSON.parse(row.result) : null; } catch { /* malformed -- treat as not yet available */ }
+  return c.json({ status: row.status, result, error: row.error ?? null });
+});
+
+// POST /v1/sessions/:id/files/upload — technician-facing: upload a local
+// file (raw binary body, same X-File-Name/X-File-Size convention as
+// Application Components' own upload route) bound for the target
+// session's logged-on user's Desktop. Creates the R2 object immediately
+// (so the agent-facing poll below has something concrete to fetch) and a
+// 'upload'-type file-request row for the already-running
+// beacon-screenshare.exe helper to pick up.
+sessions.post('/:id/files/upload', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const db = drizzle(c.env.DB, { schema });
+  const session = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.id, c.req.param('id'))).get();
+  if (!session) return c.json({ error: 'session not found' }, 404);
+
+  let filename: string;
+  try {
+    filename = decodeURIComponent(c.req.header('X-File-Name') ?? '').trim();
+  } catch {
+    return c.json({ error: 'X-File-Name is invalid' }, 400);
+  }
+  const declaredSize = Number(c.req.header('X-File-Size') ?? '');
+  const contentLength = Number(c.req.header('Content-Length') ?? '');
+  if (!filename || filename.length > 255) return c.json({ error: 'X-File-Name is required and must be at most 255 characters' }, 400);
+  if (!Number.isInteger(declaredSize) || declaredSize < 1) return c.json({ error: 'X-File-Size is required' }, 400);
+  if (!Number.isInteger(contentLength) || contentLength !== declaredSize) {
+    return c.json({ error: 'Content-Length must match X-File-Size' }, 400);
+  }
+  if (declaredSize > MAX_SESSION_FILE_BYTES) return c.json({ error: 'file exceeds the 100 MiB limit' }, 413);
+  if (!c.req.raw.body) return c.json({ error: 'file body required' }, 400);
+
+  const reqId = crypto.randomUUID();
+  const objectKey = `session-files/${c.req.param('id')}/${reqId}`;
+  try {
+    await c.env.SESSION_FILES.put(objectKey, c.req.raw.body, {
+      httpMetadata: { contentType: c.req.header('Content-Type') ?? 'application/octet-stream' },
+    });
+    await db.insert(schema.sessionFileRequests).values({
+      id: reqId,
+      sessionId: c.req.param('id'),
+      type: 'upload',
+      status: 'pending',
+      request: JSON.stringify({ object_key: objectKey, filename, size_bytes: declaredSize }),
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+    return c.json({ id: reqId }, 201);
+  } catch (err) {
+    await c.env.SESSION_FILES.delete(objectKey);
+    return c.json({ error: err instanceof Error ? err.message : 'upload failed' }, 400);
+  }
+});
+
+// GET /v1/sessions/:id/files/:reqId/download — technician-facing: stream
+// a completed 'download'-type request's bytes back to the browser.
+// Content-Disposition is what makes WebRemotePage.vue's downloadFile()
+// helper (dashboard/src/api.ts) trigger a real browser download rather
+// than rendering inline. R2 object cleanup is a known, accepted gap here
+// (not solved this pass) -- self-hosted scale, transient objects, same
+// "fine at this scale" reasoning this codebase already applies elsewhere
+// (e.g. Custom Fields' rename-guard full-table scan) rather than risking
+// deleting an object out from under an in-flight stream.
+sessions.get('/:id/files/:reqId/download', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
+    .get();
+  if (!row || row.type !== 'download' || row.status !== 'completed') {
+    return c.json({ error: 'download not ready' }, 404);
+  }
+  let result: { object_key?: string; filename?: string } = {};
+  try { result = row.result ? JSON.parse(row.result) : {}; } catch { /* fall through to the 404 below */ }
+  if (!result.object_key) return c.json({ error: 'download not ready' }, 404);
+
+  const obj = await c.env.SESSION_FILES.get(result.object_key);
+  if (!obj) return c.json({ error: 'file no longer available' }, 404);
+
+  const headers = new Headers();
+  obj.writeHttpMetadata(headers);
+  headers.set('Content-Disposition', `attachment; filename="${(result.filename ?? 'download').replace(/"/g, '')}"`);
+  headers.set('Cache-Control', 'no-store');
+  return c.body(obj.body, 200, Object.fromEntries(headers));
+});
+
+// GET /v1/sessions/:id/file-requests/next — agent-facing: the
+// already-running beacon-screenshare.exe helper polls this at a short
+// interval (same ~1s cadence as GET .../switch-monitor) to pick up the
+// oldest still-pending browse/download/upload request. Returns {} when
+// there's nothing to do, never an error, so the poll loop's steady state
+// is silent.
+sessions.get('/:id/file-requests/next', async (c) => {
+  const db = drizzle(c.env.DB, { schema });
+  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.sessionId, c.req.param('id')), eq(schema.sessionFileRequests.status, 'pending')))
+    .orderBy(asc(schema.sessionFileRequests.createdAt))
+    .limit(1)
+    .get();
+  if (!row) return c.json({});
+
+  let request: unknown = {};
+  try { request = JSON.parse(row.request); } catch { /* malformed row -- surface as an empty request, agent will fail it cleanly */ }
+  return c.json({ id: row.id, type: row.type, request });
+});
+
+// POST /v1/sessions/:id/file-requests/:reqId/result — agent-facing:
+// reports a 'browse' listing or an 'upload' outcome. ('download' outcomes
+// go through .../upload-result below instead, since those carry the
+// actual file bytes, not just a JSON result.)
+sessions.post('/:id/file-requests/:reqId/result', async (c) => {
+  const db = drizzle(c.env.DB, { schema });
+  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const body = await c.req.json<{ result?: unknown; error?: string }>();
+  await db.update(schema.sessionFileRequests)
+    .set({
+      status: body.error ? 'failed' : 'completed',
+      result: body.error ? null : JSON.stringify(body.result ?? {}),
+      error: body.error ?? null,
+      completedAt: Math.floor(Date.now() / 1000),
+    })
+    .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))));
+  return c.json({ ok: true });
+});
+
+// GET /v1/sessions/:id/files/:reqId/blob — agent-facing: for an
+// 'upload'-type request, fetches the R2 bytes the technician already
+// uploaded (see POST .../files/upload above) so the helper can write them
+// to disk.
+sessions.get('/:id/files/:reqId/blob', async (c) => {
+  const db = drizzle(c.env.DB, { schema });
+  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
+    .get();
+  if (!row || row.type !== 'upload') return c.json({ error: 'not found' }, 404);
+  let request: { object_key?: string } = {};
+  try { request = JSON.parse(row.request); } catch { /* fall through to the 404 below */ }
+  if (!request.object_key) return c.json({ error: 'not found' }, 404);
+
+  const obj = await c.env.SESSION_FILES.get(request.object_key);
+  if (!obj) return c.json({ error: 'file no longer available' }, 404);
+  const headers = new Headers();
+  obj.writeHttpMetadata(headers);
+  headers.set('Cache-Control', 'no-store');
+  return c.body(obj.body, 200, Object.fromEntries(headers));
+});
+
+// POST /v1/sessions/:id/file-requests/:reqId/upload-result — agent-facing:
+// for a 'download'-type request, the helper streams the requested file's
+// real bytes here (raw binary body, same X-File-Name/X-File-Size
+// convention as every other upload route in this file) instead of a JSON
+// result -- this is the one place actual remote file content flows
+// through the worker. Stores to R2 and marks the request completed with
+// a pointer the technician-facing GET .../download route above can serve.
+sessions.post('/:id/file-requests/:reqId/upload-result', async (c) => {
+  const db = drizzle(c.env.DB, { schema });
+  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
+    .get();
+  if (!row || row.type !== 'download') return c.json({ error: 'not found' }, 404);
+
+  let filename: string;
+  try {
+    filename = decodeURIComponent(c.req.header('X-File-Name') ?? '').trim();
+  } catch {
+    return c.json({ error: 'X-File-Name is invalid' }, 400);
+  }
+  const declaredSize = Number(c.req.header('X-File-Size') ?? '');
+  if (!filename) filename = 'download';
+  if (!Number.isInteger(declaredSize) || declaredSize < 0) return c.json({ error: 'X-File-Size is required' }, 400);
+  if (declaredSize > MAX_SESSION_FILE_BYTES) return c.json({ error: 'file exceeds the 100 MiB limit' }, 413);
+  if (!c.req.raw.body) return c.json({ error: 'file body required' }, 400);
+
+  const objectKey = `session-files/${c.req.param('id')}/${c.req.param('reqId')}`;
+  try {
+    await c.env.SESSION_FILES.put(objectKey, c.req.raw.body, {
+      httpMetadata: { contentType: c.req.header('Content-Type') ?? 'application/octet-stream' },
+    });
+    await db.update(schema.sessionFileRequests)
+      .set({
+        status: 'completed',
+        result: JSON.stringify({ object_key: objectKey, filename, size_bytes: declaredSize }),
+        completedAt: Math.floor(Date.now() / 1000),
+      })
+      .where(eq(schema.sessionFileRequests.id, c.req.param('reqId')));
+    return c.json({ ok: true });
+  } catch (err) {
+    await c.env.SESSION_FILES.delete(objectKey);
+    return c.json({ error: err instanceof Error ? err.message : 'upload failed' }, 400);
+  }
 });
 
 // GET /v1/sessions/:id/ws — WebSocket upgrade, proxied to the SessionRelay DO

@@ -62,6 +62,12 @@ export type Bindings = {
   LOGOS: R2Bucket;
   // Private MSI installers and support files for Application Components.
   COMPONENT_FILES: R2Bucket;
+  // Private, short-lived Web Remote file-transfer uploads/downloads (see
+  // routes/sessions.ts's .../files routes and migration 0080) -- separate
+  // bucket from COMPONENT_FILES since these objects are transient
+  // per-session transfers, not durable component assets, and never need
+  // its retention/versioning story.
+  SESSION_FILES: R2Bucket;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

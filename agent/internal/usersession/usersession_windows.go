@@ -397,6 +397,34 @@ func ActiveSessionDetails() ([]SessionDetail, error) {
 	return details, nil
 }
 
+// CurrentSessionID returns the Windows Terminal Services session ID of the
+// calling process itself. Used by beacon-screenshare.exe (which has no
+// _windows.go/_other.go split of its own, same reasoning as
+// ActiveConsoleSessionID's own doc comment) to resolve which real user's
+// Desktop an uploaded file should land on -- that process always runs
+// *inside* the target session, whether attached via the logged-in user's
+// own token (RunAsSession) or a relocated SYSTEM token
+// (RunAsSessionAsSystem), so its own session ID is always the right one to
+// resolve regardless of which launch path put it there.
+func CurrentSessionID() (uint32, error) {
+	var sessionID uint32
+	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &sessionID); err != nil {
+		return 0, fmt.Errorf("usersession: ProcessIdToSessionId: %w", err)
+	}
+	return sessionID, nil
+}
+
+// UsernameForSession returns the login name of whoever is logged into the
+// given Terminal Services session, or "" if nobody is (or the session ID
+// doesn't currently exist) -- exported wrapper around the same
+// wtsQuerySessionString helper ActiveSessionDetails already uses
+// internally, needed here since CurrentSessionID's own caller
+// (beacon-screenshare.exe) isn't enumerating every active session, just
+// resolving its own one.
+func UsernameForSession(sessionID uint32) (string, error) {
+	return wtsQuerySessionString(sessionID, wtsInfoClassUserName)
+}
+
 // wtsQuerySessionString wraps WTSQuerySessionInformationW for the two
 // string-valued info classes this file needs (UserName, DomainName).
 // Returns "" on failure (e.g. a session that's transitioning) rather than
