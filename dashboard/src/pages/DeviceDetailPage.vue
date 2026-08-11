@@ -243,7 +243,10 @@
                   <span class="ddev-label">Domain</span><span class="text-sm">{{ auditData.hardware.domain }}</span>
                 </div>
                 <div v-if="auditData.hardware?.last_logged_in_user" class="ddev-row">
-                  <span class="ddev-label">Last User</span><span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>
+                  <span class="ddev-label">Last User</span>
+                  <span class="mono text-sm">{{ auditData.hardware.last_logged_in_user }}</span>
+                  <span v-if="auditData.hardware?.console_user_can_elevate === true" class="inv-badge-ok" style="margin-left:8px" title="This user can be elevated for Web Remote without needing saved admin credentials">Administrator</span>
+                  <span v-else-if="auditData.hardware?.console_user_can_elevate === false" class="inv-badge-warn" style="margin-left:8px" title="Web Remote's Elevate button will need CV_LOCAL_ADMIN_USERNAME/PASSWORD configured on this company">Standard User</span>
                 </div>
                 <div v-if="inventoryOf(device)?.av_product" class="ddev-row">
                   <span class="ddev-label">AV Product</span><span class="text-sm">{{ inventoryOf(device)!.av_product }}</span>
@@ -1062,8 +1065,15 @@ async function openWebRemote() {
     const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share');
     // device_id/company_id ride along so the Elevate button on
     // WebRemotePage.vue can independently open a *new* session later
-    // without a round trip back through this page.
-    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}`;
+    // without a round trip back through this page. console_admin is a
+    // point-in-time snapshot from this device's latest audit (not
+    // re-fetched by WebRemotePage.vue, which has no other reason to talk
+    // to the audit endpoint at all) -- purely informational text in the
+    // Elevate modal, never trusted as the actual authorization decision
+    // (the agent's own GetLinkedToken check at elevation time is).
+    const consoleAdmin = auditData.value?.hardware?.console_user_can_elevate;
+    const consoleAdminParam = consoleAdmin === undefined ? '' : `&console_admin=${consoleAdmin ? '1' : '0'}`;
+    const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}${consoleAdminParam}`;
     window.open(url, '_blank');
   } catch (e: any) {
     error.value = e.message;

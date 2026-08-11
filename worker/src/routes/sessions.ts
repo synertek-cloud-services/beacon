@@ -25,6 +25,14 @@ sessions.post('/', async (c) => {
     // sessions row -- a one-shot dispatch-time instruction, not queryable
     // session state, same as install_patches' own auto_reboot payload flag.
     elevated?: boolean;
+    // Optional one-time credentials typed directly into the Elevate
+    // confirmation modal — never persisted anywhere (not written to
+    // company_variables, not logged). Takes precedence over any configured
+    // CV_LOCAL_ADMIN_USERNAME/PASSWORD when both are supplied, so a
+    // technician can always override with a fresh one-off account without
+    // needing admin access to change the saved Company Variables.
+    elevate_admin_username?: string;
+    elevate_admin_password?: string;
   }>();
 
   const db = drizzle(c.env.DB, { schema });
@@ -83,10 +91,17 @@ sessions.post('/', async (c) => {
   let elevateAdminUsername: string | undefined;
   let elevateAdminPassword: string | undefined;
   if (body.elevated && body.session_type === 'screen_share') {
-    const companyVars = await fetchCompanyVariables(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, [body.company_id]);
-    const vars = companyVars.get(body.company_id) ?? {};
-    elevateAdminUsername = vars['CV_LOCAL_ADMIN_USERNAME'];
-    elevateAdminPassword = vars['CV_LOCAL_ADMIN_PASSWORD'];
+    if (body.elevate_admin_username && body.elevate_admin_password) {
+      // One-time credentials typed directly into the Elevate modal — used
+      // as-is, no Company Variables lookup at all.
+      elevateAdminUsername = body.elevate_admin_username;
+      elevateAdminPassword = body.elevate_admin_password;
+    } else {
+      const companyVars = await fetchCompanyVariables(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, [body.company_id]);
+      const vars = companyVars.get(body.company_id) ?? {};
+      elevateAdminUsername = vars['CV_LOCAL_ADMIN_USERNAME'];
+      elevateAdminPassword = vars['CV_LOCAL_ADMIN_PASSWORD'];
+    }
   }
 
   // Signal the agent via the existing command channel — agent picks it up on next check-in
