@@ -117,7 +117,18 @@ func runScript(cmd protocol.Command) protocol.CommandResult {
 	var shellCmd *exec.Cmd
 	switch p.Shell {
 	case "powershell":
-		shellCmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-File", tmpPath)
+		// -ExecutionPolicy Bypass: Windows client editions (10/11) default
+		// PowerShell's execution policy to Restricted, which refuses to load
+		// any local .ps1 file via -File regardless of who's running it --
+		// confirmed on real hardware via a real UnauthorizedAccess error
+		// ("running scripts is disabled on this system"). Windows Server
+		// defaults to RemoteSigned instead, which already allows this, so
+		// this gap only ever surfaced against a real client-desktop target.
+		// Bypass only overrides this one process's own session-scoped
+		// policy check -- it never touches the machine's actual configured
+		// policy (registry/Group Policy), same as a technician manually
+		// passing -ExecutionPolicy Bypass at an elevated prompt would.
+		shellCmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpPath)
 	case "bash":
 		shellCmd = exec.CommandContext(ctx, "bash", tmpPath)
 	default: // "sh" and anything else
