@@ -10,6 +10,7 @@ package screencapture
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfb"
@@ -18,6 +19,7 @@ import (
 )
 
 var _ rfbserver.Capturer = (*GDICapturer)(nil)
+var _ rfbserver.DesktopFollower = (*GDICapturer)(nil)
 
 // minCaptureInterval bounds Capture() to roughly 30fps. rfbserver.Serve's
 // loop is capture-on-request with no throttling of its own -- real noVNC
@@ -59,6 +61,12 @@ type GDICapturer struct {
 	// buffer, so simply keeping the previous call's buffer around and
 	// swapping the pointer is safe with no aliasing risk.
 	prevRaw []byte
+
+	// desktopMu guards lastDesktop -- see FollowInputDesktop's own doc
+	// comment for why this field needs a mutex when nothing else on this
+	// struct does.
+	desktopMu   sync.Mutex
+	lastDesktop string
 }
 
 // NewGDICapturer enables per-monitor DPI awareness (must happen once,
@@ -103,6 +111,49 @@ func (c *GDICapturer) CursorShape(pf rfb.PixelFormat) rfb.Rectangle {
 // Size returns the primary monitor's dimensions.
 func (c *GDICapturer) Size() (uint16, uint16) {
 	return uint16(c.width), uint16(c.height)
+}
+
+// FollowInputDesktop implements rfbserver.DesktopFollower -- attaches the
+// calling thread (already OS-thread-locked by rfbserver's own
+// captureWithTimeout, a precondition this relies on but does not itself
+// enforce) to whichever desktop currently has input focus, re-attaching
+// via SetThreadDesktop only on an actual transition. This is what lets a
+// SYSTEM-elevated Web Remote session see and control Windows' secure
+// desktop (where a UAC consent/credential prompt renders) -- opening it
+// via OpenInputDesktop requires SYSTEM-level privilege in the first
+// place, so this call is a no-op-equivalent failure for a non-elevated
+// session's capturer (it simply keeps using whatever desktop it last
+// attached to, the same graceful-degradation behavior this package
+// already had before desktop-following existed).
+//
+// desktopMu exists because captureTimeout's own documented tradeoff (a
+// timed-out Capture() leaks its goroutine rather than being forcibly
+// cancelled) means two calls to this method could in rare cases genuinely
+// run concurrently -- unlike every other field on this struct, which
+// capture's normal one-call-at-a-time pattern already makes safe without
+// one.
+func (c *GDICapturer) FollowInputDesktop() error {
+	hDesk, err := win32.OpenInputDesktop()
+	if err != nil {
+		return fmt.Errorf("screencapture: open input desktop: %w", err)
+	}
+	defer win32.CloseDesktop(hDesk)
+
+	name, err := win32.DesktopName(hDesk)
+	if err != nil {
+		return fmt.Errorf("screencapture: desktop name: %w", err)
+	}
+
+	c.desktopMu.Lock()
+	defer c.desktopMu.Unlock()
+	if name == c.lastDesktop {
+		return nil
+	}
+	if err := win32.SetThreadDesktop(hDesk); err != nil {
+		return fmt.Errorf("screencapture: set thread desktop %q: %w", name, err)
+	}
+	c.lastDesktop = name
+	return nil
 }
 
 // Capture takes a screenshot of the primary monitor and returns only the

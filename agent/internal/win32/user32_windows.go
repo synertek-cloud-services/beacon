@@ -57,7 +57,93 @@ var (
 	procDrawIconEx                    = moduser32.NewProc("DrawIconEx")
 	procSetProcessDpiAwarenessContext = moduser32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware            = moduser32.NewProc("SetProcessDPIAware")
+	procOpenInputDesktop              = moduser32.NewProc("OpenInputDesktop")
+	procSetThreadDesktop              = moduser32.NewProc("SetThreadDesktop")
+	procGetUserObjectInformationW     = moduser32.NewProc("GetUserObjectInformationW")
+	procCloseDesktop                  = moduser32.NewProc("CloseDesktop")
 )
+
+// HDESK mirrors the Win32 HDESK handle type -- a desktop object, distinct
+// from a window station (HWINSTA, not wrapped here -- every caller in this
+// codebase only ever needs winsta0, the one interactive window station per
+// session, already reached implicitly via CreateProcessAsUser's own
+// `winsta0\default` desktop string in usersession_windows.go).
+type HDESK uintptr
+
+const (
+	// genericAll is GENERIC_ALL, requested for OpenInputDesktop rather than
+	// a hand-enumerated DESKTOP_* rights list -- matches this codebase's
+	// own established preference (see install_windows.go's
+	// setRecoveryActions doc comment) for avoiding a subtly-incomplete
+	// enumerated-rights bug class.
+	genericAll = 0x10000000
+
+	// uoiName is the GetUserObjectInformationW index for a desktop's name
+	// (e.g. "Default", the ordinary interactive desktop; "Winlogon", the
+	// secure desktop a UAC consent/credential prompt or the lock screen
+	// renders on; "Disconn"/"Screen-saver" in other states).
+	uoiName = 2
+)
+
+// OpenInputDesktop returns a handle to whichever desktop is currently
+// receiving user input. Opening the secure ("Winlogon") desktop
+// specifically requires the calling process to hold SE_TCB_NAME-class
+// privilege (SYSTEM) -- a plain Administrator token, split-token or not,
+// cannot open it; this is the entire reason Beacon's SYSTEM-based Elevate
+// exists rather than continuing to request an Administrator token.
+func OpenInputDesktop() (HDESK, error) {
+	r1, _, err := procOpenInputDesktop.Call(0, 0, genericAll)
+	if r1 == 0 {
+		return 0, fmt.Errorf("win32: OpenInputDesktop: %w", err)
+	}
+	return HDESK(r1), nil
+}
+
+// SetThreadDesktop attaches the *calling thread* (not the process) to
+// hDesktop -- every subsequent GDI/SendInput call made from this exact
+// thread operates against hDesktop until this is called again. Fails if
+// the calling thread currently owns any window or hook on its current
+// desktop, which never applies to this codebase's callers (screencapture/
+// screeninject create no windows and install no hooks).
+func SetThreadDesktop(hDesktop HDESK) error {
+	r1, _, err := procSetThreadDesktop.Call(uintptr(hDesktop))
+	if r1 == 0 {
+		return fmt.Errorf("win32: SetThreadDesktop: %w", err)
+	}
+	return nil
+}
+
+// DesktopName returns hDesktop's name via GetUserObjectInformationW
+// (UOI_NAME) -- used to detect a desktop switch by comparing against the
+// last-attached name, so SetThreadDesktop (a more consequential call) only
+// runs on an actual transition, not on every check.
+func DesktopName(hDesktop HDESK) (string, error) {
+	var buf [64]uint16
+	var needed uint32
+	r1, _, err := procGetUserObjectInformationW.Call(
+		uintptr(hDesktop),
+		uintptr(uoiName),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)*2),
+		uintptr(unsafe.Pointer(&needed)),
+	)
+	if r1 == 0 {
+		return "", fmt.Errorf("win32: GetUserObjectInformationW: %w", err)
+	}
+	return windows.UTF16ToString(buf[:]), nil
+}
+
+// CloseDesktop releases a handle obtained from OpenInputDesktop. The
+// desktop object itself stays alive via the calling thread's own
+// attachment (SetThreadDesktop), not this handle -- safe, and intended, to
+// close immediately after attaching.
+func CloseDesktop(hDesktop HDESK) error {
+	r1, _, err := procCloseDesktop.Call(uintptr(hDesktop))
+	if r1 == 0 {
+		return fmt.Errorf("win32: CloseDesktop: %w", err)
+	}
+	return nil
+}
 
 // GetDC returns a device context for hwnd (0 = the entire screen).
 func GetDC(hwnd HWND) (HDC, error) {

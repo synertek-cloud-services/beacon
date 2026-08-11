@@ -4,7 +4,7 @@
       <span class="wr-title">
         Web Remote
         <span v-if="hostname" class="text-xs text-muted-2 mono" style="margin-left:8px;font-weight:400">{{ hostname }}</span>
-        <span v-if="elevated" class="wr-elevated-badge" title="An administrator PowerShell — with an admin tools menu — was opened on the remote desktop.">Elevated</span>
+        <span v-if="elevated" class="wr-elevated-badge" title="This session has full SYSTEM-level access, including secure Windows prompts such as UAC.">Elevated</span>
       </span>
       <div class="wr-actions">
         <!-- Keyboard shortcuts dropdown -->
@@ -41,7 +41,7 @@
         <div class="wr-tbtn-sep"></div>
 
         <button class="wr-tbtn wr-elevate-btn" :disabled="!canElevate || elevating" @click="openElevateModal"
-          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Get full administrator access, including an admin tools menu'">
+          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Get full SYSTEM-level access, including secure Windows prompts such as UAC'">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5z"/>
           </svg>
@@ -86,30 +86,10 @@
         <div class="modal-head"><span class="modal-title">Elevate</span></div>
         <div class="modal-body">
           <p class="text-sm" style="margin:0 0 12px">
-            Reconnects with full administrator access and opens an admin PowerShell menu on the remote desktop for common admin tasks.
+            Reconnects with full SYSTEM-level access to the machine — the same privilege level the agent itself runs with — including any secure Windows prompts (e.g. UAC) for the rest of this session. No credentials are needed.
           </p>
 
-          <div class="wr-elevate-status">
-            <span v-if="consoleAdminParam === '1'" class="inv-badge-ok">Logged-in user is an administrator</span>
-            <span v-else-if="consoleAdminParam === '0'" class="inv-badge-warn">Logged-in user is a standard (non-admin) account</span>
-            <span v-else class="inv-badge-muted">Unable to determine whether the logged-in user is an administrator</span>
-          </div>
-          <div class="wr-elevate-status" style="margin-top:6px">
-            <span v-if="elevationStatusLoading" class="text-xs text-muted-2">Checking saved credentials…</span>
-            <span v-else-if="hasElevationCredentials" class="inv-badge-ok">Saved admin credentials are configured for this company</span>
-            <span v-else class="inv-badge-warn">No saved admin credentials configured for this company</span>
-          </div>
-
-          <div class="field" style="margin-top:14px">
-            <label>Admin Username <span class="text-xs text-muted-2" style="text-transform:none;font-weight:400;letter-spacing:0">(one-time, not saved)</span></label>
-            <input v-model="elevateUsername" placeholder="Leave blank to rely on the user's own admin rights or saved credentials" autofocus />
-          </div>
-          <div class="field">
-            <label>Admin Password</label>
-            <input v-model="elevatePassword" type="password" />
-          </div>
-
-          <div v-if="elevateError" class="error-banner" style="margin-top:12px">{{ elevateError }}</div>
+          <div v-if="elevateError" class="error-banner">{{ elevateError }}</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="closeElevateModal">Cancel</button>
@@ -199,14 +179,6 @@ const KBD_SHORTCUTS = [
   { label: 'Run…',            keys: 'Win R',          send: () => sendCombo([WIN, KEY_R]) },
 ];
 
-// console_admin rides along from DeviceDetailPage.vue's openWebRemote() as a
-// point-in-time snapshot of the device's latest audit -- purely
-// informational text in the Elevate modal below, never the actual
-// authorization decision (the agent's own GetLinkedToken check at
-// elevation time is). '1'/'0'/absent, matching how elevated ('1') already
-// rides the query string.
-const consoleAdminParam = (route.query.console_admin as string) ?? '';
-
 const screenWrap = ref<HTMLDivElement | null>(null);
 // Two targets, not one -- see the template's own comment. rfb always
 // points at whichever instance is currently active/visible; a background
@@ -252,11 +224,7 @@ function applyDisplayOptions(instance: RFB) {
 
 // Elevate modal state
 const elevateModalOpen = ref(false);
-const elevateUsername = ref('');
-const elevatePassword = ref('');
 const elevateError = ref('');
-const hasElevationCredentials = ref(false);
-const elevationStatusLoading = ref(false);
 
 function sendPaste() {
   if (!rfb.value || !pasteText.value) return;
@@ -346,21 +314,10 @@ function connectTo(wsUrl: string, target: 'a' | 'b') {
   }, CONNECT_TIMEOUT_MS);
 }
 
-async function openElevateModal() {
+function openElevateModal() {
   if (!canElevate || elevating.value || elevated.value) return;
-  elevateUsername.value = '';
-  elevatePassword.value = '';
   elevateError.value = '';
   elevateModalOpen.value = true;
-  elevationStatusLoading.value = true;
-  try {
-    const result = await api.companies.elevationStatus(companyId);
-    hasElevationCredentials.value = result.hasElevationCredentials;
-  } catch {
-    hasElevationCredentials.value = false; // fails closed -- just informational text either way
-  } finally {
-    elevationStatusLoading.value = false;
-  }
 }
 
 function closeElevateModal() {
@@ -388,7 +345,7 @@ function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b'): Promise<RFB> 
       if (settled) return;
       settled = true;
       instance.disconnect();
-      reject(new Error('Did not connect within 70 seconds. The target user may not be an administrator, or the supplied/saved credentials may be incorrect.'));
+      reject(new Error('Did not connect within 70 seconds. Confirm a user is logged in on the target device.'));
     }, CONNECT_TIMEOUT_MS);
     instance.addEventListener('connect', () => {
       if (settled) return;
@@ -415,10 +372,7 @@ async function elevate() {
   elevateError.value = '';
   const pendingTarget = otherTarget(activeTarget.value);
   try {
-    const { session_id, client_ws_url } = await api.sessions.open(
-      deviceId, companyId, 'screen_share', true,
-      elevateUsername.value || undefined, elevatePassword.value || undefined,
-    );
+    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', true);
     const newInstance = await attemptElevatedConnect(client_ws_url, pendingTarget);
 
     // Proven working -- only now do we retire the old connection. Bumping
@@ -444,8 +398,7 @@ async function elevate() {
     elevateModalOpen.value = false;
     router.replace(
       `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
-      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}&elevated=1` +
-      (consoleAdminParam ? `&console_admin=${consoleAdminParam}` : '')
+      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}&elevated=1`
     );
   } catch (e: any) {
     // The original connection was never touched -- stays fully connected
@@ -561,10 +514,4 @@ onUnmounted(() => {
 .modal-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
 .modal-body { padding: 20px; overflow-y: auto; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
-
-.wr-elevate-status { display: flex; align-items: center; gap: 6px; }
-
-.inv-badge-ok     { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(45,207,160,.12); color: var(--color-success); }
-.inv-badge-warn   { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(240,168,64,.12);  color: var(--color-warning); }
-.inv-badge-muted  { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: rgba(97,100,128,.15);  color: var(--color-text-muted); }
 </style>

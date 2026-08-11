@@ -296,6 +296,30 @@ func sendPointerEvent(t *testing.T, client io.Writer, mask uint8, x, y uint16) {
 	}
 }
 
+// waitFor polls condition every 10ms until it returns true or timeout
+// elapses, failing the test in the latter case. Needed for any assertion
+// on runInjectionLoop's work: that goroutine runs entirely independently
+// of both the read loop and the capture goroutine, so (unlike before this
+// package's goroutine restructuring) sending an input message and then
+// round-tripping a FramebufferUpdateRequest no longer guarantees the
+// injection goroutine has caught up -- capture and injection have no
+// ordering relationship to each other, only to the read loop that feeds
+// each of them in order.
+func waitFor(t *testing.T, timeout time.Duration, condition func() bool, msg string) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if condition() {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal(msg)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 func (h *testHarness) closeAndWaitClean() {
 	h.t.Helper()
 	if closer, ok := h.client.Writer.(io.Closer); ok {
@@ -427,10 +451,12 @@ func TestInputEventsForwarded(t *testing.T) {
 	h.sendKeyEvent(false, 0xFF0D)
 	h.sendPointerEvent(0x01, 100, 200)
 
-	// Round-trip a FramebufferUpdateRequest to synchronize: by the time
-	// its response arrives, the server has necessarily already processed
-	// every message sent before it (RFB messages are handled in order).
-	h.requestUpdate()
+	// Injection runs on its own dedicated goroutine now -- see waitFor's
+	// own doc comment for why a capture round trip can no longer be used
+	// to synchronize with it.
+	waitFor(t, 2*time.Second, func() bool {
+		return len(h.inj.Keys()) >= 2 && len(h.inj.Pointers()) >= 1
+	}, "input events were not injected in time")
 
 	keys := h.inj.Keys()
 	if len(keys) != 2 {
@@ -519,19 +545,9 @@ func TestInputProcessedWhileCaptureBlocked(t *testing.T) {
 		t.Fatalf("client: send KeyEvent: %v", err)
 	}
 
-	deadline := time.After(2 * time.Second)
-	var keys []recordedKeyEvent
-	for len(keys) == 0 {
-		keys = inj.Keys()
-		if len(keys) > 0 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("KeyEvent was not injected while capture was still blocked -- input is stuck behind capture again")
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	waitFor(t, 2*time.Second, func() bool { return len(inj.Keys()) > 0 },
+		"KeyEvent was not injected while capture was still blocked -- input is stuck behind capture again")
+	keys := inj.Keys()
 	if keys[0].keysym != 0x0061 {
 		t.Fatalf("injected keysym = %#x, want 0x61", keys[0].keysym)
 	}
@@ -747,12 +763,15 @@ func TestInjectorErrorDoesNotKillSession(t *testing.T) {
 	sendKeyEvent(t, clientSide, true, 0xFF0D)
 	sendPointerEvent(t, clientSide, 0x01, 100, 200)
 
-	// Round-trip a FramebufferUpdateRequest to synchronize: by the time
-	// its response arrives, the server has necessarily already processed
-	// (and dropped) both events above -- same synchronization trick
-	// TestInputEventsForwarded already uses.
-	sendFramebufferUpdateRequest(t, clientSide)
-	readFramebufferUpdateFrom(t, clientSide)
+	// The injection goroutine processes these independently of capture,
+	// so a capture round trip no longer synchronizes with it -- wait for
+	// both simulated failures to actually be consumed instead (see
+	// waitFor's own doc comment).
+	waitFor(t, 2*time.Second, func() bool {
+		inj.failMu.Lock()
+		defer inj.failMu.Unlock()
+		return inj.failedSoFar >= 2
+	}, "flaky injector did not see both simulated failures in time")
 
 	if keys := inj.Keys(); len(keys) != 0 {
 		t.Fatalf("expected the failed KeyEvent to be dropped, recorded %d", len(keys))
@@ -764,13 +783,18 @@ func TestInjectorErrorDoesNotKillSession(t *testing.T) {
 	// Session must still be alive: the simulated failure only affects the
 	// first two calls, so this KeyEvent must get through and be recorded.
 	sendKeyEvent(t, clientSide, false, 0xFF0D)
-	sendFramebufferUpdateRequest(t, clientSide)
-	readFramebufferUpdateFrom(t, clientSide)
+	waitFor(t, 2*time.Second, func() bool { return len(inj.Keys()) == 1 },
+		"recovered KeyEvent was not recorded in time")
 
 	keys := inj.Keys()
 	if len(keys) != 1 || keys[0].down || keys[0].keysym != 0xFF0D {
 		t.Fatalf("expected the recovered KeyEvent to be recorded, got %+v", keys)
 	}
+
+	// Also confirm the session as a whole (not just injection) survived --
+	// a normal capture request should still work.
+	sendFramebufferUpdateRequest(t, clientSide)
+	readFramebufferUpdateFrom(t, clientSide)
 
 	if closer, ok := clientSide.Writer.(io.Closer); ok {
 		closer.Close()
@@ -797,6 +821,86 @@ type hangingCapturer struct{ w, h uint16 }
 func (h *hangingCapturer) Size() (uint16, uint16) { return h.w, h.h }
 func (h *hangingCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	select {} // blocks forever, deliberately
+}
+
+// desktopFollowingCapturer/desktopFollowingInjector additionally implement
+// DesktopFollower, recording every FollowInputDesktop call -- confirms
+// Serve's capture and injection goroutines actually invoke the optional
+// interface when a Capturer/Injector implements it, independent of any
+// real Windows desktop API (which this package's tests never touch).
+type desktopFollowingCapturer struct {
+	fakeCapturer
+	mu      sync.Mutex
+	follows int
+}
+
+func (d *desktopFollowingCapturer) FollowInputDesktop() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.follows++
+	return nil
+}
+
+func (d *desktopFollowingCapturer) Follows() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.follows
+}
+
+type desktopFollowingInjector struct {
+	fakeInjector
+	mu      sync.Mutex
+	follows int
+}
+
+func (d *desktopFollowingInjector) FollowInputDesktop() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.follows++
+	return nil
+}
+
+func (d *desktopFollowingInjector) Follows() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.follows
+}
+
+func TestDesktopFollowerCalledBeforeCaptureAndInjection(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &desktopFollowingCapturer{fakeCapturer: fakeCapturer{w: 4, h: 3}}
+	inj := &desktopFollowingInjector{}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj) }()
+
+	doClientHandshake(t, clientSide)
+
+	sendFramebufferUpdateRequest(t, clientSide)
+	readFramebufferUpdateFrom(t, clientSide)
+	if cap.Follows() < 1 {
+		t.Fatal("capture goroutine never called FollowInputDesktop")
+	}
+
+	sendKeyEvent(t, clientSide, true, 0xFF0D)
+	waitFor(t, 2*time.Second, func() bool { return inj.Follows() >= 1 },
+		"injection goroutine never called FollowInputDesktop")
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
 }
 
 func TestCaptureTimeoutDoesNotHangSession(t *testing.T) {

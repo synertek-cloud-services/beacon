@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -65,6 +66,28 @@ type CursorCompositingToggle interface {
 	SetCursorCompositingEnabled(enabled bool)
 }
 
+// DesktopFollower is an optional Capturer/Injector capability: called
+// immediately before each Capture()/KeyEvent()/PointerEvent() call, on
+// whatever goroutine is about to make it, so a Windows implementation can
+// attach that goroutine's OS thread to whichever desktop is currently
+// receiving input -- the normal interactive desktop, or the secure
+// desktop while a UAC consent/credential prompt or the lock screen is
+// showing -- before doing the real GDI/SendInput work. This is what lets
+// Beacon's SYSTEM-elevated Web Remote sessions actually see and control a
+// UAC prompt, not just tolerate one appearing (which the non-fatal
+// capture/injection error handling elsewhere in this file already did).
+//
+// Desktop attachment is thread-affine in Win32 (SetThreadDesktop applies
+// to the calling thread, not the process), so this must be called from
+// the same OS thread that's about to perform the capture/injection call
+// -- every caller in this package locks its goroutine to one OS thread
+// via runtime.LockOSThread before invoking this. Optional because
+// non-Windows and this package's own test-fake Capturer/Injector
+// implementations have no desktop concept to follow at all.
+type DesktopFollower interface {
+	FollowInputDesktop() error
+}
+
 // bandHeight is the number of framebuffer rows sent per FramebufferUpdate
 // rectangle. Splitting into bands (rather than one giant rectangle per
 // frame) keeps a single WebSocket message comfortably under any message-
@@ -96,6 +119,27 @@ func captureWithTimeout(cap Capturer, pf rfb.PixelFormat, timeout time.Duration)
 	}
 	done := make(chan result, 1)
 	go func() {
+		// Locked for this goroutine's entire lifetime -- SetThreadDesktop
+		// (behind DesktopFollower, below) is thread-affine, so the desktop
+		// attachment this goroutine sets must not migrate to a different
+		// OS thread mid-call. A fresh goroutine (and therefore a fresh
+		// lock) is spawned on every single capture -- no cost beyond what
+		// captureTimeout's own goroutine-per-call design already pays.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		if follower, ok := cap.(DesktopFollower); ok {
+			// No new polling interval invented -- this piggybacks on
+			// capture's own already-tuned pacing (screencapture's
+			// minCaptureInterval), re-checking on every call rather than a
+			// separate ticker. Non-fatal: a plain (non-SYSTEM) session's
+			// capturer can't open the secure desktop at all, and should
+			// just keep using whatever desktop it last successfully
+			// attached to rather than treating that as an error.
+			if err := follower.FollowInputDesktop(); err != nil {
+				log.Printf("rfbserver: capture: follow input desktop: %v (continuing on current desktop)", err)
+			}
+		}
 		rect, err := cap.Capture(pf)
 		done <- result{rect, err}
 	}()
@@ -104,6 +148,55 @@ func captureWithTimeout(cap Capturer, pf rfb.PixelFormat, timeout time.Duration)
 		return r.rect, r.err
 	case <-time.After(timeout):
 		return rfb.Rectangle{}, fmt.Errorf("capture timed out after %s", timeout)
+	}
+}
+
+// injectionEvent is one queued KeyEvent or PointerEvent, handed from the
+// read loop to the dedicated injection goroutine below so both can stay
+// independent of each other and of the capture goroutine.
+type injectionEvent struct {
+	key    bool // true: KeyEvent (down/keysym below); false: PointerEvent (mask/x/y below)
+	down   bool
+	keysym uint32
+	mask   uint8
+	x, y   uint16
+}
+
+// runInjectionLoop processes queued input events on its own OS thread,
+// locked for the whole connection's lifetime -- kept entirely independent
+// of captureWithTimeout's own per-call locked goroutine above: each
+// maintains its own desktop attachment, and forcing input and capture
+// onto one shared thread would reintroduce the exact "injection blocks on
+// capture" regression this codebase already fixed once by splitting
+// capture out of the read loop into its own goroutine in the first place.
+// Runs until events is closed (Serve returning).
+func runInjectionLoop(inj Injector, events <-chan injectionEvent) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	follower, _ := inj.(DesktopFollower)
+
+	for ev := range events {
+		if follower != nil {
+			if err := follower.FollowInputDesktop(); err != nil {
+				log.Printf("rfbserver: injection: follow input desktop: %v (continuing on current desktop)", err)
+			}
+		}
+		// Deliberately non-fatal, same reasoning already established for
+		// this codebase's UAC-resilience work: a secure desktop is a
+		// separate desktop from whichever one input was last bound to,
+		// and SendInput synthesizing input into a desktop it can't
+		// currently reach is a real, expected, transient condition, not a
+		// reason to end an otherwise-healthy session.
+		if ev.key {
+			if err := inj.KeyEvent(ev.down, ev.keysym); err != nil {
+				log.Printf("rfbserver: key event: %v (dropping this event, session stays open)", err)
+			}
+		} else {
+			if err := inj.PointerEvent(ev.mask, ev.x, ev.y); err != nil {
+				log.Printf("rfbserver: pointer event: %v (dropping this event, session stays open)", err)
+			}
+		}
 	}
 }
 
@@ -131,9 +224,13 @@ func defaultPixelFormat() rfb.PixelFormat {
 // PointerEvent messages far more often than FramebufferUpdateRequests, and
 // any that arrived while a capture was in flight had to wait for it to
 // finish before the loop could even read them, let alone inject them.
-// KeyEvent/PointerEvent still update via the caller's Injector immediately
-// and in-order as the read loop sees them -- only the (slower, one-way)
-// capture-and-send path was ever the bottleneck.
+// KeyEvent/PointerEvent are likewise handed off to their own dedicated
+// goroutine (runInjectionLoop) rather than called inline from this read
+// loop, so each side can independently lock its own OS thread and follow
+// its own desktop attachment (see DesktopFollower) without either
+// blocking the other -- the read loop itself only ever reads a message
+// and either mutates local state or forwards it on, never performing the
+// actual capture/GDI/SendInput work.
 func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	if err := rfb.WriteProtocolVersion(rw); err != nil {
 		return fmt.Errorf("rfbserver: write protocol version: %w", err)
@@ -263,6 +360,18 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 	}()
 	defer close(updateRequested)
 
+	// injectionEvents feeds runInjectionLoop, run on its own dedicated,
+	// OS-thread-locked goroutine for the whole connection's lifetime.
+	// Buffered generously (unlike updateRequested's coalescing size-1
+	// channel) since every input event matters and order matters, unlike
+	// a capture request where only "there's at least one pending" is
+	// meaningful -- 16 is comfortable headroom above real keystroke/mouse
+	// arrival rates given injection itself is normally sub-millisecond
+	// work, so this should essentially never actually block the read loop.
+	injectionEvents := make(chan injectionEvent, 16)
+	go runInjectionLoop(inj, injectionEvents)
+	defer close(injectionEvents)
+
 	if err := rfb.WriteServerInit(rw, width, height, pf, "Beacon Web Remote"); err != nil {
 		return fmt.Errorf("rfbserver: write server init: %w", err)
 	}
@@ -322,30 +431,17 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector) error {
 			}
 
 		case rfb.KeyEventMsg:
-			// Deliberately non-fatal, same reasoning as the capture-error
-			// handling above: a UAC prompt's secure desktop is a separate
-			// desktop from the one this process's input is bound to
-			// (winsta0\default), and SendInput synthesizing input into a
-			// desktop it can't currently reach is a real, expected,
-			// transient failure -- confirmed live: a first version of this
-			// fix only made *capture* errors survivable, and real-hardware
-			// testing showed UAC still killed the session outright, because
-			// this injection path still treated any SendInput failure
-			// (which real-hardware testing that same UAC prompt very
-			// plausibly also triggers -- the technician has no way to know
-			// a secure desktop just appeared and keeps clicking/typing) as
-			// fatal. Injection failures have nothing to do with whether the
-			// underlying WebSocket connection itself is healthy, unlike a
-			// WriteFramebufferUpdate failure, so treating them as fatal was
-			// never actually justified even outside the UAC case.
-			if err := inj.KeyEvent(m.Down, m.Keysym); err != nil {
-				log.Printf("rfbserver: key event: %v (dropping this event, session stays open)", err)
-			}
+			// Handed off to runInjectionLoop's own dedicated goroutine --
+			// see Serve's doc comment. That goroutine, not this read loop,
+			// is what applies the "non-fatal, session stays open" handling
+			// a UAC prompt's secure desktop needs (SendInput synthesizing
+			// input into a desktop it can't currently reach is a real,
+			// expected, transient condition, not a reason to end an
+			// otherwise-healthy session).
+			injectionEvents <- injectionEvent{key: true, down: m.Down, keysym: m.Keysym}
 
 		case rfb.PointerEventMsg:
-			if err := inj.PointerEvent(m.ButtonMask, m.X, m.Y); err != nil {
-				log.Printf("rfbserver: pointer event: %v (dropping this event, session stays open)", err)
-			}
+			injectionEvents <- injectionEvent{mask: m.ButtonMask, x: m.X, y: m.Y}
 
 		case rfb.ClientCutTextMsg:
 			// Clipboard sync is out of scope for v1 -- silently dropped.
