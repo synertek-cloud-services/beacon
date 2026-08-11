@@ -1,5 +1,78 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — Multi-monitor / RDP / SYSTEM-elevation: real research, no code shipped, session paused by request
+
+Started from a direct ask: "we should be able to click and see each monitor
+independently." Real research happened first -- an Explore pass over the
+capture/injection/RFB/session-threading code, then an independent Plan-agent
+review of the resulting design -- and turned up a real, buildable plan
+(offset GDI capture, `MOUSEEVENTF_VIRTUALDESK` injection, reusing Elevate's
+proven reconnect-swap pattern for a fresh RFB connection per monitor). The
+review caught two real corrections before any code was written: the
+original monitor-identity scheme (a stably-sorted enumeration index) had a
+genuine silent-failure mode across the two separate OS processes involved,
+fixed by switching to `MONITORINFOEXW.szDevice` as the real identity key;
+and "Monitor" collides with this codebase's existing device-alerting
+terminology, renamed to "Display" throughout before writing anything.
+
+Before building it, walked through whether VNC-based multi-monitor was
+even the right call versus reviving `spike/86-tunneled-rdp-ironrdp` (issue
+#86) -- a real, substantial, previously-parked implementation (a working
+RDCleanPath DER codec + agent-side tunnel termination for a *browser-based*
+WASM RDP client, same zero-install model as Web Remote, not a native-app
+pattern). Corrected course twice during this discussion, worth remembering
+for next time:
+
+1. Initially framed native-RDP (RDG, `mstsc.exe`) as a real tradeoff
+   against Web Remote's zero-install promise -- corrected once the user
+   pointed out Windows ships `mstsc.exe` built in, so that tradeoff barely
+   applies to a mostly-Windows technician population (this one: 95%
+   Windows, 4% no-GUI Linux, 1% Mac).
+2. More importantly: reconfirmed that RDP -- through any transport,
+   RDCleanPath/browser or RDG/native, doesn't matter -- structurally
+   cannot replace Web Remote's actual purpose. Standard RDP creates a
+   new/separate session rather than shadowing the currently logged-in
+   user's live desktop; Windows' real answer for that (RDS Shadow) is
+   Server-only, unavailable on the client editions that make up almost all
+   of what Beacon manages. This is the same reasoning that led to Web
+   Remote being built as screen-scraping in the first place -- already in
+   CLAUDE.md, should have been the first thing checked rather than
+   re-derived mid-conversation.
+
+Discussion then moved to Elevate directly, prompted by "I don't recall
+running into any of these issues on other apps." Landed on two real,
+useful, unresolved threads instead of a monitor-support plan:
+
+- **Elevate's credential-based path has never actually been exercised on
+  real hardware** -- every real-hardware test so far (the original
+  credential-fallback test, and the later production
+  `console_user_can_elevate` verification) happened to hit an
+  already-administrator account, so the free split-token path always won
+  and the `LogonUserW`/credential code has never actually run for real.
+  Lowest-effort, highest-value next step: test it against a genuine
+  standard-user account. No new code needed to find this out.
+- **A real, scoped (but not yet planned) idea**: extend Elevate to request
+  SYSTEM instead of an Administrator token, reusing the exact reconnect-
+  and-swap UX already proven, plus new desktop-following capture/injection
+  (`SetThreadDesktop`-based, doesn't exist anywhere in this codebase
+  today) so a live UAC prompt becomes genuinely visible/clickable for the
+  rest of a session -- the actual buildable version of "click elevate
+  once, never think about it again." Also clarified along the way: mature
+  commercial tools that make elevation invisible almost certainly run
+  their agent as SYSTEM permanently, not on-demand -- Beacon deliberately
+  chose on-demand elevation instead, to avoid that blast radius by
+  default. Worth remembering as the real tradeoff being made, not a gap
+  other tools have magically solved.
+
+**No code was changed this session for any of the above.** The user
+explicitly asked to pause here -- a lot of ground covered in one sitting,
+reasonably needing time to process before deciding a direction. Resume
+point: either (a) build multi-monitor into Web Remote as scoped above, (b)
+revive the RDP spike for its own, different use case (not as a Web Remote
+replacement), or (c) test Elevate's untested credential path and/or scope
+the SYSTEM-elevation idea into a real plan. See CLAUDE.md's Web Remote
+section for the full detail on all three.
+
 ## Session: 2026-08-11 — The execution-policy fix wasn't enough either; switched to -EncodedCommand
 
 Real hardware again: "still has an issue on elevate though the powershell
