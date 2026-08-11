@@ -43,6 +43,12 @@ sessions.post('/', async (c) => {
     // time the command is picked up, same "the browser's own connect
     // timeout surfaces this" reasoning elevated already relies on.
     target_session_id?: number;
+    // Which display beacon-screenshare.exe captures -- screen_share only,
+    // omitted (the default) means the primary monitor, exactly today's
+    // only behavior. A specific monitor's real GDI device name (e.g.
+    // `\\.\DISPLAY2`, as reported via POST .../displays), chosen from
+    // WebRemotePage.vue's Displays switcher.
+    monitor?: string;
   }>();
 
   const db = drizzle(c.env.DB, { schema });
@@ -77,6 +83,15 @@ sessions.post('/', async (c) => {
   const clientAuthToken = generateToken();
   const clientWsUrl = `${origin}/v1/sessions/${sessionId}/ws?role=client&auth=${clientAuthToken}`;
 
+  // A second, separate per-session random token -- screen_share only,
+  // used by the per-session beacon-screenshare.exe helper (running inside
+  // the less-trusted interactive user's own session) to report its
+  // enumerated monitors back via POST .../displays. Deliberately not
+  // clientAuthToken/ADMIN_SECRET/the device's own long-lived credential --
+  // none of those should ever reach that helper process, so this is
+  // scoped narrowly to just "report this one session's display list."
+  const reportToken = body.session_type === 'screen_share' ? generateToken() : undefined;
+
   await db.insert(schema.sessions).values({
     id: sessionId,
     deviceId: body.device_id,
@@ -85,6 +100,7 @@ sessions.post('/', async (c) => {
     tcpPort: body.tcp_port ?? null,
     createdAt: now,
     clientAuthHash: await sha256hex(clientAuthToken),
+    reportTokenHash: reportToken ? await sha256hex(reportToken) : null,
   });
 
   // Signal the agent via the existing command channel — agent picks it up on next check-in
@@ -100,6 +116,8 @@ sessions.post('/', async (c) => {
       tcp_port: body.tcp_port ?? 0,
       elevated: body.elevated ?? false,
       ...(body.target_session_id !== undefined ? { target_session_id: body.target_session_id } : {}),
+      ...(reportToken ? { report_token: reportToken } : {}),
+      ...(body.monitor ? { monitor: body.monitor } : {}),
     }),
     createdAt: now,
   });
@@ -137,6 +155,60 @@ sessions.post('/', async (c) => {
   });
 
   return c.json({ session_id: sessionId, client_ws_url: clientWsUrl });
+});
+
+// POST /v1/sessions/:id/displays — agent-facing: the per-session
+// screen_share helper (beacon-screenshare.exe, running inside the target
+// user's own desktop session) reports its enumerated monitors here right
+// after startup. Authenticated by the per-session report_token (see
+// POST / above), not requireUser -- there's no user session token
+// available inside a helper process running on the target machine, and
+// this must never accept the device's own long-lived credential either
+// (that would leak it into a less-trusted interactive-session process).
+sessions.post('/:id/displays', async (c) => {
+  const auth = c.req.header('Authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : undefined;
+  if (!token) return c.json({ error: 'unauthorized' }, 401);
+
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select({ hash: schema.sessions.reportTokenHash })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, c.req.param('id')))
+    .get();
+  if (!row?.hash || (await sha256hex(token)) !== row.hash) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+
+  const body = await c.req.json<{ displays: unknown }>();
+  if (!Array.isArray(body.displays)) return c.json({ error: 'displays must be an array' }, 400);
+
+  await db.update(schema.sessions)
+    .set({ displays: JSON.stringify(body.displays) })
+    .where(eq(schema.sessions.id, c.req.param('id')));
+
+  return c.json({ ok: true });
+});
+
+// GET /v1/sessions/:id/displays — technician-facing: the dashboard polls
+// this a handful of times shortly after connecting to populate the
+// monitor switcher, once the screen_share helper above has reported in
+// (typically within a second or two of the session actually being open --
+// GDI monitor enumeration is near-instant, unlike waiting on a check-in
+// cycle). Returns an empty array, not an error, until the helper has
+// reported (or if it never does, e.g. a non-Windows target).
+sessions.get('/:id/displays', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select({ displays: schema.sessions.displays })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, c.req.param('id')))
+    .get();
+  if (!row) return c.json({ error: 'session not found' }, 404);
+  let displays: unknown[] = [];
+  try { displays = row.displays ? JSON.parse(row.displays) : []; } catch { /* malformed -- treat as not yet reported */ }
+  return c.json({ displays });
 });
 
 // GET /v1/sessions/:id/ws — WebSocket upgrade, proxied to the SessionRelay DO

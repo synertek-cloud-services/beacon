@@ -389,6 +389,18 @@ export interface DeviceCommand {
   completedAt: number | null;
 }
 
+// One entry from GET /v1/sessions/:id/displays -- reported by the
+// per-session beacon-screenshare.exe helper, see worker/src/routes/sessions.ts.
+export interface SessionDisplay {
+  device_name: string;
+  index: number;
+  primary: boolean;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
 export interface ActivityLogEntry {
   id: string;
   createdAt: number;
@@ -1409,13 +1421,20 @@ export const api = {
     // readable. See worker/src/routes/sessions.ts.
     open: (
       deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share',
-      opts?: { elevated?: boolean; targetSessionId?: number },
+      opts?: { elevated?: boolean; targetSessionId?: number; monitor?: string },
     ) =>
       request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
         device_id: deviceId, company_id: companyId, session_type: sessionType,
         ...(opts?.elevated ? { elevated: true } : {}),
         ...(opts?.targetSessionId !== undefined ? { target_session_id: opts.targetSessionId } : {}),
+        ...(opts?.monitor ? { monitor: opts.monitor } : {}),
       }),
+    // Polled by WebRemotePage.vue's Displays switcher shortly after a
+    // screen_share session opens -- the per-session helper reports its
+    // enumerated monitors independently of the browser's own RFB
+    // connection, see worker/src/routes/sessions.ts.
+    displays: (sessionId: string) =>
+      request<{ displays: SessionDisplay[] }>('GET', `/v1/sessions/${sessionId}/displays`),
   },
   reports: {
     // On-demand CSV only, v1 -- see worker/src/routes/admin/reports.ts.

@@ -1,0 +1,21 @@
+-- Multi-monitor Web Remote support. Two nullable columns on the existing
+-- sessions row, both ephemeral per-session state produced during a
+-- session's own lifetime -- same convention as this table's existing
+-- client_auth_hash, not a new join table (no product need to query/join/
+-- filter display data across sessions).
+--
+-- report_token_hash: sha256hex of a random per-session token, separate
+-- from client_auth_hash, scoped narrowly to "report this session's
+-- display list" -- lets the per-session beacon-screenshare.exe helper
+-- (running inside the less-trusted interactive user's own session) report
+-- its enumerated monitors back to the worker without ever needing the
+-- device's real long-lived credential. Set once, at session-open time
+-- (worker/src/routes/sessions.ts), checked directly by
+-- POST /v1/sessions/:id/displays (not via requireUser, since it's an
+-- agent-facing call with no user session token).
+--
+-- displays: JSON array of {device_name, index, primary, width, height, x,
+-- y}, as reported by that same call and read back by
+-- GET /v1/sessions/:id/displays for the dashboard's monitor switcher.
+ALTER TABLE sessions ADD COLUMN report_token_hash TEXT;
+ALTER TABLE sessions ADD COLUMN displays TEXT;

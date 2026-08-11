@@ -25,6 +25,22 @@
           </div>
         </div>
 
+        <!-- Displays dropdown (multi-monitor) -- hidden entirely for the
+             common single-monitor case, only rendered once the per-session
+             helper has actually reported more than one display. -->
+        <div v-if="displays.length > 1" class="wr-kbd-wrap">
+          <button class="wr-tbtn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </button>
+          <div v-if="displaysMenuOpen" class="wr-kbd-dropdown">
+            <button v-for="d in displays" :key="d.device_name" class="wr-kbd-item" @click="switchDisplay(d.device_name)">
+              <span>Display {{ d.index + 1 }}{{ d.primary ? ' (Primary)' : '' }}</span>
+            </button>
+          </div>
+        </div>
+
         <button class="wr-tbtn" :disabled="status !== 'connected'" title="Paste text into the remote session" @click="pasteOpen = !pasteOpen">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="4" width="12" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/>
@@ -55,6 +71,8 @@
         </button>
       </div>
     </div>
+
+    <div v-if="displaysError" class="wr-toast" @click="displaysError = ''">{{ displaysError }} (click to dismiss)</div>
 
     <div v-if="pasteOpen" class="wr-paste-bar">
       <input v-model="pasteText" class="wr-paste-input" placeholder="Text to paste into the remote session…" @keydown.enter="sendPaste" />
@@ -105,6 +123,7 @@ import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import RFB from '@novnc/novnc';
 import { api } from '../api';
+import type { SessionDisplay } from '../api';
 
 const route = useRoute();
 const router = useRouter();
@@ -150,6 +169,45 @@ function toggleKbdMenu() {
   }
 }
 function closeKbdMenuOnce() { kbdMenuOpen.value = false; }
+
+// ── Displays (multi-monitor) ──────────────────────────────────────────
+const displays = ref<SessionDisplay[]>([]);
+const displaysMenuOpen = ref(false);
+const switchingDisplay = ref(false);
+const displaysError = ref('');
+
+function toggleDisplaysMenu() {
+  if (displaysMenuOpen.value) {
+    displaysMenuOpen.value = false;
+  } else {
+    displaysMenuOpen.value = true;
+    setTimeout(() => document.addEventListener('click', closeDisplaysMenuOnce, { once: true }), 0);
+  }
+}
+function closeDisplaysMenuOnce() { displaysMenuOpen.value = false; }
+
+// Polls GET /v1/sessions/:id/displays a handful of times after a session
+// opens -- the per-session screen_share helper reports its enumerated
+// monitors independently of the browser's own RFB connection (GDI
+// enumeration is near-instant, unlike waiting on a check-in cycle), so
+// this stops as soon as it's populated rather than waiting out a fixed
+// delay. Never surfaces an error to the technician -- a single-monitor
+// session (the common case) or a helper that never reports for any
+// reason just means no switcher appears, not a broken page.
+async function pollDisplaysFor(sessionId: string) {
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      const result = await api.sessions.displays(sessionId);
+      if (result.displays.length > 0) {
+        displays.value = result.displays;
+        return;
+      }
+    } catch {
+      return; // e.g. a superseded session id -- stop polling silently
+    }
+  }
+}
 
 // X11 keysyms (matches the values noVNC/RFB itself expects -- the same
 // keysymdef.h values agent/internal/x11keysym already uses server-side for
@@ -421,6 +479,87 @@ async function elevate() {
   }
 }
 
+// switchDisplay reconnects to a different monitor on the same device --
+// deliberately a separate function from elevate()/attemptElevatedConnect,
+// not a shared/unified helper, even though the underlying mechanism
+// (dual-target background-connect-then-swap) is the same one elevate()
+// already proved out. Both are real, subtle, already-debugged reconnect
+// flows -- elevate()'s own history includes a live regression around
+// exactly the connectionSeq race its correctness depends on -- so
+// unifying them is deliberately deferred to its own later, behavior-
+// preserving cleanup pass, once each has independent real-hardware soak
+// time, rather than risking a "safe-looking" shared abstraction
+// reintroducing a race a fresh read wouldn't catch. Carries forward the
+// current elevated/targetSessionId state -- only the requested monitor
+// differs.
+async function switchDisplay(deviceName: string) {
+  if (switchingDisplay.value) return;
+  switchingDisplay.value = true;
+  displaysMenuOpen.value = false;
+  displaysError.value = '';
+  const pendingTarget = otherTarget(activeTarget.value);
+  try {
+    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', {
+      elevated: elevated.value, targetSessionId, monitor: deviceName,
+    });
+
+    const newInstance = await new Promise<RFB>((resolve, reject) => {
+      const instance = new RFB(targetEl(pendingTarget), client_ws_url, {});
+      applyDisplayOptions(instance);
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        instance.disconnect();
+        reject(new Error('Did not connect within 70 seconds.'));
+      }, CONNECT_TIMEOUT_MS);
+      instance.addEventListener('connect', () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(instance);
+      });
+      instance.addEventListener('disconnect', (e: any) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        reject(new Error(e.detail?.clean ? 'Connection closed before the switch completed.' : 'Failed to connect.'));
+      });
+    });
+
+    // Proven working -- only now retire the old connection, same
+    // connectionSeq-bump-before-disconnect discipline elevate() already
+    // established (see its own doc comment for why the ordering matters).
+    connectionSeq++;
+    rfb.value?.disconnect();
+
+    rfb.value = newInstance;
+    activeTarget.value = pendingTarget;
+    status.value = 'connected';
+    errorMsg.value = '';
+    const mySeq = connectionSeq;
+    newInstance.addEventListener('disconnect', (e: any) => {
+      if (mySeq !== connectionSeq) return;
+      status.value = e.detail?.clean ? 'closed' : 'error';
+      if (!e.detail?.clean) errorMsg.value = 'Connection lost.';
+    });
+
+    router.replace(
+      `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
+      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}` +
+      (elevated.value ? '&elevated=1' : '') +
+      (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '')
+    );
+    pollDisplaysFor(session_id);
+  } catch (e: any) {
+    // The original connection was never touched -- stays fully connected
+    // and interactive, same as a failed Elevate attempt.
+    displaysError.value = e.message;
+  } finally {
+    switchingDisplay.value = false;
+  }
+}
+
 onMounted(() => {
   const wsUrl = (route.query.ws as string) ?? '';
   if (!wsUrl) {
@@ -429,6 +568,8 @@ onMounted(() => {
     return;
   }
   connectTo(wsUrl, 'a');
+  const initialSessionId = route.params.sessionId as string;
+  if (initialSessionId) pollDisplaysFor(initialSessionId);
 });
 
 onUnmounted(() => {
@@ -485,6 +626,13 @@ onUnmounted(() => {
 }
 .wr-kbd-item:hover { background: var(--color-surface-raised); }
 .wr-kbd-keys { font-size: 10px; color: var(--color-text-muted); }
+
+.wr-toast {
+  position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 60;
+  background: var(--color-surface); border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  color: var(--color-danger); font-size: 12px; padding: 8px 14px; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4); cursor: pointer;
+}
 
 .wr-paste-bar {
   display: flex; gap: 8px; align-items: center; padding: 8px 16px;

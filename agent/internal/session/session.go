@@ -28,6 +28,20 @@ type openPayload struct {
 	// distinguishable from a literal session 0, which is a real, reserved
 	// session ID (Services), never a valid target.
 	TargetSessionID *uint32 `json:"target_session_id,omitempty"`
+	// ReportToken authenticates beacon-screenshare.exe's own report of its
+	// enumerated monitors back to the worker (POST .../displays) --
+	// screen_share only, generated fresh per session by
+	// worker/src/routes/sessions.ts. Never the device's own long-lived
+	// credential, deliberately: this process runs inside the less-trusted
+	// interactive user's session, not the SYSTEM-context agent.
+	ReportToken string `json:"report_token,omitempty"`
+	// Monitor picks which display beacon-screenshare.exe captures --
+	// empty (the default) means the primary monitor, exactly today's only
+	// behavior; a non-empty value is a specific monitor's real GDI device
+	// name (e.g. `\\.\DISPLAY2`, as returned by win32.EnumMonitors and
+	// reported via ReportToken above), chosen from WebRemotePage.vue's
+	// Displays switcher.
+	Monitor string `json:"monitor,omitempty"`
 }
 
 // Handle connects to the session relay DO and dispatches to the correct handler.
@@ -50,7 +64,7 @@ func Handle(cmd protocol.Command) {
 	// session, two agent-role sockets would both receive the browser's
 	// bytes and corrupt RFB's strict single-byte-stream protocol.
 	if p.SessionType == "screen_share" {
-		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.TargetSessionID)
+		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.TargetSessionID, p.ReportToken, p.Monitor)
 		log.Printf("session %s: closed", p.SessionID)
 		return
 	}

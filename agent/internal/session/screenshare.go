@@ -46,7 +46,15 @@ var screenShareBinary []byte
 // and the only one client-class devices ever use); a non-nil value is a
 // specific RDS/AVD session ID a technician picked from a Server-class
 // device's session list (see the worker's list_remote_sessions flow).
-func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uint32) {
+//
+// reportToken/monitor are both screen_share-specific, forwarded straight
+// through as flags -- see beacon-screenshare's own main.go for what it
+// does with them (reports enumerated monitors back to the worker, and
+// picks which one to actually capture). Empty reportToken/monitor are
+// valid: a shell/tcp_tunnel session never reaches this function at all
+// (see Handle's own special-casing), and an empty monitor means "capture
+// the primary monitor," today's only behavior.
+func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uint32, reportToken, monitor string) {
 	exePath, err := extractScreenShareIfStale()
 	if err != nil {
 		log.Printf("session %s: screen share: %v", sessionID, err)
@@ -56,6 +64,12 @@ func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uin
 	args := []string{
 		"--session-id=" + sessionID,
 		"--ws-url=" + wsURL,
+	}
+	if reportToken != "" {
+		args = append(args, "--report-token="+reportToken)
+	}
+	if monitor != "" {
+		args = append(args, "--monitor="+monitor)
 	}
 
 	pid, err := launchScreenShare(exePath, args, elevated, targetSessionID)
