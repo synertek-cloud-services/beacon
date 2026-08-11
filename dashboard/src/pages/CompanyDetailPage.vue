@@ -19,6 +19,7 @@
         </h1>
         <div class="pf-topbar-right">
           <button class="btn btn-ghost btn-sm" @click="router.push({ path: '/devices', query: { company: companyId } })">View Devices</button>
+          <button v-if="company" class="btn btn-ghost btn-sm" @click="openEditCompany">Edit</button>
           <button v-if="company?.status === 'active'" class="btn btn-danger btn-sm" @click="setStatus('suspended')">Suspend</button>
           <button v-else-if="company" class="btn btn-primary btn-sm" @click="setStatus('active')">Activate</button>
         </div>
@@ -549,6 +550,62 @@
       </div>
     </div>
 
+    <!-- ── Edit Company modal ── -->
+    <div v-if="editModal.open" class="modal-backdrop" @click.self="editModal.open = false">
+      <div class="modal modal-lg">
+        <div class="modal-head"><span class="modal-title">Edit Company</span></div>
+        <div class="modal-body">
+          <div class="form-row-2">
+            <div class="field">
+              <label>Company Name <span class="required">*</span></label>
+              <input v-model="editForm.name" placeholder="Acme Corp" autofocus />
+            </div>
+            <div class="field">
+              <label>Website</label>
+              <input v-model="editForm.website" placeholder="https://acme.com" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Notes</label>
+            <textarea v-model="editForm.notes" placeholder="Internal notes about this company…" rows="2"></textarea>
+          </div>
+
+          <div class="form-section-label" style="margin-top:16px">Settings</div>
+          <div class="toggle-group">
+            <label class="toggle-row">
+              <input type="checkbox" v-model="editForm.autoApprove" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Auto-approve devices</span>
+                <span class="text-xs text-muted-2" style="display:block">New enrollments are automatically approved without manual review</span>
+              </span>
+            </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="editForm.privacyMode" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Privacy mode default</span>
+                <span class="text-xs text-muted-2" style="display:block">Limits inventory collection to basic device info only</span>
+              </span>
+            </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="editForm.patchManagementExcluded" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Exclude from Patch Policies</span>
+                <span class="text-xs text-muted-2" style="display:block">This company's devices never receive any Patch Policy install or Windows Update Management takeover, even from an unrestricted global policy — for companies managing Windows Update their own way (e.g. WSUS)</span>
+              </span>
+            </label>
+          </div>
+
+          <div v-if="editError" class="error-banner" style="margin-top:14px">{{ editError }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="editModal.open = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="editSubmitting" @click="submitEditCompany">
+            {{ editSubmitting ? 'Saving…' : 'Save Changes' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -693,6 +750,59 @@ async function setStatus(status: 'active' | 'suspended') {
   if (!company.value) return;
   await api.companies.update(company.value.id, { status });
   company.value.status = status;
+}
+
+// ── Edit (moved here from the CompaniesPage list row -- editing a
+// company's own record is more naturally an action on its own detail page
+// than a cramped row button next to Devices/Suspend) ──────────────────
+const editModal = ref({ open: false });
+const editForm = ref({ name: '', website: '', notes: '', autoApprove: true, privacyMode: false, patchManagementExcluded: false });
+const editError = ref('');
+const editSubmitting = ref(false);
+
+function openEditCompany() {
+  if (!company.value) return;
+  editForm.value = {
+    name: company.value.name,
+    website: company.value.website ?? '',
+    notes: company.value.notes ?? '',
+    autoApprove: company.value.autoApproveDefault,
+    privacyMode: company.value.privacyModeDefault,
+    patchManagementExcluded: company.value.patchManagementExcluded,
+  };
+  editError.value = '';
+  editModal.value.open = true;
+}
+
+async function submitEditCompany() {
+  if (!company.value) return;
+  if (!editForm.value.name.trim()) { editError.value = 'Company name is required'; return; }
+  editSubmitting.value = true;
+  editError.value = '';
+  try {
+    await api.companies.update(company.value.id, {
+      name: editForm.value.name.trim(),
+      auto_approve_default: editForm.value.autoApprove,
+      privacy_mode_default: editForm.value.privacyMode,
+      patch_management_excluded: editForm.value.patchManagementExcluded,
+      website: editForm.value.website || null,
+      notes:   editForm.value.notes   || null,
+    });
+    company.value = {
+      ...company.value,
+      name: editForm.value.name.trim(),
+      autoApproveDefault: editForm.value.autoApprove,
+      privacyModeDefault: editForm.value.privacyMode,
+      patchManagementExcluded: editForm.value.patchManagementExcluded,
+      website: editForm.value.website || null,
+      notes:   editForm.value.notes   || null,
+    };
+    editModal.value.open = false;
+  } catch (e: any) {
+    editError.value = e.message;
+  } finally {
+    editSubmitting.value = false;
+  }
 }
 
 // ── Contact CRUD ──────────────────────────────────────────────
@@ -974,6 +1084,39 @@ watch(companyId, onIdChange, { immediate: true });
 </script>
 
 <style scoped>
+.pf-page { display: flex; flex-direction: column; min-height: 100%; }
+
+/* ── Breadcrumb ── */
+.pf-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-muted); margin-bottom: 14px; }
+.pf-crumb-link { color: var(--color-primary); text-decoration: none; }
+.pf-crumb-link:hover { text-decoration: underline; }
+.pf-crumb-current { color: var(--color-text-subtle); }
+
+/* Sticky so the topbar and any error feedback stay reachable without
+   scrolling -- same convention as ComponentFormPage.vue/PolicyFormPage.vue. */
+.pf-sticky-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--color-canvas);
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pf-sticky-bar .error-banner { margin-top: 12px; }
+
+/* ── Top bar ── */
+.pf-topbar { display: flex; align-items: center; gap: 12px; }
+.pf-back {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  background: var(--color-surface-raised); border: 1px solid var(--color-border);
+  color: var(--color-text-subtle); cursor: pointer; flex-shrink: 0;
+  transition: color .12s, background .12s;
+}
+.pf-back:hover { color: var(--color-text-primary); background: var(--color-border); }
+.pf-title { font-size: 20px; font-weight: 700; color: var(--color-text-primary); flex: 1; margin: 0; }
+.pf-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
+
+.pf-state { padding: 40px; text-align: center; color: var(--color-text-muted); }
+
 .cd-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -1096,6 +1239,12 @@ watch(companyId, onIdChange, { immediate: true });
   color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 8px; margin-bottom: 14px;
 }
 .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field textarea {
+  background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--r-btn);
+  padding: 8px 11px; color: var(--color-text-primary); font-size: 13px; font-family: var(--font);
+  width: 100%; resize: vertical; outline: none; transition: border-color .12s;
+}
+.field textarea:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
 .required { color: var(--color-danger); }
 .toggle-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .toggle-row input[type=checkbox] { accent-color: var(--color-primary); width: 15px; height: 15px; margin-top: 2px; flex-shrink: 0; }
