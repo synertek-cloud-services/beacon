@@ -482,81 +482,41 @@ async function elevate() {
   }
 }
 
-// switchDisplay reconnects to a different monitor on the same device --
-// deliberately a separate function from elevate()/attemptElevatedConnect,
-// not a shared/unified helper, even though the underlying mechanism
-// (dual-target background-connect-then-swap) is the same one elevate()
-// already proved out. Both are real, subtle, already-debugged reconnect
-// flows -- elevate()'s own history includes a live regression around
-// exactly the connectionSeq race its correctness depends on -- so
-// unifying them is deliberately deferred to its own later, behavior-
-// preserving cleanup pass, once each has independent real-hardware soak
-// time, rather than risking a "safe-looking" shared abstraction
-// reintroducing a race a fresh read wouldn't catch. Carries forward the
-// current elevated/targetSessionId state -- only the requested monitor
-// differs.
+// switchDisplay requests an in-place monitor switch on the *same*,
+// already-open session -- no reconnect, no new session, no dual-target
+// swap. Supersedes the original design (opening a whole new session per
+// switch, reusing elevate()'s own dual-target reconnect mechanism) --
+// real-hardware testing found that took 10+ seconds per switch, an
+// inherent floor from a fresh relay Durable Object plus the
+// check-in-cycle-bound open_session dispatch, unacceptable for what
+// should be a near-instant local operation. The already-running
+// beacon-screenshare.exe helper polls for this change on its own ~1s
+// interval and swaps its live Capturer/Injector, pushing an RFB
+// DesktopSize update the existing RFB connection already open in this tab
+// picks up automatically -- see agent/internal/rfbserver's SwitchRequest
+// and worker/src/routes/sessions.ts's own doc comment on
+// POST .../switch-monitor.
+//
+// route.params.sessionId is read live (not cached in a local var) so this
+// keeps working correctly after an Elevate reconnect, which does still
+// change the session ID via its own router.replace().
 async function switchDisplay(deviceName: string) {
   if (switchingDisplay.value) return;
   switchingDisplay.value = true;
   displaysMenuOpen.value = false;
   displaysError.value = '';
-  const pendingTarget = otherTarget(activeTarget.value);
   try {
-    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', {
-      elevated: elevated.value, targetSessionId, monitor: deviceName,
-    });
-
-    const newInstance = await new Promise<RFB>((resolve, reject) => {
-      const instance = new RFB(targetEl(pendingTarget), client_ws_url, {});
-      applyDisplayOptions(instance);
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        instance.disconnect();
-        reject(new Error('Did not connect within 70 seconds.'));
-      }, CONNECT_TIMEOUT_MS);
-      instance.addEventListener('connect', () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve(instance);
-      });
-      instance.addEventListener('disconnect', (e: any) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        reject(new Error(e.detail?.clean ? 'Connection closed before the switch completed.' : 'Failed to connect.'));
-      });
-    });
-
-    // Proven working -- only now retire the old connection, same
-    // connectionSeq-bump-before-disconnect discipline elevate() already
-    // established (see its own doc comment for why the ordering matters).
-    connectionSeq++;
-    rfb.value?.disconnect();
-
-    rfb.value = newInstance;
-    activeTarget.value = pendingTarget;
-    status.value = 'connected';
-    errorMsg.value = '';
-    const mySeq = connectionSeq;
-    newInstance.addEventListener('disconnect', (e: any) => {
-      if (mySeq !== connectionSeq) return;
-      status.value = e.detail?.clean ? 'closed' : 'error';
-      if (!e.detail?.clean) errorMsg.value = 'Connection lost.';
-    });
-
-    router.replace(
-      `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
-      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}` +
-      (elevated.value ? '&elevated=1' : '') +
-      (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '')
-    );
-    pollDisplaysFor(session_id);
+    await api.sessions.switchMonitor(route.params.sessionId as string, deviceName);
+    // No reliable client-side "the resize actually landed" signal exists
+    // to wait on -- confirmed by reading noVNC's own source (core/rfb.js's
+    // _resize()) that it dispatches no public event for this. The real
+    // round trip (this POST, then the helper's own poll interval, then a
+    // fresh capture, then the WS message arriving) is well under this
+    // window in practice; a fixed, generous "Switching…" indicator is a
+    // known, accepted tradeoff rather than a second polling loop just to
+    // confirm something the technician can already see happen on screen.
+    await new Promise(resolve => setTimeout(resolve, 2500));
   } catch (e: any) {
-    // The original connection was never touched -- stays fully connected
-    // and interactive, same as a failed Elevate attempt.
     displaysError.value = e.message;
   } finally {
     switchingDisplay.value = false;

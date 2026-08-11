@@ -1435,6 +1435,11 @@ export const api = {
     // connection, see worker/src/routes/sessions.ts.
     displays: (sessionId: string) =>
       request<{ displays: SessionDisplay[] }>('GET', `/v1/sessions/${sessionId}/displays`),
+    // Requests an in-place monitor switch on an already-open screen_share
+    // session -- no reconnect, see worker/src/routes/sessions.ts's own
+    // doc comment for why this replaced opening a whole new session.
+    switchMonitor: (sessionId: string, monitor: string) =>
+      request<{ ok: boolean }>('POST', `/v1/sessions/${sessionId}/switch-monitor`, { monitor }),
   },
   reports: {
     // On-demand CSV only, v1 -- see worker/src/routes/admin/reports.ts.
