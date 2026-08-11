@@ -282,6 +282,16 @@ export const sessions = sqliteTable('sessions', {
   // sha256hex of a per-session random token — the WS client leg's credential.
   // No longer the shared ADMIN_SECRET, since non-break-glass users don't hold it.
   clientAuthHash: text('client_auth_hash'),
+  // sha256hex of a second, separate per-session random token -- checked by
+  // POST /v1/sessions/:id/displays (the per-session screen_share helper
+  // reporting its enumerated monitors back), not requireUser. Deliberately
+  // distinct from clientAuthHash so the real device credential never has
+  // to reach the less-trusted interactive-user-session helper process.
+  reportTokenHash: text('report_token_hash'),
+  // JSON array of {device_name, index, primary, width, height, x, y},
+  // reported by the same call above -- read back by
+  // GET /v1/sessions/:id/displays for the dashboard's monitor switcher.
+  displays: text('displays'),
 });
 
 export const deviceAudits = sqliteTable('device_audits', {
