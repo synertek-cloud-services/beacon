@@ -163,6 +163,8 @@ No separate "create the release first" step and no `BEACON_DOWNLOAD_BASE_URL` en
 
 Signing-key continuity is an operator contract: existing agents only accept releases signed by the private half of their embedded public key. Losing that private key breaks automatic updates; replacing it requires a planned transition while the old key is still available. The beta workflow does not implement automatic key rotation. Never commit a key file or print private signing material.
 
+**`git status` showing `agent/internal/service/embedded/beacon-tray.exe` and `agent/internal/session/embedded/beacon-screenshare.exe` as modified at the start of a session is expected, not a mystery to investigate or ask about.** The script's own pre-build step (above) rebuilds both files in place via plain `go build -o ...` every time it runs, but the script itself only handles the GitHub release + Worker registration — it never runs `git add`/`git commit`. So every real `publish-agent.mjs` release leaves these two rebuilt binaries sitting as an uncommitted diff (pure binary changes, no source involved) until something commits them. Since the only things that ever modify files in this repo are Claude sessions and this one specific script (which Claude itself wrote, run directly by the user when cutting a release) — there is no third-party "user work in progress" to worry about here. Just commit them (a plain, low-risk commit, no PR needed for this specific pair of files) the same session they're noticed, rather than treating them as an unexplained modification to hedge around every time.
+
 **Dashboard** (`dashboard/src/`)
 - Router: Vue Router with hash history (`createWebHashHistory`)
 - Routes defined in `main.ts`
