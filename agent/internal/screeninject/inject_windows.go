@@ -31,17 +31,47 @@ const (
 // sequentially, from its own single dedicated injection goroutine, so
 // none is needed.
 type Injector struct {
-	screenW, screenH uint16
-	lastMask         uint8
-	lastDesktop      string
+	// monitorRect is this injector's target monitor, in virtual-desktop
+	// coordinates -- incoming PointerEvent (x,y) are relative to this
+	// rect's own top-left, matching what GDICapturer.Size() reports for
+	// the same monitor.
+	monitorRect win32.RECT
+	// virtualLeft/virtualTop/virtualWidth/virtualHeight describe the full
+	// virtual desktop (every monitor combined) -- SendInput's absolute
+	// coordinate space is normalized against this extent, via
+	// MOUSEEVENTF_VIRTUALDESK (see PointerEvent), not just the primary
+	// monitor's own extent, so a click lands correctly regardless of
+	// which monitor is being captured, including one positioned above or
+	// left of the primary (genuinely negative virtual-desktop
+	// coordinates).
+	virtualLeft, virtualTop, virtualWidth, virtualHeight int32
+
+	lastMask    uint8
+	lastDesktop string
 }
 
-// New creates an Injector whose absolute pointer coordinates are
-// normalized against screenW/screenH -- these must match the same
-// DPI-aware dimensions screencapture.GDICapturer.Size() reports, or clicks
-// land on the wrong pixel on any scaled display.
+// New creates an Injector targeting the primary monitor -- a thin wrapper
+// around NewForMonitor using the primary monitor's own well-known (0,0)
+// origin (Windows' own invariant: the primary monitor's origin is always
+// (0,0) in virtual-desktop coordinates), so every existing caller (which
+// only ever captures the primary monitor today) keeps working unchanged.
+// screenW/screenH must match the same DPI-aware dimensions
+// screencapture.GDICapturer.Size() reports for the same monitor, or
+// clicks land on the wrong pixel on any scaled display.
 func New(screenW, screenH uint16) *Injector {
-	return &Injector{screenW: screenW, screenH: screenH}
+	return NewForMonitor(win32.RECT{Left: 0, Top: 0, Right: int32(screenW), Bottom: int32(screenH)})
+}
+
+// NewForMonitor creates an Injector targeting a specific monitor rect
+// (virtual-desktop coordinates, as returned by win32.EnumMonitors).
+func NewForMonitor(monitorRect win32.RECT) *Injector {
+	return &Injector{
+		monitorRect:   monitorRect,
+		virtualLeft:   win32.GetSystemMetrics(win32.SM_XVIRTUALSCREEN),
+		virtualTop:    win32.GetSystemMetrics(win32.SM_YVIRTUALSCREEN),
+		virtualWidth:  win32.GetSystemMetrics(win32.SM_CXVIRTUALSCREEN),
+		virtualHeight: win32.GetSystemMetrics(win32.SM_CYVIRTUALSCREEN),
+	}
 }
 
 // KeyEvent injects a keyboard event. An X11 keysym with no known Windows
@@ -59,10 +89,20 @@ func (i *Injector) KeyEvent(down bool, keysym uint32) error {
 // RFB's PointerEvent carries an absolute button-mask snapshot on every
 // call, not discrete down/up events, so transitions are detected by
 // diffing against the mask from the previous call.
+//
+// Every SendMouseInput call ORs in win32.MouseEventFVirtualDesk alongside
+// MouseEventFAbsolute -- normalizing against the full virtual desktop
+// (SM_C/XVIRTUALSCREEN, see normalize) rather than just the primary
+// monitor's own extent, applied uniformly rather than branched on which
+// monitor is targeted. This is a strict superset of the old primary-only
+// behavior: for a single-monitor system (or when targeting the primary
+// monitor specifically), the virtual desktop and the primary monitor
+// occupy the same origin and extent, so the normalized result is
+// identical either way.
 func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 	absX, absY := i.normalize(x, y)
 
-	if err := win32.SendMouseInput(absX, absY, 0, win32.MouseEventFMove|win32.MouseEventFAbsolute); err != nil {
+	if err := win32.SendMouseInput(absX, absY, 0, win32.MouseEventFMove|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 		return err
 	}
 
@@ -72,7 +112,7 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 		if mask&buttonLeft != 0 {
 			flag = win32.MouseEventFLeftDown
 		}
-		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute); err != nil {
+		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 			return err
 		}
 	}
@@ -81,7 +121,7 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 		if mask&buttonMiddle != 0 {
 			flag = win32.MouseEventFMiddleDown
 		}
-		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute); err != nil {
+		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 			return err
 		}
 	}
@@ -90,7 +130,7 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 		if mask&buttonRight != 0 {
 			flag = win32.MouseEventFRightDown
 		}
-		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute); err != nil {
+		if err := win32.SendMouseInput(absX, absY, 0, flag|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 			return err
 		}
 	}
@@ -99,7 +139,7 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 	// button 4/5 "clicks" that arrive set-then-immediately-cleared, so
 	// only the down edge (not up) synthesizes a MOUSEEVENTF_WHEEL tick.
 	if mask&buttonWheelUp != 0 && i.lastMask&buttonWheelUp == 0 {
-		if err := win32.SendMouseInput(absX, absY, uint32(win32.WheelDelta), win32.MouseEventFWheel|win32.MouseEventFAbsolute); err != nil {
+		if err := win32.SendMouseInput(absX, absY, uint32(win32.WheelDelta), win32.MouseEventFWheel|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 			return err
 		}
 	}
@@ -111,7 +151,7 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 		// type even though the runtime two's-complement reinterpretation
 		// here is exactly what's wanted.
 		negDelta := int32(-win32.WheelDelta)
-		if err := win32.SendMouseInput(absX, absY, uint32(negDelta), win32.MouseEventFWheel|win32.MouseEventFAbsolute); err != nil {
+		if err := win32.SendMouseInput(absX, absY, uint32(negDelta), win32.MouseEventFWheel|win32.MouseEventFAbsolute|win32.MouseEventFVirtualDesk); err != nil {
 			return err
 		}
 	}
@@ -148,15 +188,29 @@ func (i *Injector) FollowInputDesktop() error {
 	return nil
 }
 
-// normalize converts framebuffer-pixel coordinates to SendInput's
-// 0-65535 absolute coordinate space.
+// normalize converts framebuffer-pixel coordinates -- relative to this
+// injector's own target monitor -- into SendInput's 0-65535 absolute
+// coordinate space, normalized against the full virtual desktop (paired
+// with MOUSEEVENTF_VIRTUALDESK in PointerEvent) rather than just this
+// monitor's own extent. Two stages, not one: first convert the
+// monitor-relative input into an absolute virtual-desktop pixel
+// (monitorRect.Left/Top can themselves be negative, for a monitor
+// positioned above/left of the primary), then scale that absolute pixel
+// into the 0-65535 range using the virtual desktop's own origin and
+// extent -- MOUSEEVENTF_VIRTUALDESK's documented contract, standard Win32
+// technique but genuinely unexercised in this codebase until now (see
+// win32.MouseEventFVirtualDesk's own doc comment for the same "needs
+// real-hardware verification" flag).
 func (i *Injector) normalize(x, y uint16) (int32, int32) {
+	vdX := i.monitorRect.Left + int32(x)
+	vdY := i.monitorRect.Top + int32(y)
+
 	var absX, absY int32
-	if i.screenW > 0 {
-		absX = int32(int64(x) * 65535 / int64(i.screenW))
+	if i.virtualWidth > 0 {
+		absX = int32(int64(vdX-i.virtualLeft) * 65535 / int64(i.virtualWidth))
 	}
-	if i.screenH > 0 {
-		absY = int32(int64(y) * 65535 / int64(i.screenH))
+	if i.virtualHeight > 0 {
+		absY = int32(int64(vdY-i.virtualTop) * 65535 / int64(i.virtualHeight))
 	}
 	return absX, absY
 }
