@@ -89,6 +89,65 @@ func runScreenShare(sessionID, wsURL string, elevated bool, adminUsername, admin
 		return
 	}
 	log.Printf("session %s: launched beacon-screenshare pid %d (elevated=%v)", sessionID, pid, elevated)
+
+	if elevated {
+		launchElevatedShell(sessionID, adminUsername, adminPassword)
+	}
+}
+
+// launchElevatedShell opens a second, independent elevated PowerShell window
+// into the same session right alongside the (also elevated) screen-share
+// helper -- this, not the helper's own input handling, is what actually
+// delivers "access to all the administrative tools" from an Elevate click.
+// A child process spawned from an already-elevated process inherits that
+// elevation automatically, so anything the technician runs from inside this
+// window -- Task Manager, Control Panel, Services, an installer, the
+// registry -- never triggers a further UAC prompt. That sidesteps the real,
+// still-unsolved limitation entirely: Beacon cannot see or interact with
+// Windows' own secure desktop (confirmed by inspection -- no
+// SetThreadDesktop/OpenDesktop call exists anywhere in this codebase), so a
+// prompt raised the normal way (right-click something on the visible
+// desktop, choose "Run as Administrator") still freezes the session waiting
+// on whoever's physically at the keyboard. This mechanism never asks
+// Windows to elevate anything in the first place, so there is no prompt to
+// get stuck behind.
+//
+// Uses the exact same elevation call that already succeeded above --
+// RunAsActiveUserElevated first (free, silent, the split-token/admin-user
+// case), falling back to RunAsActiveUserWithCredentials only on
+// ErrElevationNotAvailable -- mirroring launchScreenShare's own ordering
+// exactly rather than diverging from it. sessionID here is only used for
+// logging; it's the Beacon relay session UUID, not a Windows Terminal
+// Services session number, so (like launchScreenShare/beacon-screenshare
+// itself) this targets the active console session directly rather than a
+// specific WTS session ID -- consistent with this feature's existing
+// console-only v1 scope. Deliberately fire-and-forget: failure here must
+// never affect whether the screen-share session itself is reported as
+// elevated, and the spawned window's lifecycle isn't tracked -- it's an
+// ordinary, independent window the technician (or end user) closes like any
+// other. A second Elevate click on the same session opens a second window;
+// not deduplicated here, acceptable minor clutter rather than added
+// bookkeeping for a rare case.
+func launchElevatedShell(sessionID, adminUsername, adminPassword string) {
+	args := []string{
+		"-NoExit",
+		"-Command",
+		"Write-Host 'Beacon -- Elevated administrative session. Anything you run from here (Task Manager, Control Panel, Services, installers, the registry) runs elevated with no further prompts.' -ForegroundColor Cyan",
+	}
+
+	pid, err := usersession.RunAsActiveUserElevated("powershell.exe", args)
+	if err != nil && errors.Is(err, usersession.ErrElevationNotAvailable) {
+		if adminUsername == "" || adminPassword == "" {
+			log.Printf("session %s: elevated shell: no linked token and no fallback credentials", sessionID)
+			return
+		}
+		pid, err = usersession.RunAsActiveUserWithCredentials("powershell.exe", args, adminUsername, adminPassword)
+	}
+	if err != nil {
+		log.Printf("session %s: elevated shell: %v", sessionID, err)
+		return
+	}
+	log.Printf("session %s: launched elevated admin shell pid %d", sessionID, pid)
 }
 
 // launchScreenShare picks the right usersession launch path. For an

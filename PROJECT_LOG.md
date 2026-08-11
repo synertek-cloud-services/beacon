@@ -1,5 +1,76 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — Elevate now delivers a real admin toolset (mandatory for v1)
+
+User pushback, directly: "v1 of Beacon RMM needs to ship with a fully
+functional remote desktop feature... UAC is still prompting with no way for
+a technician to enter in credentials to approve it... this is MANDATORY."
+Started scoping toward literal secure-desktop interactivity (per the prior
+session's own "currently-unaddressed gap" writeup) before the user corrected
+the premise: the actual need is "if there is a need to escalate to run
+administrative PowerShell or anything else, we should be able to elevate the
+session -- once it's elevated we have access to all the administrative
+tools, not just one app," not clicking through the live Windows UAC dialog
+itself. That's a materially smaller, already-buildable fix, not a rebuild of
+Elevate's whole architecture.
+
+Key realization: neither of Elevate's existing paths (`GetLinkedToken` for an
+already-admin user, `LogonUserW` for technician-supplied credentials) ever
+shows a live UAC dialog to anyone -- both are silent, programmatic
+authentication. The real gap was that a successful Elevate never gave the
+technician anything to *do* with the elevation besides interact with windows
+already on screen -- reaching for an admin tool the normal way (right-click,
+"Run as Administrator") routes through the interactive user's own
+Explorer/shell, which always hits the real, still-unsolved secure-desktop
+wall (confirmed by inspection: zero `SetThreadDesktop`/`OpenDesktop` calls
+exist anywhere in this codebase). That read to the user as "elevate doesn't
+work," but the actual fix doesn't require touching the secure desktop at
+all.
+
+**Fix** (`agent/internal/session/screenshare.go`'s new `launchElevatedShell`,
+called from `runScreenShare` right after a successful elevated launch):
+opens a second, independent elevated PowerShell window into the same
+session, via the exact same call that just worked for
+`beacon-screenshare.exe` itself. A child process spawned from an
+already-elevated process inherits that elevation automatically -- Windows
+never issues a new UAC request for it, so there's nothing for a popup to
+block on. From that window: Task Manager, Control Panel, Services,
+installers, the registry, all elevated, zero further prompts. Fire-and-forget
+and non-fatal on failure -- never affects whether the screen-share session
+itself reports as elevated. `WebRemotePage.vue`'s Elevate modal/tooltip/badge
+copy updated to point technicians at the provided window instead of manual
+right-click elevation.
+
+Deliberately did not build the much larger alternative (a SYSTEM-in-session
+helper that dynamically follows desktop switches -- needs
+`SetThreadDesktop`/`runtime.LockOSThread`, neither of which exist in this
+codebase, plus a session-relay redesign since `SessionRelay`'s
+`webSocketClose` unconditionally cascade-closes the browser's socket the
+instant the agent-side one disconnects, ruling out a same-session hand-off).
+Researched and reasoned through directly (an Explore pass over
+`usersession_windows.go`, `rfbserver`, `session-relay.ts`, and
+`WebRemotePage.vue`) before proposing this scope, then confirmed via a plan
+approved by the user rather than building the bigger thing unasked. What
+remains genuinely unsolved, unchanged: an end user's *own* independent UAC
+trigger, or a technician who ignores the provided shell and manually
+right-clicks "Run as Administrator" elsewhere, still freezes exactly as
+before -- steered against via UI copy, not solved at the OS level. Remains
+open alongside issue #117 (Winlogon/pre-login capture).
+
+Reuses `usersession.RunAsActiveUserElevated`/`RunAsActiveUserWithCredentials`
+as-is, no changes to that package -- the credential-based path is the one
+already flagged "GENUINELY FRAGILE, not yet verified on real hardware," so
+this inherits that same dependency rather than adding a new one. `go build`/
+`go vet` clean natively and cross-compiled windows/linux/darwin, dashboard
+`vue-tsc -b --force` clean. **Not yet verified on real hardware** -- same
+standing limitation as the rest of this feature area; needs a real Elevate
+click on a standard, non-admin logged-in user with either configured
+`CV_LOCAL_ADMIN_USERNAME`/`PASSWORD` or one-time typed credentials, to
+confirm the PowerShell window actually appears and stays prompt-free for
+admin actions run from inside it.
+
+Committed on `feature/elevated-admin-shell` off a clean `main`.
+
 ## Session: 2026-08-11 — Global scrollbar theming (uncommitted), real-hardware Elevate verification, and a real UAC secure-desktop gap found
 
 **Uncommitted on `main` as of this writing** — `dashboard/src/style.css` gained global scrollbar theming (`scrollbar-color`/`scrollbar-width` for Firefox + modern Chromium, `::-webkit-scrollbar*` pseudo-elements for the rest — every scrollable region in the app had zero scrollbar CSS anywhere before this, so every one fell back to the browser's default light/white scrollbar against the dark theme). Confirmed the underlying overflow was real at a forced-narrow viewport via Playwright (`scrollHeight` 480 vs `clientHeight` 368), but could **not** get a visual screenshot proof of the themed thumb color — headless Chromium doesn't reliably render native/OS-composited scrollbar chrome in CDP screenshot captures (tried both default and `--disable-features=OverlayScrollbar`, neither showed a scrollbar in the capture despite confirmed real overflow and a post-scroll timing window), and no Firefox binary was available in this sandbox as a fallback. `vue-tsc -b --force` clean. **Next session**: branch off clean `main`, ask the user to confirm the thumb color live themselves (can't self-verify further here), then PR.
