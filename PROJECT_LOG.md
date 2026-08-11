@@ -1,5 +1,38 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11 — The execution-policy fix wasn't enough either; switched to -EncodedCommand
+
+Real hardware again: "still has an issue on elevate though the powershell
+cant run ps1," this time with no fresh error text to pin the exact cause.
+Rather than guess at one specific culprit, fixed the whole class of problem
+instead of trying to patch the previous fix further.
+
+`-ExecutionPolicy Bypass` (the prior session's fix) is real but genuinely
+overridable -- a domain machine with an actual Group-Policy-enforced
+execution policy (`MachinePolicy` scope) always wins over anything passed
+on the command line, Bypass included. Separately, a predictable,
+repeatedly-rewritten `.ps1` file on disk is exactly the shape of thing this
+codebase's own Defender history has already shown real-time AV behavioral
+protection can interfere with.
+
+`launchElevatedShell` now uses `-EncodedCommand` instead of `-File`,
+eliminating the on-disk script file entirely -- PowerShell's execution-policy
+check only ever applies to loading a script *file*, never an inline command
+at any policy scope, the same reason `install_msi_windows.go`'s existing
+`-Command` detection script has never needed this flag. New
+`encodePowerShellCommand` (UTF-16LE + base64, the real `-EncodedCommand`
+contract) verified with two new unit tests -- an independent round-trip
+decode (including the real menu script payload, not a toy string) and a
+byte-level check that no BOM leaks in. `run.go`/`run_as_user_windows.go`'s
+Job-execution paths are unaffected by this specific finding and keep
+`-ExecutionPolicy Bypass` unchanged.
+
+`go build`/`go vet`/`gofmt` clean natively and cross-compiled
+windows/linux/darwin; `go test ./internal/session/...` passes (2 new
+tests). Not yet re-verified on the real hardware that surfaced this --
+needs a fresh agent release and another real Elevate click to confirm
+which explanation (if either alone) was the actual cause.
+
 ## Session: 2026-08-11 — The scaling fix from the previous entry didn't work; root-caused and actually fixed
 
 Real hardware, immediately: a screenshot of a laptop connected to a

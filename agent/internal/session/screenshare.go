@@ -3,11 +3,13 @@ package session
 import (
 	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"unicode/utf16"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
@@ -100,9 +102,10 @@ func runScreenShare(sessionID, wsURL string, elevated bool, adminUsername, admin
 // MMC snap-in name for the admin tool they need memorized, so this turns
 // "access to all the administrative tools" into a pick-a-number list instead
 // of requiring that. Defined as a `menu` function, not a one-shot block or a
-// blocking loop -- PowerShell keeps a -File script's top-level functions
-// defined in the interactive prompt -NoExit drops into afterward, so this
-// runs once automatically on open and can be re-typed ("menu") any time
+// blocking loop -- PowerShell keeps top-level functions defined by whatever
+// ran at startup (-EncodedCommand here, same as -File before it) in scope
+// for the interactive prompt -NoExit drops into afterward, so this runs
+// once automatically on open and can be re-typed ("menu") any time
 // afterward. The window underneath is a completely normal, fully capable
 // elevated PowerShell prompt the whole time -- this is a convenience layer
 // on top of it, not a restricted or modal shell; pressing Enter with no
@@ -148,26 +151,18 @@ const elevatedMenuScript = `function menu {
 menu
 `
 
-// writeElevatedMenuScript writes elevatedMenuScript to a fixed, well-known
-// path under the OS temp dir, overwriting any previous copy -- a fixed name
-// rather than a fresh os.CreateTemp one per launch, so repeated Elevate
-// clicks don't accumulate junk files. Never deleted after launch: unlike
-// executor.writeTempScript's synchronous job scripts (removed right after
-// the command they back finishes), the shell this backs is long-lived and
-// interactive with no completion signal this fire-and-forget call could
-// wait on anyway. Left in place deliberately -- the file carries no secret
-// content, just a fixed menu, so leaving it costs nothing.
-func writeElevatedMenuScript() (string, error) {
-	path := filepath.Join(os.TempDir(), "beacon-elevated-menu.ps1")
-	// Same UTF-8 BOM requirement as executor.writeTempScript -- Windows
-	// PowerShell 5.1 has no reliable way to detect a BOM-less script's
-	// encoding and falls back to the system codepage, which can misdecode
-	// this script's em dashes and corrupt parsing.
-	content := "\ufeff" + elevatedMenuScript
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return "", err
+// encodePowerShellCommand base64-encodes script as UTF-16LE, the exact
+// format -EncodedCommand requires (undocumented-by-flag-name but
+// well-established PowerShell behavior -- no BOM, little-endian UTF-16
+// code units, standard base64).
+func encodePowerShellCommand(script string) string {
+	units := utf16.Encode([]rune(script))
+	buf := make([]byte, len(units)*2)
+	for i, u := range units {
+		buf[i*2] = byte(u)
+		buf[i*2+1] = byte(u >> 8)
 	}
-	return path, nil
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 // launchElevatedShell opens a second, independent elevated PowerShell window
@@ -204,17 +199,25 @@ func writeElevatedMenuScript() (string, error) {
 // not deduplicated here, acceptable minor clutter rather than added
 // bookkeeping for a rare case.
 func launchElevatedShell(sessionID, adminUsername, adminPassword string) {
-	scriptPath, err := writeElevatedMenuScript()
-	if err != nil {
-		log.Printf("session %s: elevated shell: write menu script: %v", sessionID, err)
-		return
-	}
-	// -ExecutionPolicy Bypass: see the identical comment on the SYSTEM-context
-	// path in executor/run.go -- confirmed on real hardware via a real
-	// UnauthorizedAccess error ("running scripts is disabled on this
-	// system") on a Windows client machine, whose default execution policy
-	// (Restricted) blocks -File regardless of which account launches it.
-	args := []string{"-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath}
+	// -EncodedCommand, not -File: real hardware showed -ExecutionPolicy
+	// Bypass wasn't reliable either -- Windows client's Restricted default
+	// (the original finding) is only one possible cause; a domain machine
+	// with an actual Group-Policy-enforced execution policy (the
+	// MachinePolicy scope) overrides anything passed on the command line,
+	// including -ExecutionPolicy Bypass, so that fix alone doesn't cover
+	// every real environment. -EncodedCommand sidesteps the whole class of
+	// problem rather than trying to defeat it: PowerShell's execution-policy
+	// check only ever applies to loading a *script file* (-File); an inline
+	// command (-Command, or this base64 form of it) was never subject to it
+	// at any policy scope in the first place -- the same reason
+	// install_msi_windows.go's -Command detection script has never needed
+	// this flag. Also drops the on-disk beacon-elevated-menu.ps1 file
+	// entirely, removing a second, independent real risk this codebase has
+	// already been burned by more than once: a predictable, repeatedly
+	// rewritten script file is exactly what AV real-time behavioral
+	// protection (see Web Remote's own Defender-exclusion history above)
+	// tends to flag.
+	args := []string{"-NoProfile", "-NoExit", "-EncodedCommand", encodePowerShellCommand(elevatedMenuScript)}
 
 	pid, err := usersession.RunAsActiveUserElevated("powershell.exe", args)
 	if err != nil && errors.Is(err, usersession.ErrElevationNotAvailable) {
