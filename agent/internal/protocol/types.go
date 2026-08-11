@@ -70,6 +70,11 @@ type CheckInResponse struct {
 	ProcessChecks            []ProcessCheck            `json:"process_checks,omitempty"`
 	ServiceChecks            []ServiceCheck            `json:"service_checks,omitempty"`
 	WindowsUpdateDriftChecks []WindowsUpdateDriftCheck `json:"windows_update_drift_checks,omitempty"`
+	// Present only while the worker has an active fast-poll window for this
+	// device (worker/src/lib/fastPoll.ts) -- tells the agent to use this
+	// (shorter) check-in cadence instead of checkInInterval until the
+	// window expires. Zero/absent means "use the default interval."
+	NextCheckinSeconds int `json:"next_checkin_seconds,omitempty"`
 }
 
 // FileSizeCheck asks the agent to measure a path for a file_size monitor.

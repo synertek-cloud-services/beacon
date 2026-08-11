@@ -144,27 +144,38 @@ func main() {
 	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
 	service.Run(func(stop <-chan struct{}) {
+		// interval starts at the default and is replaced every iteration by
+		// whatever checkIn() decides for the *next* cycle -- normally
+		// checkInInterval, but shortened while the worker reports an active
+		// fast-poll window for this device (see checkIn's own doc comment,
+		// worker/src/lib/fastPoll.ts). Orthogonal to triggerCheckin below:
+		// that's a one-shot early wake for the *current* sleep only, with
+		// no memory across iterations, so the two never need to coordinate.
+		interval := checkInInterval
 		for {
-			if err := checkIn(client, cred); err != nil {
+			next, err := checkIn(client, cred)
+			if err != nil {
 				log.Printf("check-in error: %v", err)
 			} else {
 				updater.NotifyCheckIn()
 			}
+			interval = next
 			// Resilience net for the tray icon (Windows-only; no-op
-			// elsewhere) -- piggybacks on this existing 60s cadence rather
-			// than a separate ticker. Catches a crashed/killed tray or a
-			// missed session-change event; the hook in runner_windows.go is
-			// just a latency optimization on top of this, not a replacement.
+			// elsewhere) -- piggybacks on this existing check-in cadence
+			// rather than a separate ticker. Catches a crashed/killed tray
+			// or a missed session-change event; the hook in
+			// runner_windows.go is just a latency optimization on top of
+			// this, not a replacement.
 			service.EnsureTrayRunning()
 			// Same piggyback cadence -- see pollPendingReboot's own doc
 			// comment for why this is polled state, not a named pipe.
 			pollPendingReboot()
 			select {
-			case <-time.After(checkInInterval):
+			case <-time.After(interval):
 			case <-triggerCheckin:
 				// A command result arrived — check in early to report it
-				// before the full 60-second interval elapses (important for
-				// commands like reboot that shut the machine down shortly after).
+				// before the full interval elapses (important for commands
+				// like reboot that shut the machine down shortly after).
 				time.Sleep(2 * time.Second)
 			case <-stop:
 				// Windows service stop/shutdown request (see runner_windows.go)
@@ -296,10 +307,17 @@ func enroll(client *protocol.Client, token string) (*credential.Stored, error) {
 	return cred, nil
 }
 
-func checkIn(client *protocol.Client, cred *credential.Stored) error {
+// checkIn returns the interval the main loop should sleep before its next
+// call -- normally checkInInterval, but shortened when the worker reports
+// an active fast-poll window for this device (CheckInResponse.
+// NextCheckinSeconds, see worker/src/lib/fastPoll.ts). Every early-return
+// error path defaults to checkInInterval rather than trying to preserve
+// whatever interval was previously in effect -- there's no fresher signal
+// to base a smarter choice on when a check-in itself just failed.
+func checkIn(client *protocol.Client, cred *credential.Stored) (time.Duration, error) {
 	snap, err := inventory.Collect()
 	if err != nil {
-		return fmt.Errorf("inventory: %w", err)
+		return checkInInterval, fmt.Errorf("inventory: %w", err)
 	}
 
 	pendingMu.Lock()
@@ -351,7 +369,7 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		pendingServiceResults = append(serviceResults, pendingServiceResults...)
 		pendingWindowsUpdateDriftResults = append(windowsUpdateDriftResults, pendingWindowsUpdateDriftResults...)
 		pendingMu.Unlock()
-		return err
+		return checkInInterval, err
 	}
 
 	// Piggybacks on this same 60s cadence rather than a separate poll loop
@@ -747,7 +765,11 @@ func checkIn(client *protocol.Client, cred *credential.Stored) error {
 		}(cmd)
 	}
 
-	return nil
+	nextInterval := checkInInterval
+	if resp.NextCheckinSeconds > 0 {
+		nextInterval = time.Duration(resp.NextCheckinSeconds) * time.Second
+	}
+	return nextInterval, nil
 }
 
 // rebootMarker is the on-disk state shared between the agent and

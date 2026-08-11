@@ -8,6 +8,7 @@ import { sha256hex } from '../lib/crypto';
 import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
+import { isFastPollActive, FAST_POLL_INTERVAL_SECONDS } from '../lib/fastPoll';
 import { recordDiscoveredHosts, type DiscoveredHost } from '../lib/discovery';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
@@ -226,6 +227,7 @@ checkin.post('/', async (c) => {
   }
 
   const inMaintenance = await isDeviceSuppressedNow(db, device, now);
+  const fastPollActive = isFastPollActive(device, now);
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
@@ -297,6 +299,7 @@ checkin.post('/', async (c) => {
     process_checks: processChecks.length ? processChecks : undefined,
     service_checks: serviceChecks.length ? serviceChecks : undefined,
     windows_update_drift_checks: windowsUpdateDriftChecks.length ? windowsUpdateDriftChecks : undefined,
+    next_checkin_seconds: fastPollActive ? FAST_POLL_INTERVAL_SECONDS : undefined,
   });
 });
 
