@@ -289,6 +289,53 @@ new self-hosted installation, publish the host-controlled channel in the next
 section and install those binaries instead. An agent cannot switch from one
 signing key to another through a release signed only by the new key.
 
+### Using Web Remote and Elevate
+
+Web Remote is a zero-install, browser-based remote desktop — no client
+software, no open inbound port on the endpoint, opened from a device's page
+in the dashboard. It shows and controls whatever the currently logged-in
+user's own desktop session is; it does not show the Windows login screen,
+and it cannot be used before someone has actually logged in on the console.
+
+**Elevate** gets a technician full administrator access on that session,
+authenticated one of two ways, neither of which ever shows the logged-in
+user (or the technician) a Windows UAC popup:
+
+- If the logged-in user is already an administrator, Elevate uses their own
+  existing admin rights directly (Windows' split-token mechanism), with no
+  credentials needed at all.
+- Otherwise — the common case, since most managed users are standard
+  accounts — Elevate needs a real local (or domain) administrator
+  credential for that machine. Configure `CV_LOCAL_ADMIN_USERNAME` /
+  `CV_LOCAL_ADMIN_PASSWORD` as Company Variables/Secrets once per company to
+  reuse automatically on every future Elevate click, or type a one-time
+  username/password directly into the Elevate modal (never saved). Without
+  either, Elevate has no way to proceed for a standard-user session — that's
+  a real Windows limit, not a missing feature.
+
+Once elevated, Beacon automatically opens a second window on the remote
+desktop: an administrator PowerShell with a numbered menu of common admin
+tools (Task Manager, Control Panel, Services, Device Manager, Event Viewer,
+Disk Management, Programs and Features, Network Connections, System
+Properties, File Explorer) so a technician doesn't need to already know the
+exact command or MMC snap-in name for what they need. Anything launched from
+that window — through the menu or by typing a command directly — inherits
+the elevation automatically, with no further prompts. The toolbar's
+keyboard-shortcut menu (Ctrl+Alt+Del, Task Manager, Alt+Tab, Alt+F4, and the
+common Windows-key shortcuts) works the same whether or not the session is
+elevated.
+
+**What Elevate does not do**: it cannot see or click through Windows' own
+UAC consent/credential dialog if one appears on its own — for example, the
+logged-in end user launching an installer themselves, or a technician
+right-clicking something on the visible desktop and choosing "Run as
+Administrator" instead of using the admin PowerShell window Elevate already
+opened. That dialog renders on a separate, access-restricted secure desktop
+that a remote screen-capture tool structurally cannot reach without a much
+larger, not-yet-built mechanism. Use the provided admin PowerShell window
+for administrative tasks rather than the normal right-click path, which
+still blocks on whoever is physically at the keyboard.
+
 ## 10. Publish the host-controlled agent channel
 
 Do this before installing production agents. You need an authenticated GitHub

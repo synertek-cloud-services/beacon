@@ -95,6 +95,81 @@ func runScreenShare(sessionID, wsURL string, elevated bool, adminUsername, admin
 	}
 }
 
+// elevatedMenuScript is presented automatically in the elevated shell window
+// launchElevatedShell opens. Not every technician has the exact command or
+// MMC snap-in name for the admin tool they need memorized, so this turns
+// "access to all the administrative tools" into a pick-a-number list instead
+// of requiring that. Defined as a `menu` function, not a one-shot block or a
+// blocking loop -- PowerShell keeps a -File script's top-level functions
+// defined in the interactive prompt -NoExit drops into afterward, so this
+// runs once automatically on open and can be re-typed ("menu") any time
+// afterward. The window underneath is a completely normal, fully capable
+// elevated PowerShell prompt the whole time -- this is a convenience layer
+// on top of it, not a restricted or modal shell; pressing Enter with no
+// choice, or just ignoring the prompt and typing a real command, both work.
+const elevatedMenuScript = `function menu {
+    Clear-Host
+    Write-Host "=====================================================" -ForegroundColor Cyan
+    Write-Host " Beacon -- Elevated Administrative Session" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
+    Write-Host " Anything you run here -- including from this menu --"
+    Write-Host " runs elevated, with no further Windows prompts."
+    Write-Host ""
+    Write-Host "   1  Task Manager"
+    Write-Host "   2  Control Panel"
+    Write-Host "   3  Services"
+    Write-Host "   4  Device Manager"
+    Write-Host "   5  Event Viewer"
+    Write-Host "   6  Disk Management"
+    Write-Host "   7  Programs and Features (uninstall/change)"
+    Write-Host "   8  Network Connections"
+    Write-Host "   9  System Properties"
+    Write-Host "  10  File Explorer"
+    Write-Host ""
+    Write-Host " Enter a number to open a tool, or press Enter for a" -ForegroundColor DarkGray
+    Write-Host " plain PowerShell prompt. Type 'menu' any time to show" -ForegroundColor DarkGray
+    Write-Host " this list again." -ForegroundColor DarkGray
+    Write-Host ""
+    $choice = Read-Host "Choice"
+    switch ($choice) {
+        '1'  { Start-Process taskmgr.exe }
+        '2'  { Start-Process control.exe }
+        '3'  { Start-Process services.msc }
+        '4'  { Start-Process devmgmt.msc }
+        '5'  { Start-Process eventvwr.msc }
+        '6'  { Start-Process diskmgmt.msc }
+        '7'  { Start-Process control.exe -ArgumentList 'appwiz.cpl' }
+        '8'  { Start-Process control.exe -ArgumentList 'ncpa.cpl' }
+        '9'  { Start-Process control.exe -ArgumentList 'sysdm.cpl' }
+        '10' { Start-Process explorer.exe }
+        default { }
+    }
+}
+menu
+`
+
+// writeElevatedMenuScript writes elevatedMenuScript to a fixed, well-known
+// path under the OS temp dir, overwriting any previous copy -- a fixed name
+// rather than a fresh os.CreateTemp one per launch, so repeated Elevate
+// clicks don't accumulate junk files. Never deleted after launch: unlike
+// executor.writeTempScript's synchronous job scripts (removed right after
+// the command they back finishes), the shell this backs is long-lived and
+// interactive with no completion signal this fire-and-forget call could
+// wait on anyway. Left in place deliberately -- the file carries no secret
+// content, just a fixed menu, so leaving it costs nothing.
+func writeElevatedMenuScript() (string, error) {
+	path := filepath.Join(os.TempDir(), "beacon-elevated-menu.ps1")
+	// Same UTF-8 BOM requirement as executor.writeTempScript -- Windows
+	// PowerShell 5.1 has no reliable way to detect a BOM-less script's
+	// encoding and falls back to the system codepage, which can misdecode
+	// this script's em dashes and corrupt parsing.
+	content := "\ufeff" + elevatedMenuScript
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // launchElevatedShell opens a second, independent elevated PowerShell window
 // into the same session right alongside the (also elevated) screen-share
 // helper -- this, not the helper's own input handling, is what actually
@@ -129,11 +204,12 @@ func runScreenShare(sessionID, wsURL string, elevated bool, adminUsername, admin
 // not deduplicated here, acceptable minor clutter rather than added
 // bookkeeping for a rare case.
 func launchElevatedShell(sessionID, adminUsername, adminPassword string) {
-	args := []string{
-		"-NoExit",
-		"-Command",
-		"Write-Host 'Beacon -- Elevated administrative session. Anything you run from here (Task Manager, Control Panel, Services, installers, the registry) runs elevated with no further prompts.' -ForegroundColor Cyan",
+	scriptPath, err := writeElevatedMenuScript()
+	if err != nil {
+		log.Printf("session %s: elevated shell: write menu script: %v", sessionID, err)
+		return
 	}
+	args := []string{"-NoProfile", "-NoExit", "-File", scriptPath}
 
 	pid, err := usersession.RunAsActiveUserElevated("powershell.exe", args)
 	if err != nil && errors.Is(err, usersession.ErrElevationNotAvailable) {

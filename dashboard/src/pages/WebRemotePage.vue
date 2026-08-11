@@ -4,17 +4,55 @@
       <span class="wr-title">
         Web Remote
         <span v-if="hostname" class="text-xs text-muted-2 mono" style="margin-left:8px;font-weight:400">{{ hostname }}</span>
-        <span v-if="elevated" class="text-xs mono" style="margin-left:8px;font-weight:600;color:var(--color-warning)" title="An administrator PowerShell window was opened on the remote desktop — look for it if it isn't immediately visible. Use it for admin tasks rather than right-clicking something else and choosing &quot;Run as Administrator&quot;, which Beacon still can't see or interact with.">Elevated — admin shell opened</span>
+        <span v-if="elevated" class="wr-elevated-badge" title="An administrator PowerShell — with an admin tools menu — was opened on the remote desktop.">Elevated</span>
       </span>
       <div class="wr-actions">
-        <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="rfb?.sendCtrlAltDel()">Ctrl+Alt+Del</button>
-        <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="pasteOpen = !pasteOpen">Paste</button>
-        <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="toggleFullscreen">Fullscreen</button>
-        <button class="btn btn-ghost btn-sm" :disabled="!canElevate || elevating" @click="openElevateModal"
-          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Opens an administrator PowerShell window on the remote desktop — use it for admin tasks (Task Manager, Control Panel, Services, installers) instead of right-clicking Run as Administrator, which Beacon still cannot interact with'">
-          {{ elevating ? 'Elevating…' : 'Elevate' }}
+        <!-- Keyboard shortcuts dropdown -->
+        <div class="wr-kbd-wrap">
+          <button class="wr-tbtn" :disabled="status !== 'connected'" title="Keyboard shortcuts" @click="toggleKbdMenu">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/>
+              <line x1="6" y1="10" x2="6.01" y2="10"/><line x1="10" y1="10" x2="10.01" y2="10"/>
+              <line x1="14" y1="10" x2="14.01" y2="10"/><line x1="18" y1="10" x2="18.01" y2="10"/>
+              <line x1="6" y1="14" x2="18" y2="14"/>
+            </svg>
+          </button>
+          <div v-if="kbdMenuOpen" class="wr-kbd-dropdown">
+            <button v-for="k in KBD_SHORTCUTS" :key="k.label" class="wr-kbd-item" @click="k.send(); kbdMenuOpen = false">
+              <span>{{ k.label }}</span>
+              <span class="wr-kbd-keys mono">{{ k.keys }}</span>
+            </button>
+          </div>
+        </div>
+
+        <button class="wr-tbtn" :disabled="status !== 'connected'" title="Paste text into the remote session" @click="pasteOpen = !pasteOpen">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="4" width="12" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/>
+          </svg>
         </button>
-        <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
+
+        <button class="wr-tbtn" :disabled="status !== 'connected'" title="Fullscreen" @click="toggleFullscreen">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+            <path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+          </svg>
+        </button>
+
+        <div class="wr-tbtn-sep"></div>
+
+        <button class="wr-tbtn wr-elevate-btn" :disabled="!canElevate || elevating" @click="openElevateModal"
+          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Get full administrator access, including an admin tools menu'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5z"/>
+          </svg>
+          <span>{{ elevating ? 'Elevating…' : 'Elevate' }}</span>
+        </button>
+
+        <button class="wr-tbtn wr-disconnect-btn" title="Disconnect" @click="disconnect">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -48,7 +86,7 @@
         <div class="modal-head"><span class="modal-title">Elevate</span></div>
         <div class="modal-body">
           <p class="text-sm" style="margin:0 0 12px">
-            Reconnects with elevated (admin) input control and opens an administrator PowerShell window on the remote desktop. Anything you run from that window — Task Manager, Control Panel, Services, an installer, the registry — runs elevated with no further prompts. Beacon still can't see or interact with Windows' own UAC dialog, so use this window rather than right-clicking something else and choosing "Run as Administrator."
+            Reconnects with full administrator access and opens an admin PowerShell menu on the remote desktop for common admin tasks.
           </p>
 
           <div class="wr-elevate-status">
@@ -107,6 +145,59 @@ const elevating = ref(false);
 
 const pasteOpen = ref(false);
 const pasteText = ref('');
+
+// ── Keyboard shortcuts dropdown ──────────────────────────────────────
+// Same toggle-plus-one-shot-document-listener pattern DeviceDetailPage.vue's
+// kebab menu already established (toggleMenu/closeMenuOnce there) -- the
+// setTimeout(..., 0) defers registering the outside-click listener by one
+// macrotask so the same click that opens the menu doesn't immediately
+// close it again.
+const kbdMenuOpen = ref(false);
+function toggleKbdMenu() {
+  if (kbdMenuOpen.value) {
+    kbdMenuOpen.value = false;
+  } else {
+    kbdMenuOpen.value = true;
+    setTimeout(() => document.addEventListener('click', closeKbdMenuOnce, { once: true }), 0);
+  }
+}
+function closeKbdMenuOnce() { kbdMenuOpen.value = false; }
+
+// X11 keysyms (matches the values noVNC/RFB itself expects -- the same
+// keysymdef.h values agent/internal/x11keysym already uses server-side for
+// KeyEvent injection) paired with the KeyboardEvent.code RFB.sendKey()
+// also accepts. Presses each key down in order, then releases in reverse --
+// the same effective sequence RFB.sendCtrlAltDel() itself performs, just
+// generalized to an arbitrary key list so more than one shortcut can be
+// offered instead of only Ctrl+Alt+Del.
+type Key = { keysym: number; code: string };
+const CTRL: Key  = { keysym: 0xffe3, code: 'ControlLeft' };
+const ALT: Key   = { keysym: 0xffe9, code: 'AltLeft' };
+const SHIFT: Key = { keysym: 0xffe1, code: 'ShiftLeft' };
+const WIN: Key   = { keysym: 0xffeb, code: 'MetaLeft' };
+const ESC: Key   = { keysym: 0xff1b, code: 'Escape' };
+const TAB: Key   = { keysym: 0xff09, code: 'Tab' };
+const F4: Key    = { keysym: 0xffc1, code: 'F4' };
+const KEY_D: Key = { keysym: 0x64,   code: 'KeyD' };
+const KEY_E: Key = { keysym: 0x65,   code: 'KeyE' };
+const KEY_R: Key = { keysym: 0x72,   code: 'KeyR' };
+
+function sendCombo(keys: Key[]) {
+  if (!rfb.value) return;
+  for (const k of keys) rfb.value.sendKey(k.keysym, k.code, true);
+  for (const k of [...keys].reverse()) rfb.value.sendKey(k.keysym, k.code, false);
+}
+
+const KBD_SHORTCUTS = [
+  { label: 'Ctrl+Alt+Delete', keys: 'Ctrl Alt Del',   send: () => rfb.value?.sendCtrlAltDel() },
+  { label: 'Task Manager',    keys: 'Ctrl Shift Esc', send: () => sendCombo([CTRL, SHIFT, ESC]) },
+  { label: 'Switch Windows',  keys: 'Alt Tab',        send: () => sendCombo([ALT, TAB]) },
+  { label: 'Close Window',    keys: 'Alt F4',         send: () => sendCombo([ALT, F4]) },
+  { label: 'Start Menu',      keys: 'Win',            send: () => sendCombo([WIN]) },
+  { label: 'Show Desktop',    keys: 'Win D',          send: () => sendCombo([WIN, KEY_D]) },
+  { label: 'File Explorer',   keys: 'Win E',          send: () => sendCombo([WIN, KEY_E]) },
+  { label: 'Run…',            keys: 'Win R',          send: () => sendCombo([WIN, KEY_R]) },
+];
 
 // console_admin rides along from DeviceDetailPage.vue's openWebRemote() as a
 // point-in-time snapshot of the device's latest audit -- purely
@@ -363,7 +454,43 @@ onUnmounted(() => {
   background: var(--color-surface);
 }
 .wr-title { flex: 1; font-weight: 600; font-size: 14px; }
-.wr-actions { display: flex; gap: 8px; }
+.wr-elevated-badge {
+  margin-left: 8px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px;
+  background: rgba(240,168,64,.12); color: var(--color-warning); vertical-align: middle;
+}
+.wr-actions { display: flex; align-items: center; gap: 4px; }
+.wr-tbtn-sep { width: 1px; height: 20px; background: var(--color-border-strong); margin: 0 4px; }
+
+/* Icon toolbar buttons -- square, icon-only (Elevate is the one exception
+   with a visible label, see below), consistent sizing so the row reads as
+   one coherent group instead of a row of near-identical text buttons. */
+.wr-tbtn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 8px; background: none; border: 1px solid transparent;
+  border-radius: 6px; color: var(--color-text-muted); cursor: pointer; font-size: 12px;
+  font-family: var(--font); transition: background .12s, color .12s, border-color .12s;
+}
+.wr-tbtn:hover:not(:disabled) { background: var(--color-surface-raised); color: var(--color-text-primary); }
+.wr-tbtn:disabled { opacity: .35; cursor: not-allowed; }
+
+.wr-elevate-btn { color: var(--color-warning); border-color: rgba(240,168,64,.3); }
+.wr-elevate-btn:hover:not(:disabled) { background: rgba(240,168,64,.1); border-color: var(--color-warning); color: var(--color-warning); }
+
+.wr-disconnect-btn:hover { background: rgba(230,90,90,.12); color: var(--color-danger); }
+
+.wr-kbd-wrap { position: relative; }
+.wr-kbd-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0;
+  background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4); min-width: 220px; z-index: 50; overflow: hidden; padding: 4px 0;
+}
+.wr-kbd-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%;
+  padding: 8px 14px; background: none; border: none; color: var(--color-text-primary);
+  font-size: 12px; font-family: var(--font); cursor: pointer; text-align: left; transition: background .1s;
+}
+.wr-kbd-item:hover { background: var(--color-surface-raised); }
+.wr-kbd-keys { font-size: 10px; color: var(--color-text-muted); }
 
 .wr-paste-bar {
   display: flex; gap: 8px; align-items: center; padding: 8px 16px;
