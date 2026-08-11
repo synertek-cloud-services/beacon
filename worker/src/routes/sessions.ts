@@ -5,14 +5,15 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { generateToken, sha256hex } from '../lib/crypto';
-import { fetchCompanyVariables } from '../lib/companyVariables';
 import { extendFastPoll } from '../lib/fastPoll';
+import { logActivity } from '../lib/activityLog';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
 
 // POST /v1/sessions — create a session and queue open_session for the agent
 sessions.post('/', async (c) => {
-  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+  const actor = await requireUser(c.req.header('Authorization'), c.env, 'technician');
+  if (!actor) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -25,15 +26,11 @@ sessions.post('/', async (c) => {
     // ignored by the agent for every other session type. Not stored on the
     // sessions row -- a one-shot dispatch-time instruction, not queryable
     // session state, same as install_patches' own auto_reboot payload flag.
+    // Needs no accompanying credentials: the agent relaunches the helper
+    // with the agent service's own SYSTEM token, not an Administrator
+    // token obtained from the logged-in user, so there's nothing here to
+    // resolve server-side beyond the boolean itself.
     elevated?: boolean;
-    // Optional one-time credentials typed directly into the Elevate
-    // confirmation modal — never persisted anywhere (not written to
-    // company_variables, not logged). Takes precedence over any configured
-    // CV_LOCAL_ADMIN_USERNAME/PASSWORD when both are supplied, so a
-    // technician can always override with a fresh one-off account without
-    // needing admin access to change the saved Company Variables.
-    elevate_admin_username?: string;
-    elevate_admin_password?: string;
   }>();
 
   const db = drizzle(c.env.DB, { schema });
@@ -78,33 +75,6 @@ sessions.post('/', async (c) => {
     clientAuthHash: await sha256hex(clientAuthToken),
   });
 
-  // Credential-based elevation fallback: for the realistic common case
-  // where the logged-in user isn't a split-token administrator at all (no
-  // linked token for the agent's free GetLinkedToken path), resolve a
-  // configured fallback admin account from this device's Company
-  // Variables/Secrets — fixed key names, same CV_ convention as
-  // Credentialed Network Discovery's CV_SNMP_COMMUNITY/CV_SSH_* rather
-  // than a new picker UI. Only looked up when actually requested — most
-  // Elevate clicks never need this. Resolved and decrypted here, then
-  // embedded in cleartext in the queued command's payload — same
-  // exposure window CV_ secrets already have for Job dispatch
-  // (insertJobCommands), not a new pattern.
-  let elevateAdminUsername: string | undefined;
-  let elevateAdminPassword: string | undefined;
-  if (body.elevated && body.session_type === 'screen_share') {
-    if (body.elevate_admin_username && body.elevate_admin_password) {
-      // One-time credentials typed directly into the Elevate modal — used
-      // as-is, no Company Variables lookup at all.
-      elevateAdminUsername = body.elevate_admin_username;
-      elevateAdminPassword = body.elevate_admin_password;
-    } else {
-      const companyVars = await fetchCompanyVariables(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, [body.company_id]);
-      const vars = companyVars.get(body.company_id) ?? {};
-      elevateAdminUsername = vars['CV_LOCAL_ADMIN_USERNAME'];
-      elevateAdminPassword = vars['CV_LOCAL_ADMIN_PASSWORD'];
-    }
-  }
-
   // Signal the agent via the existing command channel — agent picks it up on next check-in
   await db.insert(schema.commands).values({
     id: crypto.randomUUID(),
@@ -117,9 +87,6 @@ sessions.post('/', async (c) => {
       ws_url: agentWsUrl,
       tcp_port: body.tcp_port ?? 0,
       elevated: body.elevated ?? false,
-      ...(elevateAdminUsername && elevateAdminPassword
-        ? { elevate_admin_username: elevateAdminUsername, elevate_admin_password: elevateAdminPassword }
-        : {}),
     }),
     createdAt: now,
   });
@@ -130,6 +97,31 @@ sessions.post('/', async (c) => {
   // (single-device, technician-initiated) but deliberately never wired
   // into Job dispatch (many-device, scheduled/bulk).
   await extendFastPoll(db, body.device_id, now);
+
+  // Explicit Layer-2 activity-log call, not left to the generic Layer-1
+  // middleware (see lib/activityLog.ts) -- Layer 1 never parses the
+  // request body, so it can't distinguish an ordinary screen-share/shell
+  // session from an elevated one. That distinction matters more once
+  // "elevated" means the agent relaunches the helper with literal SYSTEM
+  // privilege (the maximum level Windows has, exceeding the old
+  // Administrator-token ceiling): "technician X elevated to SYSTEM on
+  // device Y at time Z" should be a first-class, searchable audit event,
+  // not indistinguishable from a routine remote-support session. This
+  // route is added to activityLog.ts's SKIP_ROUTES so Layer 1 doesn't
+  // also log a duplicate, detail-less row for it.
+  await logActivity(db, {
+    actorType: actor.source === 'break-glass' ? 'break-glass' : 'user',
+    actorId: actor.id,
+    actorLabel: actor.email,
+    category: 'Remote Session',
+    action: body.elevated ? 'Opened remote session (elevated to SYSTEM)' : 'Opened remote session',
+    entityType: 'device',
+    entityId: body.device_id,
+    companyId: body.company_id,
+    method: 'POST',
+    path: c.req.path,
+    details: { session_type: body.session_type, elevated: body.elevated ?? false },
+  });
 
   return c.json({ session_id: sessionId, client_ws_url: clientWsUrl });
 });

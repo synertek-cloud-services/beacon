@@ -65,9 +65,16 @@ const MUTATING_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 // routes/auth.ts, routes/auth-microsoft.ts) -- logging them here too would
 // either produce a useless actor-less duplicate (no Authorization header
 // exists yet at login) or double-count the same login event.
+//
+// POST /v1/sessions is a different case: it's a normal authenticated
+// route (Layer 1 could resolve an actor for it fine), but Layer 1 never
+// parses the request body, so it can't distinguish an elevated session
+// (SYSTEM-level access) from an ordinary one -- routes/sessions.ts logs
+// this one explicitly instead, with that detail included.
 const SKIP_ROUTES = new Set<string>([
   'POST /v1/auth/login',
   'POST /v1/auth/microsoft/exchange',
+  'POST /v1/sessions',
 ]);
 
 interface PrefixDefault {
@@ -253,8 +260,6 @@ const FINE_GRAINED: Record<string, FineGrainedEntry> = {
   'DELETE /v1/admin/patch-policies/:id':                      { action: 'Deleted patch policy', entityType: 'patchPolicy' },
 
   'PATCH /v1/admin/settings':                                 { action: 'Edited host settings' },
-
-  'POST /v1/sessions':                                        { category: 'Remote Session', action: 'Opened remote session' },
 };
 
 export async function activityLogMiddleware(c: Context<{ Bindings: Bindings; Variables: { activityLogWritten?: boolean } }>, next: Next): Promise<void> {

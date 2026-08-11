@@ -7,12 +7,15 @@
 package screeninject
 
 import (
+	"fmt"
+
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
 	"github.com/synertek-cloud-services/beacon/agent/internal/win32"
 	"github.com/synertek-cloud-services/beacon/agent/internal/x11keysym"
 )
 
 var _ rfbserver.Injector = (*Injector)(nil)
+var _ rfbserver.DesktopFollower = (*Injector)(nil)
 
 // RFB PointerEvent button-mask bits, RFC 6143 §7.5.5.
 const (
@@ -25,10 +28,12 @@ const (
 
 // Injector translates RFB input events into Win32 SendInput calls. Not
 // safe for concurrent use -- rfbserver.Serve only ever calls it
-// sequentially from its own single message loop, so none is needed.
+// sequentially, from its own single dedicated injection goroutine, so
+// none is needed.
 type Injector struct {
 	screenW, screenH uint16
 	lastMask         uint8
+	lastDesktop      string
 }
 
 // New creates an Injector whose absolute pointer coordinates are
@@ -112,6 +117,34 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 	}
 
 	i.lastMask = mask
+	return nil
+}
+
+// FollowInputDesktop implements rfbserver.DesktopFollower -- see
+// GDICapturer's own doc comment (agent/internal/screencapture) for the
+// shared reasoning behind this mechanism. No mutex needed here, unlike
+// GDICapturer's own version: an Injector is only ever called from
+// rfbserver's one dedicated, already-serialized injection goroutine, so
+// there is no equivalent of GDICapturer's rare timeout-leak concurrency
+// window to guard against.
+func (i *Injector) FollowInputDesktop() error {
+	hDesk, err := win32.OpenInputDesktop()
+	if err != nil {
+		return fmt.Errorf("screeninject: open input desktop: %w", err)
+	}
+	defer win32.CloseDesktop(hDesk)
+
+	name, err := win32.DesktopName(hDesk)
+	if err != nil {
+		return fmt.Errorf("screeninject: desktop name: %w", err)
+	}
+	if name == i.lastDesktop {
+		return nil
+	}
+	if err := win32.SetThreadDesktop(hDesk); err != nil {
+		return fmt.Errorf("screeninject: set thread desktop %q: %w", name, err)
+	}
+	i.lastDesktop = name
 	return nil
 }
 

@@ -17,7 +17,6 @@ import (
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/diskutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
-	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
 
 func collectHardware() (*protocol.HardwareInfo, error) {
@@ -67,9 +66,6 @@ func collectHardware() (*protocol.HardwareInfo, error) {
 
 	// Last logged-in user
 	hw.LastLoggedInUser = collectLastLoggedInUser()
-
-	// Console user elevation status
-	hw.ConsoleUserCanElevate = collectConsoleUserCanElevate()
 
 	return hw, nil
 }
@@ -614,25 +610,6 @@ func collectLastLoggedInUser() string {
 		}
 	}
 	return latest.User
-}
-
-// collectConsoleUserCanElevate reports whether the console user's token has
-// a linked (elevated) token available -- Windows-only, nil when nobody is
-// logged in, on non-Windows, or a query failure, distinct from a confirmed
-// false. See usersession.ActiveUserCanElevate's own doc comment for why
-// this exists: giving a technician real, no-guessing visibility into
-// whether Web Remote's Elevate button will need the CV_LOCAL_ADMIN_
-// USERNAME/PASSWORD credential fallback, instead of finding out only after
-// a failed elevation attempt.
-func collectConsoleUserCanElevate() *bool {
-	if runtime.GOOS != "windows" {
-		return nil
-	}
-	can, err := usersession.ActiveUserCanElevate()
-	if err != nil {
-		return nil // no active session, or a query failure -- not applicable either way
-	}
-	return &can
 }
 
 func collectLastLoggedInUserWindows() string {
