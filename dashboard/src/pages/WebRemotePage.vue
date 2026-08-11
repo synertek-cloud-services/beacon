@@ -48,9 +48,9 @@
           <span>{{ elevating ? 'Elevating…' : 'Elevate' }}</span>
         </button>
 
-        <button class="wr-tbtn wr-disconnect-btn" title="Disconnect" @click="disconnect">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>
+        <button class="wr-tbtn wr-disconnect-btn" title="Disconnect (does not power off the remote machine)" @click="disconnect">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
       </div>
@@ -222,6 +222,17 @@ const rfb = shallowRef<RFB | null>(null); // shallowRef: an opaque external clas
 let connectTimeout: ReturnType<typeof window.setTimeout> | null = null;
 const CONNECT_TIMEOUT_MS = 70_000;
 
+// Shared by both new RFB() call sites (the initial connect and the Elevate
+// reconnect) so windowed and fullscreen behave identically -- fullscreen is
+// just the same target element growing to fill the screen (toggleFullscreen
+// below calls requestFullscreen() on its wrapping .wr-screen-wrap), so one
+// scaleViewport setting covers both instead of a separate fullscreen-only
+// code path. Without this, noVNC's own default (scaleViewport: false) shows
+// the remote framebuffer at real pixel size with scrollbars/centering
+// instead of fitting the window -- reported directly: "It should be scaled
+// down to fit the window... [and] Full screen has it fit fully."
+const RFB_OPTIONS = { scaleViewport: true, clipViewport: true };
+
 // Elevate modal state
 const elevateModalOpen = ref(false);
 const elevateUsername = ref('');
@@ -288,7 +299,7 @@ function connectTo(wsUrl: string, target: 'a' | 'b') {
   errorMsg.value = '';
   activeTarget.value = target;
 
-  const instance = new RFB(targetEl(target), wsUrl, {});
+  const instance = new RFB(targetEl(target), wsUrl, RFB_OPTIONS);
   rfb.value = instance;
 
   instance.addEventListener('connect', () => {
@@ -352,7 +363,7 @@ function closeElevateModal() {
 // left nothing behind.
 function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b'): Promise<RFB> {
   return new Promise((resolve, reject) => {
-    const instance = new RFB(targetEl(target), wsUrl, {});
+    const instance = new RFB(targetEl(target), wsUrl, RFB_OPTIONS);
     let settled = false;
     const timeout = window.setTimeout(() => {
       if (settled) return;
