@@ -19,6 +19,15 @@ type openPayload struct {
 	// relaunches the helper with the agent service's own SYSTEM token, not
 	// an Administrator token obtained from the logged-in user.
 	Elevated bool `json:"elevated,omitempty"`
+	// TargetSessionID picks which Windows Terminal Services session a
+	// screen_share helper launches into -- the console session (nil, the
+	// default and today's only behavior) or a specific RDS/AVD session a
+	// technician picked from a Server-class device's session list (see
+	// worker/src/routes/sessions.ts). A pointer, not a bare uint32, so an
+	// absent field (every caller that predates this option) is
+	// distinguishable from a literal session 0, which is a real, reserved
+	// session ID (Services), never a valid target.
+	TargetSessionID *uint32 `json:"target_session_id,omitempty"`
 }
 
 // Handle connects to the session relay DO and dispatches to the correct handler.
@@ -41,7 +50,7 @@ func Handle(cmd protocol.Command) {
 	// session, two agent-role sockets would both receive the browser's
 	// bytes and corrupt RFB's strict single-byte-stream protocol.
 	if p.SessionType == "screen_share" {
-		runScreenShare(p.SessionID, p.WSURL, p.Elevated)
+		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.TargetSessionID)
 		log.Printf("session %s: closed", p.SessionID)
 		return
 	}

@@ -331,6 +331,94 @@ func ActiveSessions() ([]uint32, error) {
 	return active, nil
 }
 
+// golang.org/x/sys/windows wraps WTSEnumerateSessions/WTSFreeMemory (used
+// above) but not WTSQuerySessionInformation (confirmed by direct
+// inspection of the pinned v0.23.0 source, the same check already made
+// before this file's other raw Win32 calls) -- wrapped here via the same
+// NewLazySystemDLL/NewProc pattern.
+var (
+	modwtsapi32                     = windows.NewLazySystemDLL("wtsapi32.dll")
+	procWTSQuerySessionInformationW = modwtsapi32.NewProc("WTSQuerySessionInformationW")
+)
+
+// WTS_INFO_CLASS values this file needs -- standard, documented Win32 enum
+// values (the full enum has more members; only these two are used here).
+const (
+	wtsInfoClassUserName   = 5
+	wtsInfoClassDomainName = 7
+)
+
+// SessionDetail is one entry from ActiveSessionDetails. JSON tags matter
+// here, not just style -- this struct is marshaled straight into a
+// list_remote_sessions command's CommandResult.Stdout and read back by the
+// dashboard, so it follows this codebase's usual snake_case wire
+// convention rather than Go's default PascalCase field names.
+type SessionDetail struct {
+	SessionID uint32 `json:"session_id"`
+	// Username is the account logged into this session, without domain
+	// (matching WTSUserName's own contract) -- empty if the session has no
+	// resolvable user (rare for a WTSActive session, but not impossible
+	// right at a login transition).
+	Username string `json:"username"`
+	// IsConsole is whether this is the physical console session --
+	// SessionID == WTSGetActiveConsoleSessionId() -- as opposed to an
+	// RDS/AVD session. Lets a caller label "Console" distinctly rather
+	// than showing it as just another numbered session.
+	IsConsole bool `json:"is_console"`
+}
+
+// ActiveSessionDetails returns every currently-active interactive
+// session's ID, logged-in username, and whether it's the console session --
+// the real, user-facing list a technician picks from when choosing which
+// session a Server-class device's Web Remote session should target (see
+// worker/src/routes/sessions.ts's target_session_id). Deliberately a new,
+// separate function rather than extending ActiveSessions() itself: that
+// function is already relied on by the tray supervisor
+// (agent/internal/service/tray_windows.go) as an established, real-
+// hardware-verified code path, and this needs two more Win32 calls per
+// session it doesn't need at all -- no reason to add that cost or risk to
+// an already-proven caller.
+func ActiveSessionDetails() ([]SessionDetail, error) {
+	ids, err := ActiveSessions()
+	if err != nil {
+		return nil, err
+	}
+	consoleID := windows.WTSGetActiveConsoleSessionId()
+
+	details := make([]SessionDetail, 0, len(ids))
+	for _, id := range ids {
+		username, _ := wtsQuerySessionString(id, wtsInfoClassUserName)
+		details = append(details, SessionDetail{
+			SessionID: id,
+			Username:  username,
+			IsConsole: id == consoleID,
+		})
+	}
+	return details, nil
+}
+
+// wtsQuerySessionString wraps WTSQuerySessionInformationW for the two
+// string-valued info classes this file needs (UserName, DomainName).
+// Returns "" on failure (e.g. a session that's transitioning) rather than
+// an error -- a missing username for one session in the list shouldn't
+// fail the whole enumeration.
+func wtsQuerySessionString(sessionID uint32, infoClass uintptr) (string, error) {
+	var buf *uint16
+	var bytesReturned uint32
+	r1, _, err := procWTSQuerySessionInformationW.Call(
+		0, // WTS_CURRENT_SERVER_HANDLE -- the local machine, no WTSOpenServer needed
+		uintptr(sessionID),
+		infoClass,
+		uintptr(unsafe.Pointer(&buf)),
+		uintptr(unsafe.Pointer(&bytesReturned)),
+	)
+	if r1 == 0 {
+		return "", fmt.Errorf("usersession: WTSQuerySessionInformationW: %w", err)
+	}
+	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(buf)))
+	return windows.UTF16PtrToString(buf), nil
+}
+
 // commandLine builds a properly quoted Windows command line from exe+args --
 // CreateProcessAsUser takes one command-line string, not an argv array.
 func commandLine(exe string, args []string) (string, error) {

@@ -116,6 +116,14 @@ const hostname = (route.query.hostname as string) ?? '';
 const deviceId = (route.query.device_id as string) || '';
 const companyId = (route.query.company_id as string) || '';
 const canElevate = !!deviceId && !!companyId;
+// Which WTS session this connection targets on a Server-class device --
+// undefined means the console session (today's only behavior on
+// client-class devices). Rides the query string the same way elevated/
+// device_id/company_id already do, so a later Elevate reconnect (below)
+// can pass the SAME target session through instead of silently resetting
+// back to console.
+const targetSessionIdParam = route.query.target_session_id as string | undefined;
+const targetSessionId = targetSessionIdParam !== undefined ? Number(targetSessionIdParam) : undefined;
 
 type Status = 'connecting' | 'connected' | 'closed' | 'error';
 const status = ref<Status>('connecting');
@@ -372,7 +380,9 @@ async function elevate() {
   elevateError.value = '';
   const pendingTarget = otherTarget(activeTarget.value);
   try {
-    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', true);
+    const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', {
+      elevated: true, targetSessionId,
+    });
     const newInstance = await attemptElevatedConnect(client_ws_url, pendingTarget);
 
     // Proven working -- only now do we retire the old connection. Bumping
@@ -398,7 +408,8 @@ async function elevate() {
     elevateModalOpen.value = false;
     router.replace(
       `/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(hostname)}` +
-      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}&elevated=1`
+      `&device_id=${encodeURIComponent(deviceId)}&company_id=${encodeURIComponent(companyId)}&elevated=1` +
+      (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '')
     );
   } catch (e: any) {
     // The original connection was never touched -- stays fully connected

@@ -31,6 +31,18 @@ sessions.post('/', async (c) => {
     // token obtained from the logged-in user, so there's nothing here to
     // resolve server-side beyond the boolean itself.
     elevated?: boolean;
+    // Which Windows Terminal Services session a screen_share helper
+    // launches into -- omitted (the default) means the active console
+    // session, exactly today's only behavior; a technician on a
+    // Server-class device can instead pick a specific RDS/AVD session from
+    // the list_remote_sessions picker (see DeviceDetailPage.vue) and pass
+    // its session_id here. Ignored by every other session_type. Not
+    // validated against a live session list server-side -- the agent's own
+    // RunAsSession/RunAsSessionAsSystem already fails cleanly
+    // (ErrNoActiveSession) if the session isn't actually active by the
+    // time the command is picked up, same "the browser's own connect
+    // timeout surfaces this" reasoning elevated already relies on.
+    target_session_id?: number;
   }>();
 
   const db = drizzle(c.env.DB, { schema });
@@ -87,6 +99,7 @@ sessions.post('/', async (c) => {
       ws_url: agentWsUrl,
       tcp_port: body.tcp_port ?? 0,
       elevated: body.elevated ?? false,
+      ...(body.target_session_id !== undefined ? { target_session_id: body.target_session_id } : {}),
     }),
     createdAt: now,
   });
@@ -120,7 +133,7 @@ sessions.post('/', async (c) => {
     companyId: body.company_id,
     method: 'POST',
     path: c.req.path,
-    details: { session_type: body.session_type, elevated: body.elevated ?? false },
+    details: { session_type: body.session_type, elevated: body.elevated ?? false, target_session_id: body.target_session_id ?? null },
   });
 
   return c.json({ session_id: sessionId, client_ws_url: clientWsUrl });

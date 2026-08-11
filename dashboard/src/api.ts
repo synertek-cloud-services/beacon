@@ -1375,7 +1375,7 @@ export const api = {
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[]; software_name?: string }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[]; software_name?: string }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
     },
     maintenance: {
@@ -1400,14 +1400,21 @@ export const api = {
   sessions: {
     // elevated (screen_share only) needs no accompanying credentials --
     // the agent relaunches the helper with its own SYSTEM token, not an
-    // Administrator token obtained from the logged-in user. See
-    // worker/src/routes/sessions.ts.
+    // Administrator token obtained from the logged-in user. targetSessionId
+    // (screen_share only) picks a specific RDS/AVD session on a
+    // Server-class device instead of the default console session -- see
+    // DeviceDetailPage.vue's "Choose Session" picker. An options object,
+    // not more positional params -- this was already gaining its second
+    // real optional argument, past the point positional params stay
+    // readable. See worker/src/routes/sessions.ts.
     open: (
-      deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share', elevated?: boolean,
+      deviceId: string, companyId: string, sessionType: 'shell' | 'tcp_tunnel' | 'screen_share',
+      opts?: { elevated?: boolean; targetSessionId?: number },
     ) =>
       request<{ session_id: string; client_ws_url: string }>('POST', '/v1/sessions', {
         device_id: deviceId, company_id: companyId, session_type: sessionType,
-        ...(elevated ? { elevated: true } : {}),
+        ...(opts?.elevated ? { elevated: true } : {}),
+        ...(opts?.targetSessionId !== undefined ? { target_session_id: opts.targetSessionId } : {}),
       }),
   },
   reports: {

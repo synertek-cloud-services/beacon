@@ -206,7 +206,7 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
@@ -305,6 +305,15 @@ adminDevices.post('/:id/commands', async (c) => {
     // as restart_agent) -- the device going quiet in check-ins is the only
     // confirmation this ever produces.
     cmdType = 'uninstall_agent';
+    payload = {};
+  } else if (body.type === 'list_remote_sessions') {
+    // Agent dispatches on this literal command type (agent/cmd/agent/main.go)
+    // -- Windows-only, pure query, no payload needed. Backs the Server-class
+    // Web Remote "choose a session" picker (see DeviceDetailPage.vue) --
+    // dispatched, then polled via GET .../commands like any other direct
+    // command, same as network_scan's own "commands table, not the check-in
+    // wire protocol" precedent.
+    cmdType = 'list_remote_sessions';
     payload = {};
   } else {
     return c.json({ error: 'unknown command type' }, 400);
