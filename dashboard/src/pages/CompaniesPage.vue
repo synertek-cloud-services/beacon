@@ -56,7 +56,6 @@
             <td>
               <div class="actions" @click.stop>
                 <button class="btn btn-ghost btn-sm" @click="router.push({ path: '/devices', query: { company: t.id } })">Devices</button>
-                <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Edit</button>
                 <button v-if="t.status === 'active'"    class="btn btn-danger btn-sm" @click="setStatus(t, 'suspended')">Suspend</button>
                 <button v-if="t.status === 'suspended'" class="btn btn-primary btn-sm" @click="setStatus(t, 'active')">Activate</button>
               </div>
@@ -66,11 +65,11 @@
       </table>
     </div>
 
-    <!-- ── Create / Edit company modal ── -->
+    <!-- ── Create company modal ── -->
     <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
       <div class="modal modal-lg">
         <div class="modal-head">
-          <span class="modal-title">{{ editingId ? 'Edit Company' : 'New Company' }}</span>
+          <span class="modal-title">New Company</span>
         </div>
         <div class="modal-body">
           <!-- Company -->
@@ -90,34 +89,31 @@
             <textarea v-model="form.notes" placeholder="Internal notes about this company…" rows="2"></textarea>
           </div>
 
-          <!-- Primary Contact — only shown on create -->
-          <template v-if="!editingId">
-            <div class="form-section-label" style="margin-top:16px">
-              Primary Contact <span class="text-muted-2" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0">(optional — more can be added after creating)</span>
+          <div class="form-section-label" style="margin-top:16px">
+            Primary Contact <span class="text-muted-2" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0">(optional — more can be added after creating)</span>
+          </div>
+          <div class="form-row-3">
+            <div class="field">
+              <label>Name</label>
+              <input v-model="form.contactName" placeholder="Jane Smith" />
             </div>
-            <div class="form-row-3">
-              <div class="field">
-                <label>Name</label>
-                <input v-model="form.contactName" placeholder="Jane Smith" />
-              </div>
-              <div class="field">
-                <label>Email</label>
-                <input v-model="form.contactEmail" type="email" placeholder="jane@acme.com" />
-              </div>
-              <div class="field">
-                <label>Phone</label>
-                <input
-                  v-model="form.contactPhone"
-                  type="tel"
-                  placeholder="Phone number"
-                  @blur="form.contactPhone = formatPhone(form.contactPhone)"
-                />
-                <span v-if="form.contactPhone && !phoneValid" class="field-hint field-hint-warn">
-                  Enter a valid phone number (e.g. +1 512 555 0100)
-                </span>
-              </div>
+            <div class="field">
+              <label>Email</label>
+              <input v-model="form.contactEmail" type="email" placeholder="jane@acme.com" />
             </div>
-          </template>
+            <div class="field">
+              <label>Phone</label>
+              <input
+                v-model="form.contactPhone"
+                type="tel"
+                placeholder="Phone number"
+                @blur="form.contactPhone = formatPhone(form.contactPhone)"
+              />
+              <span v-if="form.contactPhone && !phoneValid" class="field-hint field-hint-warn">
+                Enter a valid phone number (e.g. +1 512 555 0100)
+              </span>
+            </div>
+          </div>
 
           <!-- Settings -->
           <div class="form-section-label" style="margin-top:16px">Settings</div>
@@ -150,7 +146,7 @@
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="showForm = false">Cancel</button>
           <button class="btn btn-primary" :disabled="submitting" @click="submitForm">
-            {{ submitting ? (editingId ? 'Saving…' : 'Creating…') : (editingId ? 'Save Changes' : 'Create Company') }}
+            {{ submitting ? 'Creating…' : 'Create Company' }}
           </button>
         </div>
       </div>
@@ -167,16 +163,18 @@ import { api, type Company } from '../api';
 // Contacts/Locations/Tokens/Variables/Discovery management moved to
 // CompanyDetailPage.vue (/companies/:id) — this page is list-only now,
 // same "row click navigates to detail page" convention as
-// ComponentsPage.vue/GroupsPage.vue. Only company create/edit and the
-// quick Suspend/Activate/Devices row actions stay here.
+// ComponentsPage.vue/GroupsPage.vue. Editing an existing company also
+// moved there (its own topbar Edit button) -- a row-level Edit button next
+// to Devices/Suspend was an awkward spot for it once a real detail page
+// existed. Only company create and the quick Suspend/Activate/Devices row
+// actions stay here.
 const router  = useRouter();
 const companies = ref<Company[]>([]);
 const loading = ref(true);
 const error   = ref('');
 
-// Company create/edit form
+// Company create form
 const showForm   = ref(false);
-const editingId  = ref<string | null>(null);
 const submitting = ref(false);
 const formError  = ref('');
 
@@ -203,25 +201,7 @@ async function setStatus(t: Company, status: 'active' | 'suspended') {
 }
 
 function openCreate() {
-  editingId.value = null;
   form.value = blankForm();
-  formError.value = '';
-  showForm.value = true;
-}
-
-function openEdit(t: Company) {
-  editingId.value = t.id;
-  form.value = {
-    name: t.name,
-    website: t.website ?? '',
-    notes: t.notes ?? '',
-    contactName: '',
-    contactEmail: '',
-    contactPhone: '',
-    autoApprove: t.autoApproveDefault,
-    privacyMode: t.privacyModeDefault,
-    patchManagementExcluded: t.patchManagementExcluded,
-  };
   formError.value = '';
   showForm.value = true;
 }
@@ -232,41 +212,18 @@ async function submitForm() {
   formError.value = '';
 
   try {
-    if (editingId.value) {
-      await api.companies.update(editingId.value, {
-        name: form.value.name.trim(),
-        auto_approve_default: form.value.autoApprove,
-        privacy_mode_default: form.value.privacyMode,
-        patch_management_excluded: form.value.patchManagementExcluded,
-        website: form.value.website || null,
-        notes:   form.value.notes   || null,
-      });
-      const idx = companies.value.findIndex(t => t.id === editingId.value);
-      if (idx !== -1) {
-        companies.value[idx] = {
-          ...companies.value[idx],
-          name: form.value.name.trim(),
-          autoApproveDefault: form.value.autoApprove,
-          privacyModeDefault: form.value.privacyMode,
-          patchManagementExcluded: form.value.patchManagementExcluded,
-          website: form.value.website || null,
-          notes:   form.value.notes   || null,
-        };
-      }
-    } else {
-      const t = await api.companies.create({
-        name: form.value.name.trim(),
-        auto_approve_default: form.value.autoApprove,
-        privacy_mode_default: form.value.privacyMode,
-        patch_management_excluded: form.value.patchManagementExcluded,
-        website: form.value.website || null,
-        notes:   form.value.notes   || null,
-        contact_name:  form.value.contactName  || null,
-        contact_email: form.value.contactEmail || null,
-        contact_phone: form.value.contactPhone || null,
-      });
-      companies.value.push(t);
-    }
+    const t = await api.companies.create({
+      name: form.value.name.trim(),
+      auto_approve_default: form.value.autoApprove,
+      privacy_mode_default: form.value.privacyMode,
+      patch_management_excluded: form.value.patchManagementExcluded,
+      website: form.value.website || null,
+      notes:   form.value.notes   || null,
+      contact_name:  form.value.contactName  || null,
+      contact_email: form.value.contactEmail || null,
+      contact_phone: form.value.contactPhone || null,
+    });
+    companies.value.push(t);
     showForm.value = false;
   } catch (e: any) {
     formError.value = e.message;
