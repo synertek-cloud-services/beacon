@@ -4,14 +4,14 @@
       <span class="wr-title">
         Web Remote
         <span v-if="hostname" class="text-xs text-muted-2 mono" style="margin-left:8px;font-weight:400">{{ hostname }}</span>
-        <span v-if="elevated" class="text-xs mono" style="margin-left:8px;font-weight:600;color:var(--color-warning)">Elevated</span>
+        <span v-if="elevated" class="text-xs mono" style="margin-left:8px;font-weight:600;color:var(--color-warning)" title="An administrator PowerShell window was opened on the remote desktop — look for it if it isn't immediately visible. Use it for admin tasks rather than right-clicking something else and choosing &quot;Run as Administrator&quot;, which Beacon still can't see or interact with.">Elevated — admin shell opened</span>
       </span>
       <div class="wr-actions">
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="rfb?.sendCtrlAltDel()">Ctrl+Alt+Del</button>
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="pasteOpen = !pasteOpen">Paste</button>
         <button class="btn btn-ghost btn-sm" :disabled="status !== 'connected'" @click="toggleFullscreen">Fullscreen</button>
         <button class="btn btn-ghost btn-sm" :disabled="!canElevate || elevating" @click="openElevateModal"
-          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Reconnect with elevated (admin) input control — needed to interact with UAC prompts or other elevated windows, not just see them'">
+          :title="!deviceId ? 'Not available on this session — reopen Web Remote from the device page to enable Elevate' : elevated ? 'This session is already elevated' : 'Opens an administrator PowerShell window on the remote desktop — use it for admin tasks (Task Manager, Control Panel, Services, installers) instead of right-clicking Run as Administrator, which Beacon still cannot interact with'">
           {{ elevating ? 'Elevating…' : 'Elevate' }}
         </button>
         <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
@@ -48,7 +48,7 @@
         <div class="modal-head"><span class="modal-title">Elevate</span></div>
         <div class="modal-body">
           <p class="text-sm" style="margin:0 0 12px">
-            Reconnects with elevated (admin) input control — needed to interact with UAC prompts or other elevated windows, not just see them.
+            Reconnects with elevated (admin) input control and opens an administrator PowerShell window on the remote desktop. Anything you run from that window — Task Manager, Control Panel, Services, an installer, the registry — runs elevated with no further prompts. Beacon still can't see or interact with Windows' own UAC dialog, so use this window rather than right-clicking something else and choosing "Run as Administrator."
           </p>
 
           <div class="wr-elevate-status">
