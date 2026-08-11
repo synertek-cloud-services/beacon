@@ -105,6 +105,10 @@ export const devices = sqliteTable('devices', {
   // above) -- a device either has a pending reboot or it doesn't.
   pendingRebootRequired: integer('pending_reboot_required', { mode: 'boolean' }).notNull().default(false),
   pendingRebootDetectedAt: integer('pending_reboot_detected_at'),
+  // Temporary fast-poll window -- see migrations/0077_fast_poll.sql and
+  // worker/src/lib/fastPoll.ts for the full design. NULL = normal 60s
+  // check-in cadence.
+  fastPollUntil: integer('fast_poll_until'),
   createdAt: integer('created_at').notNull(),
   approvedAt: integer('approved_at'),
 });

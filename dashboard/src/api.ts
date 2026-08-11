@@ -824,6 +824,11 @@ export interface Device {
   // section ("Reboot Required" / issue #89).
   pendingRebootRequired: boolean;
   pendingRebootDetectedAt: number | null;
+  // Set while a technician-triggered fast-poll window is active (opening a
+  // session, dispatching a direct command) — the agent checks in every 15s
+  // instead of the default 60s until this instant. Null = normal cadence.
+  // See CLAUDE.md's Fast Poll section.
+  fastPollUntil: number | null;
 }
 
 // ── API client ───────────────────────────────────────────────

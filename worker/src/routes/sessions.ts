@@ -6,6 +6,7 @@ import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { generateToken, sha256hex } from '../lib/crypto';
 import { fetchCompanyVariables } from '../lib/companyVariables';
+import { extendFastPoll } from '../lib/fastPoll';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
 
@@ -122,6 +123,13 @@ sessions.post('/', async (c) => {
     }),
     createdAt: now,
   });
+
+  // Opening a session is exactly the kind of "about to do work on this
+  // specific machine" signal fast-poll exists for -- see
+  // worker/src/lib/fastPoll.ts's own doc comment for why this is safe here
+  // (single-device, technician-initiated) but deliberately never wired
+  // into Job dispatch (many-device, scheduled/bulk).
+  await extendFastPoll(db, body.device_id, now);
 
   return c.json({ session_id: sessionId, client_ws_url: clientWsUrl });
 });

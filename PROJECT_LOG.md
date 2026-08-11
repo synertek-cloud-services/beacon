@@ -1,5 +1,60 @@
 # Beacon — Project Log
 
+## Session: 2026-08-10 — Fast Poll: adaptive check-in interval for active device work
+
+Opening a Remote Shell/Web Remote session, or clicking Elevate, could take up
+to 60-70 seconds to connect -- `open_session` and every direct command are
+plain queued rows, only picked up on the agent's next regular 60s check-in,
+and no other wake mechanism exists anywhere in this codebase. The user
+compared this unfavorably to ConnectWise and asked for a way to shorten the
+interval to 15-20s specifically while a technician is actively working a
+device. Confirmed via AskUserQuestion: fully automatic, no manual toggle.
+
+New `devices.fast_poll_until` (nullable timestamp, migration 0077) mirrors
+`maintenanceEndsAt`'s exact shape -- an absolute future timestamp,
+self-expiring since every check-in re-evaluates it against live `now`.
+`worker/src/lib/fastPoll.ts`'s `extendFastPoll()` arms/resets it to
+`now+15min`, called from exactly two places: `routes/sessions.ts`'s
+`POST /` (covers Remote Shell/Web Remote/Elevate) and
+`routes/admin/devices.ts`'s `POST /:id/commands` (covers every direct
+command type from one shared insertion point). While active,
+`checkin.ts` adds `next_checkin_seconds: 15` to the response -- omitted
+entirely, not `0`, once expired. Job dispatch (`routes/admin/jobs.ts`)
+deliberately never arms this -- a Job can target hundreds of devices at
+once, and fast-polling a whole targeted fleet as a side effect of one
+scheduled/bulk dispatch would be a real cost problem, not a convenience.
+
+Agent (`agent/cmd/agent/main.go`): `checkIn()` now returns `(time.Duration,
+error)` instead of bare `error`; the main loop's sleep uses a loop-scoped
+`interval` variable reassigned from that return value each iteration,
+defaulting back to `checkInInterval` whenever the field is absent or on any
+early-return error path. The existing `triggerCheckin` one-shot early-wake
+channel needed no changes -- confirmed orthogonal, since it governs the
+*current* sleep while `interval` governs the *next* one.
+
+Dashboard: a small read-only "Fast Poll" badge on DeviceDetailPage.vue,
+matching the existing Maintenance badge's spot/shape -- no new modal, since
+there's nothing for a technician to configure, purely a transparency
+indicator.
+
+**Known, accepted limitation**: cannot speed up the very first action
+against a cold device (that action still queues against the default 60s
+cadence) -- only every action after the first, once the window is already
+warm. Inherent to a pure-polling transport with no persistent channel.
+
+Verified end-to-end against local `wrangler dev` with a real enrolled test
+device (inserted directly into the local D1 sqlite file with a known raw
+credential, since seed scripts only produce pre-hashed credentials): a
+direct command correctly set `fast_poll_until` to `now+900`; the device's
+next check-in correctly returned `next_checkin_seconds:15`; back-dating the
+window and re-checking-in correctly omitted the field entirely; opening a
+session independently armed the window on its own; and -- the explicit
+non-goal check -- dispatching a real Job at the same device left a
+deliberately-backdated `fast_poll_until` completely untouched, confirmed
+live, not just by code inspection (`extendFastPoll` has exactly two
+call sites, never `jobs.ts`). Not verified on real hardware -- same
+standing limitation as the rest of this session's agent-side work.
+
 ## Session: 2026-08-10 — Elevate: real visibility instead of guessing, and don't lose the working connection
 
 First real-hardware test of the credential fallback (merged as part of #126)

@@ -5,6 +5,7 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { resolveEffectiveMonitors } from '../../lib/alerts';
+import { extendFastPoll } from '../../lib/fastPoll';
 
 const adminDevices = new Hono<{ Bindings: Bindings }>();
 
@@ -310,6 +311,12 @@ adminDevices.post('/:id/commands', async (c) => {
     status: 'queued',
     createdAt: now,
   });
+
+  // A direct command against one specific device is exactly the kind of
+  // "about to do work on this machine" signal fast-poll exists for -- see
+  // worker/src/lib/fastPoll.ts's own doc comment. Covers every cmdType
+  // branch above from this one shared insertion point.
+  await extendFastPoll(db, deviceId, now);
 
   return c.json({ id }, 201);
 });

@@ -1,0 +1,13 @@
+-- Temporary per-device fast-poll window. When set to a future timestamp,
+-- routes/checkin.ts tells the agent (next_checkin_seconds in
+-- CheckInResponse) to shorten its check-in cadence from the default 60s to
+-- 15s until this instant. NULL = not active (normal 60s cadence). Armed/
+-- reset (not accumulated) to `now + 15min` by lib/fastPoll.ts's
+-- extendFastPoll, called as a side effect of technician-initiated,
+-- single-device actions (open a session, dispatch a direct command) --
+-- see routes/sessions.ts and routes/admin/devices.ts. Deliberately never
+-- armed by Job dispatch, which can target many devices at once. Self-
+-- expires naturally since every check-in re-evaluates against live `now`,
+-- same "absolute future timestamp" convention as devices.maintenance_ends_at
+-- -- no cron dependency.
+ALTER TABLE devices ADD COLUMN fast_poll_until INTEGER;

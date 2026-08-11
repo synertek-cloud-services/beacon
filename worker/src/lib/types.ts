@@ -100,6 +100,12 @@ export interface CheckInResponse {
   // assigned to a device with windowsUpdateManaged=true (see
   // evaluateCheckinAlerts) — there's nothing to verify otherwise.
   windows_update_drift_checks?: WindowsUpdateDriftCheck[];
+  // Present only while a fast-poll window is active for this device (see
+  // devices.fastPollUntil / lib/fastPoll.ts) — tells the agent to use this
+  // (shorter) check-in cadence instead of its own default until the window
+  // expires. Omitted (not 0) once inactive, so old and new agents both
+  // fall back to their own hardcoded default interval when absent.
+  next_checkin_seconds?: number;
 }
 
 // ── File size checks ────────────────────────────────────────────────────────
