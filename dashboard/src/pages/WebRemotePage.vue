@@ -27,16 +27,27 @@
 
         <!-- Displays dropdown (multi-monitor) -- hidden entirely for the
              common single-monitor case, only rendered once the per-session
-             helper has actually reported more than one display. -->
+             helper has actually reported more than one display. The
+             button's own label shows which display is current -- reported
+             directly from real usage: switching worked, but there was no
+             way to tell which one you were actually on afterward. -->
         <div v-if="displays.length > 1" class="wr-kbd-wrap">
-          <button class="wr-tbtn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
+          <button class="wr-tbtn wr-display-btn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
+            <span v-if="currentDisplayLabel" class="text-xs">{{ currentDisplayLabel }}</span>
           </button>
           <div v-if="displaysMenuOpen" class="wr-kbd-dropdown">
-            <button v-for="d in displays" :key="d.device_name" class="wr-kbd-item" @click="switchDisplay(d.device_name)">
+            <button
+              v-for="d in displays" :key="d.device_name" class="wr-kbd-item"
+              :class="{ 'wr-kbd-item-active': d.device_name === currentMonitorName }"
+              @click="switchDisplay(d.device_name)"
+            >
               <span>Display {{ d.index + 1 }}{{ d.primary ? ' (Primary)' : '' }}</span>
+              <svg v-if="d.device_name === currentMonitorName" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
             </button>
           </div>
         </div>
@@ -179,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
+import { ref, computed, shallowRef, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import RFB from '@novnc/novnc';
 import { api } from '../api';
@@ -235,6 +246,18 @@ const displays = ref<SessionDisplay[]>([]);
 const displaysMenuOpen = ref(false);
 const switchingDisplay = ref(false);
 const displaysError = ref('');
+// Which display's device_name is currently being viewed -- reported
+// directly from real usage: switching monitors worked, but nothing showed
+// which one you were actually on. Empty string means "not yet known"
+// (before the helper's own displays report arrives) or "primary" (the
+// agent's own default when no explicit monitor was requested, which is
+// every initial connection's actual starting state -- there is no
+// initial-connect monitor picker, only the in-session switcher below).
+const currentMonitorName = ref('');
+const currentDisplayLabel = computed(() => {
+  const d = displays.value.find(d => d.device_name === currentMonitorName.value);
+  return d ? `Display ${d.index + 1}${d.primary ? ' (Primary)' : ''}` : '';
+});
 
 function toggleDisplaysMenu() {
   if (displaysMenuOpen.value) {
@@ -261,6 +284,17 @@ async function pollDisplaysFor(sessionId: string) {
       const result = await api.sessions.displays(sessionId);
       if (result.displays.length > 0) {
         displays.value = result.displays;
+        // Seed the current-display indicator to whichever one the agent
+        // actually defaulted to -- the primary monitor, since there's no
+        // initial-connect monitor picker (only the in-session switcher).
+        // Never overwrites an already-known value: this poll can in
+        // principle resolve after a technician has already switched
+        // displays once (a slow initial report racing a fast manual
+        // switch), and a real switch's own result must always win over a
+        // guessed initial default.
+        if (!currentMonitorName.value) {
+          currentMonitorName.value = result.displays.find(d => d.primary)?.device_name ?? result.displays[0].device_name;
+        }
         return;
       }
     } catch {
@@ -711,6 +745,7 @@ async function switchDisplay(deviceName: string) {
   displaysError.value = '';
   try {
     await api.sessions.switchMonitor(route.params.sessionId as string, deviceName);
+    currentMonitorName.value = deviceName;
     // No reliable client-side "the resize actually landed" signal exists
     // to wait on -- confirmed by reading noVNC's own source (core/rfb.js's
     // _resize()) that it dispatches no public event for this. The real
@@ -792,7 +827,13 @@ onUnmounted(() => {
   font-size: 12px; font-family: var(--font); cursor: pointer; text-align: left; transition: background .1s;
 }
 .wr-kbd-item:hover { background: var(--color-surface-raised); }
+.wr-kbd-item-active { color: var(--color-primary); }
 .wr-kbd-keys { font-size: 10px; color: var(--color-text-muted); }
+
+/* The Displays button carries a text label (which display is current),
+   unlike every other icon-only .wr-tbtn -- widen the icon-centering gap
+   into a normal left-to-right flow instead. */
+.wr-display-btn { justify-content: flex-start; padding: 0 10px; }
 
 .wr-toast {
   position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 60;
