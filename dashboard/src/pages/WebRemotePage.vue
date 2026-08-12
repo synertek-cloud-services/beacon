@@ -25,12 +25,16 @@
           </div>
         </div>
 
-        <!-- Displays dropdown (multi-monitor) -- hidden entirely for the
+        <!-- Displays picker (multi-monitor) -- hidden entirely for the
              common single-monitor case, only rendered once the per-session
-             helper has actually reported more than one display. The
-             button's own label shows which display is current -- reported
-             directly from real usage: switching worked, but there was no
-             way to tell which one you were actually on afterward. -->
+             helper has actually reported more than one display. Reworked
+             from a plain text list into a real-position, proportionally-
+             scaled layout after direct feedback: "why can't we just show
+             both displays with the one currently selected with a green
+             border... there is too much text here" -- matches how Windows'
+             own Display Settings "Identify" arrangement view works, and
+             the real x/y/width/height data (already reported) makes an
+             accurate layout free, not just a evenly-spaced guess. -->
         <div v-if="displays.length > 1" class="wr-kbd-wrap">
           <button class="wr-tbtn wr-display-btn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -38,17 +42,17 @@
             </svg>
             <span v-if="currentDisplayLabel" class="text-xs">{{ currentDisplayLabel }}</span>
           </button>
-          <div v-if="displaysMenuOpen" class="wr-kbd-dropdown">
-            <button
-              v-for="d in displays" :key="d.device_name" class="wr-kbd-item"
-              :class="{ 'wr-kbd-item-active': d.device_name === currentMonitorName }"
-              @click="switchDisplay(d.device_name)"
-            >
-              <span>Display {{ d.index + 1 }}{{ d.primary ? ' (Primary)' : '' }}</span>
-              <svg v-if="d.device_name === currentMonitorName" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </button>
+          <div v-if="displaysMenuOpen" class="wr-kbd-dropdown wr-display-picker">
+            <div class="wr-display-canvas" :style="{ width: DISPLAY_CANVAS_WIDTH + 'px', height: DISPLAY_CANVAS_HEIGHT + 'px' }">
+              <button
+                v-for="d in displayLayout" :key="d.device_name"
+                class="wr-display-box"
+                :class="{ 'wr-display-box-active': d.device_name === currentMonitorName }"
+                :style="{ left: d.left + 'px', top: d.top + 'px', width: d.boxWidth + 'px', height: d.boxHeight + 'px' }"
+                :title="`Display ${d.index + 1}${d.primary ? ' (Primary)' : ''}`"
+                @click="switchDisplay(d.device_name)"
+              >{{ d.index + 1 }}</button>
+            </div>
           </div>
         </div>
 
@@ -257,6 +261,46 @@ const currentMonitorName = ref('');
 const currentDisplayLabel = computed(() => {
   const d = displays.value.find(d => d.device_name === currentMonitorName.value);
   return d ? `Display ${d.index + 1}${d.primary ? ' (Primary)' : ''}` : '';
+});
+
+// The visual display picker's fixed preview area -- every display's real
+// x/y/width/height (already reported by the helper) is scaled down to fit
+// inside this box, preserving relative position and aspect ratio, so a
+// side-by-side or stacked real-world arrangement actually looks like one
+// instead of an arbitrary evenly-spaced list.
+const DISPLAY_CANVAS_WIDTH = 260;
+const DISPLAY_CANVAS_HEIGHT = 130;
+const DISPLAY_CANVAS_PADDING = 8;
+const displayLayout = computed(() => {
+  if (displays.value.length === 0) return [];
+  const minX = Math.min(...displays.value.map(d => d.x));
+  const minY = Math.min(...displays.value.map(d => d.y));
+  const maxX = Math.max(...displays.value.map(d => d.x + d.width));
+  const maxY = Math.max(...displays.value.map(d => d.y + d.height));
+  const totalW = maxX - minX;
+  const totalH = maxY - minY;
+  const usableW = DISPLAY_CANVAS_WIDTH - DISPLAY_CANVAS_PADDING * 2;
+  const usableH = DISPLAY_CANVAS_HEIGHT - DISPLAY_CANVAS_PADDING * 2;
+  // totalW/totalH are never 0 in practice (a real monitor always has a
+  // positive width/height), but guard anyway rather than risk dividing by
+  // zero if a future helper ever reports a degenerate rect.
+  const scale = Math.min(
+    totalW > 0 ? usableW / totalW : 1,
+    totalH > 0 ? usableH / totalH : 1,
+  );
+  // Center the whole scaled arrangement within the canvas -- totalW/totalH
+  // scaled rarely exactly fill usableW/usableH (aspect ratios differ), so
+  // without this the layout sits flush top-left instead of looking
+  // balanced.
+  const offsetX = DISPLAY_CANVAS_PADDING + (usableW - totalW * scale) / 2;
+  const offsetY = DISPLAY_CANVAS_PADDING + (usableH - totalH * scale) / 2;
+  return displays.value.map(d => ({
+    ...d,
+    left: (d.x - minX) * scale + offsetX,
+    top: (d.y - minY) * scale + offsetY,
+    boxWidth: d.width * scale,
+    boxHeight: d.height * scale,
+  }));
 });
 
 function toggleDisplaysMenu() {
@@ -827,13 +871,31 @@ onUnmounted(() => {
   font-size: 12px; font-family: var(--font); cursor: pointer; text-align: left; transition: background .1s;
 }
 .wr-kbd-item:hover { background: var(--color-surface-raised); }
-.wr-kbd-item-active { color: var(--color-primary); }
 .wr-kbd-keys { font-size: 10px; color: var(--color-text-muted); }
 
 /* The Displays button carries a text label (which display is current),
    unlike every other icon-only .wr-tbtn -- widen the icon-centering gap
    into a normal left-to-right flow instead. */
 .wr-display-btn { justify-content: flex-start; padding: 0 10px; }
+
+/* Visual display picker -- see the template's own comment for why this
+   replaced a plain text list. .wr-display-canvas is the fixed-size
+   preview area displayLayout's computed positions are scaled to fit
+   inside; each .wr-display-box is one real monitor, absolutely
+   positioned/sized to match its real, proportional arrangement. */
+.wr-display-picker { padding: 10px; }
+.wr-display-canvas { position: relative; margin: 0 auto; background: var(--color-canvas); border-radius: 6px; border: 1px solid var(--color-border); }
+.wr-display-box {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  background: var(--color-surface-raised); border: 2px solid var(--color-border-strong);
+  border-radius: 4px; color: var(--color-text-muted); font-size: 15px; font-weight: 700;
+  cursor: pointer; transition: border-color .12s, background .12s, color .12s; padding: 0;
+}
+.wr-display-box:hover { background: var(--color-border); color: var(--color-text-primary); }
+.wr-display-box-active {
+  border-color: var(--color-success); color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+}
 
 .wr-toast {
   position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 60;
