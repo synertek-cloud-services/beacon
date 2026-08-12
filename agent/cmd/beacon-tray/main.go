@@ -16,15 +16,18 @@ import (
 	_ "embed"
 	"encoding/json"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
 
 	"fyne.io/systray"
+	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
 )
 
@@ -38,6 +41,25 @@ var iconData []byte
 var dialogActive int32
 
 func main() {
+	// This is a -H=windowsgui binary with no console, and until now had no
+	// logging setup at all -- every log.Printf call went to the default
+	// os.Stderr, which goes nowhere anyone can ever see. Found live: a
+	// real device stuck reporting "clicking Yes does nothing" turned out
+	// to be a silent Access Denied writing the reboot-response marker
+	// back (see promptReboot's own doc comment) -- completely invisible
+	// because there was no log anywhere to show it. Same setupLogging
+	// pattern already proven in agent/cmd/agent and
+	// agent/cmd/beacon-screenshare, writing to its own beacon-tray.log --
+	// deliberately not sharing agent.log or beacon-screenshare.log, same
+	// "give this file its own independent shot at opening cleanly"
+	// reasoning already established for those two. f is listed first in
+	// the MultiWriter (not os.Stderr) from day one here, learning
+	// directly from the real bug found in the other two binaries: os.Stderr
+	// is commonly invalid for a process with no console, and MultiWriter
+	// stops at the first writer that errors -- os.Stderr first would have
+	// silently blocked every write to the file that actually matters.
+	setupLogging(credential.Dir())
+
 	version := flag.String("version", "dev", "Beacon agent version to display")
 	dashboardURL := flag.String("dashboard-url", "", "Dashboard URL for the 'Visit Dashboard' menu item (item hidden if unset)")
 	supportURL := flag.String("support-url", "", "Support destination URL for the 'Get Support' menu item (item hidden if unset)")
@@ -45,6 +67,37 @@ func main() {
 	flag.Parse()
 
 	systray.Run(func() { onReady(*version, *dashboardURL, *supportURL, *restartInterval) }, func() {})
+}
+
+// setupLogging mirrors agent/cmd/agent/main.go's function of the same name
+// (see that copy's own doc comment for the full lost-startup-race
+// background) -- try once synchronously, then retry every 5s indefinitely
+// in the background until it succeeds, writing to this binary's own
+// beacon-tray.log. Not extracted into a shared package: three independent
+// ~15-line copies is this codebase's existing convention for this exact
+// function (agent/cmd/agent, agent/cmd/beacon-screenshare), not worth a
+// shared dependency for.
+func setupLogging(credDir string) {
+	if err := os.MkdirAll(credDir, 0o755); err != nil {
+		return
+	}
+	logPath := filepath.Join(credDir, "beacon-tray.log")
+	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		log.SetOutput(io.MultiWriter(f, os.Stderr))
+		return
+	}
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				continue
+			}
+			log.SetOutput(io.MultiWriter(f, os.Stderr))
+			log.Printf("beacon-tray.log opened (delayed -- initial attempt lost a startup sharing-mode race)")
+			return
+		}
+	}()
 }
 
 func onReady(version, dashboardURL, supportURL string, restartInterval time.Duration) {
@@ -242,6 +295,20 @@ func promptReboot(path string) {
 	}
 	data, _ := json.Marshal(m)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
+		// Root-caused live: this runs inside the logged-in user's own
+		// token (usersession.RunAsSession), and installDir's ACL grants
+		// BUILTIN\Users only ReadAndExecute, never write -- deliberately
+		// locked down for the rest of Beacon's install, but this one file
+		// specifically needs a non-admin user to be able to write back to
+		// it. A standard (non-admin) user's write here failed with Access
+		// Denied every single time, silently (this binary had no logging
+		// at all before now), leaving the marker stuck at confirmed:false
+		// forever no matter how many times Yes was clicked. The real fix
+		// is agent-side (writePendingRebootMarker grants BUILTIN\Users
+		// write access to this one file via icacls at creation time, see
+		// its own doc comment) -- this log line is what makes a
+		// recurrence on an unpatched/pre-fix device actually visible
+		// instead of a silent dead end.
 		log.Printf("write reboot response: %v", err)
 	}
 }

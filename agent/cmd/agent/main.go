@@ -852,6 +852,32 @@ func writePendingRebootMarker() {
 	data, _ := json.Marshal(rebootMarker{CreatedAt: time.Now().Unix()})
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		log.Printf("write pending-reboot marker: %v", err)
+		return
+	}
+	// Root-caused live against a real device stuck showing "Yes does
+	// nothing, the prompt just comes back": installDir's own ACL (fine
+	// for the rest of Beacon's install, which should stay locked down)
+	// grants BUILTIN\Users only ReadAndExecute, never write -- confirmed
+	// directly via Get-Acl on the affected device. This process (the
+	// SYSTEM-context agent) writes the file above just fine, but
+	// beacon-tray.exe writes the user's Yes/No response back to this
+	// same file from inside the *logged-in user's own* token (see
+	// usersession.RunAsSession), which is never SYSTEM or an
+	// Administrator for the overwhelmingly common case. Every write-back
+	// attempt from a standard user account was silently failing with
+	// Access Denied -- invisible, since beacon-tray.exe had no logging
+	// setup at all (see its own main.go fix landing alongside this one)
+	// -- leaving the marker stuck at confirmed:false forever regardless
+	// of how many times the user actually clicked Yes.
+	//
+	// Grants write access to *this one file* via icacls rather than
+	// loosening the install directory's own ACL at large -- matches this
+	// codebase's existing "shell out to a native tool for Windows ACL/
+	// service work" convention (sc.exe, taskkill.exe, shutdown.exe
+	// elsewhere in this file) instead of hand-rolling the Windows security
+	// descriptor APIs for one narrow, low-frequency operation.
+	if err := exec.Command("icacls", path, "/grant", "Users:(M)").Run(); err != nil {
+		log.Printf("grant Users write access to pending-reboot marker: %v", err)
 	}
 }
 
