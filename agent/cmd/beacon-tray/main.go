@@ -206,11 +206,21 @@ func promptReboot(path string) {
 		return
 	}
 
+	// Re-read the existing marker rather than building one from a bare
+	// literal, so CreatedAt (and any other field this ever grows) survives
+	// the round trip instead of silently zeroing out -- found alongside
+	// the agent-side pollPendingReboot fix, harmless today since nothing
+	// reads CreatedAt back yet, but a real correctness gap in this
+	// write-back regardless.
 	var m rebootMarker
+	if data, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(data, &m) // best-effort; a malformed marker just falls back to the zero value below
+	}
 	if ret == idYes {
-		m = rebootMarker{Confirmed: true}
+		m.Confirmed = true
 	} else {
-		m = rebootMarker{SnoozedUntil: time.Now().Add(time.Hour).Unix()}
+		m.Confirmed = false
+		m.SnoozedUntil = time.Now().Add(time.Hour).Unix()
 	}
 	data, _ := json.Marshal(m)
 	if err := os.WriteFile(path, data, 0o644); err != nil {

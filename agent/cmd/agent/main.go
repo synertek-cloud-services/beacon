@@ -858,8 +858,24 @@ func writePendingRebootMarker() {
 // pollPendingReboot checks whether the user has confirmed a pending reboot
 // via the tray prompt and, if so, actually performs it -- same shutdown
 // invocation worker/src/routes/admin/devices.ts's "reboot" command already
-// uses, for consistency. Best-effort: any error here just gets logged, not
-// escalated, since this runs unconditionally on every check-in tick.
+// uses, for consistency. Runs unconditionally on every check-in tick, so a
+// failed attempt here retries on its own on the next tick rather than
+// needing any escalation.
+//
+// Root-caused live against a real device stuck in an infinite loop: the
+// user clicks Yes, the tray correctly writes confirmed:true, this
+// function used to delete the marker *before* confirming the shutdown
+// call actually succeeded -- so a failed shutdown (cause unconfirmed,
+// since the resulting error was only ever logged, invisible on any
+// device still hitting the MultiWriter logging bug fixed alongside this)
+// silently ate the user's confirmation and left no trace. A later
+// install_patches cycle re-armed a fresh marker (writePendingRebootMarker
+// only skips writing when one already exists), the tray re-prompted, and
+// the whole cycle repeated forever with the user re-clicking Yes each
+// time to no effect. The marker is now only removed *after* a successful
+// shutdown call -- on failure it's left in place, already Confirmed, so
+// the very next check-in tick retries the same shutdown automatically
+// instead of silently discarding the user's answer.
 func pollPendingReboot() {
 	path := rebootmarker.Path()
 	if path == "" {
@@ -877,8 +893,9 @@ func pollPendingReboot() {
 		return
 	}
 	log.Printf("reboot confirmed via tray prompt -- restarting")
-	os.Remove(path)
 	if err := exec.Command("shutdown", "/r", "/t", "0").Run(); err != nil {
-		log.Printf("shutdown: %v", err)
+		log.Printf("shutdown: %v (will retry on next check-in)", err)
+		return
 	}
+	os.Remove(path)
 }
