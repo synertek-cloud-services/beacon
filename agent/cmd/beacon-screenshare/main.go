@@ -660,13 +660,22 @@ func deriveSessionURL(wsURLStr, sessionID, endpoint string) (string, error) {
 // package: it's ~15 lines, and both call sites already independently
 // import unrelated things (this one has no existing dependency on
 // anything setupLogging would need to be factored alongside).
+//
+// f is listed first in both MultiWriter calls below, not os.Stderr --
+// see agent/cmd/agent/main.go's own setupLogging doc comment for the
+// real, live-root-caused reason: io.MultiWriter stops at the first
+// writer that errors, and os.Stderr commonly has an invalid handle for
+// a process with no console (true for this helper too, launched with no
+// console of its own into the target session), which would otherwise
+// silently block the file -- the one sink that actually matters here --
+// from ever receiving a single byte.
 func setupLogging(credDir string) {
 	if err := os.MkdirAll(credDir, 0o755); err != nil {
 		return
 	}
 	logPath := filepath.Join(credDir, "beacon-screenshare.log")
 	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		log.SetOutput(io.MultiWriter(os.Stderr, f))
+		log.SetOutput(io.MultiWriter(f, os.Stderr))
 		return
 	}
 	go func() {
@@ -676,7 +685,7 @@ func setupLogging(credDir string) {
 			if err != nil {
 				continue
 			}
-			log.SetOutput(io.MultiWriter(os.Stderr, f))
+			log.SetOutput(io.MultiWriter(f, os.Stderr))
 			log.Printf("beacon-screenshare: beacon-screenshare.log opened (delayed -- initial attempt lost a startup sharing-mode race)")
 			return
 		}

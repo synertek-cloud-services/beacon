@@ -218,13 +218,31 @@ func main() {
 // logging recovers automatically whenever the file becomes available
 // rather than staying silently blacked out for the rest of the process's
 // life.
+//
+// A second, distinct bug found later, live, against a different real
+// device stuck permanently silent across multiple fresh restarts
+// (including onto a brand-new, just-created, zero-history log file --
+// ruling out anything about a specific file being corrupted): the
+// MultiWriter's own argument order. io.MultiWriter writes to each
+// writer *in the order given* and returns immediately on the first
+// error, never reaching the rest -- confirmed directly against the
+// stdlib's own multiWriter.Write. os.Stderr was listed first. A Windows
+// service launched by the Service Control Manager has no console, and
+// os.Stderr's underlying handle is commonly invalid for exactly that
+// process shape -- every write to it fails immediately, before the file
+// (the one sink that actually matters for a headless service) ever gets
+// a chance, and log.Printf discards the returned error either way. The
+// file was never the problem in this second case; os.Stderr failing
+// first silently poisoned every single write. f now comes first in both
+// MultiWriter calls below so the load-bearing sink is always attempted
+// before the best-effort console one, not after it.
 func setupLogging(credDir string) {
 	if err := os.MkdirAll(credDir, 0o755); err != nil {
 		return
 	}
 	logPath := filepath.Join(credDir, "agent.log")
 	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		log.SetOutput(io.MultiWriter(os.Stderr, f))
+		log.SetOutput(io.MultiWriter(f, os.Stderr))
 		return
 	}
 	go func() {
@@ -234,7 +252,7 @@ func setupLogging(credDir string) {
 			if err != nil {
 				continue
 			}
-			log.SetOutput(io.MultiWriter(os.Stderr, f))
+			log.SetOutput(io.MultiWriter(f, os.Stderr))
 			log.Printf("agent.log opened (delayed -- initial attempt lost a startup sharing-mode race)")
 			return
 		}
