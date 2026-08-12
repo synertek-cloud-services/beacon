@@ -34,13 +34,16 @@
              border... there is too much text here" -- matches how Windows'
              own Display Settings "Identify" arrangement view works, and
              the real x/y/width/height data (already reported) makes an
-             accurate layout free, not just a evenly-spaced guess. -->
+             accurate layout free, not just a evenly-spaced guess. The
+             toolbar button itself went back to icon-only (matching every
+             other button in this row) once the dropdown's own visual
+             layout became the one place "which display am I on" is
+             answered -- a text label on the button was redundant with it. -->
         <div v-if="displays.length > 1" class="wr-kbd-wrap">
-          <button class="wr-tbtn wr-display-btn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
+          <button class="wr-tbtn" :disabled="status !== 'connected' || switchingDisplay" title="Switch display" @click="toggleDisplaysMenu">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
-            <span v-if="currentDisplayLabel" class="text-xs">{{ currentDisplayLabel }}</span>
           </button>
           <div v-if="displaysMenuOpen" class="wr-kbd-dropdown wr-display-picker">
             <div class="wr-display-canvas" :style="{ width: DISPLAY_CANVAS_WIDTH + 'px', height: DISPLAY_CANVAS_HEIGHT + 'px' }">
@@ -258,10 +261,6 @@ const displaysError = ref('');
 // every initial connection's actual starting state -- there is no
 // initial-connect monitor picker, only the in-session switcher below).
 const currentMonitorName = ref('');
-const currentDisplayLabel = computed(() => {
-  const d = displays.value.find(d => d.device_name === currentMonitorName.value);
-  return d ? `Display ${d.index + 1}${d.primary ? ' (Primary)' : ''}` : '';
-});
 
 // The visual display picker's fixed preview area -- every display's real
 // x/y/width/height (already reported by the helper) is scaled down to fit
@@ -872,11 +871,6 @@ onUnmounted(() => {
 }
 .wr-kbd-item:hover { background: var(--color-surface-raised); }
 .wr-kbd-keys { font-size: 10px; color: var(--color-text-muted); }
-
-/* The Displays button carries a text label (which display is current),
-   unlike every other icon-only .wr-tbtn -- widen the icon-centering gap
-   into a normal left-to-right flow instead. */
-.wr-display-btn { justify-content: flex-start; padding: 0 10px; }
 
 /* Visual display picker -- see the template's own comment for why this
    replaced a plain text list. .wr-display-canvas is the fixed-size
