@@ -113,6 +113,20 @@ func onReady(version, dashboardURL, supportURL string, restartInterval time.Dura
 // distinguish a successful-but-not-rendered registration from a genuine
 // success), so recovery runs unconditionally on an ongoing interval
 // instead of a single guess at how long the race window is.
+//
+// Found after this exact mechanism still hadn't held on real hardware
+// across five separate real-usage reports: os.Exit(0) alone terminates
+// the process, but it bypasses systray's own quit() entirely -- which is
+// the one place this library actually issues Shell_NotifyIcon(NIM_DELETE)
+// to properly remove the current icon registration first (confirmed
+// directly in the vendored fyne.io/systray source). Skipping that means
+// every single one of these "recovery" restarts was very plausibly
+// leaving a stale, never-deleted icon slot behind for the replacement
+// process's fresh NIM_ADD to collide with or be confused for, rather than
+// handing off to a genuinely clean slate -- a real gap distinct from
+// (and layered underneath) everything the v0.2.19-v0.2.21 fixes already
+// addressed, none of which touched whether the *old* icon was ever
+// properly torn down before the *new* one registered.
 func restartForExplorer(interval time.Duration) {
 	for {
 		time.Sleep(interval)
@@ -122,13 +136,17 @@ func restartForExplorer(interval time.Duration) {
 			// click it. Skip this cycle; the next tick reconsiders.
 			continue
 		}
-		// systray.Quit only posts WM_CLOSE to the library's message window.
-		// The v0.2.20 real-hardware run showed that message can be lost or
-		// left unprocessed, leaving this helper alive forever and
-		// preventing the supervisor's replacement launch. This helper owns
-		// no privileged state; its process exit makes Windows discard its
-		// notification entry and is the reliable handoff signal the
-		// service supervisor needs.
+		// Quit() first, for the real NIM_DELETE cleanup -- then a bounded
+		// grace period for its WM_CLOSE to actually be processed, then
+		// os.Exit(0) as a guaranteed-termination backstop regardless of
+		// whether that message was ever delivered (the exact v0.2.20
+		// finding that motivated dropping Quit() as the *sole* mechanism
+		// in the first place -- this keeps that guarantee, it just no
+		// longer skips the cleanup Quit() does on the way out). A process
+		// that already exited via Quit()'s own path never reaches this
+		// os.Exit(0) call at all.
+		systray.Quit()
+		time.Sleep(500 * time.Millisecond)
 		os.Exit(0)
 	}
 }
