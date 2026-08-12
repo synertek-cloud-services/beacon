@@ -4,6 +4,9 @@ export interface EmailMessage {
   subject: string;
   html: string;
   text: string;
+  // Optional custom headers (e.g. X-Beacon-Alert-Id) for PSA-side routing --
+  // each provider injects these via its own mechanism, see providers/*.ts.
+  headers?: Record<string, string>;
 }
 
 // Every provider owns its own config shape, auth scheme, and request

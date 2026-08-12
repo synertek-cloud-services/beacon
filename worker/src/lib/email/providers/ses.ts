@@ -18,6 +18,10 @@ const ses: EmailProvider = {
     const { accessKeyId, secretAccessKey, region } = config;
     const host = `email.${region}.amazonaws.com`;
     const uri = '/v2/email/outbound-emails';
+    // SESv2's SendEmail action carries custom headers as an array of
+    // {Name, Value} pairs directly inside Content.Simple, alongside Subject
+    // and Body -- no separate API call or restructuring needed.
+    const headers = Object.entries(message.headers ?? {}).map(([Name, Value]) => ({ Name, Value }));
     const payload = JSON.stringify({
       FromEmailAddress: message.from,
       Destination: { ToAddresses: [message.to] },
@@ -25,6 +29,7 @@ const ses: EmailProvider = {
         Simple: {
           Subject: { Data: message.subject },
           Body: { Html: { Data: message.html }, Text: { Data: message.text } },
+          ...(headers.length ? { Headers: headers } : {}),
         },
       },
     });

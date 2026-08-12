@@ -9,7 +9,7 @@ import { PROVIDERS } from './registry';
 // in worker/src/lib/email/providers/*. Mirrors fireWebhooks' fire-and-forget
 // shape (worker/src/lib/alerts.ts) -- a failed send must never break the
 // check-in/audit/cron request that triggered it.
-export async function sendEmail(env: Bindings, to: string[], subject: string, html: string, text: string): Promise<void> {
+export async function sendEmail(env: Bindings, to: string[], subject: string, html: string, text: string, headers?: Record<string, string>): Promise<void> {
   if (to.length === 0) return;
   const db = drizzle(env.DB, { schema });
   const settings = await db.select().from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
@@ -21,7 +21,7 @@ export async function sendEmail(env: Bindings, to: string[], subject: string, ht
 
   await Promise.allSettled(
     to.map(recipient =>
-      provider.send(config, { from: fromAddress, to: recipient, subject, html, text })
+      provider.send(config, { from: fromAddress, to: recipient, subject, html, text, headers })
         .catch(err => console.error('sendEmail failed', settings.provider, err)),
     ),
   );

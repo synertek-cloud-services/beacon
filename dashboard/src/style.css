@@ -397,6 +397,15 @@ tbody td { padding: 11px 16px; vertical-align: middle; }
   margin-bottom: 14px;
   font-size: 12px;
 }
+.success-banner {
+  background: rgba(46,175,111,.08);
+  border: 1px solid rgba(46,175,111,.25);
+  color: var(--color-success);
+  padding: 8px 14px;
+  border-radius: var(--r-btn);
+  margin-bottom: 14px;
+  font-size: 12px;
+}
 .empty { text-align: center; padding: 48px 24px; color: var(--color-text-muted); }
 .empty-title { font-size: 14px; font-weight: 500; color: var(--color-text-subtle); }
 .empty-sub { font-size: 12px; margin-top: 4px; }

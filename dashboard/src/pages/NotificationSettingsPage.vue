@@ -65,10 +65,18 @@
           </div>
         </div>
 
-        <div class="pf-row" style="margin-top:4px">
+        <div class="pf-row" style="margin-top:4px;gap:8px">
           <button class="btn btn-primary btn-sm" :disabled="emailSaving" @click="saveEmailSettings">{{ emailSaving ? 'Saving…' : 'Save' }}</button>
+          <button
+            class="btn btn-ghost btn-sm"
+            :disabled="emailTesting || !emailSettings?.enabled || !emailSettings?.hasConfig"
+            :title="!emailSettings?.enabled || !emailSettings?.hasConfig ? 'Save and enable email settings first' : ''"
+            @click="sendTestEmail"
+          >{{ emailTesting ? 'Sending…' : 'Send Test Email' }}</button>
         </div>
         <div v-if="emailError" class="error-banner">{{ emailError }}</div>
+        <div v-if="emailTestError" class="error-banner">{{ emailTestError }}</div>
+        <div v-if="emailTestOk" class="success-banner">Test email sent — check your inbox.</div>
       </div>
 
       <!-- Recipients -->
@@ -137,6 +145,9 @@ const emailForm = reactive<{
 });
 const emailSaving = ref(false);
 const emailError = ref('');
+const emailTesting = ref(false);
+const emailTestError = ref('');
+const emailTestOk = ref(false);
 
 const users = ref<AppUser[]>([]);
 const notificationEmails = ref<NotificationEmail[]>([]);
@@ -214,6 +225,18 @@ async function saveEmailSettings() {
     emailForm.mailgun.apiKey = '';
   } catch (e) { emailError.value = e instanceof Error ? e.message : 'Could not save email settings.'; }
   finally { emailSaving.value = false; }
+}
+
+async function sendTestEmail() {
+  emailTestError.value = '';
+  emailTestOk.value = false;
+  emailTesting.value = true;
+  try {
+    const res = await api.emailSettings.test();
+    if (res.ok) emailTestOk.value = true;
+    else emailTestError.value = res.error ?? 'Test email failed.';
+  } catch (e) { emailTestError.value = e instanceof Error ? e.message : 'Could not send test email.'; }
+  finally { emailTesting.value = false; }
 }
 
 // ── Recipients ───────────────────────────────────────────────

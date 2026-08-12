@@ -230,6 +230,7 @@ const FINE_GRAINED: Record<string, FineGrainedEntry> = {
   'PATCH /v1/admin/webhooks/:id':                             { action: 'Edited webhook', entityType: 'webhook' },
   'DELETE /v1/admin/webhooks/:id':                            { action: 'Deleted webhook', entityType: 'webhook' },
   'PATCH /v1/admin/email-settings':                           { action: 'Edited email settings' },
+  'POST /v1/admin/email-settings/test':                       { action: 'Sent test email' },
   'POST /v1/admin/notification-emails':                       { action: 'Added notification recipient' },
   'PATCH /v1/admin/notification-emails/:id':                  { action: 'Edited notification recipient' },
   'DELETE /v1/admin/notification-emails/:id':                 { action: 'Removed notification recipient' },
