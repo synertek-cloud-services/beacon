@@ -61,7 +61,7 @@
               </td>
               <td class="mono">{{ p.kbArticleIds.length ? p.kbArticleIds.map(k => 'KB' + k).join(', ') : '—' }}</td>
               <td><span :class="severityBadge(p.severity)">{{ p.severity }}</span></td>
-              <td class="td-category">{{ p.categories.join(', ') || '—' }}</td>
+              <td class="td-category">{{ displayCategories(p.categories) }}</td>
               <td>{{ p.deviceIds.length }}</td>
               <td><span class="status-pill" :class="statusClass(p.status)">{{ capitalize(p.status) }}</span></td>
               <td>
@@ -105,6 +105,30 @@ const saving       = ref(new Set<string>());
 const statusFilter = ref<'pending' | 'approved' | 'ignored' | 'all'>('pending');
 
 const canMutate = computed(() => hasRole('technician'));
+
+// Windows Update's own Categories property mixes two unrelated taxonomies:
+// real Classifications (what kind of update this is) and Product/Product
+// Family tags (which OS/edition it applies to, e.g. "Windows 10, version
+// 1903 and later", "Windows 10 LTSB", or region-specific ones like "EU
+// Browser Choice Update-For Europe Only"). Beacon's own auto-approval logic
+// (worker/src/lib/patchPolicies.ts's AUTO_APPROVE_CLASSIFICATIONS) only ever
+// looks at the Classification half -- the product tags are pure noise for a
+// technician deciding whether to approve a patch, not something Beacon uses
+// for anything. KNOWN_CLASSIFICATIONS is the full canonical WSUS
+// classification set (Microsoft's own documented list), not just the two
+// AUTO_APPROVE_CLASSIFICATIONS values -- a technician should still see e.g.
+// "Critical Updates" or "Tools" even though Beacon doesn't auto-approve on
+// them. Falls back to the full raw list if nothing matches, rather than
+// showing a blank cell, since an unrecognized/future classification string
+// is more useful shown than hidden.
+const KNOWN_CLASSIFICATIONS = new Set([
+  'Critical Updates', 'Definition Updates', 'Drivers', 'Feature Packs',
+  'Security Updates', 'Service Packs', 'Tools', 'Update Rollups', 'Updates',
+]);
+function displayCategories(categories: string[]): string {
+  const known = categories.filter(c => KNOWN_CLASSIFICATIONS.has(c));
+  return (known.length ? known : categories).join(', ') || '—';
+}
 
 async function load() {
   loading.value = true;
@@ -229,7 +253,7 @@ function severityBadge(severity: string): string {
 .al-table tr:hover td { background: var(--color-surface-raised); }
 
 .td-message  { max-width: 360px; }
-.td-category { white-space: nowrap; color: var(--color-text-subtle); }
+.td-category { max-width: 320px; white-space: normal; word-break: break-word; color: var(--color-text-subtle); }
 .mono { font-family: var(--mono); white-space: nowrap; }
 
 .pri-badge {

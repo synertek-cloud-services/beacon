@@ -546,7 +546,7 @@
                       <span class="sw-ver mono text-xs text-muted-2">{{ p.kb_article_ids?.length ? p.kb_article_ids.map(k => 'KB' + k).join(', ') : '—' }}</span>
                       <span :class="patchSeverityBadge(p.severity)">{{ p.severity }}</span>
                       <span v-if="p.type === 'driver'" class="badge badge-pending">Driver</span>
-                      <span v-if="p.categories?.length" class="sw-pub text-xs text-muted-2">{{ p.categories.join(', ') }}</span>
+                      <span v-if="p.categories?.length" class="sw-pub text-xs text-muted-2">{{ displayPatchCategories(p.categories) }}</span>
                       <span v-if="p.update_id && patchApprovalMap[p.update_id]" class="inv-badge-muted" style="text-transform:capitalize">{{ patchApprovalMap[p.update_id] }}</span>
                     </div>
                   </div>
@@ -1692,6 +1692,20 @@ function patchSeverityBadge(severity: string): string {
   if (severity === 'Critical') return 'inv-badge-danger';
   if (severity === 'Important') return 'inv-badge-warn';
   return 'inv-badge-muted'; // Moderate | Low | Unspecified
+}
+// Windows Update's own Categories property mixes real Classifications
+// (what kind of update this is) with Product/Product Family tags (which
+// OS/edition it applies to) -- Beacon's auto-approval logic only ever
+// looks at the Classification half, so the product tags are pure noise
+// here. See PatchesPage.vue's own identical helper (duplicated, not
+// shared, per this codebase's convention) for the full reasoning.
+const KNOWN_PATCH_CLASSIFICATIONS = new Set([
+  'Critical Updates', 'Definition Updates', 'Drivers', 'Feature Packs',
+  'Security Updates', 'Service Packs', 'Tools', 'Update Rollups', 'Updates',
+]);
+function displayPatchCategories(categories: string[]): string {
+  const known = categories.filter(c => KNOWN_PATCH_CLASSIFICATIONS.has(c));
+  return (known.length ? known : categories).join(', ');
 }
 // There's no dedicated boot-time field — derived from the most recent
 // check-in's uptime sample, which is as fresh as lastSeen itself.
