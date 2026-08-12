@@ -402,7 +402,15 @@ sessions.post('/:id/files/upload', async (c) => {
     });
     return c.json({ id: reqId }, 201);
   } catch (err) {
-    await c.env.SESSION_FILES.delete(objectKey);
+    // Best-effort cleanup -- deliberately its own try/catch, not left to
+    // propagate. Found live: when the real failure is SESSION_FILES itself
+    // being unavailable (e.g. the binding missing from this environment's
+    // wrangler.toml), this same delete call fails too, and an unhandled
+    // exception inside a catch block escapes uncaught -- Hono's own
+    // generic 500 fires instead of this route's actual JSON error
+    // response, hiding the real cause behind a useless "Internal Server
+    // Error" with zero diagnostic detail.
+    try { await c.env.SESSION_FILES.delete(objectKey); } catch { /* already handling a real error below; don't let cleanup mask it */ }
     return c.json({ error: err instanceof Error ? err.message : 'upload failed' }, 400);
   }
 });
@@ -553,7 +561,9 @@ sessions.post('/:id/file-requests/:reqId/upload-result', async (c) => {
       .where(eq(schema.sessionFileRequests.id, c.req.param('reqId')));
     return c.json({ ok: true });
   } catch (err) {
-    await c.env.SESSION_FILES.delete(objectKey);
+    // Same defensive cleanup-can't-mask-the-real-error fix as the
+    // technician-facing upload route above -- see its own comment.
+    try { await c.env.SESSION_FILES.delete(objectKey); } catch { /* already handling a real error below; don't let cleanup mask it */ }
     return c.json({ error: err instanceof Error ? err.message : 'upload failed' }, 400);
   }
 });
