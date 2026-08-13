@@ -1,5 +1,24 @@
 # Beacon — Project Log
 
+## Session: 2026-08-13 — Real-hardware verification pass: Web Remote core + multi-monitor confirmed; standard-user Elevate and file transfer still open
+
+No code changes — a status update from the user on real-hardware testing against the #140–#167 Web Remote stretch, folded into CLAUDE.md's Web Remote section (new "Real-hardware verification: WebRemotePage core + multi-monitor switching confirmed" subsection, inserted just before the existing PR #167 write-up).
+
+**Confirmed working on physical hardware**:
+- WebRemotePage's core connect/capture/injection flow, and Elevate (SYSTEM-token relocation + `FollowInputDesktop` secure-desktop attachment + the reconnect-and-swap UX) — tested with an **administrator** console user.
+- Multi-monitor in-place switching (PR #145's RFB DesktopSize swap) — a real live switch between two physical monitors, not just the Displays picker rendering. PRs #142/#143/#145 are no longer source-only for this mechanism.
+
+**Still open**:
+1. **Elevate as a standard (non-admin) console user** — every hardware test so far used an admin console user. SYSTEM-token elevation shouldn't care about the console user's privilege level the way the old Administrator-token/credential path did, but this hasn't actually been exercised yet — the next concrete thing to test.
+2. **Web Remote file transfer (Upload/Download, PR #145)** — still source-verified/cross-compiled only.
+3. **PR #167's "nobody logged in" SYSTEM fallback** — unchanged, still needs a real Windows 11 device at its logon screen.
+
+### Next logical steps
+
+1. Test Elevate against a real standard-user console session — this is the one item most likely to surface something new, since it's the first time SYSTEM-token elevation (as opposed to the old, now-dead Administrator-token/credential path) will be exercised against a non-privileged console user.
+2. Exercise Web Remote file transfer (upload to Desktop, directory-browse download) against a real device.
+3. Test PR #167's logon-screen fallback against a real Windows 11 device with nobody signed in.
+
 ## Session: 2026-08-13 — Reports page spacing fix, and a real live-incident bug in email settings (PRs #173, #174)
 
 Two short, independent fixes, both starting from real user-facing symptoms rather than code review:
