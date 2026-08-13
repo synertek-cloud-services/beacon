@@ -99,13 +99,18 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* .section-card itself has no padding (other pages put a table's own
+   cell padding, or table-adjacent controls, directly inside it) -- every
+   piece of non-table content here needs its own horizontal padding to
+   line up under .section-card-head's 20px, instead of sitting flush
+   against the card's edges. */
 .rp-intro {
   font-size: 12px; color: var(--color-text-muted);
-  margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--color-border);
+  margin: 0; padding: 14px 20px; border-bottom: 1px solid var(--color-border);
 }
 .rp-shared-filter {
   display: flex; align-items: center; gap: 10px;
-  margin-bottom: 18px;
+  padding: 16px 20px; border-bottom: 1px solid var(--color-border);
 }
 .rp-shared-filter label {
   font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
@@ -118,7 +123,7 @@ onMounted(load);
 
 .rp-report {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 14px 0; border-top: 1px solid var(--color-border);
+  padding: 16px 20px; border-top: 1px solid var(--color-border);
 }
 .rp-report:first-of-type { border-top: none; }
 .rp-report-info { flex: 1; min-width: 0; }
