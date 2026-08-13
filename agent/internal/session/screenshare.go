@@ -41,6 +41,21 @@ var screenShareBinary []byte
 // session carries full, unrestricted machine access on the target, a real
 // security-posture cost for a capability most sessions never need.
 //
+// A non-elevated request still transparently falls back to a SYSTEM-context
+// launch (see launchScreenShare) when there's nobody logged into the target
+// session at all -- e.g. a Windows 11 machine sitting at its logon screen,
+// or a session between logoff and the next sign-in. This is a different
+// decision from Elevate, not a quiet expansion of it: Elevate escalates
+// past a real, present user, a genuine security-posture tradeoff kept
+// opt-in for exactly that reason; here there is no user to escalate past,
+// and SYSTEM is the only context that can attach to anything at all (the
+// Winlogon logon/lock desktop specifically requires SYSTEM to open --
+// see win32.OpenInputDesktop's own doc comment). If a user then logs in
+// during the session, the already-running helper's own desktop-follow
+// (rfbserver.DesktopFollower, screencapture/screeninject's
+// FollowInputDesktop) picks up the hand-off to their real desktop on its
+// own, with no reconnect needed.
+//
 // targetSessionID picks which Windows Terminal Services session to launch
 // into -- nil means the active console session (today's only behavior,
 // and the only one client-class devices ever use); a non-nil value is a
@@ -75,10 +90,14 @@ func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uin
 	pid, err := launchScreenShare(exePath, args, elevated, targetSessionID)
 	if err != nil {
 		if errors.Is(err, usersession.ErrNoActiveSession) {
-			// Nobody logged in (or, for a specific targetSessionID, that
-			// session isn't active) -- expected no-op. The browser's own
-			// connect timeout is what surfaces this to the technician;
-			// nothing needs to travel back over this path.
+			// launchScreenShare already falls back to a SYSTEM-context
+			// launch whenever there's simply no user logged in yet -- this
+			// remaining case means the target session itself couldn't be
+			// resolved at all (mid-transition, or a stale/no-longer-active
+			// targetSessionID), genuinely nothing to launch into. Expected,
+			// rare no-op; the browser's own connect timeout is what
+			// surfaces this to the technician, nothing needs to travel back
+			// over this path.
 			log.Printf("session %s: screen share: no active session", sessionID)
 		} else {
 			log.Printf("session %s: screen share launch: %v", sessionID, err)
@@ -102,15 +121,39 @@ func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uin
 // that specific session instead, reusing usersession.RunAsSession/
 // RunAsSessionAsSystem's own general (non-console-only) form, which
 // already accepts an arbitrary session ID.
+//
+// Both non-elevated branches fall back to a SYSTEM-context launch on
+// usersession.ErrNoActiveSession -- see runScreenShare's doc comment for
+// why this isn't the same privilege decision Elevate makes. The fallback
+// targets the exact same session ID the user-context attempt just failed
+// against (re-resolved via ActiveConsoleSessionID for the console case,
+// since RunAsActiveUser doesn't hand its resolved ID back on failure); if
+// that resolution itself fails too (console session transitioning, or
+// truly nothing attached), there's genuinely nothing to launch into and
+// the original error is returned unchanged.
 func launchScreenShare(exePath string, args []string, elevated bool, targetSessionID *uint32) (uint32, error) {
 	if targetSessionID != nil {
 		if !elevated {
-			return usersession.RunAsSession(*targetSessionID, exePath, args)
+			pid, err := usersession.RunAsSession(*targetSessionID, exePath, args)
+			if errors.Is(err, usersession.ErrNoActiveSession) {
+				log.Printf("session: no user logged into session %d yet, launching as SYSTEM instead", *targetSessionID)
+				return usersession.RunAsSessionAsSystem(*targetSessionID, exePath, args)
+			}
+			return pid, err
 		}
 		return usersession.RunAsSessionAsSystem(*targetSessionID, exePath, args)
 	}
 	if !elevated {
-		return usersession.RunAsActiveUser(exePath, args)
+		pid, err := usersession.RunAsActiveUser(exePath, args)
+		if errors.Is(err, usersession.ErrNoActiveSession) {
+			sessionID, sessErr := usersession.ActiveConsoleSessionID()
+			if sessErr != nil {
+				return 0, err
+			}
+			log.Printf("session: no user logged into the console session yet, launching as SYSTEM instead")
+			return usersession.RunAsSessionAsSystem(sessionID, exePath, args)
+		}
+		return pid, err
 	}
 	sessionID, err := usersession.ActiveConsoleSessionID()
 	if err != nil {

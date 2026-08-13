@@ -1,5 +1,124 @@
 # Beacon — Project Log
 
+## Session: 2026-08-11/08-12 — Web Remote: SYSTEM-elevation rebuild, session picker, multi-monitor, file transfer, and a long real-hardware bug-fix tail (PRs #140–#167)
+
+Direct continuation of the "paused by request" session immediately below —
+picked up the two open threads (SYSTEM elevation, multi-monitor) and ran
+them to completion, plus a dense run of real-hardware/production bug fixes
+along the way. Seventeen PRs merged (#140–#165) over one continuous stretch
+(2026-08-11 20:26 UTC → 2026-08-12 07:15 UTC), plus one more (#167) still
+open at close of session. Full technical detail for all of this now lives in
+CLAUDE.md's Web Remote section (the "Resume: Elevate rebuilt around SYSTEM…"
+subsection onward) — this entry is the session-shaped summary; don't
+duplicate the technical writeup here.
+
+### What was completed
+
+**Elevate rebuilt around SYSTEM, not an Administrator token (#140).** Resolved
+the prior session's open question by building the SYSTEM-escalation option
+rather than verifying the credential path — closes the real gap that no
+Administrator token, split or credentialed, could ever open the secure
+desktop a UAC prompt renders on. `beacon-screenshare.exe` now relaunches
+under the agent service's own SYSTEM token via new
+`usersession.RunAsSessionAsSystem`; `screencapture`/`screeninject` gained a
+`FollowInputDesktop` mode that re-attaches to whatever desktop currently has
+input focus every cycle. Dropped the elevated-menu PowerShell shell and the
+`console_user_can_elevate` audit signal/badge — both existed only to route
+around the blind spot this closes.
+
+**Server-class session picker (#141)** — RDS/AVD devices can now target a
+specific logged-in session instead of always shadowing console. New
+`list_remote_sessions` command type, a picker gated on
+`class==='server' && os==='windows'`, `target_session_id` threaded through
+both the plain and SYSTEM-elevated launch paths and preserved across an
+Elevate reconnect.
+
+**Multi-monitor, actually built (#142, #143)** — split into a coordinate-math
+PR (touches the already-shipped single-monitor capture/injection path, no
+UI/schema changes) and a picker+wire-through PR (Displays dropdown, new
+`sessions.displays`/`report_token_hash` columns, migration `0078`), so a
+single-monitor regression could be bisected to exactly one of the two.
+
+**In-place monitor switching + file transfer, one PR (#145)** — real-hardware
+testing of #143's first cut found switching took 10+ seconds (it opened a
+whole new session per switch); replaced with an RFB DesktopSize
+pseudo-encoding + an in-process Capturer/Injector swap, landing near-
+instantly with no reconnect. Same PR shipped Web Remote's file transfer
+(Upload always to the session user's Desktop, Download via a remote
+directory browser) — new `session_file_requests` table (migration `0080`),
+a new private `SESSION_FILES` R2 bucket, and the same assign-poll-report
+shape this session's own monitor-switch work already established.
+
+**A long real-hardware/production bug-fix tail (#144, #146–#149, #152,
+#160–#162, #165)** — each root-caused live against real devices:
+- `agent.log`/`beacon-screenshare.log` going permanently silent, finally
+  root-caused for real: `io.MultiWriter(os.Stderr, f)` writes in order and
+  bails on the first error, and `os.Stderr` is commonly invalid for a
+  console-less Windows service — the file sink never got a chance. Simple
+  fix (`f` first), likely explains several earlier "why is logging dark"
+  mysteries noted elsewhere in this project that were never fully closed.
+- Reboot-confirmation infinite loop (marker deleted before shutdown
+  actually succeeded) and, separately, standard (non-admin) users unable to
+  write their Yes/No confirmation back at all (`C:\Program Files\Beacon`'s
+  ACL denies `BUILTIN\Users` write) — two distinct bugs, not a recurrence
+  of the same one.
+- Tray icon still going blank after 5 prior real-hardware attempts at a
+  fix — root cause finally found: `os.Exit(0)` (needed for guaranteed
+  termination) bypasses systray's own `NIM_DELETE` cleanup, leaving a
+  stale icon slot for the replacement's `NIM_ADD` to collide with.
+- Patches page Categories column overflow, plus a real data-quality fix
+  (Windows Update's `Categories` mixes real Classifications with unrelated
+  Product/Product-Family tags — now filtered to just the useful half).
+- File-transfer upload errors masking the real cause (an unwrapped cleanup
+  call throwing inside a catch block, hiding a missing R2 binding behind a
+  generic 500).
+- Displays UX iterated twice from direct user screenshots: text label →
+  visual proportionally-scaled layout (matching Windows' own Display
+  Settings "Identify" view) → back to icon-only once the dropdown itself
+  became self-explanatory.
+- Elevate modal: shortened from a paragraph to ~120 characters, added a
+  real spinner/status-line loading state for the up-to-a-minute connect
+  wait.
+
+**Still open at session close: PR #167**, `agent/web-remote-system-fallback-no-user`
+(fixes issue #166) — Web Remote timed out with nothing shown when connecting
+to a Windows 11 device sitting at its logon screen with nobody signed in
+yet, because the non-elevated launch path only ever tried
+`usersession.RunAsActiveUser` (needs a real logged-in user). Both non-
+elevated launch branches now fall back to `RunAsSessionAsSystem` on
+`ErrNoActiveSession` — a launch-path-only fix; capture/injection already
+handles the Winlogon desktop correctly once a SYSTEM helper is actually
+running, via the same `FollowInputDesktop` mechanism #140 built for UAC.
+**Not yet verified on real hardware, and not yet merged into `main`.**
+
+### Documentation gap this entry is closing
+
+CLAUDE.md and this log were not updated as PRs #140–#165 shipped — the prior
+session's entry (directly below) still read "Session paused here without a
+decision" as the most recent state, even though 17 PRs' worth of real work
+had since landed on `main` and a 18th (#167) was sitting open. Caught when
+the user asked to review and close out the last session properly. CLAUDE.md
+has been brought current (see the Web Remote section); this log entry is
+the other half of that catch-up. Worth a standing reminder: update both
+docs at the natural end of a work stretch, not only when explicitly asked.
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| SYSTEM token + desktop-following capture, not credential verification | Closes the actual gap (secure-desktop visibility) that no Administrator token, however obtained, could ever reach |
+| Split multi-monitor into a math PR and a UI PR | Isolates the one part that touches an already-shipped, hardware-verified path from pure addition, so a regression bisects cleanly |
+| In-place RFB DesktopSize swap over per-switch reconnect | A fresh session per monitor switch cost 10+ seconds in real testing — unacceptable for what should be a local, near-instant operation |
+| `elevate()`/`switchDisplay()` kept as separate, unshared reconnect flows | Both are real, subtle, already-debugged mechanisms (elevate's own history includes a live regression); unifying them now risks reintroducing a bug for a tidiness win, deferred to its own later pass |
+| SYSTEM fallback opt-in only when nobody is logged in (#167) | Preserves Elevate's own deliberate on-demand/opt-in privilege posture — there's no "real user" to escalate past when the machine is at its logon screen, so this isn't the same privilege decision |
+
+### Next logical steps
+
+1. **Merge or continue PR #167** — currently open, unmerged, unverified on real hardware. Needs a Windows 11 device actually sitting at its logon screen to confirm the fallback launches and that mouse/keyboard reach the Winlogon desktop.
+2. **Real-hardware verification pass, broadly** — almost everything in this session (#140–#145's core mechanisms especially: SYSTEM secure-desktop attachment, the session picker on a real RDS/AVD box, multi-monitor's coordinate math on a real multi-monitor rig, file transfer's Desktop-resolution logic) is still only source-verified/cross-compiled, not confirmed against real hardware — a large surface all landed in one stretch.
+3. **Standard-user Elevate note**: the SYSTEM rebuild in #140 means the earlier open question ("does Elevate's credential path even work") is now moot — Elevate no longer has a credential path at all. Worth explicitly confirming that's understood as intentional, not an accidental regression, if it comes up again.
+4. **Unify `elevate()`/`switchDisplay()`'s reconnect mechanisms** — explicitly deferred in #145, noted as a real but lower-priority cleanup once both have more real-hardware soak time.
+
 ## Session: 2026-08-11 — Multi-monitor / RDP / SYSTEM-elevation: real research, no code shipped, session paused by request
 
 Started from a direct ask: "we should be able to click and see each monitor
