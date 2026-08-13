@@ -10,6 +10,11 @@ const mailgun: EmailProvider = {
       html: message.html,
       text: message.text,
     });
+    // Mailgun has no single headers object -- each custom header is its own
+    // repeated h:X-Header-Name form field.
+    for (const [name, value] of Object.entries(message.headers ?? {})) {
+      body.set(`h:${name}`, value);
+    }
     const res = await fetch(`https://${base}/v3/${config.domain}/messages`, {
       method: 'POST',
       headers: {

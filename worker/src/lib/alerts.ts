@@ -656,7 +656,7 @@ async function processAlertState(
     });
     if (fireImmediately) {
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority, now);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
         entityType: 'device', entityId: device.id, companyId: device.companyId,
@@ -697,7 +697,7 @@ async function processAlertState(
 
     if (shouldFire) {
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority, now);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
         entityType: 'device', entityId: device.id, companyId: device.companyId,
@@ -737,7 +737,7 @@ async function processAlertState(
       // with alertPriority already set by the time it can resolve.
       const priority = existing.alertPriority ?? monitor.alertPriority;
       if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority);
+      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority, existing.alertedAt);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
         entityType: 'device', entityId: device.id, companyId: device.companyId,
@@ -789,7 +789,7 @@ export async function manuallyResolveAlert(
   if (wasAlerting) {
     const priority = row.alert_state.alertPriority ?? monitor.alertPriority;
     if (monitor.notifyWebhook) await fireWebhooks(db, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
-    if (monitor.notifyEmail)   await sendAlertEmails(env, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
+    if (monitor.notifyEmail)   await sendAlertEmails(env, row.devices, monitor, 'alert.resolved', now, alertStateId, priority, row.alert_state.alertedAt);
   }
 
   return true;
@@ -839,10 +839,49 @@ async function fireWebhooks(
   );
 }
 
+// Mirrors dashboard/src/pages/GlobalPoliciesPage.vue's own checkLabel() --
+// worker and dashboard are separate deployables with no shared package, so
+// this is a small intentional duplication (matching this codebase's existing
+// per-deployable duplication convention), not a refactor opportunity.
+function checkTypeLabel(checkType: string): string {
+  switch (checkType) {
+    case 'disk_space':   return 'Disk Space';
+    case 'offline':      return 'Online Status';
+    case 'cpu_usage':    return 'CPU';
+    case 'memory_usage': return 'Memory';
+    case 'av_status':    return 'Antivirus';
+    case 'file_size':    return 'File/Folder Size';
+    case 'ping':         return 'Ping';
+    case 'process':      return 'Process';
+    case 'service':      return 'Service';
+    case 'software':     return 'Software';
+    case 'windows_update_drift': return 'Windows Update Drift';
+    default:             return checkType;
+  }
+}
+
+function titleCase(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function formatUtc(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+}
+
 // Recipients are two unioned sources, both global/hoster-level: Beacon
 // accounts opted in via users.receivesAlerts, plus standalone addresses in
 // notification_emails with no Beacon account at all (a shared mailbox, a
 // ticketing system's inbound address, etc.).
+//
+// Issue #88's PSA-ingestion contract: a stable subject prefix across the
+// whole open->resolved lifecycle (only a trailing [Open]/[Resolved] tag
+// differs), a labeled/structured field block (not prose alone) in both html
+// and text, alert_state.id exposed as an explicit Alert ID field (it was
+// already stable across the lifecycle -- every transition UPDATEs the same
+// row -- just never surfaced as a labeled field before), and X-Beacon-*
+// headers for programmatic PSA routing. Mirrors fireWebhooks' existing
+// labeled-field precedent (alert_id/device_id/company_id/etc.) immediately
+// above, just rendered for a human+PSA reader instead of a raw JSON POST.
 async function sendAlertEmails(
   env: Bindings,
   device: Device,
@@ -851,6 +890,11 @@ async function sendAlertEmails(
   now: number,
   alertStateId: string,
   priority: string,
+  // The real open time -- NOT always equal to `now`. `now` only doubles as
+  // the open time at the two trigger call sites; at both resolve call sites
+  // `now` is the resolve time, and the real open time (existing.alertedAt /
+  // row.alert_state.alertedAt) has to be threaded through explicitly.
+  alertedAt: number | null,
 ): Promise<void> {
   const db = drizzle(env.DB, { schema });
 
@@ -867,14 +911,62 @@ async function sendAlertEmails(
   const emails = [...new Set([...userRows.map(r => r.email), ...standaloneRows.map(r => r.email)])];
   if (!emails.length) return;
 
-  const verb = event === 'alert.triggered' ? 'triggered' : 'resolved';
-  const subject = `[Beacon] Alert ${verb}: ${device.hostname ?? device.id} — ${monitor.checkType}`;
-  const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
+  const isResolved = event === 'alert.resolved';
+  const stateLabel = isResolved ? 'Resolved' : 'Open';
+  const verb = isResolved ? 'resolved' : 'triggered';
+  const deviceName = device.hostname ?? device.id;
   const companyName = company?.name ?? device.companyId;
-  const html = `<p>Device <b>${device.hostname ?? device.id}</b> (${companyName}) — ${monitor.checkType} check ${verb}.</p><p>Priority: ${priority}</p><p><a href="${link}">View alert</a></p>`;
-  const text = `Device ${device.hostname ?? device.id} (${companyName}) — ${monitor.checkType} check ${verb}. Priority: ${priority}. ${link}`;
+  const checkLabel = checkTypeLabel(monitor.checkType);
+  const priorityLabel = titleCase(priority);
+  const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
 
-  await sendEmail(env, emails, subject, html, text);
+  // Stable prefix across both messages for this same alertStateId -- only
+  // the trailing state tag differs, so a PSA's subject-matching correlation
+  // logic can key off the shared portion.
+  const subject = `[Beacon] ${companyName} - ${deviceName} - ${checkLabel} (${priorityLabel}) [${stateLabel}]`;
+
+  // Same labeled field set, same order, in both formats and both states --
+  // only State/Resolved At differ in content between an open and a resolved
+  // message for the same alert.
+  type Field = [string, string];
+  const fields: Field[] = [
+    ['Alert ID', alertStateId],
+    ['Company', companyName],
+    ['Company ID', device.companyId],
+    ['Device', deviceName],
+    ['Device ID', device.id],
+    ['Check Type', monitor.checkType],
+    ['Priority', priorityLabel],
+    ['State', stateLabel],
+    ['Opened At', alertedAt !== null ? formatUtc(alertedAt) : '—'],
+  ];
+  if (isResolved) fields.push(['Resolved At', formatUtc(now)]);
+  fields.push(['Dashboard', link]);
+
+  const intro = `Beacon alert: ${checkLabel} check on ${deviceName} (${companyName}) is now ${stateLabel.toUpperCase()}.`;
+
+  const html = `<p>${intro}</p><table cellpadding="0" cellspacing="0" style="border-collapse:collapse">${fields
+    .map(([label, value]) => {
+      const cell = label === 'Dashboard' ? `<a href="${link}">${link}</a>` : escapeHtml(value);
+      return `<tr><td style="padding:2px 12px 2px 0;color:#666">${label}</td><td style="padding:2px 0">${cell}</td></tr>`;
+    })
+    .join('')}</table>`;
+
+  const labelWidth = Math.max(...fields.map(([label]) => label.length)) + 2;
+  const text = `${intro}\n\n${fields.map(([label, value]) => `${(label + ':').padEnd(labelWidth)}${value}`).join('\n')}`;
+
+  await sendEmail(env, emails, subject, html, text, {
+    'X-Beacon-Alert-Id': alertStateId,
+    'X-Beacon-Device-Id': device.id,
+    'X-Beacon-Company-Id': device.companyId,
+    'X-Beacon-Event': verb,
+    'X-Beacon-Priority': priority,
+    'X-Beacon-Schema-Version': '1',
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Called from policy/monitor admin routes after an edit ────────────────────

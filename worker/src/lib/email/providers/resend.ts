@@ -14,6 +14,7 @@ const resend: EmailProvider = {
         subject: message.subject,
         html: message.html,
         text: message.text,
+        ...(message.headers && Object.keys(message.headers).length ? { headers: message.headers } : {}),
       }),
     });
     if (!res.ok) throw new Error(`Resend send failed: ${res.status} ${await res.text().catch(() => res.statusText)}`);

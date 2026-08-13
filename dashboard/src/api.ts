@@ -901,6 +901,7 @@ export const api = {
     get: () => request<EmailSettings>('GET', '/v1/admin/email-settings'),
     update: (body: { provider?: EmailProviderType; fromAddress?: string; enabled?: boolean; config?: Record<string, string> }) =>
       request<{ ok: boolean }>('PATCH', '/v1/admin/email-settings', body),
+    test: () => request<{ ok: boolean; error?: string }>('POST', '/v1/admin/email-settings/test'),
   },
 
   customFields: {
