@@ -268,6 +268,16 @@ export const alertState = sqliteTable('alert_state', {
   alertPriority:      text('alert_priority', { enum: ['critical', 'high', 'moderate', 'low'] }),
   resolvedAt:         integer('resolved_at'),
   updatedAt:          integer('updated_at').notNull(),
+  // Rate-limiting / circuit breaker for flapping monitors (migration 0081,
+  // issue #169) -- see worker/src/lib/alerts.ts's computeRateLimit(). A
+  // rolling count of notification-worthy transitions within the current
+  // window, and the self-expiring mute this row's own webhook/email get
+  // suppressed under once that count is exceeded -- mirrors
+  // devices.fastPollUntil's "arm to an absolute future timestamp, read live
+  // as > now, no cron sweep" convention.
+  transitionWindowStartedAt: integer('transition_window_started_at'),
+  transitionCount:           integer('transition_count').notNull().default(0),
+  notificationsMutedUntil:   integer('notifications_muted_until'),
 });
 
 export const sessions = sqliteTable('sessions', {

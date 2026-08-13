@@ -589,6 +589,13 @@ export interface AlertState {
   alerted_at:           number | null;
   resolved_at:          number | null;
   updated_at:           number;
+  // Rate limiting / circuit breaker (issue #169) -- notifications_muted_until
+  // set and in the future means webhook/email for this alert are paused
+  // (the alert itself is still tracked normally, this only mutes the
+  // notification channel) until that timestamp.
+  transition_window_started_at: number | null;
+  transition_count:             number;
+  notifications_muted_until:    number | null;
   device_id:            string;
   hostname:             string | null;
   os_type:              string | null;

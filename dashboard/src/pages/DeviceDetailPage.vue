@@ -408,6 +408,13 @@
                       <span class="status-pill" :class="a.is_alerting ? 'status-open' : 'status-resolved'">
                         {{ a.is_alerting ? 'Open' : 'Resolved' }}
                       </span>
+                      <span
+                        v-if="a.notifications_muted_until != null && a.notifications_muted_until > Date.now() / 1000"
+                        class="muted-badge" :title="`Notifications muted until ${new Date(a.notifications_muted_until * 1000).toLocaleTimeString()} (rate-limited after ${a.transition_count} transitions)`"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                        Muted
+                      </span>
                     </td>
                   </tr>
                 </tbody>
@@ -2422,6 +2429,15 @@ function shellLabel(shell: string): string {
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
 .status-resolved { color: var(--color-text-subtle); }
+
+/* Rate-limit "muted" indicator (issue #169) — same amber-caution formula as
+   GlobalAlertsPage.vue/AlertDetailPage.vue's own copy of this badge. */
+.muted-badge {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  font-size: 11px; font-weight: 600; color: var(--color-warning);
+  background: rgba(240,168,64,.12); border: 1px solid rgba(240,168,64,.3);
+  border-radius: 4px; padding: 2px 7px;
+}
 
 .cmd-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .cmd-mini-table th {

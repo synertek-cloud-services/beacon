@@ -124,6 +124,10 @@
               <td class="td-montype">{{ categoryLabel(a.check_type) }}</td>
               <td>
                 <span class="status-pill" :class="alertStatusClass(a)">{{ alertStatusLabel(a) }}</span>
+                <span v-if="isRateLimited(a)" class="muted-badge" :title="mutedLabel(a)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  Muted
+                </span>
               </td>
             </tr>
           </tbody>
@@ -206,6 +210,17 @@ function alertStatusClass(a: AlertState): string {
 
 function alertStatusLabel(a: AlertState): string {
   return a.is_alerting ? 'Open' : 'Resolved';
+}
+
+// Issue #169 -- notifications_muted_until set and still in the future means
+// this alert's webhook/email got rate-limited (it flapped too many times);
+// the alert itself keeps tracking normally, only the notification channel
+// is paused.
+function isRateLimited(a: AlertState): boolean {
+  return a.notifications_muted_until != null && a.notifications_muted_until > Date.now() / 1000;
+}
+function mutedLabel(a: AlertState): string {
+  return `Notifications muted until ${new Date(a.notifications_muted_until! * 1000).toLocaleTimeString()} (rate-limited after ${a.transition_count} transitions)`;
 }
 
 // ── Priority sort order ────────────────────────────────────────
@@ -500,6 +515,16 @@ function alertMessage(a: AlertState): string {
 }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
 .status-resolved { color: var(--color-text-subtle); }
+
+/* Rate-limit "muted" indicator (issue #169) — same small-pill/icon+label
+   formula as DeviceDetailPage.vue's maintenance/fast-poll badges, amber to
+   read as caution rather than either danger (open) or resolved. */
+.muted-badge {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  font-size: 11px; font-weight: 600; color: var(--color-warning);
+  background: rgba(240,168,64,.12); border: 1px solid rgba(240,168,64,.3);
+  border-radius: 4px; padding: 2px 7px;
+}
 
 .btn-action-resolve:not(:disabled) { color: var(--color-danger); border-color: rgba(232,86,106,.3); }
 .btn-action-resolve:hover:not(:disabled) { background: rgba(232,86,106,.08); }
