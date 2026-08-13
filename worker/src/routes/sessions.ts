@@ -467,6 +467,22 @@ sessions.get('/:id/file-requests/next', async (c) => {
     .get();
   if (!row) return c.json({});
 
+  // Atomically claim it before handing it out. Without this, a request the
+  // helper never finishes (a hung directory scan, a crashed goroutine mid-
+  // download) stays 'pending' forever, and since this always returns the
+  // *oldest* pending row, that permanently blocks every later, unrelated
+  // file request in the same session -- found live: a brand-new upload
+  // never got serviced at all because it could never become "the oldest
+  // pending row." A plain conditional UPDATE (not .returning(), unused
+  // elsewhere in this codebase), checked via D1's affected-row count same
+  // as dashboards.ts's widget-delete route -- a lost race against a second
+  // poller (e.g. a leftover pre-Elevate helper) just no-ops this tick
+  // rather than double-claiming.
+  const claim = await c.env.DB.prepare(
+    "UPDATE session_file_requests SET status = 'claimed' WHERE id = ? AND status = 'pending'",
+  ).bind(row.id).run();
+  if (!claim.meta.changes) return c.json({});
+
   let request: unknown = {};
   try { request = JSON.parse(row.request); } catch { /* malformed row -- surface as an empty request, agent will fail it cleanly */ }
   return c.json({ id: row.id, type: row.type, request });

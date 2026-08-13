@@ -1,5 +1,20 @@
 # Beacon — Project Log
 
+## Session: 2026-08-13 — Web Remote file transfer: found and fixed a real queue-blocking bug (PR #176)
+
+Reported live: a Web Remote file upload came back `Upload failed: timed out waiting for the device to respond` after 30 seconds, with no other symptoms (the connection itself stayed live). Root-caused entirely via code reading, not live diagnostics — traced the full path from `WebRemotePage.vue`'s upload call through `worker/src/routes/sessions.ts` to `agent/cmd/beacon-screenshare/main.go`'s poll loop.
+
+**Root cause**: `GET /:id/file-requests/next` always returned the *oldest* `status='pending'` `session_file_requests` row, with no claim/lock step, and the agent's `pollFileRequests` loop handled that one request fully synchronously before polling again. Combined, this means any single request that's slow or never completes (a large directory scan, a flaky blob fetch, a hung handler) gets re-handed-out as "next" on every poll tick forever — a brand-new, completely unrelated request created afterward can never become "the oldest pending row" and is never picked up, no matter how long anyone waits. This is a deterministic design gap, not a transient glitch: once any one request in a session's queue gets stuck, every subsequent request in that session is permanently blocked.
+
+**Fix**: `next` now atomically claims a row (`UPDATE ... SET status='claimed' WHERE id=? AND status='pending'`, checked via D1's `meta.changes` — same pattern already established in `dashboards.ts`'s widget-delete route) before handing it out, so a stuck request stops blocking anything after it. `session_file_requests.status` gained a `'claimed'` value (Drizzle-enum-only, no migration needed — matches this codebase's bare-TEXT-column convention). Agent-side, each request now dispatches on its own goroutine (`go dispatchFileRequest(...)`) instead of running inline in the poll loop, with its own `recover()` — a real, separate bug found in the same pass: a panic inside a background goroutine isn't caught by `main()`'s existing top-level recover (only covers `main()`'s own goroutine), so an unrecovered panic in file-request handling would have silently killed the entire `beacon-screenshare.exe` process, RFB session included, with zero diagnostic trail. Also fixed an unknown request `type` (previously logged and left permanently unresolved) to report a clean failure instead of getting stuck forever.
+
+Verified via `go build`/`go vet` cross-compiled for Windows, worker `tsc --noEmit`, and dashboard `vue-tsc -b --force` — all clean. **Not yet verified on real hardware** — no live device available in this sandbox, same standing limitation as the rest of Web Remote's Windows-specific work; this needs a real agent release before it does anything for real devices (the embedded `beacon-screenshare.exe` bytes only refresh via `scripts/publish-agent.mjs`'s pre-build step, run by the user).
+
+### Next logical steps
+
+1. **Cut a release including this fix**, then re-test file upload/download against a real device — ideally exercising a slower/larger directory browse alongside a small upload in the same session, to confirm the earlier request no longer blocks the later one.
+2. Still open from the prior session: **Elevate as a standard (non-admin) console user**, and PR #167's "nobody logged in" SYSTEM fallback — both still need real-hardware confirmation, unrelated to this fix.
+
 ## Session: 2026-08-13 — Real-hardware verification pass: Web Remote core + multi-monitor confirmed; standard-user Elevate and file transfer still open
 
 No code changes — a status update from the user on real-hardware testing against the #140–#167 Web Remote stretch, folded into CLAUDE.md's Web Remote section (new "Real-hardware verification: WebRemotePage core + multi-monitor switching confirmed" subsection, inserted just before the existing PR #167 write-up).
