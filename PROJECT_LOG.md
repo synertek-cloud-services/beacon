@@ -89,7 +89,7 @@ elevated launch branches now fall back to `RunAsSessionAsSystem` on
 `ErrNoActiveSession` — a launch-path-only fix; capture/injection already
 handles the Winlogon desktop correctly once a SYSTEM helper is actually
 running, via the same `FollowInputDesktop` mechanism #140 built for UAC.
-**Not yet verified on real hardware, and not yet merged into `main`.**
+**Not yet verified on real hardware, and not yet merged into `main`.** [Merged 2026-08-13 — still not yet verified on real hardware.]
 
 ### Documentation gap this entry is closing
 
@@ -114,7 +114,7 @@ docs at the natural end of a work stretch, not only when explicitly asked.
 
 ### Next logical steps
 
-1. **Merge or continue PR #167** — currently open, unmerged, unverified on real hardware. Needs a Windows 11 device actually sitting at its logon screen to confirm the fallback launches and that mouse/keyboard reach the Winlogon desktop.
+1. **PR #167 merged (2026-08-13), still unverified on real hardware.** Needs a Windows 11 device actually sitting at its logon screen to confirm the fallback launches and that mouse/keyboard reach the Winlogon desktop.
 2. **Real-hardware verification pass, broadly** — almost everything in this session (#140–#145's core mechanisms especially: SYSTEM secure-desktop attachment, the session picker on a real RDS/AVD box, multi-monitor's coordinate math on a real multi-monitor rig, file transfer's Desktop-resolution logic) is still only source-verified/cross-compiled, not confirmed against real hardware — a large surface all landed in one stretch.
 3. **Standard-user Elevate note**: the SYSTEM rebuild in #140 means the earlier open question ("does Elevate's credential path even work") is now moot — Elevate no longer has a credential path at all. Worth explicitly confirming that's understood as intentional, not an accidental regression, if it comes up again.
 4. **Unify `elevate()`/`switchDisplay()`'s reconnect mechanisms** — explicitly deferred in #145, noted as a real but lower-priority cleanup once both have more real-hardware soak time.
