@@ -51,7 +51,30 @@ emailSettings.patch('/', async (c) => {
   if (body.fromAddress !== undefined) updates.fromAddress = body.fromAddress;
   if (body.enabled !== undefined) updates.enabled = body.enabled;
   if (body.config) {
-    const { ciphertext, nonce } = await encryptSecret(JSON.stringify(body.config), c.env.CONFIG_ENCRYPTION_KEY);
+    // Per-field merge, not a blind overwrite: the dashboard's own field
+    // placeholders ("leave blank to keep") promise that leaving one field
+    // untouched preserves it -- but the dashboard never gets the real
+    // decrypted values back (GET strips them entirely), so it can't honor
+    // that promise on its own. Editing just one field (e.g. re-pasting the
+    // Access Key ID) while leaving another blank (e.g. Secret Access Key,
+    // trusting the placeholder) used to silently overwrite the whole config
+    // with that blank value included -- a real incident, not theoretical:
+    // it's what produced a live "signature does not match" SES failure
+    // after an edit-and-resave. An empty string in a given key now means
+    // "keep whatever's already stored there," resolved here server-side
+    // (the only place that ever holds the real decrypted values) rather
+    // than trying to have the dashboard track/merge secrets it never sees.
+    const existing = await db.select({ configCiphertext: schema.emailSettings.configCiphertext, configNonce: schema.emailSettings.configNonce })
+      .from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
+    let merged: Record<string, string> = { ...body.config };
+    if (existing?.configCiphertext && existing.configNonce) {
+      const existingConfig = JSON.parse(await decryptSecret(existing.configCiphertext, existing.configNonce, c.env.CONFIG_ENCRYPTION_KEY)) as Record<string, string>;
+      merged = { ...existingConfig };
+      for (const [key, value] of Object.entries(body.config)) {
+        if (value !== '') merged[key] = value;
+      }
+    }
+    const { ciphertext, nonce } = await encryptSecret(JSON.stringify(merged), c.env.CONFIG_ENCRYPTION_KEY);
     updates.configCiphertext = ciphertext;
     updates.configNonce = nonce;
   }

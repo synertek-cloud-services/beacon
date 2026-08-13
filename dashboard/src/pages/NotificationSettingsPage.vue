@@ -39,14 +39,14 @@
         <template v-if="emailForm.provider === 'ses'">
           <div class="pf-field-row"><label class="pf-sublabel">Access Key ID</label><input v-model="emailForm.ses.accessKeyId" class="pf-input" :placeholder="emailSettings?.hasConfig ? '•••• configured — leave blank to keep' : 'AKIA…'" /></div>
           <div class="pf-field-row"><label class="pf-sublabel">Secret Access Key</label><input v-model="emailForm.ses.secretAccessKey" type="password" class="pf-input" :placeholder="emailSettings?.hasConfig ? '•••• configured — leave blank to keep' : 'value'" /></div>
-          <div class="pf-field-row"><label class="pf-sublabel">Region</label><input v-model="emailForm.ses.region" class="pf-input" placeholder="us-east-1" /></div>
+          <div class="pf-field-row"><label class="pf-sublabel">Region</label><input v-model="emailForm.ses.region" class="pf-input" :placeholder="emailSettings?.hasConfig ? 'configured — leave blank to keep' : 'us-east-1'" /></div>
         </template>
         <template v-else-if="emailForm.provider === 'resend'">
           <div class="pf-field-row"><label class="pf-sublabel">API Key</label><input v-model="emailForm.resend.apiKey" type="password" class="pf-input" :placeholder="emailSettings?.hasConfig ? '•••• configured — leave blank to keep' : 're_…'" /></div>
         </template>
         <template v-else-if="emailForm.provider === 'mailgun'">
           <div class="pf-field-row"><label class="pf-sublabel">API Key</label><input v-model="emailForm.mailgun.apiKey" type="password" class="pf-input" :placeholder="emailSettings?.hasConfig ? '•••• configured — leave blank to keep' : 'key-…'" /></div>
-          <div class="pf-field-row"><label class="pf-sublabel">Domain</label><input v-model="emailForm.mailgun.domain" class="pf-input" placeholder="mg.example.com" /></div>
+          <div class="pf-field-row"><label class="pf-sublabel">Domain</label><input v-model="emailForm.mailgun.domain" class="pf-input" :placeholder="emailSettings?.hasConfig ? 'configured — leave blank to keep' : 'mg.example.com'" /></div>
           <div class="pf-field-row">
             <label class="pf-sublabel">Region</label>
             <div class="seg-bar">
@@ -139,7 +139,7 @@ const emailForm = reactive<{
   provider: 'resend',
   fromAddress: '',
   enabled: false,
-  ses: { accessKeyId: '', secretAccessKey: '', region: 'us-east-1' },
+  ses: { accessKeyId: '', secretAccessKey: '', region: '' },
   resend: { apiKey: '' },
   mailgun: { apiKey: '', domain: '', region: 'us' },
 });
@@ -195,6 +195,14 @@ async function removeWebhook(id: string) {
 }
 
 // ── Email provider ───────────────────────────────────────────
+// A blank string in any field here means "keep whatever's already stored" --
+// enforced server-side (PATCH /v1/admin/email-settings merges per-field
+// against the existing decrypted config, since this form never gets real
+// values back to merge against on its own). The one field that doesn't
+// participate: Mailgun's Region is a US/EU toggle, not a blank-capable text
+// input, so it's always sent explicitly, same as Provider/Enabled elsewhere
+// on this page -- switching Mailgun's region always takes effect immediately,
+// there's no "leave it as it was" state for a two-button toggle.
 function buildConfigPayload(): Record<string, string> | undefined {
   if (emailForm.provider === 'ses') {
     const { accessKeyId, secretAccessKey, region } = emailForm.ses;
