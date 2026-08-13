@@ -286,16 +286,48 @@ func pollFileRequests(sessionID, wsURLStr, reportToken string) {
 			continue // nothing pending, or a transient error -- try again next tick
 		}
 
-		switch next.Type {
-		case "browse":
-			handleBrowseRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
-		case "upload":
-			handleUploadRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
-		case "download":
-			handleDownloadRequest(sessionID, wsURLStr, reportToken, next.ID, next.Request)
-		default:
-			log.Printf("beacon-screenshare: session %s: file-request %s: unknown type %q", sessionID, next.ID, next.Type)
+		// Dispatched on its own goroutine, not called inline -- the worker
+		// now atomically claims a request before handing it out (see its
+		// own doc comment on GET .../file-requests/next), so it's safe for
+		// this loop to move straight on to the next poll tick without
+		// waiting for this one to finish. Without this, a single slow or
+		// stuck request (a large directory scan, a flaky blob GET/result
+		// POST) blocked every later, unrelated request behind it for as
+		// long as it took to resolve -- found live: a brand-new, tiny
+		// upload timed out completely because an earlier request in the
+		// same session hadn't resolved yet.
+		go dispatchFileRequest(sessionID, wsURLStr, reportToken, next.ID, next.Type, next.Request)
+	}
+}
+
+// dispatchFileRequest runs one file-request handler on its own goroutine,
+// recovering from a panic the same way main() does for the top-level
+// goroutine -- this process has no console (-H=windowsgui), so an
+// unrecovered panic on a goroutine main()'s own defer/recover doesn't cover
+// would silently take down the whole beacon-screenshare.exe process (and
+// the live RFB session with it) with zero diagnostic trail, exactly the
+// failure mode main()'s own recover() exists to guard against.
+func dispatchFileRequest(sessionID, wsURLStr, reportToken, reqID, reqType string, rawRequest json.RawMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon-screenshare: session %s: file-request %s: PANIC: %v\n%s", sessionID, reqID, r, debug.Stack())
+			postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("internal error: %v", r))
 		}
+	}()
+	switch reqType {
+	case "browse":
+		handleBrowseRequest(sessionID, wsURLStr, reportToken, reqID, rawRequest)
+	case "upload":
+		handleUploadRequest(sessionID, wsURLStr, reportToken, reqID, rawRequest)
+	case "download":
+		handleDownloadRequest(sessionID, wsURLStr, reportToken, reqID, rawRequest)
+	default:
+		// Previously just logged with nothing reported back -- left the
+		// request permanently 'pending' (now 'claimed') with no way for
+		// the technician to ever find out. Report it as a clean failure
+		// instead.
+		log.Printf("beacon-screenshare: session %s: file-request %s: unknown type %q", sessionID, reqID, reqType)
+		postFileRequestResult(sessionID, wsURLStr, reportToken, reqID, nil, fmt.Sprintf("unknown request type %q", reqType))
 	}
 }
 

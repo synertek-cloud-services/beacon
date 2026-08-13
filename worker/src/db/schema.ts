@@ -319,7 +319,7 @@ export const sessionFileRequests = sqliteTable('session_file_requests', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
   type: text('type', { enum: ['browse', 'download', 'upload'] }).notNull(),
-  status: text('status', { enum: ['pending', 'completed', 'failed'] }).notNull().default('pending'),
+  status: text('status', { enum: ['pending', 'claimed', 'completed', 'failed'] }).notNull().default('pending'),
   request: text('request').notNull(), // JSON
   result: text('result'), // JSON, set once completed
   error: text('error'),

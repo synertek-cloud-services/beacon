@@ -1466,7 +1466,11 @@ export const api = {
       create: (sessionId: string, type: 'browse' | 'download', path: string) =>
         request<{ id: string }>('POST', `/v1/sessions/${sessionId}/file-requests`, { type, path }),
       get: (sessionId: string, reqId: string) =>
-        request<{ status: 'pending' | 'completed' | 'failed'; result: any; error: string | null }>(
+        // 'claimed' means the helper has picked it up and is working on it
+        // (see worker/src/routes/sessions.ts's GET .../file-requests/next) --
+        // pollFileRequest above already treats anything but completed/failed
+        // as "still waiting," so no caller here needs to branch on it.
+        request<{ status: 'pending' | 'claimed' | 'completed' | 'failed'; result: any; error: string | null }>(
           'GET', `/v1/sessions/${sessionId}/file-requests/${reqId}`,
         ),
     },
