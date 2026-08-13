@@ -677,11 +677,17 @@ async function processAlertState(
     const newAlertedAt          = shouldFire ? now : existing.alertedAt;
     const newAlertPriority      = shouldFire ? monitor.alertPriority : existing.alertPriority;
 
+    // Only worth rate-limiting a transition that's actually about to notify
+    // someone -- a monitor with both channels off has nothing to rate-limit.
+    const notifiable = monitor.notifyWebhook || monitor.notifyEmail;
+    const rl = shouldFire && notifiable ? computeRateLimit(existing, now) : null;
+
     const changed =
       newConditionFirstSeen !== existing.conditionFirstSeen ||
       newIsAlerting          !== existing.isAlerting ||
       newAlertedAt           !== existing.alertedAt ||
-      newAlertPriority        !== existing.alertPriority;
+      newAlertPriority        !== existing.alertPriority ||
+      rl !== null;
 
     if (changed) {
       await db.update(schema.alertState)
@@ -691,18 +697,28 @@ async function processAlertState(
           alertedAt:          newAlertedAt,
           alertPriority:      newAlertPriority,
           updatedAt:          now,
+          ...(rl ? {
+            transitionWindowStartedAt: rl.transitionWindowStartedAt,
+            transitionCount:           rl.transitionCount,
+            notificationsMutedUntil:   rl.notificationsMutedUntil,
+          } : {}),
         })
         .where(eq(schema.alertState.id, existing.id));
     }
 
     if (shouldFire) {
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority, now);
-      await logActivity(db, {
-        actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
-        entityType: 'device', entityId: device.id, companyId: device.companyId,
-        method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId: existing.id },
-      });
+      if (!rl || !rl.suppressNotification) {
+        if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
+        if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority, now);
+        await logActivity(db, {
+          actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
+          entityType: 'device', entityId: device.id, companyId: device.companyId,
+          method: 'CRON', details: { policy: monitor.policy.name, priority: monitor.alertPriority, alertStateId: existing.id },
+        });
+      } else if (rl.isBreakerTrip) {
+        await fireRateLimitNotification(db, env, device, monitor, existing.id, rl.notificationsMutedUntil!, now);
+      }
+      // else: already muted from an earlier trip within this window -- silent.
     }
   } else {
     const wasAlerting     = existing.isAlerting;
@@ -715,10 +731,14 @@ async function processAlertState(
     const newIsAlerting = shouldAutoResolve ? false : existing.isAlerting;
     const newResolvedAt = shouldAutoResolve ? now   : existing.resolvedAt;
 
+    const notifiable = monitor.notifyWebhook || monitor.notifyEmail;
+    const rl = wasAlerting && shouldAutoResolve && notifiable ? computeRateLimit(existing, now) : null;
+
     const changed =
       existing.conditionFirstSeen !== null ||
       newIsAlerting                !== existing.isAlerting ||
-      newResolvedAt                !== existing.resolvedAt;
+      newResolvedAt                !== existing.resolvedAt ||
+      rl !== null;
 
     if (changed) {
       await db.update(schema.alertState)
@@ -727,6 +747,11 @@ async function processAlertState(
           isAlerting:         newIsAlerting,
           resolvedAt:         newResolvedAt,
           updatedAt:          now,
+          ...(rl ? {
+            transitionWindowStartedAt: rl.transitionWindowStartedAt,
+            transitionCount:           rl.transitionCount,
+            notificationsMutedUntil:   rl.notificationsMutedUntil,
+          } : {}),
         })
         .where(eq(schema.alertState.id, existing.id));
     }
@@ -736,13 +761,17 @@ async function processAlertState(
       // shipped and never got a snapshot -- every row created after ships
       // with alertPriority already set by the time it can resolve.
       const priority = existing.alertPriority ?? monitor.alertPriority;
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
-      if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority, existing.alertedAt);
-      await logActivity(db, {
-        actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
-        entityType: 'device', entityId: device.id, companyId: device.companyId,
-        method: 'CRON', details: { policy: monitor.policy.name, priority, alertStateId: existing.id },
-      });
+      if (!rl || !rl.suppressNotification) {
+        if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
+        if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority, existing.alertedAt);
+        await logActivity(db, {
+          actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
+          entityType: 'device', entityId: device.id, companyId: device.companyId,
+          method: 'CRON', details: { policy: monitor.policy.name, priority, alertStateId: existing.id },
+        });
+      } else if (rl.isBreakerTrip) {
+        await fireRateLimitNotification(db, env, device, monitor, existing.id, rl.notificationsMutedUntil!, now);
+      }
     }
   }
 }
@@ -783,6 +812,14 @@ export async function manuallyResolveAlert(
       conditionFirstSeen: null,
       resolvedAt:         now,
       updatedAt:          now,
+      // A technician manually resolving is a deliberate action, not part of
+      // an automatic flapping cycle -- reset the rate-limit window/counter
+      // so a fresh recurrence is treated as new, not counted against
+      // whatever tripped it before. Manual resolve is itself never
+      // rate-limited (see the comment above this function).
+      transitionWindowStartedAt: null,
+      transitionCount:           0,
+      notificationsMutedUntil:   null,
     })
     .where(eq(schema.alertState.id, alertStateId));
 
@@ -803,10 +840,15 @@ async function fireWebhooks(
   db: Db,
   device: Device,
   monitor: EffectiveMonitor,
-  event: 'alert.triggered' | 'alert.resolved',
+  event: 'alert.triggered' | 'alert.resolved' | 'alert.rate_limited',
   now: number,
   alertStateId: string,
   priority: string,
+  // Extra fields merged into the JSON body -- currently just muted_until for
+  // the rate_limited event; kept generic rather than adding a 3rd fixed
+  // parameter so a future event's own extra field doesn't need another
+  // signature change.
+  extra?: Record<string, unknown>,
 ): Promise<void> {
   const webhooks = await db.select()
     .from(schema.webhookEndpoints)
@@ -826,6 +868,7 @@ async function fireWebhooks(
     policy_id:  monitor.policyId,
     priority,
     config:     JSON.parse(monitor.config),
+    ...extra,
   });
 
   await Promise.allSettled(
@@ -871,8 +914,26 @@ function formatUtc(epochSeconds: number): string {
 // Recipients are two unioned sources, both global/hoster-level: Beacon
 // accounts opted in via users.receivesAlerts, plus standalone addresses in
 // notification_emails with no Beacon account at all (a shared mailbox, a
-// ticketing system's inbound address, etc.).
-//
+// ticketing system's inbound address, etc.). Extracted out of sendAlertEmails
+// once a second real consumer (sendRateLimitEmail, below) needed the exact
+// same resolution -- matches this codebase's established "extract on the
+// second real consumer" convention (e.g. fetchCompanyVariables).
+async function resolveAlertRecipients(db: Db, companyId: string): Promise<{ emails: string[]; companyName: string }> {
+  const [userRows, standaloneRows, company] = await Promise.all([
+    db.select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(eq(schema.users.receivesAlerts, true), eq(schema.users.status, 'active'))),
+    db.select({ email: schema.notificationEmails.email })
+      .from(schema.notificationEmails)
+      .where(eq(schema.notificationEmails.enabled, true)),
+    db.select({ name: schema.companies.name }).from(schema.companies).where(eq(schema.companies.id, companyId)).get(),
+  ]);
+  return {
+    emails: [...new Set([...userRows.map(r => r.email), ...standaloneRows.map(r => r.email)])],
+    companyName: company?.name ?? companyId,
+  };
+}
+
 // Issue #88's PSA-ingestion contract: a stable subject prefix across the
 // whole open->resolved lifecycle (only a trailing [Open]/[Resolved] tag
 // differs), a labeled/structured field block (not prose alone) in both html
@@ -897,25 +958,13 @@ async function sendAlertEmails(
   alertedAt: number | null,
 ): Promise<void> {
   const db = drizzle(env.DB, { schema });
-
-  const [userRows, standaloneRows, company] = await Promise.all([
-    db.select({ email: schema.users.email })
-      .from(schema.users)
-      .where(and(eq(schema.users.receivesAlerts, true), eq(schema.users.status, 'active'))),
-    db.select({ email: schema.notificationEmails.email })
-      .from(schema.notificationEmails)
-      .where(eq(schema.notificationEmails.enabled, true)),
-    db.select({ name: schema.companies.name }).from(schema.companies).where(eq(schema.companies.id, device.companyId)).get(),
-  ]);
-
-  const emails = [...new Set([...userRows.map(r => r.email), ...standaloneRows.map(r => r.email)])];
+  const { emails, companyName } = await resolveAlertRecipients(db, device.companyId);
   if (!emails.length) return;
 
   const isResolved = event === 'alert.resolved';
   const stateLabel = isResolved ? 'Resolved' : 'Open';
   const verb = isResolved ? 'resolved' : 'triggered';
   const deviceName = device.hostname ?? device.id;
-  const companyName = company?.name ?? device.companyId;
   const checkLabel = checkTypeLabel(monitor.checkType);
   const priorityLabel = titleCase(priority);
   const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
@@ -967,6 +1016,132 @@ async function sendAlertEmails(
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Rate limiting / circuit breaker for flapping monitors (issue #169) ───────
+//
+// Scoped to the alert_state row (one per device+monitor pair), not
+// policy_monitors -- policy_monitors is shared across every device a policy
+// targets (no deviceId column on it at all), so muting there would silently
+// kill notifications for every OTHER device on the same policy too, not just
+// the one that's actually flapping. One fixed window+threshold, not
+// configurable -- matches this codebase's "one fixed thing, not a builder"
+// convention (e.g. the reboot marker's fixed 1-hour snooze).
+const RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
+const RATE_LIMIT_THRESHOLD = 10; // transitions allowed per window before muting
+
+type AlertStateRow = typeof schema.alertState.$inferSelect;
+
+interface RateLimitDecision {
+  suppressNotification: boolean;
+  // True only on the exact transition that crosses the threshold -- the one
+  // moment a one-time-per-trip meta-notification should fire instead of the
+  // normal alert.triggered/resolved one. False for every other suppressed
+  // transition while already muted.
+  isBreakerTrip: boolean;
+  transitionWindowStartedAt: number;
+  transitionCount: number;
+  notificationsMutedUntil: number | null;
+}
+
+// Pure -- only called when a transition is actually about to notify someone
+// (shouldFire/shouldAutoResolve already true, notifyWebhook||notifyEmail
+// already true). Frozen (counter/window untouched) while an existing mute is
+// still active, so the window boundary alone governs when muting clears --
+// no separate "unmute" bookkeeping needed, mirrors fastPollUntil/
+// maintenanceEndsAt's own self-expiring-on-read convention.
+function computeRateLimit(existing: AlertStateRow, now: number): RateLimitDecision {
+  if (existing.notificationsMutedUntil !== null && existing.notificationsMutedUntil > now) {
+    return {
+      suppressNotification: true,
+      isBreakerTrip: false,
+      transitionWindowStartedAt: existing.transitionWindowStartedAt ?? now,
+      transitionCount: existing.transitionCount,
+      notificationsMutedUntil: existing.notificationsMutedUntil,
+    };
+  }
+
+  const windowExpired = existing.transitionWindowStartedAt === null ||
+    (now - existing.transitionWindowStartedAt) >= RATE_LIMIT_WINDOW_SECONDS;
+  const transitionWindowStartedAt = windowExpired ? now : existing.transitionWindowStartedAt!;
+  const transitionCount = windowExpired ? 1 : existing.transitionCount + 1;
+
+  if (transitionCount > RATE_LIMIT_THRESHOLD) {
+    return {
+      suppressNotification: true,
+      isBreakerTrip: true,
+      transitionWindowStartedAt,
+      transitionCount,
+      notificationsMutedUntil: transitionWindowStartedAt + RATE_LIMIT_WINDOW_SECONDS,
+    };
+  }
+
+  return {
+    suppressNotification: false,
+    isBreakerTrip: false,
+    transitionWindowStartedAt,
+    transitionCount,
+    notificationsMutedUntil: null, // clears a stale expired mute, if any
+  };
+}
+
+// Static, unrelated to the alert.triggered/resolved template above -- this
+// isn't reporting a device condition, it's a system/operational message
+// about the notification channel itself, so it deliberately doesn't reuse
+// sendAlertEmails' Open/Resolved subject/body contract from issue #88.
+async function sendRateLimitEmail(
+  env: Bindings,
+  device: Device,
+  monitor: EffectiveMonitor,
+  alertStateId: string,
+  mutedUntil: number,
+  now: number,
+): Promise<void> {
+  const db = drizzle(env.DB, { schema });
+  const { emails, companyName } = await resolveAlertRecipients(db, device.companyId);
+  if (!emails.length) return;
+
+  const deviceName = device.hostname ?? device.id;
+  const checkLabel = checkTypeLabel(monitor.checkType);
+  const link = `${env.ALLOWED_ORIGIN ?? ''}/#/global/alerts/${alertStateId}`;
+  const subject = `[Beacon] ${companyName} - ${deviceName} - ${checkLabel} notifications rate-limited`;
+
+  const body =
+    `The ${checkLabel} check on ${deviceName} (${companyName}) has fired more than ` +
+    `${RATE_LIMIT_THRESHOLD} times in the last ${RATE_LIMIT_WINDOW_SECONDS / 60} minutes. ` +
+    `Beacon is still tracking this alert and it remains visible on the dashboard -- only ` +
+    `further webhook/email notifications for it are paused until ${formatUtc(mutedUntil)}, ` +
+    `to avoid flooding this channel while it keeps flapping.\n\n${link}`;
+
+  await sendEmail(env, emails, subject, `<p>${escapeHtml(body).replace(/\n\n/g, '</p><p>')}</p>`, body, {
+    'X-Beacon-Alert-Id': alertStateId,
+    'X-Beacon-Device-Id': device.id,
+    'X-Beacon-Company-Id': device.companyId,
+    'X-Beacon-Event': 'rate_limited',
+    'X-Beacon-Schema-Version': '1',
+  });
+}
+
+async function fireRateLimitNotification(
+  db: Db,
+  env: Bindings,
+  device: Device,
+  monitor: EffectiveMonitor,
+  alertStateId: string,
+  mutedUntil: number,
+  now: number,
+): Promise<void> {
+  if (monitor.notifyWebhook) {
+    await fireWebhooks(db, device, monitor, 'alert.rate_limited', now, alertStateId, monitor.alertPriority, { muted_until: mutedUntil });
+  }
+  if (monitor.notifyEmail) {
+    await sendRateLimitEmail(env, device, monitor, alertStateId, mutedUntil, now);
+  }
+  await logActivity(db, {
+    actorType: 'system', category: 'Alert', action: `Alert notifications rate-limited: ${monitor.checkType}`,
+    entityType: 'device', entityId: device.id, companyId: device.companyId,
+    method: 'CRON', details: { policy: monitor.policy.name, alertStateId, mutedUntil },
+  });
 }
 
 // ── Called from policy/monitor admin routes after an edit ────────────────────

@@ -44,6 +44,10 @@
           <div class="ad-row">
             <span class="ad-label">Status</span>
             <span class="status-pill" :class="statusClass">{{ statusLabel }}</span>
+            <span v-if="isRateLimited" class="muted-badge" :title="mutedLabel">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              Muted
+            </span>
           </div>
           <div class="ad-row">
             <span class="ad-label">Alert ID</span>
@@ -134,6 +138,12 @@
               <span class="status-pill" :class="a.is_alerting ? 'status-open' : 'status-resolved'">
                 {{ a.is_alerting ? 'Open' : 'Resolved' }}
               </span>
+              <span
+                v-if="a.notifications_muted_until != null && a.notifications_muted_until > Date.now() / 1000"
+                class="muted-badge" title="Notifications rate-limited"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              </span>
             </td>
           </tr>
         </tbody>
@@ -166,6 +176,20 @@ const statusClass = computed(() => {
 const statusLabel = computed(() => {
   if (!alert.value) return '';
   return alert.value.is_alerting ? 'Open' : 'Resolved';
+});
+
+// Issue #169 -- notifications_muted_until set and still in the future means
+// this alert's webhook/email got rate-limited (it flapped too many times);
+// the alert itself keeps tracking normally, only the notification channel
+// is paused.
+const isRateLimited = computed(() => {
+  const a = alert.value;
+  return !!a && a.notifications_muted_until != null && a.notifications_muted_until > Date.now() / 1000;
+});
+const mutedLabel = computed(() => {
+  const a = alert.value;
+  if (!a || a.notifications_muted_until == null) return '';
+  return `Notifications muted until ${new Date(a.notifications_muted_until * 1000).toLocaleTimeString()} (rate-limited after ${a.transition_count} transitions)`;
 });
 
 // ── Timeline ───────────────────────────────────────────────────
@@ -367,6 +391,15 @@ function alertMessage(a: AlertState): string {
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-open     { background: rgba(232,86,106,.12); color: var(--color-danger); }
 .status-resolved { color: var(--color-text-subtle); }
+
+/* Rate-limit "muted" indicator (issue #169) — amber, reads as caution
+   distinct from either the danger-red open pill or the resolved gray. */
+.muted-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; color: var(--color-warning);
+  background: rgba(240,168,64,.12); border: 1px solid rgba(240,168,64,.3);
+  border-radius: 4px; padding: 2px 7px;
+}
 
 /* Priority badges */
 .pri-badge {
