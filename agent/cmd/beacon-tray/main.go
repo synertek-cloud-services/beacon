@@ -35,8 +35,9 @@ import (
 var iconData []byte
 
 // dialogActive is 1 while promptReboot's MessageBox is on screen awaiting a
-// click. Package-level and atomic because restartForExplorer's periodic
-// loop and pollPendingReboot's goroutine both need to observe it, and
+// click. Package-level and atomic because pollPendingReboot's loop and the
+// goroutine it spawns to show the dialog both need to observe it (so a
+// second prompt can't stack on top of one still awaiting a response), and
 // neither should block the other.
 var dialogActive int32
 
@@ -63,10 +64,9 @@ func main() {
 	version := flag.String("version", "dev", "Beacon agent version to display")
 	dashboardURL := flag.String("dashboard-url", "", "Dashboard URL for the 'Visit Dashboard' menu item (item hidden if unset)")
 	supportURL := flag.String("support-url", "", "Support destination URL for the 'Get Support' menu item (item hidden if unset)")
-	restartInterval := flag.Duration("restart-after", 0, "periodically exit on this interval so the agent supervisor relaunches the tray with a fresh icon registration; 0 disables")
 	flag.Parse()
 
-	systray.Run(func() { onReady(*version, *dashboardURL, *supportURL, *restartInterval) }, func() {})
+	systray.Run(func() { onReady(*version, *dashboardURL, *supportURL) }, func() {})
 }
 
 // setupLogging mirrors agent/cmd/agent/main.go's function of the same name
@@ -100,7 +100,7 @@ func setupLogging(credDir string) {
 	}()
 }
 
-func onReady(version, dashboardURL, supportURL string, restartInterval time.Duration) {
+func onReady(version, dashboardURL, supportURL string) {
 	systray.SetIcon(iconData)
 	systray.SetTooltip("Beacon Agent " + version)
 
@@ -142,65 +142,58 @@ func onReady(version, dashboardURL, supportURL string, restartInterval time.Dura
 	// reappear shortly after, confusing UX for no benefit at this stage.
 
 	go pollPendingReboot()
-	if restartInterval > 0 {
-		go restartForExplorer(restartInterval)
-	}
+	go recoverBlankIcon()
 }
 
-// restartForExplorer exits periodically so the agent supervisor's next
-// normal check-in tick starts a replacement, which performs a fresh
-// Shell_NotifyIcon NIM_ADD rather than SetIcon's NIM_MODIFY. This is
-// necessary because a blank slot can survive indefinitely when an NIM_ADD
-// raced Explorer's notification area creation; modifying that bad
-// registration does not make Explorer render it (confirmed on real
-// hardware in v0.2.19, where a 30s SetIcon-only refresh loop left a blank
-// icon for over 12 hours).
+// blankIconRecoveryDelays are how long after launch to force a fresh
+// Shell_NotifyIcon registration via systray.Readd() (NIM_DELETE followed by
+// NIM_ADD, from this same still-running window -- no process exit, no
+// relaunch). This targets one specific, narrow, real race: WTS_SESSION_LOGON
+// can fire before Explorer's own taskbar/notification-area window is fully
+// up, and a NIM_ADD that lands before that window exists can silently
+// reserve a slot without Explorer ever rendering into it -- confirmed on
+// real hardware in v0.2.19, where a 30s SetIcon-only (NIM_MODIFY) refresh
+// loop left a blank icon for over 12 hours, since a modify assumes the slot
+// is already correctly registered and can't repair one that never was.
 //
-// This used to be a single one-shot restart, scheduled only for a
-// session's first tray launch, on the theory that the race is purely a
-// startup-timing issue. Real hardware disproved that: a device's tray
-// process stayed alive and tracked as healthy by the supervisor's PID
-// check, yet its icon went blank again well after that one recovery
-// attempt had already fired -- there is no reliable way to detect a blank
-// slot from inside this process (Shell_NotifyIcon's return value doesn't
-// distinguish a successful-but-not-rendered registration from a genuine
-// success), so recovery runs unconditionally on an ongoing interval
-// instead of a single guess at how long the race window is.
+// Bounded to the first couple of minutes after launch, not unconditional or
+// forever. An earlier design (v0.2.20-v0.2.21, and everything up through
+// PR #162) instead exited the whole process on a repeating 10-minute timer
+// for the entire life of the session, relying on the agent service's own
+// up-to-60s reconciliation tick to notice and relaunch it. Real-hardware
+// reports kept recurring anyway, and the reason is structural, not another
+// missed edge case in that mechanism: every single one of those cycles
+// deregisters the icon (a real Shell_NotifyIcon(NIM_DELETE), confirmed
+// correct since PR #162) and then leaves it genuinely absent for up to a
+// minute before anything re-adds it -- which is exactly the vanish-and-
+// reappear pattern Windows' own taskbar is documented to render as a blank
+// placeholder for an icon it remembers being pinned/positioned. The
+// mechanism built to fix the blank-icon bug was, every 10 minutes for as
+// long as any session stayed open, manufacturing the precise condition that
+// triggers it. See CLAUDE.md's Architecture section for the full history.
 //
-// Found after this exact mechanism still hadn't held on real hardware
-// across five separate real-usage reports: os.Exit(0) alone terminates
-// the process, but it bypasses systray's own quit() entirely -- which is
-// the one place this library actually issues Shell_NotifyIcon(NIM_DELETE)
-// to properly remove the current icon registration first (confirmed
-// directly in the vendored fyne.io/systray source). Skipping that means
-// every single one of these "recovery" restarts was very plausibly
-// leaving a stale, never-deleted icon slot behind for the replacement
-// process's fresh NIM_ADD to collide with or be confused for, rather than
-// handing off to a genuinely clean slate -- a real gap distinct from
-// (and layered underneath) everything the v0.2.19-v0.2.21 fixes already
-// addressed, none of which touched whether the *old* icon was ever
-// properly torn down before the *new* one registered.
-func restartForExplorer(interval time.Duration) {
-	for {
-		time.Sleep(interval)
-		if atomic.LoadInt32(&dialogActive) != 0 {
-			// A reboot-confirmation MessageBox is on screen right now --
-			// exiting would yank it out from under whoever is about to
-			// click it. Skip this cycle; the next tick reconsiders.
-			continue
-		}
-		// Quit() first, for the real NIM_DELETE cleanup -- then a bounded
-		// grace period for its WM_CLOSE to actually be processed, then
-		// os.Exit(0) as a guaranteed-termination backstop regardless of
-		// whether that message was ever delivered (the exact v0.2.20
-		// finding that motivated dropping Quit() as the *sole* mechanism
-		// in the first place -- this keeps that guarantee, it just no
-		// longer skips the cleanup Quit() does on the way out). A process
-		// that already exited via Quit()'s own path never reaches this
-		// os.Exit(0) call at all.
-		systray.Quit()
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(0)
+// There is still no reliable way to detect a blank slot from inside this
+// process (Shell_NotifyIcon's return value doesn't distinguish a
+// successful-but-unrendered registration from a genuine success), so this
+// stays a blind, multi-attempt retry rather than a single guess -- just
+// bounded to the window where the actual race lives, and done in-process so
+// each attempt has no gap at all, rather than run forever and rely on an
+// external supervisor to close a real one. A genuine later-session Explorer
+// restart doesn't need this: systray's own WM_TASKBARCREATED handler
+// already re-adds automatically, with no gap and no guesswork, since that's
+// a real event being responded to rather than a startup timing race being
+// guessed around.
+var blankIconRecoveryDelays = []time.Duration{
+	10 * time.Second,
+	20 * time.Second, // 30s since launch
+	30 * time.Second, // 60s
+	60 * time.Second, // 120s, then stop
+}
+
+func recoverBlankIcon() {
+	for _, d := range blankIconRecoveryDelays {
+		time.Sleep(d)
+		systray.Readd()
 	}
 }
 
@@ -224,8 +217,9 @@ const (
 // the agent after a patch install that reported RebootRequired. Polled
 // state, not a named pipe -- see the marker type's own doc comment in
 // main.go for why. Guarded by the package-level dialogActive flag (not a
-// plain bool; it's also read from restartForExplorer's separate goroutine)
-// so a second prompt can't stack on top of one still awaiting a response.
+// plain bool; it's also read/written from the goroutine promptReboot runs
+// on) so a second prompt can't stack on top of one still awaiting a
+// response.
 func pollPendingReboot() {
 	for range time.Tick(30 * time.Second) {
 		if atomic.LoadInt32(&dialogActive) != 0 {

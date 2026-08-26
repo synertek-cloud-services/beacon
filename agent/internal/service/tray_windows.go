@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -20,25 +19,10 @@ import (
 //go:embed embedded/beacon-tray.exe
 var trayBinary []byte
 
-// trayRestartInterval is how often each session's tray helper exits and lets
-// the supervisor relaunch it with a fresh Shell_NotifyIcon NIM_ADD. This used
-// to be a single one-shot restart scheduled only for a session's first
-// launch, on the theory that Explorer-notification-area-creation racing
-// WTS_SESSION_LOGON was the only way to end up with a blank icon slot. Real
-// hardware disproved that: a tray process that had already used its one
-// recovery attempt went blank again later, with nothing left watching for
-// it. There is no reliable in-process way to detect a blank slot (a
-// successful-looking Shell_NotifyIcon call doesn't guarantee Explorer
-// actually rendered it), so recovery now runs unconditionally, on an
-// ongoing interval, for the life of the session -- trading a brief,
-// harmless icon blip every interval for actually bounding how long a blank
-// slot can persist, instead of leaving it unbounded.
-const trayRestartInterval = 10 * time.Minute
-
 var (
 	trayMu          sync.Mutex
 	agentVer        string
-	supportURL      string // Get Support menu item's destination; "" hides it. See SetSupportURL.
+	supportURL      string                // Get Support menu item's destination; "" hides it. See SetSupportURL.
 	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
 	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
 	killOrphansOnce sync.Once
@@ -64,8 +48,8 @@ func SetAgentVersion(v string) {
 // empty string here correctly clears a previously-configured URL rather
 // than leaving a stale one active. Propagation to an already-running tray
 // is eventually-consistent, same as agentVer -- a change is only picked up
-// on that session's next natural relaunch (the periodic restart interval
-// below, or a session logon/logoff), not pushed live.
+// on that session's next natural relaunch (a crash, or a session
+// logon/logoff), not pushed live.
 func SetSupportURL(u string) {
 	trayMu.Lock()
 	defer trayMu.Unlock()
@@ -169,12 +153,14 @@ func EnsureTrayRunning() {
 	trayMu.Unlock()
 
 	for _, id := range toLaunch {
-		// Every launch -- a session's first or a periodic-restart
-		// replacement alike -- gets the same recurring recovery interval;
-		// see trayRestartInterval's doc comment for why this is
-		// unconditional rather than a one-shot scheduled only for the first
-		// launch.
-		args := []string{"--version=" + version, "--restart-after=" + trayRestartInterval.String()}
+		// No --restart-after here (removed) -- blank-icon recovery now
+		// happens in-process, inside beacon-tray itself, via a bounded
+		// startup-window systray.Readd() retry (see
+		// agent/cmd/beacon-tray/main.go's recoverBlankIcon). The tray
+		// process for a session is only relaunched here when it's actually
+		// dead (crashed, or the session itself ended and came back) --
+		// this loop no longer needs to know anything about icon recovery.
+		args := []string{"--version=" + version}
 		if support != "" {
 			// Rebuilt fresh every reconciliation pass, same as --version --
 			// this is what makes multi-session environments and "opens in
