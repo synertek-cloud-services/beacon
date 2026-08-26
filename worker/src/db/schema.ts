@@ -98,6 +98,14 @@ export const devices = sqliteTable('devices', {
   // Hyper-V hosts from a policy's Server-class/company sweep -- see
   // worker/src/lib/patchPolicies.ts's deviceMatchesPatchPolicy.
   isHyperVHost: integer('is_hyper_v_host', { mode: 'boolean' }),
+  // Windows Installation Type ("Client"/"Server"/"Server Core"/...), same
+  // tri-state (NULL = never evaluated) shape as isHyperVHost. The Hyper-V
+  // exclusion above is only meant for a genuine production hypervisor
+  // host, not an ordinary Client desktop running Hyper-V locally (WSL2,
+  // Docker Desktop, local dev VMs) -- deviceMatchesPatchPolicy ANDs this in
+  // to narrow the exclusion to isHyperVHost && windowsInstallationType !==
+  // 'Client'.
+  windowsInstallationType: text('windows_installation_type'),
   // Fleet-visible pending-reboot state -- set from an install_patches
   // command's reboot_required result, cleared once a later check-in's
   // uptime_seconds shows the device has since restarted. No "never
