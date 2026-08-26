@@ -838,8 +838,13 @@ export interface Device {
   microsoftUpdateManagedAt: number | null;
   // Null = never evaluated (non-Windows, or not yet audited). Drives Patch
   // Policy's automatic exclusion of Hyper-V hosts from a Server-class/
-  // company-wide sweep — see CLAUDE.md's Patch Management section.
+  // company-wide sweep — see CLAUDE.md's Patch Management section. Only
+  // actually excluded when combined with windowsInstallationType below —
+  // a Client-OS desktop with Hyper-V enabled locally isn't a production
+  // hypervisor host.
   isHyperVHost: boolean | null;
+  // "Client" / "Server" / "Server Core" / ... — null = never evaluated.
+  windowsInstallationType: string | null;
   // Fleet-visible pending-reboot state — see CLAUDE.md's Patch Management
   // section ("Reboot Required" / issue #89).
   pendingRebootRequired: boolean;

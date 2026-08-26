@@ -290,6 +290,18 @@ audit.post('/', async (c) => {
       .where(eq(schema.devices.id, device.id));
   }
 
+  // Windows Installation Type rides the existing hardware blob (already
+  // sent on every Windows audit) rather than needing its own top-level
+  // wire field like hypervisor_host -- read straight out of payload here,
+  // same "only touched when actually present" discipline so a non-Windows
+  // device or a stale pre-upgrade agent's missing value never overwrites a
+  // previously-known real one.
+  if (payload.hardware?.windows_installation_type) {
+    await db.update(schema.devices)
+      .set({ windowsInstallationType: payload.hardware.windows_installation_type })
+      .where(eq(schema.devices.id, device.id));
+  }
+
   // Load previous audit for delta computation
   const prevAudit = await db.select()
     .from(schema.deviceAudits)

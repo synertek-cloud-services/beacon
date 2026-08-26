@@ -532,8 +532,11 @@
               <span :class="device.isHyperVHost ? 'inv-badge-warn' : 'inv-badge-muted'">
                 {{ device.isHyperVHost ? 'Yes' : 'No' }}
               </span>
-              <span v-if="device.isHyperVHost" class="text-xs text-muted-2" style="margin-left:8px">
+              <span v-if="hyperVPatchExcluded" class="text-xs text-muted-2" style="margin-left:8px">
                 excluded from automatic Server-class Patch Policy targeting — target it explicitly by device or group to patch it
+              </span>
+              <span v-else-if="device.isHyperVHost" class="text-xs text-muted-2" style="margin-left:8px">
+                Client-OS install — included in normal Patch Policy targeting like any other device
               </span>
             </div>
             <div class="inv-tab-body">
@@ -1077,6 +1080,12 @@ const alertsResolving     = ref(false);
 // already loaded for the Alerts section below, no separate API call needed.
 const windowsUpdateDriftAlerting = computed(() =>
   deviceAlerts.value.some(a => a.check_type === 'windows_update_drift' && a.is_alerting === 1));
+// Mirrors worker/src/lib/patchPolicies.ts's deviceMatchesPatchPolicy exactly
+// (isHyperVHost && windowsInstallationType !== 'Client') -- a Client-OS
+// desktop running Hyper-V locally (WSL2, Docker Desktop, dev VMs) is not
+// excluded, only a confirmed non-Client (Server/Server Core/...) install is.
+const hyperVPatchExcluded = computed(() =>
+  !!device.value?.isHyperVHost && device.value?.windowsInstallationType !== 'Client');
 
 // Policies section (effective monitors for this device)
 const effectiveMonitors        = ref<EffectiveMonitor[]>([]);

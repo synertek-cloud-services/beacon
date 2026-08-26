@@ -160,17 +160,28 @@ export function deviceMatchesPatchPolicy(
   const matchesDevice = devices?.has(device.id) ?? false;
   const matchesGroup  = groups ? [...groups].some(gid => deviceGroupIds.has(gid)) : false;
 
-  // Hyper-V hosts are never swept in automatically by a Server-class or
-  // company-wide target -- no opt-out toggle, confirmed via AskUserQuestion
-  // (real operational experience: nobody wants an RMM auto-rebooting a
-  // hypervisor host without first checking cluster/maintenance-mode state
-  // or migrating VMs off it). The only way to patch one through Beacon is a
-  // policy that explicitly Device- or Group-targets it -- a deliberately
-  // curated selection, unlike company-wide targeting, which is just as much
-  // an unattended sweep as the class-based default. This check must run
-  // before the class check below, since it's meant to override it, not be
-  // gated behind it.
-  if (device.isHyperVHost && !matchesDevice && !matchesGroup) return false;
+  // Hyper-V *server* hosts are never swept in automatically by a
+  // Server-class or company-wide target -- no opt-out toggle, confirmed via
+  // AskUserQuestion (real operational experience: nobody wants an RMM
+  // auto-rebooting a production hypervisor host without first checking
+  // cluster/maintenance-mode state or migrating VMs off it). The only way
+  // to patch one through Beacon is a policy that explicitly Device- or
+  // Group-targets it -- a deliberately curated selection, unlike
+  // company-wide targeting, which is just as much an unattended sweep as
+  // the class-based default. This check must run before the class check
+  // below, since it's meant to override it, not be gated behind it.
+  //
+  // Deliberately scoped to a genuine Server-family install, not just "the
+  // Hyper-V feature is present" -- found live: isHyperVHost alone also
+  // matches an ordinary Windows Client desktop running Hyper-V locally
+  // (WSL2, Docker Desktop, local dev VMs), a materially different risk
+  // profile that was silently going unpatched fleet-wide with no way to
+  // override it short of an explicit Device/Group target. windowsInstallationType
+  // being null (not yet audited since this shipped, same tri-state as
+  // isHyperVHost itself) keeps the conservative pre-existing behavior --
+  // exclude until a fresh audit positively confirms it's a Client install.
+  const knownClientOS = device.windowsInstallationType === 'Client';
+  if (device.isHyperVHost && !knownClientOS && !matchesDevice && !matchesGroup) return false;
 
   // Class check is ANDed with the OR-list below, same relationship
   // policies.targetClass has with its own Companies/Devices/Groups OR-list

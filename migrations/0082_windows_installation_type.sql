@@ -1,0 +1,11 @@
+-- Windows installation type (Client / Server / Server Core / ...), a real
+-- devices column mirroring is_hyper_v_host's own shape -- feeds Patch
+-- Policy's Hyper-V exclusion (worker/src/lib/patchPolicies.ts). Found live:
+-- the exclusion originally fired for *any* device with the Hyper-V role or
+-- optional feature present, which also matches an ordinary Windows Client
+-- desktop running Hyper-V locally for WSL2/dev VMs -- a materially
+-- different risk profile from a genuine production hypervisor host. NULL =
+-- never evaluated (non-Windows, or not yet audited since this shipped) --
+-- only updated when the agent actually sends a value, same tri-state
+-- discipline as is_hyper_v_host.
+ALTER TABLE devices ADD COLUMN windows_installation_type TEXT;
