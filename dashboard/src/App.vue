@@ -95,7 +95,7 @@
             to="/devices"
             class="sbi"
             :class="{ active: route.path.startsWith('/devices') && !route.query.company && route.query.status !== 'pending' }"
-          >All</RouterLink>
+          >All Devices</RouterLink>
           <RouterLink to="/groups" class="sbi" :class="{ active: route.path.startsWith('/groups') }">Device Groups</RouterLink>
         </div>
 
@@ -214,7 +214,7 @@
           to="/devices"
           class="sbi"
           :class="{ active: route.path.startsWith('/devices') && !route.query.company && route.query.status !== 'pending' }"
-        >All</RouterLink>
+        >All Devices</RouterLink>
         <RouterLink to="/groups" class="sbi" :class="{ active: route.path.startsWith('/groups') }">Device Groups</RouterLink>
       </template>
 
