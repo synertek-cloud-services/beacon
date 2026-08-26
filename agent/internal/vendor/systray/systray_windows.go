@@ -397,32 +397,38 @@ func (t *winTray) initInstance() error {
 
 	instanceHandle, _, err := pGetModuleHandle.Call(0)
 	if instanceHandle == 0 {
-		return err
+		// Beacon fork addition: name the specific failing step. The
+		// previous bare `return err` collapsed every one of this
+		// function's ~8 possible failure points down to one identical,
+		// unhelpfully generic "unable to init instance: Unspecified
+		// error" log line -- found live on real hardware with no way to
+		// tell which Win32 call actually failed.
+		return fmt.Errorf("GetModuleHandle: %w", err)
 	}
 	t.instance = windows.Handle(instanceHandle)
 
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms648072(v=vs.85).aspx
 	iconHandle, _, err := pLoadIcon.Call(0, uintptr(IDI_APPLICATION))
 	if iconHandle == 0 {
-		return err
+		return fmt.Errorf("LoadIcon: %w", err)
 	}
 	t.icon = windows.Handle(iconHandle)
 
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms648391(v=vs.85).aspx
 	cursorHandle, _, err := pLoadCursor.Call(0, uintptr(IDC_ARROW))
 	if cursorHandle == 0 {
-		return err
+		return fmt.Errorf("LoadCursor: %w", err)
 	}
 	t.cursor = windows.Handle(cursorHandle)
 
 	classNamePtr, err := windows.UTF16PtrFromString(className)
 	if err != nil {
-		return err
+		return fmt.Errorf("UTF16PtrFromString(className): %w", err)
 	}
 
 	windowNamePtr, err := windows.UTF16PtrFromString(windowName)
 	if err != nil {
-		return err
+		return fmt.Errorf("UTF16PtrFromString(windowName): %w", err)
 	}
 
 	t.wcex = &wndClassEx{
@@ -436,7 +442,7 @@ func (t *winTray) initInstance() error {
 		IconSm:     t.icon,
 	}
 	if err := t.wcex.register(); err != nil {
-		return err
+		return fmt.Errorf("RegisterClassEx: %w", err)
 	}
 
 	windowHandle, _, err := pCreateWindowEx.Call(
@@ -454,7 +460,7 @@ func (t *winTray) initInstance() error {
 		uintptr(0),
 	)
 	if windowHandle == 0 {
-		return err
+		return fmt.Errorf("CreateWindowEx: %w", err)
 	}
 	t.window = windows.Handle(windowHandle)
 
@@ -892,16 +898,40 @@ func create32BitHBitmap(hDC uintptr, cx, cy int32) (uintptr, error) {
 func registerSystray() {
 	if err := wt.initInstance(); err != nil {
 		log.Printf("systray error: unable to init instance: %s\n", err)
-		return
+		exitOnRegisterFailure()
 	}
 
 	if err := wt.createMenu(); err != nil {
 		log.Printf("systray error: unable to create menu: %s\n", err)
-		return
+		exitOnRegisterFailure()
 	}
 
 	wt.initialized.Store(true)
 	systrayReady()
+}
+
+// exitOnRegisterFailure is a Beacon fork addition. Upstream, a failed
+// registerSystray() just returned -- but Run() calls nativeLoop() right
+// after Register() unconditionally, regardless of whether registration
+// actually succeeded, so the process kept running GetMessage() forever as
+// a permanently invisible zombie: no icon, no menu, no way for it to ever
+// self-heal, and -- critically -- a PID an external process-liveness check
+// (Beacon's own agent service, watching for a dead PID to relaunch)
+// reports as perfectly healthy, since the process genuinely never exits.
+// Found on real hardware: a registerSystray failure logged once, and the
+// icon simply never appeared for the rest of that session, with nothing
+// in the log or process list to suggest anything was ever wrong.
+//
+// Exiting here instead means the agent's own supervisor notices the dead
+// PID on its next reconciliation (within 60s) and launches a fresh
+// process, which gets its own full attempt at Register() -- including a
+// fresh crack at whatever transient condition (a security product's
+// real-time behavioral protection interfering with window/class creation
+// is the leading suspect, matching this codebase's own prior findings for
+// beacon-screenshare.exe's similarly low-level Win32 usage) caused the
+// first attempt to fail.
+func exitOnRegisterFailure() {
+	os.Exit(1)
 }
 
 var m = &struct {
