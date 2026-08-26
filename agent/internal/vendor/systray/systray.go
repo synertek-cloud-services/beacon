@@ -3,11 +3,14 @@
 //
 // This is a Beacon-local fork of fyne.io/systray v1.12.2 (Apache-2.0, see
 // LICENSE in this directory), wired in via a `replace` directive in
-// agent/go.mod rather than tracked upstream. The only change from upstream
-// is the addition of Readd() (see below) -- everything else is verbatim.
-// Re-sync from a newer upstream release by copying its source over this
-// directory and re-applying the reAdd()/Readd() addition (grep this
-// package for "Beacon fork addition").
+// agent/go.mod rather than tracked upstream. Changes from upstream, both on
+// Windows only: Readd() (see below), and registerSystray() actually
+// terminating the process on a failed Win32 init instead of leaving it
+// running forever as an invisible, never-self-healing zombie (see
+// systray_windows.go's exitOnRegisterFailure). Everything else is
+// verbatim. Re-sync from a newer upstream release by copying its source
+// over this directory and re-applying both (grep this package for "Beacon
+// fork addition").
 package systray
 
 import (
