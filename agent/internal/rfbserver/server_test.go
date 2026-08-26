@@ -63,6 +63,7 @@ type fakeInjector struct {
 	mu       sync.Mutex
 	keys     []recordedKeyEvent
 	pointers []recordedPointerEvent
+	pastes   []string
 }
 
 func (f *fakeInjector) KeyEvent(down bool, keysym uint32) error {
@@ -77,10 +78,17 @@ func (f *fakeInjector) PointerEvent(mask uint8, x, y uint16) error {
 	f.pointers = append(f.pointers, recordedPointerEvent{mask, x, y})
 	return nil
 }
+func (f *fakeInjector) PasteText(text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pastes = append(f.pastes, text)
+	return nil
+}
 
-// Keys and Pointers return snapshots under lock -- the safe way to inspect
-// recorded events from a test goroutine that isn't otherwise synchronized
-// with Serve's own goroutines via a channel/pipe happens-before edge.
+// Keys, Pointers, and Pastes return snapshots under lock -- the safe way to
+// inspect recorded events from a test goroutine that isn't otherwise
+// synchronized with Serve's own goroutines via a channel/pipe happens-before
+// edge.
 func (f *fakeInjector) Keys() []recordedKeyEvent {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -90,6 +98,11 @@ func (f *fakeInjector) Pointers() []recordedPointerEvent {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]recordedPointerEvent(nil), f.pointers...)
+}
+func (f *fakeInjector) Pastes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.pastes...)
 }
 
 // testHarness wires a Serve() goroutine to a synchronous client-side driver
@@ -258,6 +271,11 @@ func (h *testHarness) sendPointerEvent(mask uint8, x, y uint16) {
 	sendPointerEvent(h.t, h.client, mask, x, y)
 }
 
+func (h *testHarness) sendClientCutText(text string) {
+	h.t.Helper()
+	sendClientCutText(h.t, h.client, text)
+}
+
 // sendKeyEvent/sendPointerEvent are free functions (not just testHarness
 // methods) so a test that needs a custom Injector -- which newTestHarness
 // doesn't support, it always builds its own fakeInjector -- can still send
@@ -293,6 +311,24 @@ func sendPointerEvent(t *testing.T, client io.Writer, mask uint8, x, y uint16) {
 	}
 	if _, err := client.Write(buf.Bytes()); err != nil {
 		t.Fatalf("client: send PointerEvent: %v", err)
+	}
+}
+
+// sendClientCutText writes a real wire-format ClientCutText message (RFC
+// 6143 §7.5.6) -- what noVNC's real clipboardPasteFrom() sends, and what
+// TestClientCutTextReachesInjector proves the server actually acts on now,
+// instead of the "// silently dropped" no-op found live on a real device.
+func sendClientCutText(t *testing.T, client io.Writer, text string) {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteByte(6)
+	buf.Write([]byte{0, 0, 0}) // 3 bytes padding
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(text)))
+	buf.Write(length[:])
+	buf.WriteString(text)
+	if _, err := client.Write(buf.Bytes()); err != nil {
+		t.Fatalf("client: send ClientCutText: %v", err)
 	}
 }
 
@@ -471,6 +507,43 @@ func TestInputEventsForwarded(t *testing.T) {
 	pointers := h.inj.Pointers()
 	if len(pointers) != 1 || pointers[0] != (recordedPointerEvent{0x01, 100, 200}) {
 		t.Fatalf("pointers = %+v", pointers)
+	}
+
+	h.closeAndWaitClean()
+}
+
+// TestClientCutTextReachesInjector is the regression test for a real
+// production bug: a live device's beacon-screenshare.exe had always
+// silently dropped ClientCutText ("Clipboard sync is out of scope for
+// v1"), while the dashboard's Paste button had genuinely been sending it
+// correctly the whole time -- the wire message reached the agent and was
+// discarded, not a client-side bug. Proves the message now actually
+// reaches Injector.PasteText with its exact text, and that an empty
+// paste (an empty local clipboard) doesn't even queue an injection event.
+func TestClientCutTextReachesInjector(t *testing.T) {
+	h := newTestHarness(t, 4, 3)
+
+	h.sendClientCutText("hello, remote session")
+
+	waitFor(t, 2*time.Second, func() bool {
+		return len(h.inj.Pastes()) >= 1
+	}, "ClientCutText was not forwarded to the injector in time")
+
+	pastes := h.inj.Pastes()
+	if len(pastes) != 1 || pastes[0] != "hello, remote session" {
+		t.Fatalf("pastes = %+v", pastes)
+	}
+
+	// A follow-up empty paste must not add a second (no-op) entry -- an
+	// empty local clipboard shouldn't type anything, and shouldn't even
+	// reach PasteText to distinguish "typed nothing" from "wasn't called".
+	h.sendClientCutText("")
+	h.sendKeyEvent(true, 0xFF0D) // a real event afterward, to have something to wait on
+	waitFor(t, 2*time.Second, func() bool {
+		return len(h.inj.Keys()) >= 1
+	}, "key event after empty paste was not injected in time")
+	if len(h.inj.Pastes()) != 1 {
+		t.Fatalf("pastes after empty ClientCutText = %+v, want still just the first one", h.inj.Pastes())
 	}
 
 	h.closeAndWaitClean()
