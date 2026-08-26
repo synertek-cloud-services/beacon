@@ -25,3 +25,12 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 )
+
+// Local fork of fyne.io/systray v1.12.2 -- adds Readd() (a fresh
+// NIM_DELETE+NIM_ADD from the same window, no process restart) for
+// beacon-tray's blank-icon recovery. See agent/internal/vendor/systray's
+// own doc comments on reAdd/Readd for why this exists instead of the
+// process-restart approach it replaces. Not tracked as an upstream PR --
+// small enough, and specific enough to this codebase's own recovery
+// design, not worth it yet.
+replace fyne.io/systray => ./internal/vendor/systray
