@@ -42,6 +42,11 @@ type openPayload struct {
 	// reported via ReportToken above), chosen from WebRemotePage.vue's
 	// Displays switcher.
 	Monitor string `json:"monitor,omitempty"`
+	// RequireConsent means the end user must Accept/Decline before
+	// beacon-screenshare.exe connects -- screen_share only, resolved
+	// worker-side from the company/device consent policy (issue #86). See
+	// screenshare.go's runScreenShare for what the helper does with it.
+	RequireConsent bool `json:"require_consent,omitempty"`
 }
 
 // Handle connects to the session relay DO and dispatches to the correct handler.
@@ -64,7 +69,7 @@ func Handle(cmd protocol.Command) {
 	// session, two agent-role sockets would both receive the browser's
 	// bytes and corrupt RFB's strict single-byte-stream protocol.
 	if p.SessionType == "screen_share" {
-		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.TargetSessionID, p.ReportToken, p.Monitor)
+		runScreenShare(p.SessionID, p.WSURL, p.Elevated, p.TargetSessionID, p.ReportToken, p.Monitor, p.RequireConsent)
 		log.Printf("session %s: closed", p.SessionID)
 		return
 	}

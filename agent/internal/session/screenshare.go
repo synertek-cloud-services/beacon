@@ -69,7 +69,13 @@ var screenShareBinary []byte
 // valid: a shell/tcp_tunnel session never reaches this function at all
 // (see Handle's own special-casing), and an empty monitor means "capture
 // the primary monitor," today's only behavior.
-func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uint32, reportToken, monitor string) {
+//
+// requireConsent (issue #86) forwards as --require-consent, only when
+// true -- the helper shows an Accept/Decline prompt and reports the
+// outcome via reportToken before ever dialing the relay when set; when
+// false (the default, and every pre-existing caller), it dials
+// immediately exactly as before this feature existed.
+func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uint32, reportToken, monitor string, requireConsent bool) {
 	exePath, err := extractScreenShareIfStale()
 	if err != nil {
 		log.Printf("session %s: screen share: %v", sessionID, err)
@@ -85,6 +91,9 @@ func runScreenShare(sessionID, wsURL string, elevated bool, targetSessionID *uin
 	}
 	if monitor != "" {
 		args = append(args, "--monitor="+monitor)
+	}
+	if requireConsent {
+		args = append(args, "--require-consent")
 	}
 
 	pid, err := launchScreenShare(exePath, args, elevated, targetSessionID)

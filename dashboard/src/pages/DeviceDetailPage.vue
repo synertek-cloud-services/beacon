@@ -271,6 +271,15 @@
                   />
                   <span v-if="warrantySaving" class="text-xs text-muted-2">Saving…</span>
                 </div>
+                <div class="ddev-row">
+                  <span class="ddev-label">Web Remote Consent</span>
+                  <select class="text-sm" :value="consentOverrideValue" :disabled="consentOverrideSaving" @change="onConsentOverrideChange">
+                    <option value="inherit">Inherit from Company Default</option>
+                    <option value="require">Require</option>
+                    <option value="dont_require">Don't Require</option>
+                  </select>
+                  <span v-if="consentOverrideSaving" class="text-xs text-muted-2">Saving…</span>
+                </div>
                 <div v-if="auditData.services" class="ddev-row">
                   <span class="ddev-label">Services</span>
                   <a class="text-sm" style="color:var(--color-primary);cursor:pointer" @click="scrollToSection('services')">{{ auditData.services.length }}</a>
@@ -1794,6 +1803,29 @@ async function onWarrantyChange(e: Event) {
     device.value.warrantyExpiresAt = ts;
   } finally {
     warrantySaving.value = false;
+  }
+}
+// Web Remote consent override (issue #86) — null = inherit
+// companies.remoteAccessConsentRequired, true/false = an explicit
+// per-device override. Same tri-state <select> shape convention used
+// elsewhere in this codebase for an override-over-a-default field.
+const consentOverrideSaving = ref(false);
+const consentOverrideValue = computed(() => {
+  const v = device.value?.remoteAccessConsentOverride;
+  if (v === true) return 'require';
+  if (v === false) return 'dont_require';
+  return 'inherit';
+});
+async function onConsentOverrideChange(e: Event) {
+  if (!device.value) return;
+  const val = (e.target as HTMLSelectElement).value;
+  const override = val === 'require' ? true : val === 'dont_require' ? false : null;
+  consentOverrideSaving.value = true;
+  try {
+    await api.devices.update(device.value.id, { remote_access_consent_override: override });
+    device.value.remoteAccessConsentOverride = override;
+  } finally {
+    consentOverrideSaving.value = false;
   }
 }
 async function loadCustomFields(deviceId: string) {

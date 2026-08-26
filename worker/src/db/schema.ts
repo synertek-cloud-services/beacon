@@ -11,6 +11,13 @@ export const companies = sqliteTable('companies', {
   // shouldn't have Beacon's patch policies forced onto it just because an
   // unrestricted global policy targets every device by default.
   patchManagementExcluded: integer('patch_management_excluded', { mode: 'boolean' }).notNull().default(false),
+  // Default for whether a Web Remote (screen_share) session requires the
+  // end user to Accept/Decline before it connects -- see devices.
+  // remoteAccessConsentOverride for the per-device override, and
+  // worker/src/routes/sessions.ts's POST / for where the effective value
+  // is resolved. Defaults false so nothing changes for an existing company
+  // until an admin opts in.
+  remoteAccessConsentRequired: integer('remote_access_consent_required', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ['active', 'suspended'] }).notNull().default('active'),
   createdAt: integer('created_at').notNull(),
   // Contact
@@ -56,6 +63,10 @@ export const devices = sqliteTable('devices', {
   // Set by a human. Sticky — auto-detection never overwrites this once set.
   // Effective class = overrideClass ?? detectedClass.
   overrideClass: text('override_class', { enum: ['server', 'workstation', 'laptop'] }),
+  // NULL = inherit companies.remoteAccessConsentRequired; true/false = an
+  // explicit per-device override. Same nullable-override-over-a-company-
+  // default shape as overrideClass above.
+  remoteAccessConsentOverride: integer('remote_access_consent_override', { mode: 'boolean' }),
   agentVersion: text('agent_version'),
   lastSeen: integer('last_seen'),
   inventory: text('inventory'), // JSON blob — don't normalize until queries require it
@@ -316,6 +327,14 @@ export const sessions = sqliteTable('sessions', {
   // an in-place switch -- a plain "last requested" pointer, not a queue,
   // since only the latest request ever matters.
   pendingMonitor: text('pending_monitor'),
+  // 'accepted'|'declined'|'timed_out', set by beacon-screenshare.exe (via
+  // POST .../consent, report-token authenticated) before it ever dials the
+  // relay, for a screen_share session that required end-user consent. NULL
+  // = no decision reported yet (consent wasn't required, or the helper
+  // hasn't answered yet) -- polled by the dashboard while status is still
+  // "connecting" so a decline/timeout surfaces immediately instead of
+  // waiting out the generic connect timeout.
+  consentStatus: text('consent_status'),
 });
 
 // Web Remote file upload/download -- one row per browse/download/upload

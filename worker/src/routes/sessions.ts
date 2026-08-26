@@ -75,7 +75,11 @@ sessions.post('/', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
 
-  const device = await db.select({ id: schema.devices.id, inventory: schema.devices.inventory })
+  const device = await db.select({
+      id: schema.devices.id,
+      inventory: schema.devices.inventory,
+      remoteAccessConsentOverride: schema.devices.remoteAccessConsentOverride,
+    })
     .from(schema.devices)
     .where(and(
       eq(schema.devices.id, body.device_id),
@@ -90,6 +94,21 @@ sessions.post('/', async (c) => {
       return c.json({ error: 'remote sessions are unavailable for seeded demo devices' }, 409);
     }
   } catch { /* a malformed inventory blob is not a reason to block a real device */ }
+
+  // Issue #86: whether this screen_share session requires the end user to
+  // Accept/Decline before beacon-screenshare.exe ever dials the relay.
+  // device.remoteAccessConsentOverride (null = inherit) wins over the
+  // company default, same override-over-default shape as effective device
+  // class elsewhere in this codebase. Irrelevant for shell/tcp_tunnel, so
+  // only resolved when it'll actually be used.
+  let requireConsent = false;
+  if (body.session_type === 'screen_share') {
+    const company = await db.select({ remoteAccessConsentRequired: schema.companies.remoteAccessConsentRequired })
+      .from(schema.companies)
+      .where(eq(schema.companies.id, body.company_id))
+      .get();
+    requireConsent = device.remoteAccessConsentOverride ?? company?.remoteAccessConsentRequired ?? false;
+  }
 
   const sessionId = crypto.randomUUID();
   // WORKER_URL is a configured value, not derived from c.req.url — a
@@ -139,6 +158,7 @@ sessions.post('/', async (c) => {
       ...(body.target_session_id !== undefined ? { target_session_id: body.target_session_id } : {}),
       ...(reportToken ? { report_token: reportToken } : {}),
       ...(body.monitor ? { monitor: body.monitor } : {}),
+      ...(requireConsent ? { require_consent: true } : {}),
     }),
     createdAt: now,
   });
@@ -172,10 +192,56 @@ sessions.post('/', async (c) => {
     companyId: body.company_id,
     method: 'POST',
     path: c.req.path,
-    details: { session_type: body.session_type, elevated: body.elevated ?? false, target_session_id: body.target_session_id ?? null },
+    details: { session_type: body.session_type, elevated: body.elevated ?? false, target_session_id: body.target_session_id ?? null, consent_required: requireConsent },
   });
 
   return c.json({ session_id: sessionId, client_ws_url: clientWsUrl });
+});
+
+// POST /v1/sessions/:id/consent — agent-facing: beacon-screenshare.exe
+// reports the end user's Accept/Decline/no-response decision here, before
+// it ever dials the relay (see runScreenShare's own doc comment for why
+// that ordering is safe). Same report-token auth as .../displays, not
+// requireUser or the device's own credential, for the same reason. Only
+// ever called when the dispatched open_session command carried
+// require_consent -- an ordinary session's helper never calls this at all,
+// so sessions.consentStatus stays NULL for it, which GET .../consent below
+// (and the dashboard's own polling) already treats as "nothing to report."
+sessions.post('/:id/consent', async (c) => {
+  if (!(await verifyReportToken(drizzle(c.env.DB, { schema }), c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+
+  const body = await c.req.json<{ status: string }>();
+  if (!['accepted', 'declined', 'timed_out'].includes(body.status)) {
+    return c.json({ error: 'status must be accepted, declined, or timed_out' }, 400);
+  }
+
+  const db = drizzle(c.env.DB, { schema });
+  await db.update(schema.sessions)
+    .set({ consentStatus: body.status })
+    .where(eq(schema.sessions.id, c.req.param('id')));
+
+  return c.json({ ok: true });
+});
+
+// GET /v1/sessions/:id/consent — technician-facing: WebRemotePage.vue polls
+// this while status is still "connecting" for a screen_share session, so a
+// decline/timeout surfaces immediately instead of waiting out the generic
+// ~70s connect timeout. Always safe to poll regardless of whether consent
+// was actually required for this dispatch -- status is just NULL ("nothing
+// to report") in that case, same as before the helper has answered yet.
+sessions.get('/:id/consent', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const db = drizzle(c.env.DB, { schema });
+  const row = await db.select({ status: schema.sessions.consentStatus })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, c.req.param('id')))
+    .get();
+  if (!row) return c.json({ error: 'session not found' }, 404);
+  return c.json({ status: row.status });
 });
 
 // POST /v1/sessions/:id/displays — agent-facing: the per-session
