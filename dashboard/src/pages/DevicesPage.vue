@@ -7,7 +7,7 @@
       <div
         v-for="ct in classTabs" :key="ct.value"
         class="stat-card"
-        :class="['stat-' + ct.color, { 'stat-active': classTab === ct.value }]"
+        :class="{ 'stat-active': classTab === ct.value }"
         style="cursor:pointer"
         @click="classTab = ct.value"
       >
@@ -449,10 +449,10 @@ const statusTabs = [
 ];
 
 const classTabs = [
-  { label: 'All',          value: 'all'         as const, color: 'blue'   },
-  { label: 'Servers',      value: 'server'       as const, color: 'purple' },
-  { label: 'Workstations', value: 'workstation'  as const, color: 'teal'   },
-  { label: 'Laptops',      value: 'laptop'       as const, color: 'accent' },
+  { label: 'All',          value: 'all'         as const },
+  { label: 'Servers',      value: 'server'       as const },
+  { label: 'Workstations', value: 'workstation'  as const },
+  { label: 'Laptops',      value: 'laptop'       as const },
 ];
 
 const now = ref(Math.floor(Date.now() / 1000));
@@ -602,13 +602,9 @@ onUnmounted(() => { clearInterval(timer); });
 <style scoped>
 /* ── Stat cards (same pattern as JobsPage) ── */
 .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
-.stat-card { flex: 1; background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid transparent; border-radius: 8px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; transition: filter .12s, border-color .12s; }
+.stat-card { flex: 1; background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid var(--color-border); border-radius: 8px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; transition: filter .12s, border-color .12s; }
 .stat-card:hover { filter: brightness(1.06); }
-.stat-card.stat-active { border-color: var(--color-border-strong); }
-.stat-blue   { border-top-color: var(--color-primary-hover); }
-.stat-purple { border-top-color: #9c6af7; }
-.stat-teal   { border-top-color: var(--color-success); }
-.stat-accent { border-top-color: var(--color-primary); }
+.stat-card.stat-active { border-color: var(--color-primary); }
 .stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .05em; }
 .stat-value { font-size: 20px; font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 
