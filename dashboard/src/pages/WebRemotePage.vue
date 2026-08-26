@@ -82,7 +82,7 @@
         </div>
         <input ref="fileInput" type="file" style="display:none" @change="onUploadFileChosen" />
 
-        <button class="wr-tbtn" :disabled="status !== 'connected'" title="Paste text into the remote session" @click="pasteOpen = !pasteOpen">
+        <button class="wr-tbtn" :disabled="status !== 'connected'" title="Paste your clipboard into the remote session" @click="onPasteClick">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="4" width="12" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/>
           </svg>
@@ -117,9 +117,16 @@
     <div v-if="fileTransferStatus" class="wr-toast" :class="{ 'wr-toast-ok': !fileTransferError }" @click="fileTransferStatus = ''; fileTransferError = false">
       {{ fileTransferStatus }} (click to dismiss)
     </div>
+    <div v-if="pasteStatus" class="wr-toast" :class="{ 'wr-toast-ok': pasteStatusOk }" @click="pasteStatus = ''">
+      {{ pasteStatus }} (click to dismiss)
+    </div>
 
+    <!-- Fallback only -- shown when a direct clipboard read fails (denied
+         permission, unsupported browser, non-secure context). The normal
+         path is onPasteClick sending straight from navigator.clipboard with
+         no box at all. -->
     <div v-if="pasteOpen" class="wr-paste-bar">
-      <input v-model="pasteText" class="wr-paste-input" placeholder="Text to paste into the remote session…" @keydown.enter="sendPaste" />
+      <input ref="pasteInputEl" v-model="pasteText" class="wr-paste-input" placeholder="Clipboard read failed -- type text to paste instead…" @keydown.enter="sendPaste" />
       <button class="btn btn-primary btn-sm" @click="sendPaste">Send</button>
       <button class="btn btn-ghost btn-sm" @click="pasteOpen = false">Cancel</button>
     </div>
@@ -197,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, shallowRef, onMounted, onUnmounted } from 'vue';
+import { ref, computed, shallowRef, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import RFB from '@novnc/novnc';
 import { api } from '../api';
@@ -230,6 +237,9 @@ const elevating = ref(false);
 
 const pasteOpen = ref(false);
 const pasteText = ref('');
+const pasteInputEl = ref<HTMLInputElement | null>(null);
+const pasteStatus = ref('');
+const pasteStatusOk = ref(false);
 
 // ── Keyboard shortcuts dropdown ──────────────────────────────────────
 // Same toggle-plus-one-shot-document-listener pattern DeviceDetailPage.vue's
@@ -576,11 +586,42 @@ function applyDisplayOptions(instance: RFB) {
 const elevateModalOpen = ref(false);
 const elevateError = ref('');
 
+// Primary path: read the technician's real OS clipboard directly and send
+// it straight to the remote session, no separate box to type into. Must be
+// called synchronously from a real click handler (not from inside an
+// awaited callback) -- navigator.clipboard.readText() only works as a
+// direct response to a user gesture, which this button click is.
+async function onPasteClick() {
+  if (!rfb.value) return;
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      pasteStatusOk.value = false;
+      pasteStatus.value = 'Clipboard is empty.';
+      return;
+    }
+    rfb.value.clipboardPasteFrom(text);
+    pasteStatusOk.value = true;
+    pasteStatus.value = 'Pasted from clipboard.';
+  } catch {
+    // Permission denied, unsupported browser, or a non-secure context --
+    // fall back to the manual box rather than failing silently, and focus
+    // it immediately so a real Ctrl+V actually lands in the field instead
+    // of going to the remote canvas, which had no focus target before and
+    // is very likely why the old box looked broken.
+    pasteOpen.value = true;
+    await nextTick();
+    pasteInputEl.value?.focus();
+  }
+}
+
 function sendPaste() {
   if (!rfb.value || !pasteText.value) return;
   rfb.value.clipboardPasteFrom(pasteText.value);
   pasteText.value = '';
   pasteOpen.value = false;
+  pasteStatusOk.value = true;
+  pasteStatus.value = 'Pasted from clipboard.';
 }
 
 function toggleFullscreen() {
