@@ -30,7 +30,8 @@ const (
 	inputKeyboard = 1
 
 	// Keyboard flags.
-	keyeventfKeyUp = 0x0002
+	keyeventfKeyUp   = 0x0002
+	keyeventfUnicode = 0x0004
 
 	// Mouse flags.
 	MouseEventFMove       = 0x0001
@@ -285,6 +286,27 @@ func SendKeybdInput(vk uint16, down bool) error {
 	r1, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
 	if r1 == 0 {
 		return fmt.Errorf("win32: SendInput (keyboard): %w", err)
+	}
+	return nil
+}
+
+// SendUnicodeKeybdInput injects one keyboard event carrying a raw UTF-16
+// code unit rather than a virtual-key code -- KEYEVENTF_UNICODE, Windows'
+// own mechanism for typing an arbitrary Unicode character with no VK
+// mapping or keyboard-layout dependency at all (the same primitive
+// AutoHotkey-style "SendText"/autotype tools use). wVk must be 0 for this
+// flag combination; unit is a single UTF-16 code unit -- a supplementary-
+// plane character needs its two surrogate halves sent as two separate
+// calls, same as any other UTF-16 encoding.
+func SendUnicodeKeybdInput(unit uint16, down bool) error {
+	flags := uint32(keyeventfUnicode)
+	if !down {
+		flags |= keyeventfKeyUp
+	}
+	in := KeybdInput{Type: inputKeyboard, WScan: unit, DwFlags: flags}
+	r1, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+	if r1 == 0 {
+		return fmt.Errorf("win32: SendInput (unicode keyboard): %w", err)
 	}
 	return nil
 }

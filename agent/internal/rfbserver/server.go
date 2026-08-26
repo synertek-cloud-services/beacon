@@ -31,6 +31,15 @@ type Capturer interface {
 type Injector interface {
 	KeyEvent(down bool, keysym uint32) error
 	PointerEvent(mask uint8, x, y uint16) error
+	// PasteText types text as a burst of synthesized keystrokes -- the
+	// ClientCutText RFB message's payload, i.e. "paste my clipboard into
+	// the remote session". Deliberately typed rather than written to the
+	// remote OS's own clipboard: setting the remote clipboard would create
+	// exactly the two-way local/remote clipboard race this codebase has
+	// already scoped remote->local sync out of (see ClientCutTextMsg's own
+	// handling history) -- typing the characters directly needs no shared
+	// clipboard state on either side at all.
+	PasteText(text string) error
 }
 
 // CursorShapeProvider is an optional Capturer capability: a fixed (v1 is
@@ -154,12 +163,24 @@ func captureWithTimeout(cap Capturer, pf rfb.PixelFormat, timeout time.Duration)
 // injectionEvent is one queued KeyEvent or PointerEvent, handed from the
 // read loop to the dedicated injection goroutine below so both can stay
 // independent of each other and of the capture goroutine.
+// injectionKind discriminates injectionEvent -- a plain bool (KeyEvent vs.
+// PointerEvent) was enough before ClientCutText paste needed a third kind
+// dispatched through the same queue.
+type injectionKind uint8
+
+const (
+	injectionKeyEvent injectionKind = iota
+	injectionPointerEvent
+	injectionPasteText
+)
+
 type injectionEvent struct {
-	key    bool // true: KeyEvent (down/keysym below); false: PointerEvent (mask/x/y below)
+	kind   injectionKind
 	down   bool
 	keysym uint32
 	mask   uint8
 	x, y   uint16
+	text   string // only set when kind == injectionPasteText
 }
 
 // SwitchRequest asks Serve to swap the live Capturer/Injector pair without
@@ -226,13 +247,18 @@ func runInjectionLoop(holder *injectorHolder, events <-chan injectionEvent) {
 		// and SendInput synthesizing input into a desktop it can't
 		// currently reach is a real, expected, transient condition, not a
 		// reason to end an otherwise-healthy session.
-		if ev.key {
+		switch ev.kind {
+		case injectionKeyEvent:
 			if err := inj.KeyEvent(ev.down, ev.keysym); err != nil {
 				log.Printf("rfbserver: key event: %v (dropping this event, session stays open)", err)
 			}
-		} else {
+		case injectionPointerEvent:
 			if err := inj.PointerEvent(ev.mask, ev.x, ev.y); err != nil {
 				log.Printf("rfbserver: pointer event: %v (dropping this event, session stays open)", err)
+			}
+		case injectionPasteText:
+			if err := inj.PasteText(ev.text); err != nil {
+				log.Printf("rfbserver: paste text: %v (dropping this event, session stays open)", err)
 			}
 		}
 	}
@@ -582,13 +608,26 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 			// input into a desktop it can't currently reach is a real,
 			// expected, transient condition, not a reason to end an
 			// otherwise-healthy session).
-			injectionEvents <- injectionEvent{key: true, down: m.Down, keysym: m.Keysym}
+			injectionEvents <- injectionEvent{kind: injectionKeyEvent, down: m.Down, keysym: m.Keysym}
 
 		case rfb.PointerEventMsg:
-			injectionEvents <- injectionEvent{mask: m.ButtonMask, x: m.X, y: m.Y}
+			injectionEvents <- injectionEvent{kind: injectionPointerEvent, mask: m.ButtonMask, x: m.X, y: m.Y}
 
 		case rfb.ClientCutTextMsg:
-			// Clipboard sync is out of scope for v1 -- silently dropped.
+			// Remote->local (ServerCutText) sync is still out of scope --
+			// that's the real two-way race this file's own history already
+			// flagged. Local->remote (this message, "paste my clipboard
+			// into the session") is a one-shot, one-directional action
+			// with no shared state to race on, and was never actually
+			// wired up on this side despite the dashboard's Paste button
+			// having sent this exact message correctly the whole time --
+			// found live from a real device's "clicked paste, nothing
+			// happened" report. Routed through the same injection queue
+			// as key/pointer events so it can't race a batch of keystrokes
+			// still being typed by an in-flight PasteText call.
+			if m.Text != "" {
+				injectionEvents <- injectionEvent{kind: injectionPasteText, text: m.Text}
+			}
 
 		default:
 			return fmt.Errorf("rfbserver: unhandled client message type %T", msg)

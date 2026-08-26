@@ -8,11 +8,19 @@ package screeninject
 
 import (
 	"fmt"
+	"strings"
+	"unicode/utf16"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
 	"github.com/synertek-cloud-services/beacon/agent/internal/win32"
 	"github.com/synertek-cloud-services/beacon/agent/internal/x11keysym"
 )
+
+// xkReturn is the X11 keysym for Enter/Return -- reused via KeyEvent (which
+// already maps it to VK_RETURN through x11keysym's table) rather than
+// duplicating that VK constant here, so PasteText's newline handling can't
+// drift from KeyEvent's own Enter behavior.
+const xkReturn = 0xFF0D
 
 var _ rfbserver.Injector = (*Injector)(nil)
 var _ rfbserver.DesktopFollower = (*Injector)(nil)
@@ -157,6 +165,45 @@ func (i *Injector) PointerEvent(mask uint8, x, y uint16) error {
 	}
 
 	i.lastMask = mask
+	return nil
+}
+
+// PasteText types text as a burst of synthesized keystrokes -- see
+// rfbserver.Injector's own doc comment for why this types rather than
+// setting the remote clipboard. Each character goes through
+// win32.SendUnicodeKeybdInput (KEYEVENTF_UNICODE), which needs no virtual-
+// key mapping or keyboard-layout awareness at all -- unlike KeyEvent, which
+// is limited to whatever x11keysym's table covers, this handles arbitrary
+// Unicode text correctly regardless of what's actually installed as the
+// remote session's keyboard layout. The one exception is newlines: sent as
+// a real VK_RETURN KeyEvent (via xkReturn) rather than the U+000A/U+000D
+// control characters themselves, since apps generally expect Enter as a
+// keyboard event, not literal control-character text. \r\n and lone \r are
+// both normalized to \n first, so a Windows-style clipboard payload doesn't
+// send two Enters per line or an orphaned \r with no mapped keystroke.
+func (i *Injector) PasteText(text string) error {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+
+	for _, r := range text {
+		if r == '\n' {
+			if err := i.KeyEvent(true, xkReturn); err != nil {
+				return err
+			}
+			if err := i.KeyEvent(false, xkReturn); err != nil {
+				return err
+			}
+			continue
+		}
+		for _, unit := range utf16.Encode([]rune{r}) {
+			if err := win32.SendUnicodeKeybdInput(unit, true); err != nil {
+				return err
+			}
+			if err := win32.SendUnicodeKeybdInput(unit, false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
