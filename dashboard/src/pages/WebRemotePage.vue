@@ -668,7 +668,7 @@ let connectionSeq = 0;
 // status/errorMsg while an attempt is in flight (see its own doc comment
 // for why: losing the working connection before a new one is proven was
 // the actual bug report this whole redesign came from).
-function connectTo(wsUrl: string, target: 'a' | 'b') {
+function connectTo(wsUrl: string, target: 'a' | 'b', sessionId: string) {
   const mySeq = ++connectionSeq;
   if (connectTimeout !== null) window.clearTimeout(connectTimeout);
   status.value = 'connecting';
@@ -678,6 +678,15 @@ function connectTo(wsUrl: string, target: 'a' | 'b') {
   const instance = new RFB(targetEl(target), wsUrl, {});
   applyDisplayOptions(instance);
   rfb.value = instance;
+
+  pollConsent(sessionId, instance, (message) => {
+    if (mySeq !== connectionSeq) return;
+    if (status.value !== 'connecting') return;
+    if (connectTimeout !== null) window.clearTimeout(connectTimeout);
+    status.value = 'error';
+    errorMsg.value = message;
+    instance.disconnect();
+  });
 
   instance.addEventListener('connect', () => {
     if (mySeq !== connectionSeq) return; // superseded by a newer connection
@@ -705,6 +714,32 @@ function connectTo(wsUrl: string, target: 'a' | 'b') {
   }, CONNECT_TIMEOUT_MS);
 }
 
+// pollConsent (issue #86) polls GET /v1/sessions/:id/consent while a
+// connection attempt is still pending, so a decline/timeout surfaces
+// immediately instead of waiting out the full 70s generic connect timeout.
+// Always safe to start: status stays null (this just keeps quietly
+// polling) unless the company/device policy actually required consent for
+// this dispatch. Stops itself the moment the instance connects or
+// disconnects for any other reason, or once consent resolves either way --
+// never leaks an interval past the one attempt it was started for.
+function pollConsent(sessionId: string, instance: RFB, onDeclined: (message: string) => void) {
+  const iv = window.setInterval(async () => {
+    try {
+      const { status: consentStatus } = await api.sessions.consent(sessionId);
+      if (consentStatus === 'declined' || consentStatus === 'timed_out') {
+        window.clearInterval(iv);
+        onDeclined(consentStatus === 'declined'
+          ? 'The user declined remote access.'
+          : 'No response — the remote-access prompt timed out.');
+      } else if (consentStatus === 'accepted') {
+        window.clearInterval(iv); // resolved, nothing further to watch for
+      }
+    } catch { /* transient poll failure -- try again next tick */ }
+  }, 2000);
+  instance.addEventListener('connect', () => window.clearInterval(iv));
+  instance.addEventListener('disconnect', () => window.clearInterval(iv));
+}
+
 function openElevateModal() {
   if (!canElevate || elevating.value || elevated.value) return;
   elevateError.value = '';
@@ -727,7 +762,7 @@ function closeElevateModal() {
 // that a failed elevation attempt (no admin rights, no configured
 // credentials) previously tore down the old connection immediately and
 // left nothing behind.
-function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b'): Promise<RFB> {
+function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b', sessionId: string): Promise<RFB> {
   return new Promise((resolve, reject) => {
     const instance = new RFB(targetEl(target), wsUrl, {});
     applyDisplayOptions(instance);
@@ -738,6 +773,13 @@ function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b'): Promise<RFB> 
       instance.disconnect();
       reject(new Error('Did not connect within 70 seconds. Confirm a user is logged in on the target device.'));
     }, CONNECT_TIMEOUT_MS);
+    pollConsent(sessionId, instance, (message) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      instance.disconnect();
+      reject(new Error(message));
+    });
     instance.addEventListener('connect', () => {
       if (settled) return;
       settled = true;
@@ -766,7 +808,7 @@ async function elevate() {
     const { session_id, client_ws_url } = await api.sessions.open(deviceId, companyId, 'screen_share', {
       elevated: true, targetSessionId,
     });
-    const newInstance = await attemptElevatedConnect(client_ws_url, pendingTarget);
+    const newInstance = await attemptElevatedConnect(client_ws_url, pendingTarget, session_id);
 
     // Proven working -- only now do we retire the old connection. Bumping
     // connectionSeq first retires the old instance's own ongoing
@@ -853,8 +895,8 @@ onMounted(() => {
     errorMsg.value = 'Missing session connection details.';
     return;
   }
-  connectTo(wsUrl, 'a');
   const initialSessionId = route.params.sessionId as string;
+  connectTo(wsUrl, 'a', initialSessionId);
   if (initialSessionId) pollDisplaysFor(initialSessionId);
 });
 

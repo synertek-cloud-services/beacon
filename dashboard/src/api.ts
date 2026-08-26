@@ -144,6 +144,11 @@ export interface Company {
   // Management takeover) -- for a company managing Windows Update its own
   // way (WSUS, etc.). See CLAUDE.md's Patch Management section.
   patchManagementExcluded: boolean;
+  // Default for whether a Web Remote session requires end-user Accept/
+  // Decline before it connects — see devices.remoteAccessConsentOverride
+  // for the per-device override. See CLAUDE.md's Web Remote section
+  // (issue #86).
+  remoteAccessConsentRequired: boolean;
   status: 'active' | 'suspended';
   createdAt: number;
   deviceCount: number;
@@ -845,6 +850,10 @@ export interface Device {
   isHyperVHost: boolean | null;
   // "Client" / "Server" / "Server Core" / ... — null = never evaluated.
   windowsInstallationType: string | null;
+  // null = inherit companies.remoteAccessConsentRequired; true/false = an
+  // explicit per-device override. See CLAUDE.md's Web Remote section
+  // (issue #86).
+  remoteAccessConsentOverride: boolean | null;
   // Fleet-visible pending-reboot state — see CLAUDE.md's Patch Management
   // section ("Reboot Required" / issue #89).
   pendingRebootRequired: boolean;
@@ -1123,6 +1132,7 @@ export const api = {
       auto_approve_default?: boolean;
       privacy_mode_default?: boolean;
       patch_management_excluded?: boolean;
+      remote_access_consent_required?: boolean;
       website?: string | null;
       notes?: string | null;
       contact_name?: string | null;
@@ -1134,6 +1144,7 @@ export const api = {
       auto_approve_default?: boolean;
       privacy_mode_default?: boolean;
       patch_management_excluded?: boolean;
+      remote_access_consent_required?: boolean;
       status?: 'active' | 'suspended';
       website?: string | null;
       notes?: string | null;
@@ -1398,7 +1409,7 @@ export const api = {
   devices: {
     list:    (status?: DeviceStatus) => request<Device[]>('GET', `/v1/admin/devices${status ? `?status=${status}` : ''}`),
     get:     (id: string)            => request<Device>('GET', `/v1/admin/devices/${id}`),
-    update:  (id: string, body: { warranty_expires_at: number | null }) =>
+    update:  (id: string, body: { warranty_expires_at?: number | null; remote_access_consent_override?: boolean | null }) =>
       request<{ ok: boolean }>('PATCH', `/v1/admin/devices/${id}`, body),
     approve: (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/approve`),
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
@@ -1455,6 +1466,13 @@ export const api = {
     // connection, see worker/src/routes/sessions.ts.
     displays: (sessionId: string) =>
       request<{ displays: SessionDisplay[] }>('GET', `/v1/sessions/${sessionId}/displays`),
+    // Polled by WebRemotePage.vue while status is still "connecting" for a
+    // screen_share session -- status is null until the end user has
+    // answered (or if consent wasn't required for this session at all),
+    // 'accepted'/'declined'/'timed_out' once beacon-screenshare.exe has
+    // reported an outcome. See CLAUDE.md's Web Remote section (issue #86).
+    consent: (sessionId: string) =>
+      request<{ status: 'accepted' | 'declined' | 'timed_out' | null }>('GET', `/v1/sessions/${sessionId}/consent`),
     // Requests an in-place monitor switch on an already-open screen_share
     // session -- no reconnect, see worker/src/routes/sessions.ts's own
     // doc comment for why this replaced opening a whole new session.

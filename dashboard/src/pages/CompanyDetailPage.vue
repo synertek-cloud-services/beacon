@@ -593,6 +593,13 @@
                 <span class="text-xs text-muted-2" style="display:block">This company's devices never receive any Patch Policy install or Windows Update Management takeover, even from an unrestricted global policy — for companies managing Windows Update their own way (e.g. WSUS)</span>
               </span>
             </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="editForm.remoteAccessConsentRequired" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Require end-user consent for Web Remote</span>
+                <span class="text-xs text-muted-2" style="display:block">Before a Web Remote session connects, the logged-in user must Accept or Decline an on-screen prompt (times out after 30s if nobody responds). Overridable per device on the device's own page.</span>
+              </span>
+            </label>
           </div>
 
           <div v-if="editError" class="error-banner" style="margin-top:14px">{{ editError }}</div>
@@ -756,7 +763,7 @@ async function setStatus(status: 'active' | 'suspended') {
 // company's own record is more naturally an action on its own detail page
 // than a cramped row button next to Devices/Suspend) ──────────────────
 const editModal = ref({ open: false });
-const editForm = ref({ name: '', website: '', notes: '', autoApprove: true, privacyMode: false, patchManagementExcluded: false });
+const editForm = ref({ name: '', website: '', notes: '', autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false });
 const editError = ref('');
 const editSubmitting = ref(false);
 
@@ -769,6 +776,7 @@ function openEditCompany() {
     autoApprove: company.value.autoApproveDefault,
     privacyMode: company.value.privacyModeDefault,
     patchManagementExcluded: company.value.patchManagementExcluded,
+    remoteAccessConsentRequired: company.value.remoteAccessConsentRequired,
   };
   editError.value = '';
   editModal.value.open = true;
@@ -785,6 +793,7 @@ async function submitEditCompany() {
       auto_approve_default: editForm.value.autoApprove,
       privacy_mode_default: editForm.value.privacyMode,
       patch_management_excluded: editForm.value.patchManagementExcluded,
+      remote_access_consent_required: editForm.value.remoteAccessConsentRequired,
       website: editForm.value.website || null,
       notes:   editForm.value.notes   || null,
     });
@@ -794,6 +803,7 @@ async function submitEditCompany() {
       autoApproveDefault: editForm.value.autoApprove,
       privacyModeDefault: editForm.value.privacyMode,
       patchManagementExcluded: editForm.value.patchManagementExcluded,
+      remoteAccessConsentRequired: editForm.value.remoteAccessConsentRequired,
       website: editForm.value.website || null,
       notes:   editForm.value.notes   || null,
     };

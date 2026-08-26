@@ -139,6 +139,13 @@
                 <span class="text-xs text-muted-2" style="display:block">This company's devices never receive any Patch Policy install or Windows Update Management takeover, even from an unrestricted global policy — for companies managing Windows Update their own way (e.g. WSUS)</span>
               </span>
             </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="form.remoteAccessConsentRequired" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Require end-user consent for Web Remote</span>
+                <span class="text-xs text-muted-2" style="display:block">Before a Web Remote session connects, the logged-in user must Accept or Decline an on-screen prompt (times out after 30s if nobody responds). Overridable per device on the device's own page.</span>
+              </span>
+            </label>
           </div>
 
           <div v-if="formError" class="error-banner" style="margin-top:14px">{{ formError }}</div>
@@ -181,7 +188,7 @@ const formError  = ref('');
 const blankForm = () => ({
   name: '', website: '', notes: '',
   contactName: '', contactEmail: '', contactPhone: '',
-  autoApprove: true, privacyMode: false, patchManagementExcluded: false,
+  autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false,
 });
 const form = ref(blankForm());
 
@@ -217,6 +224,7 @@ async function submitForm() {
       auto_approve_default: form.value.autoApprove,
       privacy_mode_default: form.value.privacyMode,
       patch_management_excluded: form.value.patchManagementExcluded,
+      remote_access_consent_required: form.value.remoteAccessConsentRequired,
       website: form.value.website || null,
       notes:   form.value.notes   || null,
       contact_name:  form.value.contactName  || null,

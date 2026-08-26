@@ -10,7 +10,7 @@
 // capture+injection loop happens natively inside the target session with no
 // window-station tricks needed.
 //
-// Usage: beacon-screenshare.exe --session-id=<id> --ws-url=<wss://...> [--report-token=<token>] [--monitor=<device-name>]
+// Usage: beacon-screenshare.exe --session-id=<id> --ws-url=<wss://...> [--report-token=<token>] [--monitor=<device-name>] [--require-consent]
 package main
 
 import (
@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/sys/windows"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
@@ -63,6 +64,7 @@ func main() {
 	wsURL := flag.String("ws-url", "", "relay WebSocket URL")
 	reportToken := flag.String("report-token", "", "per-session token authenticating the displays report (optional)")
 	monitorFlag := flag.String("monitor", "", "target monitor's real GDI device name, e.g. \\\\.\\DISPLAY2 (optional, defaults to the primary monitor)")
+	requireConsent := flag.Bool("require-consent", false, "show an Accept/Decline prompt and wait for a response before connecting (issue #86)")
 	flag.Parse()
 
 	log.Printf("beacon-screenshare: session %s: starting", *sessionID)
@@ -81,6 +83,22 @@ func main() {
 
 	if *wsURL == "" {
 		log.Fatal("beacon-screenshare: --ws-url is required")
+	}
+
+	// Issue #86: gate the relay dial on an on-screen Accept/Decline prompt
+	// when the worker determined this session needs end-user consent
+	// (company/device policy, resolved in POST /v1/sessions -- see
+	// runScreenShare's own doc comment). Safe to run before the dial: the
+	// consent report is a plain HTTP POST independent of the relay
+	// WebSocket, and the browser side already connects to the relay
+	// immediately regardless of when the agent side dials, so delaying
+	// this dial doesn't violate the documented "client connects before the
+	// agent" ordering requirement.
+	if *requireConsent {
+		if !promptConsent(*sessionID, *wsURL, *reportToken) {
+			log.Printf("beacon-screenshare: session %s: consent not granted, not connecting", *sessionID)
+			return
+		}
 	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(*wsURL, nil)
@@ -663,6 +681,93 @@ func reportDisplays(sessionID, wsURLStr, reportToken string, monitors []win32.Mo
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("beacon-screenshare: session %s: report displays: worker returned %d", sessionID, resp.StatusCode)
+	}
+}
+
+// consentTimeout bounds how long promptConsent waits for a response before
+// treating it as declined-by-timeout. Same goroutine+select+timer shape
+// already proven in agent/internal/rfbserver's captureWithTimeout for a
+// Win32 call with no native cancellation (MessageBox blocks its calling
+// goroutine indefinitely otherwise). A timeout leaves that goroutine
+// permanently blocked on the still-open dialog -- harmless, since main()
+// returns right after (see its own call site), and Windows destroys every
+// window owned by a terminated process, so there's no orphaned-dialog risk.
+const consentTimeout = 30 * time.Second
+
+const (
+	consentIDYes = 6 // well-known, stable Win32 MessageBox return value -- matches beacon-tray's own promptReboot
+)
+
+// promptConsent shows a blocking Accept/Decline MessageBox (issue #86) and
+// reports the outcome to the worker via POST .../consent -- same
+// report-token auth as reportDisplays -- before the caller ever dials the
+// relay. Returns true only on an explicit Yes within consentTimeout.
+// Deliberately generic wording: no plumbing exists to carry the requesting
+// technician's identity down through the open_session command payload.
+func promptConsent(sessionID, wsURLStr, reportToken string) bool {
+	result := make(chan bool, 1)
+	go func() {
+		title, _ := windows.UTF16PtrFromString("Beacon Remote Support")
+		text, _ := windows.UTF16PtrFromString(
+			"A support technician is requesting remote access to this computer.\n\nAllow access?")
+		ret, err := windows.MessageBox(0, text, title, windows.MB_YESNO|windows.MB_ICONQUESTION|windows.MB_TOPMOST)
+		if err != nil {
+			log.Printf("beacon-screenshare: session %s: consent prompt: %v", sessionID, err)
+			result <- false
+			return
+		}
+		result <- ret == consentIDYes
+	}()
+
+	accepted := false
+	status := "declined"
+	select {
+	case accepted = <-result:
+		if accepted {
+			status = "accepted"
+		}
+	case <-time.After(consentTimeout):
+		status = "timed_out"
+	}
+
+	reportConsent(sessionID, wsURLStr, reportToken, status)
+	return accepted
+}
+
+// reportConsent POSTs the Accept/Decline/timeout outcome back to the
+// worker, same request shape as reportDisplays (report-token auth, best-
+// effort -- a failed report doesn't change what this process already
+// decided to do next).
+func reportConsent(sessionID, wsURLStr, reportToken, status string) {
+	reportURL, err := deriveSessionURL(wsURLStr, sessionID, "consent")
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: report consent: bad ws-url: %v", sessionID, err)
+		return
+	}
+	body, err := json.Marshal(struct {
+		Status string `json:"status"`
+	}{Status: status})
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: report consent: marshal: %v", sessionID, err)
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodPost, reportURL, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: report consent: build request: %v", sessionID, err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+reportToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := reportClient.Do(req)
+	if err != nil {
+		log.Printf("beacon-screenshare: session %s: report consent: %v", sessionID, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("beacon-screenshare: session %s: report consent: worker returned %d", sessionID, resp.StatusCode)
 	}
 }
 
