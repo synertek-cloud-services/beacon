@@ -772,6 +772,21 @@ here. Icebox issues should have no release milestone or Project Priority until
 they are promoted into the active backlog. Preserve the reason for deferral and
 the condition that would justify revisiting the work in the issue body.
 
+## GitHub Project hygiene — move issues through the status flow as work happens
+
+The Project's Status field is `Triage → Icebox/Backlog → Ready → In Progress →
+In Review → Done` — this needs to actually reflect real state, not just get set
+once at creation and left stale. A real housekeeping lapse: issues #77 and #78
+were both fully shipped (see their own CLAUDE.md sections) but sat at `Icebox`,
+open, for a long stretch after — nothing had ever moved them forward. Moving an
+item to `Done` auto-closes its issue (confirmed live), so that's the only step
+needed at the end, not a separate close call.
+
+When work in a session corresponds to a tracked issue: move it to `In Progress`
+when starting, `In Review` once a PR is open for it, and `Done` once that PR
+merges (which closes the issue). Don't leave a real, finished piece of work
+sitting at a stale earlier status for someone to notice and clean up later.
+
 ## Commit rules
 
 - No `Co-Authored-By` or Claude attribution lines in commits
