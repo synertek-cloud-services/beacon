@@ -3,11 +3,13 @@
 // beacon-tray is a standalone, Windows-only tray icon helper -- deliberately
 // separate from the beacon-agent service binary, since it must run inside a
 // user's own session (Session 0 Isolation means the SYSTEM-context service
-// can never show UI directly). Step 1 only: proves the icon itself renders
-// correctly and is launchable both directly and via
-// agent/internal/usersession's impersonated-token path. No IPC, no dynamic
-// content, no real launch lifecycle (session-change hooking, supervision,
-// embedding into beacon-agent.exe) yet -- those are separate, later passes.
+// can never show UI directly). Launched/supervised per active session by
+// agent/internal/service's EnsureTrayRunning via usersession's
+// impersonated-token path. Talks back to the agent service over a live
+// named-pipe connection (agent/internal/traypipe, see runPipeClient) for
+// version/support-URL push and the reboot confirm/snooze handshake; the CLI
+// flags below are only the initial snapshot used until the first pipe
+// message arrives.
 //
 // Usage: beacon-tray.exe [--version=X.Y.Z] [--dashboard-url=https://...] [--support-url=https://...]
 package main
@@ -30,7 +32,6 @@ import (
 
 	"fyne.io/systray"
 	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
-	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
 	"github.com/synertek-cloud-services/beacon/agent/internal/traypipe"
 	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
@@ -39,10 +40,11 @@ import (
 var iconData []byte
 
 // dialogActive is 1 while promptReboot's MessageBox is on screen awaiting a
-// click. Package-level and atomic because pollPendingReboot's loop and the
-// goroutine it spawns to show the dialog both need to observe it (so a
-// second prompt can't stack on top of one still awaiting a response), and
-// neither should block the other.
+// click. Package-level and atomic because the pipe read loop (which can
+// see a TypeRebootPrompt arrive again -- a snooze-expiry re-broadcast, or a
+// reconnect re-delivering an outstanding prompt) and the goroutine showing
+// the dialog both need to observe it, so a second prompt can't stack on top
+// of one still awaiting a response, without either blocking the other.
 var dialogActive int32
 
 func main() {
@@ -164,7 +166,6 @@ func onReady(version, dashboardURL, supportURL string) {
 	// lifecycle, so letting someone dismiss it here would just have it
 	// reappear shortly after, confusing UX for no benefit at this stage.
 
-	go pollPendingReboot()
 	go recoverBlankIcon()
 	go runPipeClient(label, visit, support)
 }
@@ -250,9 +251,18 @@ func handlePipeConn(c *traypipe.Conn, label, visit, support *systray.MenuItem) {
 			curVersion, curSupport, curDashboard = v.Version, v.SupportURL, v.DashboardURL
 			menuMu.Unlock()
 			applyMenuVisibility(label, visit, support, v.Version, v.DashboardURL, v.SupportURL)
-		// TypeRebootPrompt handling lands in a follow-up change alongside the
-		// reboot-marker migration; the file-based pollPendingReboot below is
-		// still what drives the reboot prompt for now.
+		case traypipe.TypeRebootPrompt:
+			// Guarded by dialogActive so a second prompt (e.g. a
+			// snooze-expiry re-broadcast landing while the first MessageBox
+			// is still up, or a reconnect re-delivering an outstanding
+			// prompt) can't stack a second dialog on top of one still
+			// awaiting a response.
+			if atomic.CompareAndSwapInt32(&dialogActive, 0, 1) {
+				go func() {
+					defer atomic.StoreInt32(&dialogActive, 0)
+					promptReboot(c)
+				}()
+			}
 		default:
 			log.Printf("pipe client: unhandled message type %q", msg.Type)
 		}
@@ -311,71 +321,25 @@ func recoverBlankIcon() {
 	}
 }
 
-// rebootMarker mirrors agent/cmd/agent/main.go's own copy -- small enough
-// (and JSON, not a real API contract) not to be worth a shared package for,
-// matching this codebase's existing convention of duplicating small
-// structs across independent binaries rather than introducing shared
-// dependencies for them.
-type rebootMarker struct {
-	CreatedAt    int64 `json:"created_at"`
-	SnoozedUntil int64 `json:"snoozed_until"`
-	Confirmed    bool  `json:"confirmed"`
-}
-
 const (
 	idYes = 6 // well-known, stable Win32 MessageBox return value -- not wrapped in golang.org/x/sys/windows
 	idNo  = 7
 )
 
-// pollPendingReboot checks every 30s for a pending-reboot marker written by
-// the agent after a patch install that reported RebootRequired. Polled
-// state, not a named pipe -- see the marker type's own doc comment in
-// main.go for why. Guarded by the package-level dialogActive flag (not a
-// plain bool; it's also read/written from the goroutine promptReboot runs
-// on) so a second prompt can't stack on top of one still awaiting a
-// response.
-func pollPendingReboot() {
-	for range time.Tick(30 * time.Second) {
-		if atomic.LoadInt32(&dialogActive) != 0 {
-			continue
-		}
-		path := rebootmarker.Path()
-		if path == "" {
-			return // shouldn't happen -- this binary is Windows-only -- but bail cleanly if it ever does
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue // no marker -- nothing pending
-		}
-		var m rebootMarker
-		if err := json.Unmarshal(data, &m); err != nil {
-			continue
-		}
-		if m.Confirmed {
-			continue // already confirmed, just waiting on the agent to act on it
-		}
-		now := time.Now().Unix()
-		if m.SnoozedUntil != 0 && now < m.SnoozedUntil {
-			continue // still snoozed
-		}
-
-		atomic.StoreInt32(&dialogActive, 1)
-		go func() {
-			defer atomic.StoreInt32(&dialogActive, 0)
-			promptReboot(path)
-		}()
-	}
-}
-
-// promptReboot shows the actual Yes/No dialog and writes the user's choice
-// back to the marker file. MessageBox blocks the calling goroutine until
-// dismissed, which is why this runs on its own goroutine rather than the
-// polling loop itself. MB_YESNO's buttons are the generic "Yes"/"No" --
+// promptReboot shows the actual Yes/No dialog and sends the user's choice
+// back over the pipe connection that delivered the prompt -- replacing the
+// old marker-file write-back entirely, along with the icacls ACL grant it
+// used to require (see agent/internal/service/reboot_windows.go's own doc
+// comment for why that file-based approach was replaced: a real production
+// device had that grant silently fail and stayed permanently stuck for 16
+// days). MessageBox blocks the calling goroutine until dismissed, which is
+// why this runs on its own goroutine rather than the pipe read loop
+// itself. MB_YESNO's buttons are the generic "Yes"/"No" --
 // golang.org/x/sys/windows doesn't wrap TaskDialogIndirect (the Win32 API
 // that supports custom button labels like "Restart Now"/"Postpone"), and
 // hand-rolling that raw syscall isn't worth it for a v1 cosmetic upgrade,
 // so the button meaning is spelled out in the message text instead.
-func promptReboot(path string) {
+func promptReboot(c *traypipe.Conn) {
 	title, _ := windows.UTF16PtrFromString("Beacon Agent")
 	text, _ := windows.UTF16PtrFromString(
 		"A recent patch install requires a restart.\n\nClick Yes to restart now, or No to be reminded again in an hour.")
@@ -385,39 +349,15 @@ func promptReboot(path string) {
 		return
 	}
 
-	// Re-read the existing marker rather than building one from a bare
-	// literal, so CreatedAt (and any other field this ever grows) survives
-	// the round trip instead of silently zeroing out -- found alongside
-	// the agent-side pollPendingReboot fix, harmless today since nothing
-	// reads CreatedAt back yet, but a real correctness gap in this
-	// write-back regardless.
-	var m rebootMarker
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &m) // best-effort; a malformed marker just falls back to the zero value below
-	}
-	if ret == idYes {
-		m.Confirmed = true
-	} else {
-		m.Confirmed = false
-		m.SnoozedUntil = time.Now().Add(time.Hour).Unix()
-	}
-	data, _ := json.Marshal(m)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		// Root-caused live: this runs inside the logged-in user's own
-		// token (usersession.RunAsSession), and installDir's ACL grants
-		// BUILTIN\Users only ReadAndExecute, never write -- deliberately
-		// locked down for the rest of Beacon's install, but this one file
-		// specifically needs a non-admin user to be able to write back to
-		// it. A standard (non-admin) user's write here failed with Access
-		// Denied every single time, silently (this binary had no logging
-		// at all before now), leaving the marker stuck at confirmed:false
-		// forever no matter how many times Yes was clicked. The real fix
-		// is agent-side (writePendingRebootMarker grants BUILTIN\Users
-		// write access to this one file via icacls at creation time, see
-		// its own doc comment) -- this log line is what makes a
-		// recurrence on an unpatched/pre-fix device actually visible
-		// instead of a silent dead end.
-		log.Printf("write reboot response: %v", err)
+	if err := c.Send(traypipe.TypeRebootResponse, traypipe.RebootResponsePayload{
+		Confirmed: ret == idYes,
+	}); err != nil {
+		// If the connection has already dropped by the time the user
+		// answers, there's nothing more to do here -- the next reconnect's
+		// fresh Hello round trip will pick up whatever the server's
+		// authoritative state still says (including re-delivering this
+		// same prompt if it's still outstanding).
+		log.Printf("send reboot response: %v", err)
 	}
 }
 
