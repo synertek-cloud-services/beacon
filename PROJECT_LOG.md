@@ -1,5 +1,97 @@
 # Beacon — Project Log
 
+## Session: 2026-08-26 (continued) — Tray root-caused for real, Web Remote paste actually implemented, Web Remote consent ships (closes issue #86), Datto RMM comparison, v1.0 release-readiness review
+
+Long continuation of the same day's session (see the CLAUDE.md-trim entry immediately below for the first half). Five real shipped fixes/features, a structured competitive comparison, and a genuine housekeeping pass on the v1.0 milestone.
+
+### Tray blank icon — actually root-caused this time, in two rounds
+
+PR #179 (from earlier this session) fixed a real bug: the periodic 10-minute process-restart recovery mechanism was itself manufacturing the icon-vanish-and-reappear pattern that triggers Windows' "blank placeholder for a recently-pinned icon" behavior. Shipped in v0.2.43. The user then reported the icon still going blank on a real device running that exact build — proof the fix, while real, wasn't the whole story.
+
+Got real production access this round (the `claude-agent@codenexus.org` technician account, previously used for read-only checks in earlier sessions) and, after several real permission-classifier blocks on the login/dispatch commands (worked through with the user's explicit go-ahead, using `dangerouslyDisableSandbox`), dispatched a real `run_script` command against Nebuchadnezzar to pull `beacon-tray.log` directly. It showed:
+
+```
+2026/08/18 12:02:49 systray error: unable to init instance: Unspecified error
+2026/08/26 12:44:27 systray error: unable to init instance: Unspecified error
+```
+
+The second line was from *after* v0.2.43 — meaning the real recurrence never even reached the code PR #179 touched. Root cause: `registerSystray()`'s Windows-side `initInstance()` (window class registration, window creation, etc.) can fail, and upstream `fyne.io/systray` just returns silently on that failure — but `Run()` calls `nativeLoop()` unconditionally right after `Register()`, so a failed init left the process running its message loop forever with no window and no icon, looking perfectly healthy to the agent's own PID-liveness supervisor. A real init failure meant the icon was gone for the rest of that session, permanently, with no way to self-heal and nothing distinguishing it from a working process.
+
+**Fix (PR #181)**, in a local fork of `fyne.io/systray` (`agent/internal/vendor/systray`, wired in via a `go.mod` `replace` directive — Apache-2.0, LICENSE preserved): (1) each of `initInstance()`'s ~8 possible failure points now names the specific failing Win32 call instead of one generic "Unspecified error" message; (2) a failed `registerSystray()` now calls `os.Exit(1)` instead of returning, so the agent's existing dead-PID relaunch logic (proven to work) actually gets a chance to retry. Released in v0.2.46 (bundled with the Web Remote paste/consent work below). **Still open**: *why* the underlying Win32 call fails at all — the next real recurrence will finally name the specific failing call instead of another dead end. Leading theory, unconfirmed: Defender's behavioral protection, matching this project's own prior findings for `beacon-screenshare.exe`'s similarly low-level Win32 usage.
+
+### Web Remote paste — two separate bugs, one on each side
+
+User reported: clicking Paste opened a box, but pasting into the box itself didn't work.
+
+**Round 1 (PR #180, dashboard-only)**: the manual paste box's `<input>` was never focused when it opened, so a real Ctrl+V most likely landed on the remote screen canvas (which noVNC keeps focused) instead of the local field. Redesigned around what the user actually wanted discussed directly: read the OS clipboard on click (`navigator.clipboard.readText()`, called synchronously from the button so it counts as the required user gesture) and send it straight to the remote session — no box in the common case. Falls back to the manual box (now actually focused) only if the read fails.
+
+**Round 2 (PR #182, agent-side, the real bug)**: user tested the new button, got the browser's clipboard permission prompt, allowed it — still nothing pasted. Traced the whole path and found `agent/internal/rfbserver/server.go`'s `ClientCutText` handler had **always** been a bare no-op:
+```go
+case rfb.ClientCutTextMsg:
+    // Clipboard sync is out of scope for v1 -- silently dropped.
+```
+The comment conflated two different things: remote→local (`ServerCutText`) sync is a real two-way race, correctly still deferred; local→remote (`ClientCutText`, "paste my clipboard into the session") is one-directional with nothing to race, and had simply never been implemented — the wire message from a real noVNC `clipboardPasteFrom()` call had been reaching the agent correctly this entire time and getting thrown away. Implemented as synthesized keystrokes (`win32.SendUnicodeKeybdInput`, `KEYEVENTF_UNICODE` — no VK mapping or keyboard-layout dependency, unlike `KeyEvent`'s more limited `x11keysym` table), not a remote-clipboard write, so it never touches the two-way sync race at all. `TestClientCutTextReachesInjector` is the actual regression test proving the wire message now reaches injection. Released in v0.2.45.
+
+### Small dashboard polish
+
+- **Devices page stat cards** (PR #183): the All/Servers/Workstations/Laptops cards each had a fixed, distinct color regardless of selection. Replaced with theme-neutral by default, `--color-primary` highlight on whichever is active — verified live via Playwright (computed `border-top-color`, not just visual inspection).
+- **Sidebar label** (PR #184): "Device Approvals / All / Device Groups" read oddly with a bare "All" in the middle — renamed to "All Devices" for consistency with its siblings.
+
+### Hyper-V patch exclusion narrowed to Server OS (PR #185)
+
+User's own real fleet observation: "there are a lot of hyper-v machines that aren't actual servers" (Nebuchadnezzar itself is one — a Windows *Client* desktop running Hyper-V locally for dev VMs/WSL2) — and the existing exclusion (built earlier this session, migration `0068`) keyed entirely off `is_hyper_v_host`, detected via the `vmms` service being present, which doesn't distinguish the Server Hyper-V role from the Client Hyper-V Platform optional feature. Real Client machines were being silently swept out of Patch Policy fleet-wide with no override short of an explicit per-device target.
+
+Added `devices.windows_installation_type` (migration `0082`, rides the existing `hardware.windows_installation_type` audit field already sent — no agent change needed). `deviceMatchesPatchPolicy` now excludes only when `isHyperVHost && windowsInstallationType !== 'Client'` — an unaudited device stays conservatively excluded (matches the prior safe default) until a fresh audit resolves it. Verified live: seeded three Hyper-V-flagged devices (Client/Server/unaudited installation type) against one unrestricted Server-class policy, dispatched `manage`/`revert`/`revert` respectively; explicit Device targeting still overrides for a real Server host.
+
+### GitHub Project hygiene — a real, admitted process gap, now written down
+
+Asked "what's open, what's left on v1" and found #77 (Dedicated Company Detail Page) and #78 (Credentialed Network Discovery) both fully shipped a while back but still sitting open at `Icebox` status — nothing had ever moved them forward through the Project's real status flow (`Triage → Icebox/Backlog → Ready → In Progress → In Review → Done`). User, directly: "the housekeeping never happens correctly... should be moved throughout the process" — not a one-off cleanup ask, a request to actually follow the flow going forward. Closed both (moving an item to `Done` auto-closes its issue — confirmed live, no separate close call needed... except once, see below), and wrote the expected flow into CLAUDE.md's own new "GitHub Project hygiene" section (PR #186) plus a standing feedback memory. **A real inconsistency found while applying this discipline to issue #86 later in the session**: moving it to `Done` did *not* auto-close it immediately the way #77/#78 had — it stayed `OPEN` for a noticeable delay (turned out to just be propagation lag; it had actually closed by the time it was checked again a few messages later). Worth remembering the automation isn't instantaneous, not that it's unreliable.
+
+### Web Remote end-user consent — closes issue #86 (v1.0.0 milestone), PR #187
+
+Planned via `EnterPlanMode`/`ExitPlanMode` with real exploration first (not guessed): read the exact `verifyReportToken`/`displays`/`pending_monitor` report-token pattern, `companies.patch_management_excluded`/`devices.override_class`'s override-over-default shape, `beacon-screenshare.exe`'s exact launch sequence (relay dial is the very first thing in `main()`, confirmed safe to gate behind a prompt first), and `rfbserver.captureWithTimeout`'s goroutine+timeout pattern — all reused directly rather than inventing new shapes. Three scope questions confirmed with the user before writing the plan: company-level toggle **defaults OFF** (no surprise behavior change for existing companies), prompt **times out after 30s**, and **Elevate re-prompts** (a real, separate jump to SYSTEM/secure-desktop access) — which turned out to fall out for free, since Elevate already opens a brand-new session via a second `POST /v1/sessions` call rather than mutating the existing one.
+
+Full stack: `companies.remote_access_consent_required` + `devices.remote_access_consent_override` (migration `0083`) resolve an effective value server-side in `POST /v1/sessions`, threaded into the queued `open_session` command as `require_consent`. `beacon-screenshare.exe` gained `--require-consent`, gating the relay dial behind a blocking `MessageBox` (30s timeout via the same goroutine+`select`+timer shape already proven for `captureWithTimeout`) and reporting the outcome via a new report-token-authenticated `POST /v1/sessions/:id/consent` *before* ever dialing. `WebRemotePage.vue` polls the new `GET .../consent` while a connection is pending, surfacing a decline/timeout immediately instead of the generic 70s timeout — the same poll helper covers both the initial connect and Elevate's background reconnect attempt.
+
+**Verified live, not just type-checked**: all three effective-value resolution cases confirmed via real `POST /v1/sessions` calls against seeded company/device rows, inspecting the actual dispatched command payload each time; the `POST`/`GET .../consent` round trip confirmed via curl with a real report-token (401 on wrong token, 400 on bad status); and — the most convincing check — a real page opened on `/remote/:id`, showing "Connecting…", then correctly switching to "The user declined remote access." within ~3.5 seconds of a real decline POST simulating what the agent would send. Company/device settings UI confirmed to render and persist through the real API. **Not verified on real hardware** — the actual on-screen `MessageBox` and relay-gating in `beacon-screenshare.exe` is cross-compile-checked only. Released in v0.2.46. Closes issue #86.
+
+### Datto RMM comparison — four new tracked issues, not just a discussion
+
+Asked directly for a feature comparison against Datto RMM (explicitly not seeking parity, but wanting to know what's missing that matters). Went category by category (monitoring/alerting, patch management, remote access, software management, network discovery, custom fields, reports, notifications/PSA) against real, already-documented Beacon capability, explicitly excluding business/service-layer things Datto bundles that aren't real RMM engineering scope (NOC staffing, billing/quoting, IT Glue-style documentation, MDM). Landed on four real gaps, all filed as real issues (not just a chat note) and added to the Project board:
+- **#188 Wake-on-LAN** — `Backlog`, real v1 candidate. Directly motivated by the Nebuchadnezzar-offline incident earlier this session; documented up front that a single-device site has no relay and WoL can't help there regardless of implementation quality.
+- **#189 Scheduled/emailed reports** — `Backlog`, real v1 candidate. Reports today are CSV-only, on-demand-only; this is a delivery-mechanism addition on top of the existing report content, not new report types.
+- **#190 Ongoing SNMP monitoring of discovered devices** — `Icebox`. Network Discovery only inventories switches/printers/UPS once per scan cycle today, no ongoing health/alerting on them; would need real design work (no existing infrastructure fits a non-agent device's alert state).
+- **#191 Event Log monitor** — `Icebox`. The one Datto monitor type from the original parity triage that was parked rather than built or explicitly declined; scoping notes (filter mini-DSL, occurrence-based state, local agent-side filtering to avoid flooding check-in) written into the issue so a later session doesn't re-derive them.
+
+### v1.0 release-readiness review (#74)
+
+With #86 closing the milestone's last open sub-issue, checked #74's own 9-item release-gate checklist against real evidence rather than assuming it tracked itself — found the checklist had never been ticked despite 7 of 8 sub-issues already being `Done`, the same housekeeping gap as #77/#78. Checked off 7 gates with real evidence cited directly in an issue comment (core docs, platform validation, auth review, backup/recovery docs, agent build/sign/publish exercised 4 times this session alone, end-to-end validation, no unresolved Critical/High blockers — this repo's label taxonomy doesn't even define severity labels, and confirmed nothing open is a real blocker). Left two honestly unchecked rather than rubber-stamping the whole list:
+- **Fresh install + upgrade paths** — fresh install is solid; "upgrade paths" only has accumulated real-world evidence (migrations shipping cleanly through many real production releases this session) rather than a dedicated test artifact. Flagged that splitting this into two separate gates might be worth doing.
+- **Licensing/attribution/release notes** — a real, previously-unnoticed gap: only a bare `LICENSE` (AGPL-3.0) exists, no NOTICE/third-party-attribution file even though the codebase now includes forked third-party code (`agent/internal/vendor/systray`, Apache-2.0), and no CHANGELOG/RELEASE_NOTES anywhere. Filed as **#192**.
+
+v1.0.0 milestone: 8 of 8 sub-issues now closed; #192 is the one loose end, not yet on the Project board (the CLI's `item-add` reported success but the issue never actually appeared in the item list after several retries — a real, unexplained tooling hiccup, noted rather than chased further this session).
+
+### Key technical decisions
+
+| Decision | Rationale |
+|---|---|
+| Fork `fyne.io/systray` locally rather than patch around it externally | The actual bug (silent init failure, no process exit) lives inside the library's own `Run()`/`registerSystray()` — no way to fix it from call-site code alone |
+| Bound tray icon recovery to the first ~2 minutes after launch, not forever | The real race (`WTS_SESSION_LOGON` vs. Explorer's own taskbar creation) is a one-time startup phenomenon; running recovery forever was manufacturing the very blank-icon pattern it existed to fix |
+| Web Remote paste: type synthesized keystrokes, not write the remote clipboard | Sidesteps the local/remote clipboard sync race entirely — no shared state on either side to race on |
+| Consent company default is OFF, not ON | No surprise behavior change for any existing company; an admin opts in explicitly |
+| Elevate consent re-fires via the existing "open a new session" mechanism, no special-cased code | Elevate was already architected as a second `POST /v1/sessions` call, not an in-place upgrade — the same resolution logic just runs again naturally |
+| Hyper-V exclusion narrowed with a *new* real column, not a heuristic on existing data | `is_hyper_v_host` (vmms presence) and "is this actually a Server OS" are genuinely two different facts; conflating them was the original bug |
+| Filed Datto-comparison gaps as real GitHub issues with scoping notes, not just chat takeaways | Directly enforces the GitHub Project hygiene practice just established in the same session — a decision made in conversation and never written down is exactly the kind of thing that gets lost |
+| Left 2 of #74's 9 gates honestly unchecked rather than checking all 9 | The whole point of this session's housekeeping push was accuracy — rubber-stamping the checklist to "look done" would be the same failure mode as leaving it stale |
+
+### Next logical steps
+
+1. **Real-hardware confirmation, once Nebuchadnezzar is back online** — this session shipped four things that are cross-compile-verified only: the tray init-failure diagnostics/exit fix (v0.2.46), the Web Remote paste keystroke injection (v0.2.45), the Hyper-V exclusion narrowing (worker/dashboard-only, needs the device to re-audit to populate `windows_installation_type`), and the consent flow's actual on-screen prompt (v0.2.46). All four are real, live-verified as far as this sandbox can reach; none have touched a real Windows device yet.
+2. **#188/#189 (Wake-on-LAN, scheduled reports)** — real v1 candidates, `Backlog` status, no milestone assigned yet. Scoping/implementation not started.
+3. **#192 (licensing/attribution/release notes)** — not yet scoped in detail; the issue itself has a rough shape (NOTICE file, CHANGELOG, decide where "known limitations" consolidates) but no implementation started.
+4. **#190/#191 (SNMP device monitoring, Event Log monitor)** — Icebox, real scoping notes written but no design work done yet.
+5. Get issue #192 actually onto the GitHub Project board — the `item-add` CLI call isn't taking for this one specific issue for an unknown reason; may need to add it manually via the web UI.
+
 ## Session: 2026-08-26 — CLAUDE.md size reduction (archived development history)
 
 CLAUDE.md had grown to 457k characters, well past its 150k operational limit — almost entirely from session-by-session narrative (bug hunts, real-hardware verification passes, superseded designs) accumulated in-place inside feature sections rather than being moved here as it aged. Rewrote CLAUDE.md to state current architecture/behavior only (down to ~108k chars) and archived the removed narrative below, organized by the CLAUDE.md section it came from. Nothing here changes current behavior — this is a documentation move only, confirmed with the user before proceeding (chose "move history to PROJECT_LOG" over "summarize and drop" or "just report the size").
