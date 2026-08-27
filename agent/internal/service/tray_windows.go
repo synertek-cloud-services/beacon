@@ -5,7 +5,9 @@ package service
 import (
 	"crypto/sha256"
 	_ "embed"
+	"encoding/json"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/synertek-cloud-services/beacon/agent/internal/traypipe"
 	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
 
@@ -20,12 +23,16 @@ import (
 var trayBinary []byte
 
 var (
-	trayMu          sync.Mutex
-	agentVer        string
-	supportURL      string                // Get Support menu item's destination; "" hides it. See SetSupportURL.
-	trayPIDs        = map[uint32]uint32{} // session ID -> tray PID, one entry per currently-tracked active session
-	loggedActive    = -1                  // last logged count of active sessions; -1 = never logged yet
-	killOrphansOnce sync.Once
+	trayMu     sync.Mutex
+	agentVer   string
+	supportURL string                // Get Support menu item's destination; "" hides it. See SetSupportURL.
+	trayPIDs   = map[uint32]uint32{} // session ID -> tray PID, bootstrap/fallback liveness signal only for the
+	// brief window before a session's first pipe Hello (or if the pipe server itself never started) -- see
+	// EnsureTrayRunning's reconciliation loop, which now prefers connections over this.
+	connections       = map[uint32]*traypipe.Conn{} // session ID -> live pipe connection; the authoritative liveness signal
+	loggedActive      = -1                          // last logged count of active sessions; -1 = never logged yet
+	killOrphansOnce   sync.Once
+	pipeServerStarted bool // not sync.Once -- a transient Listen() failure (e.g. a self-update handoff window) should retry on the next tick, not fail forever
 )
 
 // SetAgentVersion records the running agent's version string for the tray
@@ -37,8 +44,9 @@ var (
 // access to main.go's local version variable.
 func SetAgentVersion(v string) {
 	trayMu.Lock()
-	defer trayMu.Unlock()
 	agentVer = v
+	trayMu.Unlock()
+	broadcastVersionInfo()
 }
 
 // SetSupportURL records the current Get Support destination, same
@@ -46,14 +54,14 @@ func SetAgentVersion(v string) {
 // successful check-in (agent/cmd/agent/main.go's checkIn(), via its own
 // independent GET /v1/branding/identity poll -- not check-in itself), so an
 // empty string here correctly clears a previously-configured URL rather
-// than leaving a stale one active. Propagation to an already-running tray
-// is eventually-consistent, same as agentVer -- a change is only picked up
-// on that session's next natural relaunch (a crash, or a session
-// logon/logoff), not pushed live.
+// than leaving a stale one active. Pushed live to every connected tray via
+// broadcastVersionInfo -- no more waiting for that session's next natural
+// relaunch.
 func SetSupportURL(u string) {
 	trayMu.Lock()
-	defer trayMu.Unlock()
 	supportURL = u
+	trayMu.Unlock()
+	broadcastVersionInfo()
 }
 
 // EnsureTrayRunning makes sure every currently-active session has its own
@@ -91,6 +99,8 @@ func EnsureTrayRunning() {
 		// taskkill call in install_windows.go.
 		exec.Command("taskkill", "/IM", "beacon-tray.exe", "/F").Run()
 	})
+
+	startPipeServer()
 
 	active, err := usersession.ActiveSessions()
 	if err != nil {
@@ -138,6 +148,12 @@ func EnsureTrayRunning() {
 			delete(trayPIDs, id)
 		}
 	}
+	for id, c := range connections {
+		if _, ok := activeSet[id]; !ok {
+			c.Close()
+			delete(connections, id)
+		}
+	}
 	// --dashboard-url is deliberately omitted: the agent only knows its own
 	// worker URL (--server-url), not the dashboard's -- a different host in
 	// production (rmm-api. vs rmm.) -- and there's no existing mechanism for
@@ -146,7 +162,14 @@ func EnsureTrayRunning() {
 	// so it just won't appear -- honest, not a guess that could be wrong.
 	var toLaunch []uint32
 	for _, id := range active {
-		if !processAlive(trayPIDs[id]) {
+		// A live pipe connection is authoritative ground truth -- strictly
+		// better than a bare PID number, which can't distinguish "the tray
+		// we launched" from "some unrelated process later recycled onto the
+		// same PID." trayPIDs/processAlive are kept as the fallback signal
+		// for the brief window before a freshly-launched tray's first Hello
+		// arrives, and as the sole signal if the pipe server itself never
+		// started.
+		if connections[id] == nil && !processAlive(trayPIDs[id]) {
 			toLaunch = append(toLaunch, id)
 		}
 	}
@@ -228,4 +251,124 @@ func extractTrayIfStale() (string, error) {
 		return "", err
 	}
 	return dest, nil
+}
+
+// startPipeServer starts the traypipe listener if it isn't already running.
+// Deliberately retryable (guarded by a plain bool, not sync.Once) rather
+// than a permanent give-up on the first failure -- a transient "pipe busy"
+// right after a self-update handoff, before the old process's listener has
+// fully torn down, should just retry on the next EnsureTrayRunning tick
+// (<=60s later, same cadence as everything else in this loop).
+func startPipeServer() {
+	trayMu.Lock()
+	if pipeServerStarted {
+		trayMu.Unlock()
+		return
+	}
+	trayMu.Unlock()
+
+	ln, err := traypipe.Listen()
+	if err != nil {
+		log.Printf("service: tray: pipe listen: %v (will retry)", err)
+		return
+	}
+
+	trayMu.Lock()
+	pipeServerStarted = true
+	trayMu.Unlock()
+
+	go runPipeServer(ln)
+}
+
+// runPipeServer accepts pipe connections for the life of the process.
+func runPipeServer(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Printf("service: tray: pipe accept: %v", err)
+			return
+		}
+		go handleConn(conn)
+	}
+}
+
+// handleConn services one tray client's connection until it disconnects.
+// The first message must be TypeHello identifying the session -- anything
+// else and there's nothing meaningful to do with this connection, so it's
+// dropped.
+func handleConn(rawConn net.Conn) {
+	c := traypipe.NewConn(rawConn)
+	defer c.Close()
+
+	msg, err := c.Recv()
+	if err != nil || msg.Type != traypipe.TypeHello {
+		log.Printf("service: tray: pipe connection didn't send hello first, dropping")
+		return
+	}
+	var hello traypipe.HelloPayload
+	if err := json.Unmarshal(msg.Payload, &hello); err != nil {
+		log.Printf("service: tray: pipe hello: %v", err)
+		return
+	}
+
+	trayMu.Lock()
+	// A fresh Hello for a session that already has a connection replaces
+	// it -- the natural "last connection wins" reconnect semantics; the old
+	// entry, if still open, will simply error out on its next Recv.
+	connections[hello.SessionID] = c
+	version, support := agentVer, supportURL
+	trayMu.Unlock()
+
+	log.Printf("service: tray: pipe connected for session %d (pid %d)", hello.SessionID, hello.PID)
+
+	if err := c.Send(traypipe.TypeVersionInfo, traypipe.VersionInfoPayload{
+		Version:    version,
+		SupportURL: support,
+	}); err != nil {
+		log.Printf("service: tray: pipe send version_info: %v", err)
+	}
+
+	for {
+		msg, err := c.Recv()
+		if err != nil {
+			break
+		}
+		switch msg.Type {
+		// TypeRebootResponse handling lands in a follow-up change alongside
+		// the reboot-marker migration; until then, no message type is
+		// expected here.
+		default:
+			log.Printf("service: tray: pipe: unhandled message type %q from session %d", msg.Type, hello.SessionID)
+		}
+	}
+
+	trayMu.Lock()
+	if connections[hello.SessionID] == c {
+		delete(connections, hello.SessionID)
+	}
+	trayMu.Unlock()
+	log.Printf("service: tray: pipe disconnected for session %d", hello.SessionID)
+}
+
+// broadcastVersionInfo pushes the current version/support-URL state to
+// every connected tray. Safe to call even when nothing's connected yet
+// (SetAgentVersion/SetSupportURL are called well before the first
+// EnsureTrayRunning/pipe-connect cycle completes).
+func broadcastVersionInfo() {
+	trayMu.Lock()
+	version, support := agentVer, supportURL
+	conns := make([]*traypipe.Conn, 0, len(connections))
+	for _, c := range connections {
+		conns = append(conns, c)
+	}
+	trayMu.Unlock()
+
+	for _, c := range conns {
+		if err := c.Send(traypipe.TypeVersionInfo, traypipe.VersionInfoPayload{
+			Version:    version,
+			SupportURL: support,
+		}); err != nil {
+			log.Printf("service: tray: pipe broadcast version_info: %v", err)
+		}
+	}
 }
