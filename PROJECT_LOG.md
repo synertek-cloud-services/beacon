@@ -1,5 +1,15 @@
 # Beacon — Project Log
 
+## Session: 2026-08-27 — CLAUDE.md still described Elevate's deleted admin-menu window and dead pre-flight signals
+
+No product code changes — a documentation-only catch-up, found from the outside: `beacon-docs` (the separate docs site) had built a Web Remote Elevate article straight off this file's "On-demand elevation" section, and its author (working from `beacon-docs`, cross-referencing this repo) flagged that the article's description of a second elevated PowerShell window with an admin-tools menu didn't match their memory of the product. Traced it here: `git log -S"launchElevatedShell"` showed the function added in #133, refined in #134/#138, and last touched in #140 — where it was actually deleted outright (confirmed via `git show 4e6ba58`, all `-` lines, no replacement), the same PR CLAUDE.md credits with "rebuilding" Elevate. This log's own #140 entry (below) already documented the drop correctly ("Dropped the elevated-menu PowerShell shell and the `console_user_can_elevate` audit signal/badge") — CLAUDE.md is the one that never caught up, despite explicitly being the "current state" file with this log as its own changelog.
+
+Also dead in CLAUDE.md's Elevate section for the same reason (dropped in the same #140 rewrite, per this log's existing #140 entry): `ActiveUserCanElevate()`/`console_user_can_elevate` and the company-level `hasElevationCredentials` pre-flight check, both described as if they still gate the Elevate confirmation modal. Checked live: the modal (`WebRemotePage.vue`) is a static confirmation with no pre-check at all. Also found and fixed a related but separate stale reference in the Architecture section's `hardware.go` field list (`ConsoleUserCanElevate`, same dead signal).
+
+**Fixed in CLAUDE.md**: the "On-demand elevation" section now describes only what's actually still true (SYSTEM relocation, `FollowInputDesktop`, the reconnect-and-swap race guard, no pre-flight signal, no separate window/menu). The still-real `-ExecutionPolicy Bypass` fact buried in the old text (which was actually about Job/Component's `run.go`/`run_as_user_windows.go`, not Elevate) was moved to the Execution Context section where it belongs, instead of being deleted along with the dead `launchElevatedShell` material it was originally attached to.
+
+**Not touched**: this log's own historical entries mentioning `launchElevatedShell` (lines further down, e.g. the #133/#134 session write-ups) — those are accurate for what shipped at the time and are exactly the "how we got here" this log exists to preserve, per CLAUDE.md's own stated split between the two files.
+
 ## Session: 2026-08-26 (continued) — Tray root-caused for real, Web Remote paste actually implemented, Web Remote consent ships (closes issue #86), Datto RMM comparison, v1.0 release-readiness review
 
 Long continuation of the same day's session (see the CLAUDE.md-trim entry immediately below for the first half). Five real shipped fixes/features, a structured competitive comparison, and a genuine housekeeping pass on the v1.0 milestone.
