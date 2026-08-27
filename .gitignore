@@ -33,5 +33,7 @@ Thumbs.db
 worker/wrangler.toml
 dashboard/.env.production
 
+.claude/settings.local.json
+
 .playwright-mcp/
 .dmux/

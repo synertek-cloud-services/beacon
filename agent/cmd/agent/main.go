@@ -838,6 +838,21 @@ type rebootMarker struct {
 	Confirmed    bool  `json:"confirmed"`
 }
 
+// grantMarkerWriteAccess grants BUILTIN\Users modify access to *this one
+// file* via icacls, rather than loosening the install directory's own ACL
+// at large -- matches this codebase's existing "shell out to a native tool
+// for Windows ACL/service work" convention (sc.exe, taskkill.exe,
+// shutdown.exe elsewhere in this file) instead of hand-rolling the Windows
+// security descriptor APIs for one narrow, low-frequency operation.
+// Idempotent and cheap -- safe to call on every check-in tick for as long
+// as a marker exists, which is exactly what pollPendingReboot does (see its
+// own doc comment for why a one-shot-at-creation grant isn't enough).
+func grantMarkerWriteAccess(path string) {
+	if err := exec.Command("icacls", path, "/grant", "Users:(M)").Run(); err != nil {
+		log.Printf("grant Users write access to pending-reboot marker: %v", err)
+	}
+}
+
 // writePendingRebootMarker creates the marker if one doesn't already exist
 // -- never clobbers an in-progress snooze from a previous install's prompt
 // that the user hasn't responded to yet.
@@ -869,16 +884,7 @@ func writePendingRebootMarker() {
 	// setup at all (see its own main.go fix landing alongside this one)
 	// -- leaving the marker stuck at confirmed:false forever regardless
 	// of how many times the user actually clicked Yes.
-	//
-	// Grants write access to *this one file* via icacls rather than
-	// loosening the install directory's own ACL at large -- matches this
-	// codebase's existing "shell out to a native tool for Windows ACL/
-	// service work" convention (sc.exe, taskkill.exe, shutdown.exe
-	// elsewhere in this file) instead of hand-rolling the Windows security
-	// descriptor APIs for one narrow, low-frequency operation.
-	if err := exec.Command("icacls", path, "/grant", "Users:(M)").Run(); err != nil {
-		log.Printf("grant Users write access to pending-reboot marker: %v", err)
-	}
+	grantMarkerWriteAccess(path)
 }
 
 // pollPendingReboot checks whether the user has confirmed a pending reboot
@@ -902,6 +908,23 @@ func writePendingRebootMarker() {
 // shutdown call -- on failure it's left in place, already Confirmed, so
 // the very next check-in tick retries the same shutdown automatically
 // instead of silently discarding the user's answer.
+//
+// Also re-asserts grantMarkerWriteAccess on every tick a marker exists, not
+// just at creation. Root-caused live on a real production device
+// (Nebuchadnezzar, 2026-08-27): its marker's ACL was purely inherited --
+// the creation-time icacls grant never took effect on it, for a reason
+// that can no longer be reconstructed (the surviving log doesn't reach
+// back that far) -- and because writePendingRebootMarker only ever grants
+// once, at creation, that one bad write stayed permanently stuck: 16 days,
+// every Yes/No click silently failing with Access Denied, surviving
+// multiple agent self-updates and even a full machine reboot, with zero
+// visibility anywhere in the product until a technician went and read the
+// file's raw ACL by hand. Unacceptable for a tool meant to manage fleets
+// unattended -- a single bad write to one file should never be able to
+// permanently disable a whole feature on a device with no self-healing and
+// no signal. Re-running the grant here costs nothing when it's already
+// correct, and guarantees this same failure self-heals within one check-in
+// interval instead of needing hands-on remote diagnosis ever again.
 func pollPendingReboot() {
 	path := rebootmarker.Path()
 	if path == "" {
@@ -911,6 +934,7 @@ func pollPendingReboot() {
 	if err != nil {
 		return // no marker -- nothing pending
 	}
+	grantMarkerWriteAccess(path)
 	var m rebootMarker
 	if err := json.Unmarshal(data, &m); err != nil {
 		return
