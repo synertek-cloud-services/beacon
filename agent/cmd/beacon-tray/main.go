@@ -13,6 +13,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +31,8 @@ import (
 	"fyne.io/systray"
 	"github.com/synertek-cloud-services/beacon/agent/internal/credential"
 	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
+	"github.com/synertek-cloud-services/beacon/agent/internal/traypipe"
+	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
 
 //go:embed assets/icon.ico
@@ -100,41 +104,60 @@ func setupLogging(credDir string) {
 	}()
 }
 
+// menuState holds everything the pipe client can push a live update to,
+// guarded by menuMu since updates arrive on the pipe read goroutine while
+// clicks fire from systray's own goroutines.
+var (
+	menuMu       sync.Mutex
+	curVersion   string
+	curSupport   string
+	curDashboard string
+)
+
 func onReady(version, dashboardURL, supportURL string) {
+	menuMu.Lock()
+	curVersion, curSupport, curDashboard = version, supportURL, dashboardURL
+	menuMu.Unlock()
+
 	systray.SetIcon(iconData)
 	systray.SetTooltip("Beacon Agent " + version)
 
 	label := systray.AddMenuItem("Beacon Agent "+version, "")
 	label.Disable()
 
-	// One shared separator covers both optional items below, so a future
-	// day where --dashboard-url is finally wired up too (see
-	// EnsureTrayRunning's own comment on why it isn't yet) doesn't produce
-	// two separators back to back.
-	if dashboardURL != "" || supportURL != "" {
-		systray.AddSeparator()
-	}
-	if dashboardURL != "" {
-		visit := systray.AddMenuItem("Visit Dashboard", "Open the Beacon dashboard")
-		go func() {
-			for range visit.ClickedCh {
-				openBrowser(dashboardURL)
+	// Always added, up front -- a live pipe push can change support/dashboard
+	// URLs on an already-running tray, so both items (and the separator
+	// covering them) need to exist from the start to be shown/hidden later,
+	// rather than being conditionally created only once at launch.
+	systray.AddSeparator()
+	visit := systray.AddMenuItem("Visit Dashboard", "Open the Beacon dashboard")
+	go func() {
+		for range visit.ClickedCh {
+			menuMu.Lock()
+			url := curDashboard
+			menuMu.Unlock()
+			if url != "" {
+				openBrowser(url)
 			}
-		}()
-	}
-	if supportURL != "" {
-		// Opened verbatim, with zero device-identifying query params --
-		// a hoster who wants smarter PSA routing configures that on their
-		// own portal's side. This also directly satisfies "do not expose
-		// device credentials in the URL": nothing about the device is ever
-		// added to it at all. See CLAUDE.md's Branding section.
-		support := systray.AddMenuItem("Get Support", "Open the support destination")
-		go func() {
-			for range support.ClickedCh {
-				openBrowser(supportURL)
+		}
+	}()
+	// Opened verbatim, with zero device-identifying query params -- a
+	// hoster who wants smarter PSA routing configures that on their own
+	// portal's side. This also directly satisfies "do not expose device
+	// credentials in the URL": nothing about the device is ever added to
+	// it at all. See CLAUDE.md's Branding section.
+	support := systray.AddMenuItem("Get Support", "Open the support destination")
+	go func() {
+		for range support.ClickedCh {
+			menuMu.Lock()
+			url := curSupport
+			menuMu.Unlock()
+			if url != "" {
+				openBrowser(url)
 			}
-		}()
-	}
+		}
+	}()
+	applyMenuVisibility(label, visit, support, version, dashboardURL, supportURL)
 
 	// Deliberately no Exit item -- see package doc comment. This process is
 	// meant to be supervised/relaunched once Step 2 wires the real launch
@@ -143,6 +166,97 @@ func onReady(version, dashboardURL, supportURL string) {
 
 	go pollPendingReboot()
 	go recoverBlankIcon()
+	go runPipeClient(label, visit, support)
+}
+
+// applyMenuVisibility pushes version/support/dashboard state onto the
+// actual tray UI -- the one place that touches label/visit/support
+// directly, called both from onReady (initial CLI-flag snapshot) and from
+// the pipe client on every TypeVersionInfo push, so the two paths can never
+// drift out of sync with each other.
+func applyMenuVisibility(label, visit, support *systray.MenuItem, version, dashboardURL, supportURL string) {
+	systray.SetTooltip("Beacon Agent " + version)
+	label.SetTitle("Beacon Agent " + version)
+	if dashboardURL != "" {
+		visit.Show()
+	} else {
+		visit.Hide()
+	}
+	if supportURL != "" {
+		support.Show()
+	} else {
+		support.Hide()
+	}
+}
+
+// runPipeClient connects to the agent service's named pipe and stays
+// connected for the life of the process, redialing with a short backoff on
+// any disconnect. PipeName is a fixed, well-known constant (not tied to a
+// particular server process), so an agent-service restart (self-update,
+// restart_agent) needs no coordination on this side at all -- the old
+// process's pipe instance tears down the moment it exits, this loop's
+// current Recv errors out immediately, and the next Dial finds whichever
+// process is listening now.
+var pipeReconnectDelays = []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second}
+
+func runPipeClient(label, visit, support *systray.MenuItem) {
+	sessionID, err := usersession.CurrentSessionID()
+	if err != nil {
+		log.Printf("pipe client: determine current session: %v", err)
+		return
+	}
+
+	attempt := 0
+	for {
+		conn, err := traypipe.Dial(context.Background())
+		if err != nil {
+			delay := pipeReconnectDelays[min(attempt, len(pipeReconnectDelays)-1)]
+			attempt++
+			time.Sleep(delay)
+			continue
+		}
+		attempt = 0
+
+		c := traypipe.NewConn(conn)
+		if err := c.Send(traypipe.TypeHello, traypipe.HelloPayload{
+			SessionID: sessionID,
+			PID:       uint32(os.Getpid()),
+		}); err != nil {
+			log.Printf("pipe client: send hello: %v", err)
+			c.Close()
+			continue
+		}
+
+		handlePipeConn(c, label, visit, support) // blocks until Recv errors (disconnect)
+		c.Close()
+	}
+}
+
+// handlePipeConn dispatches messages from one live pipe connection until it
+// disconnects.
+func handlePipeConn(c *traypipe.Conn, label, visit, support *systray.MenuItem) {
+	for {
+		msg, err := c.Recv()
+		if err != nil {
+			return
+		}
+		switch msg.Type {
+		case traypipe.TypeVersionInfo:
+			var v traypipe.VersionInfoPayload
+			if err := json.Unmarshal(msg.Payload, &v); err != nil {
+				continue
+			}
+			menuMu.Lock()
+			curVersion, curSupport, curDashboard = v.Version, v.SupportURL, v.DashboardURL
+			menuMu.Unlock()
+			applyMenuVisibility(label, visit, support, v.Version, v.DashboardURL, v.SupportURL)
+		// TypeRebootPrompt handling lands in a follow-up change alongside the
+		// reboot-marker migration; the file-based pollPendingReboot below is
+		// still what drives the reboot prompt for now.
+		default:
+			log.Printf("pipe client: unhandled message type %q", msg.Type)
+		}
+	}
 }
 
 // blankIconRecoveryDelays are how long after launch to force a fresh
