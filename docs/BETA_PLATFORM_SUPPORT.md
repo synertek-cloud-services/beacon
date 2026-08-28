@@ -49,7 +49,7 @@ to move a capability out of Unvalidated.
 | Remote uninstall | Supported | Supported | Unvalidated | Linux cleanup runs in a separate transient systemd unit so `Restart=always` cannot kill the helper. Two Ubuntu 24.04 install/uninstall cycles passed, including fresh identity after credential removal. Run last. |
 | Windows patch scan, approval, and manual install | Supported | Not applicable | Not applicable | WUA-based and Windows-only. |
 | Patch Policy dispatch, reboot behavior, and Windows/Microsoft Update management | Experimental | Not applicable | Not applicable | GPO drift detection is tracked separately in issue #79. Driver/Microsoft Update and Hyper-V behavior need representative hardware. |
-| Endpoint tray, reboot prompt, and logged-in-user UI | Experimental | Not applicable | Not applicable | Windows-only. The latest tray icon self-heal still needs current real-hardware confirmation. |
+| Endpoint tray, reboot prompt, and logged-in-user UI | Experimental | Not applicable | Not applicable | Windows-only. Tray↔agent-service IPC now runs over a named pipe (`agent/internal/traypipe`); the pipe connection itself is real-hardware verified (agent v0.3.0), but the actual reboot-prompt confirm/snooze round trip and multi-session/RDS behavior are not yet exercised live — tracked in issue #199. Blank-icon self-heal also still needs current real-hardware confirmation. |
 | Network Discovery probe | Experimental | Experimental | Unvalidated | Ping/ARP discovery only, IPv4 ranges `/20` or smaller; credentialed discovery is post-v1. |
 
 The matrix is intentionally conservative. For example, macOS collectors and a
