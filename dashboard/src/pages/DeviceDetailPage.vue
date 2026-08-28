@@ -273,7 +273,7 @@
                 </div>
                 <div class="ddev-row">
                   <span class="ddev-label">Web Remote Consent</span>
-                  <select class="text-sm" :value="consentOverrideValue" :disabled="consentOverrideSaving" @change="onConsentOverrideChange">
+                  <select class="text-sm ddev-select" :value="consentOverrideValue" :disabled="consentOverrideSaving" @change="onConsentOverrideChange">
                     <option value="inherit">Inherit from Company Default</option>
                     <option value="require">Require</option>
                     <option value="dont_require">Don't Require</option>
@@ -2310,6 +2310,12 @@ function shellLabel(shell: string): string {
   color-scheme: dark;
 }
 .ddev-date-input:focus { outline: none; border-color: var(--color-primary); }
+.ddev-select {
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); border-radius: 4px;
+  padding: 3px 6px; color: var(--color-text-primary); font-family: var(--font);
+  color-scheme: dark; cursor: pointer;
+}
+.ddev-select:focus { outline: none; border-color: var(--color-primary); }
 
 /* Bumped up from the app's global .text-sm/.text-xs (12px/11px) — scoped to
    just this page since Vue scoped styles auto-namespace class selectors,

@@ -828,6 +828,12 @@ async function save() {
 .pc-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--color-border); }
 .pc-row:last-of-type { border-bottom: none; }
 .pc-pattern { flex: 1; }
+.pc-row select, .pc-row input[type="text"] {
+  background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--r-btn);
+  padding: 6px 10px; color: var(--color-text-primary); font-size: 13px; font-family: var(--font); outline: none;
+}
+.pc-row select { cursor: pointer; }
+.pc-row select:focus, .pc-row input[type="text"]:focus { border-color: var(--color-primary); }
 
 .btn-text { background: none; border: none; padding: 2px 7px; font-size: 11px; font-family: var(--font); color: var(--color-text-muted); cursor: pointer; border-radius: 3px; transition: background .1s, color .1s; }
 .btn-text:hover { background: var(--color-border); color: var(--color-text-primary); }

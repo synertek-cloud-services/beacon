@@ -80,4 +80,10 @@ defineExpose({ validate });
 .cvp-desc { font-size: 11px; color: var(--color-text-muted); margin: 0; }
 .cvp-checkbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-primary); font-weight: 400; }
 .required { color: var(--color-danger); }
+.cvp-row input, .cvp-row select {
+  background: var(--color-canvas); border: 1px solid var(--color-border-strong); border-radius: var(--r-btn);
+  padding: 8px 11px; color: var(--color-text-primary); font-size: 13px; font-family: var(--font); outline: none;
+}
+.cvp-row select { cursor: pointer; }
+.cvp-row input:focus, .cvp-row select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(78,126,247,.15); }
 </style>
