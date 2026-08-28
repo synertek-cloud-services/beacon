@@ -9,7 +9,8 @@ import (
 )
 
 // PipeName has no meaning off Windows -- the tray/pipe workflow is
-// Windows-only, matching agent/internal/rebootmarker's own equivalent stub.
+// Windows-only, same "return a clear stub" convention this codebase already
+// uses for other Windows-only paths (e.g. usersession's _other.go stubs).
 const PipeName = ""
 
 var errUnsupported = errors.New("traypipe: named pipes are Windows-only")

@@ -23,7 +23,6 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/pingutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/procutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/protocol"
-	"github.com/synertek-cloud-services/beacon/agent/internal/rebootmarker"
 	"github.com/synertek-cloud-services/beacon/agent/internal/service"
 	"github.com/synertek-cloud-services/beacon/agent/internal/session"
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
@@ -139,6 +138,7 @@ func main() {
 	// This first call covers "agent starts, someone's already logged in";
 	// the check-in loop below covers everything after.
 	service.SetAgentVersion(version)
+	service.LoadRebootState() // restore any reboot pending/confirmed across a prior service restart
 	service.EnsureTrayRunning()
 
 	updater.Start(*serverURL, version, credential.Dir())
@@ -168,9 +168,9 @@ func main() {
 			// runner_windows.go is just a latency optimization on top of
 			// this, not a replacement.
 			service.EnsureTrayRunning()
-			// Same piggyback cadence -- see pollPendingReboot's own doc
-			// comment for why this is polled state, not a named pipe.
-			pollPendingReboot()
+			// Same piggyback cadence as everything else in this loop --
+			// see service.ProcessRebootState's own doc comment.
+			service.ProcessRebootState()
 			select {
 			case <-time.After(interval):
 			case <-triggerCheckin:
@@ -549,7 +549,7 @@ func checkIn(client *protocol.Client, cred *credential.Stored) (time.Duration, e
 								log.Printf("install_patches: auto-reboot shutdown command failed: %v", err)
 							}
 						} else {
-							writePendingRebootMarker()
+							service.RequestReboot()
 						}
 					}
 				}
@@ -823,129 +823,9 @@ func checkIn(client *protocol.Client, cred *credential.Stored) (time.Duration, e
 	return nextInterval, nil
 }
 
-// rebootMarker is the on-disk state shared between the agent and
-// beacon-tray.exe (agent/internal/rebootmarker.Path) -- a
-// polled file rather than a named pipe, deliberately, since a reboot
-// prompt isn't latency-critical and this avoids real Windows IPC
-// connection-lifecycle complexity for marginal benefit. SnoozedUntil==0
-// means not currently snoozed; Confirmed is set by the tray once the user
-// picks "Restart Now" -- the agent (not the tray) performs the actual
-// reboot, matching the established "the agent always does the actual
-// privileged action" pattern the rest of patch install already follows.
-type rebootMarker struct {
-	CreatedAt    int64 `json:"created_at"`
-	SnoozedUntil int64 `json:"snoozed_until"`
-	Confirmed    bool  `json:"confirmed"`
-}
-
-// grantMarkerWriteAccess grants BUILTIN\Users modify access to *this one
-// file* via icacls, rather than loosening the install directory's own ACL
-// at large -- matches this codebase's existing "shell out to a native tool
-// for Windows ACL/service work" convention (sc.exe, taskkill.exe,
-// shutdown.exe elsewhere in this file) instead of hand-rolling the Windows
-// security descriptor APIs for one narrow, low-frequency operation.
-// Idempotent and cheap -- safe to call on every check-in tick for as long
-// as a marker exists, which is exactly what pollPendingReboot does (see its
-// own doc comment for why a one-shot-at-creation grant isn't enough).
-func grantMarkerWriteAccess(path string) {
-	if err := exec.Command("icacls", path, "/grant", "Users:(M)").Run(); err != nil {
-		log.Printf("grant Users write access to pending-reboot marker: %v", err)
-	}
-}
-
-// writePendingRebootMarker creates the marker if one doesn't already exist
-// -- never clobbers an in-progress snooze from a previous install's prompt
-// that the user hasn't responded to yet.
-func writePendingRebootMarker() {
-	path := rebootmarker.Path()
-	if path == "" {
-		return // non-Windows; no-op
-	}
-	if _, err := os.Stat(path); err == nil {
-		return // already pending, leave any existing snooze state alone
-	}
-	data, _ := json.Marshal(rebootMarker{CreatedAt: time.Now().Unix()})
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		log.Printf("write pending-reboot marker: %v", err)
-		return
-	}
-	// Root-caused live against a real device stuck showing "Yes does
-	// nothing, the prompt just comes back": installDir's own ACL (fine
-	// for the rest of Beacon's install, which should stay locked down)
-	// grants BUILTIN\Users only ReadAndExecute, never write -- confirmed
-	// directly via Get-Acl on the affected device. This process (the
-	// SYSTEM-context agent) writes the file above just fine, but
-	// beacon-tray.exe writes the user's Yes/No response back to this
-	// same file from inside the *logged-in user's own* token (see
-	// usersession.RunAsSession), which is never SYSTEM or an
-	// Administrator for the overwhelmingly common case. Every write-back
-	// attempt from a standard user account was silently failing with
-	// Access Denied -- invisible, since beacon-tray.exe had no logging
-	// setup at all (see its own main.go fix landing alongside this one)
-	// -- leaving the marker stuck at confirmed:false forever regardless
-	// of how many times the user actually clicked Yes.
-	grantMarkerWriteAccess(path)
-}
-
-// pollPendingReboot checks whether the user has confirmed a pending reboot
-// via the tray prompt and, if so, actually performs it -- same shutdown
-// invocation worker/src/routes/admin/devices.ts's "reboot" command already
-// uses, for consistency. Runs unconditionally on every check-in tick, so a
-// failed attempt here retries on its own on the next tick rather than
-// needing any escalation.
-//
-// Root-caused live against a real device stuck in an infinite loop: the
-// user clicks Yes, the tray correctly writes confirmed:true, this
-// function used to delete the marker *before* confirming the shutdown
-// call actually succeeded -- so a failed shutdown (cause unconfirmed,
-// since the resulting error was only ever logged, invisible on any
-// device still hitting the MultiWriter logging bug fixed alongside this)
-// silently ate the user's confirmation and left no trace. A later
-// install_patches cycle re-armed a fresh marker (writePendingRebootMarker
-// only skips writing when one already exists), the tray re-prompted, and
-// the whole cycle repeated forever with the user re-clicking Yes each
-// time to no effect. The marker is now only removed *after* a successful
-// shutdown call -- on failure it's left in place, already Confirmed, so
-// the very next check-in tick retries the same shutdown automatically
-// instead of silently discarding the user's answer.
-//
-// Also re-asserts grantMarkerWriteAccess on every tick a marker exists, not
-// just at creation. Root-caused live on a real production device
-// (Nebuchadnezzar, 2026-08-27): its marker's ACL was purely inherited --
-// the creation-time icacls grant never took effect on it, for a reason
-// that can no longer be reconstructed (the surviving log doesn't reach
-// back that far) -- and because writePendingRebootMarker only ever grants
-// once, at creation, that one bad write stayed permanently stuck: 16 days,
-// every Yes/No click silently failing with Access Denied, surviving
-// multiple agent self-updates and even a full machine reboot, with zero
-// visibility anywhere in the product until a technician went and read the
-// file's raw ACL by hand. Unacceptable for a tool meant to manage fleets
-// unattended -- a single bad write to one file should never be able to
-// permanently disable a whole feature on a device with no self-healing and
-// no signal. Re-running the grant here costs nothing when it's already
-// correct, and guarantees this same failure self-heals within one check-in
-// interval instead of needing hands-on remote diagnosis ever again.
-func pollPendingReboot() {
-	path := rebootmarker.Path()
-	if path == "" {
-		return // non-Windows; no-op
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return // no marker -- nothing pending
-	}
-	grantMarkerWriteAccess(path)
-	var m rebootMarker
-	if err := json.Unmarshal(data, &m); err != nil {
-		return
-	}
-	if !m.Confirmed {
-		return
-	}
-	log.Printf("reboot confirmed via tray prompt -- restarting")
-	if err := exec.Command("shutdown", "/r", "/t", "0").Run(); err != nil {
-		log.Printf("shutdown: %v (will retry on next check-in)", err)
-		return
-	}
-	os.Remove(path)
-}
+// Reboot confirm/snooze state now lives entirely in
+// agent/internal/service (reboot_windows.go), pushed to/from the tray over
+// the traypipe named-pipe connection instead of a polled, ACL-granted
+// shared file. See that file's own doc comments for the full design and
+// the real production incident (Nebuchadnezzar, 2026-08-27) that motivated
+// moving off the old file-based approach entirely.

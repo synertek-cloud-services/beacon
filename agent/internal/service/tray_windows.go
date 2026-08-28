@@ -327,6 +327,15 @@ func handleConn(rawConn net.Conn) {
 	}); err != nil {
 		log.Printf("service: tray: pipe send version_info: %v", err)
 	}
+	// Covers a session connecting (or reconnecting) after a reboot prompt
+	// already started -- the tray restarting mid-prompt, or a fresh RDP
+	// session, shouldn't have to wait for a snooze-expiry re-broadcast to
+	// see it.
+	if rebootPromptOutstanding() {
+		if err := c.Send(traypipe.TypeRebootPrompt, traypipe.RebootPromptPayload{}); err != nil {
+			log.Printf("service: tray: pipe send reboot_prompt: %v", err)
+		}
+	}
 
 	for {
 		msg, err := c.Recv()
@@ -334,9 +343,8 @@ func handleConn(rawConn net.Conn) {
 			break
 		}
 		switch msg.Type {
-		// TypeRebootResponse handling lands in a follow-up change alongside
-		// the reboot-marker migration; until then, no message type is
-		// expected here.
+		case traypipe.TypeRebootResponse:
+			handleRebootResponse(msg.Payload)
 		default:
 			log.Printf("service: tray: pipe: unhandled message type %q from session %d", msg.Type, hello.SessionID)
 		}
