@@ -2,6 +2,7 @@ package rfbserver
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -1075,18 +1076,327 @@ func readFramebufferUpdateRects(t *testing.T, client io.Reader) []rfb.Rectangle 
 		h := binary.BigEndian.Uint16(rb[6:8])
 		enc := int32(binary.BigEndian.Uint32(rb[8:12]))
 		rect := rfb.Rectangle{X: x, Y: y, W: w, H: h, Encoding: enc}
-		if enc == rfb.EncodingRaw {
+		switch enc {
+		case rfb.EncodingRaw:
 			pixels := make([]byte, int(w)*int(h)*4)
 			if _, err := io.ReadFull(client, pixels); err != nil {
 				t.Fatalf("client: read rect %d pixels: %v", i, err)
 			}
 			rect.Pixels = pixels
+		case rfb.EncodingZRLE:
+			// [4-byte big-endian length][that many compressed bytes] -- see
+			// rfb.ZRLEEncoder.EncodeRect. Pixels holds the whole payload
+			// (length prefix included) so a caller can hand it straight to
+			// zrleStreamDecoder.decode.
+			var lenBuf [4]byte
+			if _, err := io.ReadFull(client, lenBuf[:]); err != nil {
+				t.Fatalf("client: read rect %d ZRLE length: %v", i, err)
+			}
+			n := binary.BigEndian.Uint32(lenBuf[:])
+			payload := make([]byte, 4+n)
+			copy(payload[:4], lenBuf[:])
+			if _, err := io.ReadFull(client, payload[4:]); err != nil {
+				t.Fatalf("client: read rect %d ZRLE payload: %v", i, err)
+			}
+			rect.Pixels = payload
 		}
 		// EncodingDesktopSize (and any other pseudo-encoding this test
 		// doesn't exercise) carries no pixel body to consume.
 		rects[i] = rect
 	}
 	return rects
+}
+
+// zrleStreamDecoder incrementally decodes a sequence of ZRLE-encoded
+// rectangle payloads read directly off the wire, maintaining one continuous
+// zlib inflate stream across calls -- exactly what a real client does.
+// Deliberately a hand-written reference independent of
+// agent/internal/rfb's own tiling/CPIXEL logic (its helpers are unexported
+// and in a different package anyway), the same "verify against an
+// independent implementation, not the encoder's own code" approach that
+// package's own zrle_test.go already uses.
+type zrleStreamDecoder struct {
+	t   *testing.T
+	buf *bytes.Buffer
+	zr  io.ReadCloser
+}
+
+func newZRLEStreamDecoder(t *testing.T) *zrleStreamDecoder {
+	return &zrleStreamDecoder{t: t, buf: new(bytes.Buffer)}
+}
+
+// decode consumes one EncodeRect-shaped payload ([4-byte length][compressed
+// bytes], as readFramebufferUpdateRects captures it for an EncodingZRLE
+// rectangle) and returns the w*h*bytesPerPixel(pf) packed pixel bytes it
+// decodes to.
+func (d *zrleStreamDecoder) decode(payload []byte, w, h uint16, pf rfb.PixelFormat) []byte {
+	d.t.Helper()
+	if len(payload) < 4 {
+		d.t.Fatalf("ZRLE payload too short: %d bytes", len(payload))
+	}
+	n := binary.BigEndian.Uint32(payload[0:4])
+	if uint32(len(payload)-4) != n {
+		d.t.Fatalf("ZRLE payload length field = %d, actual compressed bytes = %d", n, len(payload)-4)
+	}
+	d.buf.Write(payload[4:])
+	if d.zr == nil {
+		zr, err := zlib.NewReader(d.buf)
+		if err != nil {
+			d.t.Fatalf("zlib.NewReader: %v", err)
+		}
+		d.zr = zr
+	}
+
+	bytesPerPixel := int(pf.BitsPerPixel) / 8
+	cpw := bytesPerPixel
+	if pf.BitsPerPixel == 32 && pf.Depth <= 24 {
+		cpw = 3
+	}
+	rowBytes := int(w) * bytesPerPixel
+	packed := make([]byte, rowBytes*int(h))
+
+	const tileSize = 64
+	for ty := 0; ty < int(h); ty += tileSize {
+		th := tileSize
+		if remaining := int(h) - ty; th > remaining {
+			th = remaining
+		}
+		for tx := 0; tx < int(w); tx += tileSize {
+			tw := tileSize
+			if remaining := int(w) - tx; tw > remaining {
+				tw = remaining
+			}
+
+			var sub [1]byte
+			if _, err := io.ReadFull(d.zr, sub[:]); err != nil {
+				d.t.Fatalf("ZRLE: read subencoding: %v", err)
+			}
+			if sub[0] != 0 {
+				d.t.Fatalf("ZRLE: subencoding = %d, want Raw (0)", sub[0])
+			}
+
+			tilePixels := make([]byte, tw*th*cpw)
+			if _, err := io.ReadFull(d.zr, tilePixels); err != nil {
+				d.t.Fatalf("ZRLE: read tile pixels: %v", err)
+			}
+
+			for ry := 0; ry < th; ry++ {
+				rowStart := (ty+ry)*rowBytes + tx*bytesPerPixel
+				for rx := 0; rx < tw; rx++ {
+					src := tilePixels[(ry*tw+rx)*cpw : (ry*tw+rx+1)*cpw]
+					dst := packed[rowStart+rx*bytesPerPixel : rowStart+rx*bytesPerPixel+bytesPerPixel]
+					if cpw == bytesPerPixel {
+						copy(dst, src)
+						continue
+					}
+					if pf.BigEndian {
+						dst[0] = 0
+						copy(dst[1:], src)
+					} else {
+						copy(dst[:3], src)
+						dst[3] = 0
+					}
+				}
+			}
+		}
+	}
+	return packed
+}
+
+// packedTestFrame builds a w x h buffer already packed to pf via
+// rfb.PackRow, the same way agent/internal/screencapture's real
+// GDICapturer.Capture produces its output -- a deterministic per-pixel
+// pattern (distinct per row/column) so a decode bug that mixes up
+// coordinates doesn't hide behind a uniform color.
+func packedTestFrame(w, h uint16, pf rfb.PixelFormat) []byte {
+	bytesPerPixel := int(pf.BitsPerPixel) / 8
+	rowBytes := int(w) * bytesPerPixel
+	packed := make([]byte, rowBytes*int(h))
+	srcRow := make([]byte, int(w)*4)
+	for y := 0; y < int(h); y++ {
+		for x := 0; x < int(w); x++ {
+			srcRow[x*4+0] = byte(x*7 + y) // B
+			srcRow[x*4+1] = byte(x + y*3) // G
+			srcRow[x*4+2] = byte(x ^ y)   // R
+			srcRow[x*4+3] = 0xFF          // A, ignored by PackRow
+		}
+		rfb.PackRow(packed[y*rowBytes:(y+1)*rowBytes], pf, srcRow)
+	}
+	return packed
+}
+
+// zrleFakeCapturer behaves like fakeCapturer but actually packs its
+// synthetic pixel data via rfb.PackRow (see packedTestFrame) instead of
+// fakeCapturer's simpler byte(i%256) fill. That simpler pattern is fine
+// everywhere else in this file -- Raw encoding is a verbatim passthrough of
+// whatever Capture returns -- but ZRLE's CPIXEL truncation relies on a real
+// invariant only PackRow actually guarantees (the always-zero padding byte
+// for a 32bpp/depth<=24 pixel format); an arbitrary byte pattern doesn't
+// honor that, and truncating it would genuinely lose real (if synthetic)
+// data, not just look like a bug.
+type zrleFakeCapturer struct {
+	w, h uint16
+}
+
+func (z *zrleFakeCapturer) Size() (uint16, uint16) { return z.w, z.h }
+
+func (z *zrleFakeCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	return rfb.Rectangle{X: 0, Y: 0, W: z.w, H: z.h, Pixels: packedTestFrame(z.w, z.h, pf)}, nil
+}
+
+// TestZRLEUsedWhenClientDeclaresSupport confirms Serve actually switches
+// ordinary content rectangles to EncodingZRLE once a client declares
+// support via SetEncodings, and that the compressed bytes really do decode
+// back to fakeCapturer's known pattern -- not just that the Encoding field
+// changed. 100x70 is deliberately not a multiple of ZRLE's 64x64 tile size,
+// exercising real edge-tile clipping over the wire, not just in
+// agent/internal/rfb's own unit tests.
+func TestZRLEUsedWhenClientDeclaresSupport(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap := &zrleFakeCapturer{w: 100, h: 70} // not a multiple of ZRLE's 64x64 tile size
+	inj := &fakeInjector{}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap, inj, nil) }()
+
+	doClientHandshake(t, clientSide)
+	sendSetEncodings(t, clientSide, rfb.EncodingZRLE)
+
+	sendFramebufferUpdateRequest(t, clientSide)
+	rects := readFramebufferUpdateRects(t, clientSide)
+	if len(rects) == 0 {
+		t.Fatal("expected at least one rectangle")
+	}
+
+	dec := newZRLEStreamDecoder(t)
+	var reassembled []byte
+	for _, r := range rects {
+		if r.Encoding != rfb.EncodingZRLE {
+			t.Fatalf("rect encoding = %d, want EncodingZRLE (16) once the client declares support", r.Encoding)
+		}
+		reassembled = append(reassembled, dec.decode(r.Pixels, r.W, r.H, defaultPixelFormat())...)
+	}
+	want := packedTestFrame(100, 70, defaultPixelFormat())
+	if !bytes.Equal(reassembled, want) {
+		t.Fatal("decoded ZRLE pixel data does not match the capturer's known pattern")
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
+}
+
+// TestZRLENotUsedWithoutDeclaredSupport is the fallback-path regression
+// test: a client that declares support for other encodings but never
+// EncodingZRLE must keep getting plain Raw content, exactly as before this
+// feature existed -- most of the pre-existing tests in this file already
+// prove this implicitly (they never send SetEncodings at all), but this
+// makes the "ZRLE is opt-in per client" contract explicit and readable on
+// its own.
+func TestZRLENotUsedWithoutDeclaredSupport(t *testing.T) {
+	h := newTestHarness(t, 4, 3)
+	sendSetEncodings(t, h.client, rfb.EncodingCursorPseudo, rfb.EncodingDesktopSize)
+
+	// requestUpdate() already asserts every rectangle is EncodingRaw --
+	// see readFramebufferUpdate's own t.Fatalf on any other encoding.
+	rects := h.requestUpdate()
+	if len(rects) != 1 {
+		t.Fatalf("rect count = %d, want 1", len(rects))
+	}
+
+	h.closeAndWaitClean()
+}
+
+// TestZRLEStreamContinuesAcrossSwitchRequest is the regression test for the
+// deliberate design choice in Serve's capture goroutine: the ZRLEEncoder is
+// created once for the whole connection and never touched by the
+// SwitchRequest case, because its zlib stream belongs to the RFB
+// connection, not to whichever Capturer happens to be active. One
+// zrleStreamDecoder spans both the pre- and post-switch updates below --
+// if the server ever started resetting the encoder on a switch (a fresh
+// zlib.Writer emits a new stream header mid-stream), this decoder would
+// either hard-fail with an inflate error or, worse, silently decode
+// garbage that the final byte-equality check below would still catch.
+func TestZRLEStreamContinuesAcrossSwitchRequest(t *testing.T) {
+	c2sR, c2sW := io.Pipe()
+	s2cR, s2cW := io.Pipe()
+	serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+	clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+
+	cap1 := &zrleFakeCapturer{w: 100, h: 70}
+	inj1 := &fakeInjector{}
+	switchRequests := make(chan SwitchRequest, 1)
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- Serve(serverSide, cap1, inj1, switchRequests) }()
+
+	doClientHandshake(t, clientSide)
+	sendSetEncodings(t, clientSide, rfb.EncodingZRLE, rfb.EncodingDesktopSize)
+
+	dec := newZRLEStreamDecoder(t)
+
+	sendFramebufferUpdateRequest(t, clientSide)
+	before := readFramebufferUpdateRects(t, clientSide)
+	var beforePixels []byte
+	for _, r := range before {
+		if r.Encoding != rfb.EncodingZRLE {
+			t.Fatalf("pre-switch rect encoding = %d, want EncodingZRLE", r.Encoding)
+		}
+		beforePixels = append(beforePixels, dec.decode(r.Pixels, r.W, r.H, defaultPixelFormat())...)
+	}
+	wantBefore := packedTestFrame(100, 70, defaultPixelFormat())
+	if !bytes.Equal(beforePixels, wantBefore) {
+		t.Fatal("pre-switch decoded pixels do not match the capturer's known pattern")
+	}
+
+	cap2 := &zrleFakeCapturer{w: 90, h: 50}
+	inj2 := &fakeInjector{}
+	switchRequests <- SwitchRequest{Capturer: cap2, Injector: inj2}
+
+	after := readFramebufferUpdateRects(t, clientSide)
+	var afterPixels []byte
+	sawZRLEContent := false
+	for _, r := range after {
+		if r.Encoding == rfb.EncodingDesktopSize {
+			continue
+		}
+		if r.Encoding != rfb.EncodingZRLE {
+			t.Fatalf("post-switch content rect encoding = %d, want EncodingZRLE", r.Encoding)
+		}
+		sawZRLEContent = true
+		afterPixels = append(afterPixels, dec.decode(r.Pixels, r.W, r.H, defaultPixelFormat())...)
+	}
+	if !sawZRLEContent {
+		t.Fatal("post-switch update had no ZRLE content rectangle")
+	}
+	wantAfter := packedTestFrame(90, 50, defaultPixelFormat())
+	if !bytes.Equal(afterPixels, wantAfter) {
+		t.Fatal("post-switch decoded pixels do not match the new capturer's known pattern -- ZRLE stream may have been reset across the switch")
+	}
+
+	if closer, ok := clientSide.Writer.(io.Closer); ok {
+		closer.Close()
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after client disconnect")
+	}
 }
 
 // TestSwitchRequestResizesInPlace proves the actual property Web Remote's

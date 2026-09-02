@@ -348,6 +348,12 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 	// server still gates on it rather than assuming every client supports
 	// it.
 	desktopSizeEncodingSupported := false
+	// zrleSupported is the same latch, for EncodingZRLE (16) -- see
+	// rfb.EncodingZRLE's own doc comment. Consumed by the capture goroutine
+	// to decide whether to ZRLE-encode content rectangles at all; a client
+	// that never declares it keeps getting plain Raw exactly as before this
+	// feature existed.
+	zrleSupported := false
 	// cursorHandled tracks whether the capture goroutine has already
 	// disabled server-side cursor compositing and sent the one-time cursor
 	// shape rectangle for this session, so it only ever does so once.
@@ -374,6 +380,14 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 		// else ever reads or writes them, so no mutex is needed here.
 		cursorShaper, _ := cap.(CursorShapeProvider)
 		cursorToggle, _ := cap.(CursorCompositingToggle)
+		// zrleEnc is created once for this connection's whole lifetime and
+		// deliberately never touched by the SwitchRequest case below -- its
+		// zlib stream belongs to the RFB connection, not to whichever
+		// Capturer happens to be active, so a mid-session monitor switch
+		// (Web Remote's Displays picker) must not reset it. See
+		// rfb.ZRLEEncoder's own doc comment for why a fresh encoder per
+		// rectangle would break the client's decode.
+		zrleEnc := rfb.NewZRLEEncoder()
 		// pendingDesktopSizeRect is set by a SwitchRequest and consumed on
 		// this goroutine's very next iteration -- folded into the same
 		// FramebufferUpdate as that iteration's regular capture, rather
@@ -451,6 +465,7 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 			if needsCursorHandling {
 				cursorHandled = true
 			}
+			useZRLE := zrleSupported
 			stateMu.Unlock()
 
 			var cursorRect *rfb.Rectangle
@@ -512,6 +527,22 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 				continue
 			}
 			rects := chunkRectangle(full, currentPF, bandHeight)
+			if useZRLE {
+				for i, r := range rects {
+					payload, err := zrleEnc.EncodeRect(r.W, r.H, currentPF, r.Pixels)
+					if err != nil {
+						// Non-fatal, matching this loop's existing
+						// degrade-don't-die philosophy: leave this one
+						// rectangle as Raw rather than failing an otherwise-
+						// healthy session over a pure in-memory encode step
+						// that should never actually error in practice.
+						log.Printf("rfbserver: ZRLE encode: %v (sending this rectangle as Raw)", err)
+						continue
+					}
+					rects[i].Encoding = rfb.EncodingZRLE
+					rects[i].Pixels = payload
+				}
+			}
 			if cursorRect != nil {
 				rects = append([]rfb.Rectangle{*cursorRect}, rects...)
 			}
@@ -576,13 +607,13 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 			stateMu.Unlock()
 
 		case rfb.SetEncodingsMsg:
-			// This server only ever sends Raw for ordinary screen content
-			// regardless of what's offered/negotiated here -- the two
-			// exceptions are checking for Cursor pseudo-encoding (-239) and
-			// DesktopSize pseudo-encoding (-223) support, both acted on by
-			// the capture goroutine (see its own comments) rather than
-			// this read loop, since only that goroutine is allowed to
-			// write to rw.
+			// This server sends ordinary screen content as ZRLE (16) if the
+			// client declared support, Raw otherwise, plus checks for
+			// Cursor pseudo-encoding (-239) and DesktopSize pseudo-encoding
+			// (-223) support -- all three latches are only acted on by the
+			// capture goroutine (see its own comments) rather than this
+			// read loop, since only that goroutine is allowed to write to
+			// rw.
 			stateMu.Lock()
 			for _, enc := range m.Encodings {
 				if enc == rfb.EncodingCursorPseudo {
@@ -590,6 +621,9 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 				}
 				if enc == rfb.EncodingDesktopSize {
 					desktopSizeEncodingSupported = true
+				}
+				if enc == rfb.EncodingZRLE {
+					zrleSupported = true
 				}
 			}
 			stateMu.Unlock()

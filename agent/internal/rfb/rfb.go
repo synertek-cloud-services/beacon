@@ -57,6 +57,14 @@ const (
 	// Displays switcher swap which monitor is being captured without
 	// dropping and reopening the whole RFB session.
 	EncodingDesktopSize int32 = -223
+
+	// EncodingZRLE (RFC 6143 §7.7.6, encoding 16) is a zlib-compressed,
+	// 64x64-tiled encoding this server uses for ordinary screen-content
+	// rectangles once a client declares support for it via SetEncodings --
+	// see agent/internal/rfb/zrle.go for the encoder and
+	// agent/internal/rfbserver's zrleSupported latch for the negotiation.
+	// Falls back to EncodingRaw for a client that never declares it.
+	EncodingZRLE int32 = 16
 )
 
 // PixelFormat mirrors RFC 6143 §7.4's 16-byte PIXEL_FORMAT structure.
