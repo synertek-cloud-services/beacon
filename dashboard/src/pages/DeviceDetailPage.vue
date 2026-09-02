@@ -39,10 +39,12 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             Maintenance
           </span>
-          <!-- Fast-poll indicator -- transparency only, no set/clear action
-               here (unlike Maintenance): this arms itself automatically as
-               a side effect of opening a session or dispatching a direct
-               command, see CLAUDE.md's Fast Poll section. -->
+          <!-- Fast-poll indicator -- arms automatically as a side effect of
+               opening a session or dispatching a direct command (see
+               CLAUDE.md's Fast Poll section), or manually via the toolbar's
+               Fast Poll button below (e.g. a technician already on the
+               phone with a client, warming up the device's poll interval
+               before actually opening a remote session). -->
           <span v-if="isFastPolling(device)" class="ddev-fastpoll-badge" :title="`Checking in every 15s (instead of 60s) until ${fastPollLabel(device)}`">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Fast Poll
@@ -69,6 +71,14 @@
           </svg>
           Remote Shell
         </button>
+        <button class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
+          :disabled="device.status !== 'approved' || isDemoDevice(device)" @click="armFastPoll(device.id)"
+          :title="isDemoDevice(device) ? 'Fast Poll requires a live agent; seeded demo devices cannot connect' : device.status !== 'approved' ? 'Device must be approved to receive commands' : 'Speed up check-ins to every 15s for the next 15 minutes -- useful right before opening a remote session'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          Fast Poll
+        </button>
         <div class="toolbar-sep"></div>
         <button class="toolbar-btn" :disabled="device.status !== 'approved'" @click="openQuickJob()"
           :title="device.status !== 'approved' ? 'Device must be approved to receive commands' : ''">
@@ -84,6 +94,11 @@
         <div v-if="jobQueued" class="toolbar-success">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Queued — runs on next check-in
+        </div>
+
+        <div v-if="fastPollArmed" class="toolbar-success">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Fast Poll armed — takes effect on the device's next check-in
         </div>
 
         <button v-if="device.status === 'pending'"  class="btn btn-primary btn-sm" :disabled="busy" @click="approve(device.id)">Approve</button>
@@ -1126,6 +1141,7 @@ const PAGE_SIZES      = [20, 50, 100];
 // Toolbar state
 const menuOpen  = ref(false);
 const jobQueued = ref(false);
+const fastPollArmed = ref(false);
 
 // Remote Shell modal
 const remoteShellOpen = ref(false);
@@ -2054,6 +2070,23 @@ async function uninstallSoftware(deviceId: string, softwareName: string) {
 function showJobQueued() {
   jobQueued.value = true;
   setTimeout(() => { jobQueued.value = false; }, 4000);
+}
+
+// Manually arms Fast Poll ahead of an upcoming direct command/session --
+// e.g. a technician already on the phone with a client who knows they're
+// about to open Web Remote/Remote Shell in a moment, warming up the
+// device's poll interval first. Distinct toast from showJobQueued() above:
+// this isn't a queued command, it's an immediate fast_poll_until write that
+// only takes effect once the device's own next check-in picks it up.
+async function armFastPoll(id: string) {
+  try {
+    await api.devices.fastPoll(id);
+    fastPollArmed.value = true;
+    setTimeout(() => { fastPollArmed.value = false; }, 4000);
+    loadDevice(id); // refresh so the Fast Poll badge reflects it immediately, not just on the page's next 30s poll
+  } catch (e: any) {
+    error.value = e.message;
+  }
 }
 
 const filteredLib = computed(() => {

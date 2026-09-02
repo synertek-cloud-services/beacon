@@ -161,6 +161,24 @@ adminDevices.delete('/:id/maintenance', async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /v1/admin/devices/:id/fast-poll — manually arm fast-poll ahead of an
+// upcoming direct command/session, e.g. a technician already on the phone
+// with a client who knows they're about to open a remote session in a
+// moment. The two existing call sites (POST /v1/sessions, POST .../commands)
+// only arm fast-poll as a side effect of an action that's already happening
+// -- this is a standalone trigger for the "about to do work on this
+// machine" signal fastPoll.ts's own doc comment describes, letting a
+// technician warm up the device's poll interval before that first real
+// action, since fast-poll's own documented limitation is that it can't
+// speed up the very first action against a cold device.
+adminDevices.post('/:id/fast-poll', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const now = Math.floor(Date.now() / 1000);
+  await extendFastPoll(db, c.req.param('id'), now);
+  return c.json({ ok: true });
+});
+
 // GET /v1/admin/devices/:id/commands — list recent direct commands (newest
 // first). Job-dispatched commands (jobId set) are excluded — those already
 // have full visibility via JobDetailPage's per-device breakdown, and
