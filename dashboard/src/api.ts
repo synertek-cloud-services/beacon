@@ -1415,6 +1415,7 @@ export const api = {
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
     effectiveMonitors: (id: string)  => request<EffectiveMonitor[]>('GET', `/v1/admin/devices/${id}/effective-monitors`),
+    fastPoll: (id: string)           => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/fast-poll`),
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
