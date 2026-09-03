@@ -436,6 +436,8 @@ This session (migration `0084`) built only the **settings scaffold** — no agen
 
 **Trigger model, confirmed with the user**: install is manual/on-demand at the point of connecting, not a separate standalone "Install RustDesk" step and not an automatic install the moment a company enables it — matching Splashtop's and Datto RMM's own remote-tool-launch UX. A single "Connect via RustDesk" action on Device Detail (gated on `company.rustdeskEnabled`, shown regardless of whether `device.rustdeskId` is set yet) does both jobs from one click: if `device.rustdeskId` is null, it kicks off the install (dispatch `install_rustdesk`, show an installing/waiting state, likely polled the same way Web Remote's consent flow already polls a short-lived state) and only then proceeds to the actual connect step once the ID/password come back; if `device.rustdeskId` is already set, it skips straight to connecting. Unbuilt.
 
+**Open question, deliberately left open**: RustDesk's tray icon is visible to any logged-in user session by default once installed (not gated to an active connection — same "always there while someone's signed in" model as Beacon's own tray), and RustDesk has a documented but not-yet-pinned-down Advanced Settings option to hide it. Whether to hide it (cleaner unattended-access story) or leave it visible (transparency — the end user can see something's installed) is a real design call, not just a technical toggle — unresolved, revisit before building the install pipeline.
+
 ## Custom Fields
 
 Beacon's equivalent of Datto RMM's UDFs — reduced from Datto's 300 fixed pre-numbered slots to dynamic named fields.
