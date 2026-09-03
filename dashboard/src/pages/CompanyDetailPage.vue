@@ -600,6 +600,13 @@
                 <span class="text-xs text-muted-2" style="display:block">Before a Web Remote session connects, the logged-in user must Accept or Decline an on-screen prompt (times out after 30s if nobody responds). Overridable per device on the device's own page.</span>
               </span>
             </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="editForm.rustdeskEnabled" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Enable RustDesk</span>
+                <span class="text-xs text-muted-2" style="display:block">Offers RustDesk as an additional remote-access tool for this company's devices, alongside Web Remote and Remote Shell. On-demand agent installation isn't built yet — this only stores the preference for now.</span>
+              </span>
+            </label>
           </div>
 
           <div v-if="editError" class="error-banner" style="margin-top:14px">{{ editError }}</div>
@@ -763,7 +770,7 @@ async function setStatus(status: 'active' | 'suspended') {
 // company's own record is more naturally an action on its own detail page
 // than a cramped row button next to Devices/Suspend) ──────────────────
 const editModal = ref({ open: false });
-const editForm = ref({ name: '', website: '', notes: '', autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false });
+const editForm = ref({ name: '', website: '', notes: '', autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false, rustdeskEnabled: false });
 const editError = ref('');
 const editSubmitting = ref(false);
 
@@ -777,6 +784,7 @@ function openEditCompany() {
     privacyMode: company.value.privacyModeDefault,
     patchManagementExcluded: company.value.patchManagementExcluded,
     remoteAccessConsentRequired: company.value.remoteAccessConsentRequired,
+    rustdeskEnabled: company.value.rustdeskEnabled,
   };
   editError.value = '';
   editModal.value.open = true;
@@ -794,6 +802,7 @@ async function submitEditCompany() {
       privacy_mode_default: editForm.value.privacyMode,
       patch_management_excluded: editForm.value.patchManagementExcluded,
       remote_access_consent_required: editForm.value.remoteAccessConsentRequired,
+      rustdesk_enabled: editForm.value.rustdeskEnabled,
       website: editForm.value.website || null,
       notes:   editForm.value.notes   || null,
     });
@@ -804,6 +813,7 @@ async function submitEditCompany() {
       privacyModeDefault: editForm.value.privacyMode,
       patchManagementExcluded: editForm.value.patchManagementExcluded,
       remoteAccessConsentRequired: editForm.value.remoteAccessConsentRequired,
+      rustdeskEnabled: editForm.value.rustdeskEnabled,
       website: editForm.value.website || null,
       notes:   editForm.value.notes   || null,
     };

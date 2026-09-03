@@ -155,6 +155,7 @@
             <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
             <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
             <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
+            <RouterLink to="/settings/rustdesk" class="sbi" :class="{ active: route.path === '/settings/rustdesk' }">RustDesk</RouterLink>
           </div>
         </template>
 
@@ -239,6 +240,7 @@
         <RouterLink to="/settings/custom-fields" class="sbi" :class="{ active: route.path === '/settings/custom-fields' }">Custom Fields</RouterLink>
         <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
         <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
+        <RouterLink to="/settings/rustdesk" class="sbi" :class="{ active: route.path === '/settings/rustdesk' }">RustDesk</RouterLink>
       </template>
     </div>
 
@@ -531,6 +533,7 @@ const pageTitle = computed(() => {
   if (route.path === '/settings/custom-fields') return 'Custom Fields';
   if (route.path === '/settings/branding') return 'Branding';
   if (route.path === '/settings/notifications') return 'Notifications';
+  if (route.path === '/settings/rustdesk') return 'RustDesk';
   return 'Beacon';
 });
 

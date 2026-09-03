@@ -146,6 +146,13 @@
                 <span class="text-xs text-muted-2" style="display:block">Before a Web Remote session connects, the logged-in user must Accept or Decline an on-screen prompt (times out after 30s if nobody responds). Overridable per device on the device's own page.</span>
               </span>
             </label>
+            <label class="toggle-row" style="margin-top:10px">
+              <input type="checkbox" v-model="form.rustdeskEnabled" />
+              <span>
+                <span class="text-sm" style="font-weight:500">Enable RustDesk</span>
+                <span class="text-xs text-muted-2" style="display:block">Offers RustDesk as an additional remote-access tool for this company's devices, alongside Web Remote and Remote Shell. On-demand agent installation isn't built yet — this only stores the preference for now.</span>
+              </span>
+            </label>
           </div>
 
           <div v-if="formError" class="error-banner" style="margin-top:14px">{{ formError }}</div>
@@ -188,7 +195,7 @@ const formError  = ref('');
 const blankForm = () => ({
   name: '', website: '', notes: '',
   contactName: '', contactEmail: '', contactPhone: '',
-  autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false,
+  autoApprove: true, privacyMode: false, patchManagementExcluded: false, remoteAccessConsentRequired: false, rustdeskEnabled: false,
 });
 const form = ref(blankForm());
 
@@ -225,6 +232,7 @@ async function submitForm() {
       privacy_mode_default: form.value.privacyMode,
       patch_management_excluded: form.value.patchManagementExcluded,
       remote_access_consent_required: form.value.remoteAccessConsentRequired,
+      rustdesk_enabled: form.value.rustdeskEnabled,
       website: form.value.website || null,
       notes:   form.value.notes   || null,
       contact_name:  form.value.contactName  || null,
