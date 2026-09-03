@@ -22,7 +22,7 @@ adminCompanies.get('/', async (c) => {
   const result = await c.env.DB.prepare(`
     SELECT
       t.id, t.name, t.auto_approve_default, t.privacy_mode_default, t.patch_management_excluded,
-      t.remote_access_consent_required, t.status,
+      t.remote_access_consent_required, t.rustdesk_enabled, t.status,
       t.created_at, t.website, t.notes,
       (SELECT count(*) FROM devices WHERE company_id = t.id) AS device_count,
       (SELECT name  FROM company_contacts WHERE company_id = t.id AND is_primary = 1 LIMIT 1) AS primary_contact_name,
@@ -31,7 +31,7 @@ adminCompanies.get('/', async (c) => {
     ORDER BY t.created_at ASC
   `).all<{
     id: string; name: string; auto_approve_default: number; privacy_mode_default: number; patch_management_excluded: number;
-    remote_access_consent_required: number;
+    remote_access_consent_required: number; rustdesk_enabled: number;
     status: string; created_at: number; website: string | null; notes: string | null;
     device_count: number; primary_contact_name: string | null; primary_contact_email: string | null;
   }>();
@@ -43,6 +43,7 @@ adminCompanies.get('/', async (c) => {
     privacyModeDefault: !!r.privacy_mode_default,
     patchManagementExcluded: !!r.patch_management_excluded,
     remoteAccessConsentRequired: !!r.remote_access_consent_required,
+    rustdeskEnabled: !!r.rustdesk_enabled,
     status: r.status,
     createdAt: r.created_at,
     deviceCount: r.device_count,
@@ -65,6 +66,7 @@ adminCompanies.post('/', async (c) => {
     privacy_mode_default?: boolean;
     patch_management_excluded?: boolean;
     remote_access_consent_required?: boolean;
+    rustdesk_enabled?: boolean;
     website?: string;
     notes?: string;
     contact_name?: string;
@@ -82,6 +84,7 @@ adminCompanies.post('/', async (c) => {
     privacyModeDefault: body.privacy_mode_default ?? false,
     patchManagementExcluded: body.patch_management_excluded ?? false,
     remoteAccessConsentRequired: body.remote_access_consent_required ?? false,
+    rustdeskEnabled: body.rustdesk_enabled ?? false,
     website: body.website || null,
     notes: body.notes || null,
     createdAt: now,
@@ -119,6 +122,7 @@ adminCompanies.patch('/:id', async (c) => {
     privacy_mode_default?: boolean;
     patch_management_excluded?: boolean;
     remote_access_consent_required?: boolean;
+    rustdesk_enabled?: boolean;
     status?: 'active' | 'suspended';
     website?: string | null;
     notes?: string | null;
@@ -130,6 +134,7 @@ adminCompanies.patch('/:id', async (c) => {
   if (body.privacy_mode_default !== undefined) updates.privacyModeDefault = body.privacy_mode_default;
   if (body.patch_management_excluded !== undefined) updates.patchManagementExcluded = body.patch_management_excluded;
   if (body.remote_access_consent_required !== undefined) updates.remoteAccessConsentRequired = body.remote_access_consent_required;
+  if (body.rustdesk_enabled !== undefined) updates.rustdeskEnabled = body.rustdesk_enabled;
   if (body.status !== undefined)               updates.status = body.status;
   if ('website' in body)                       updates.website = body.website ?? null;
   if ('notes'   in body)                       updates.notes   = body.notes   ?? null;

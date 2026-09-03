@@ -149,6 +149,9 @@ export interface Company {
   // for the per-device override. See CLAUDE.md's Web Remote section
   // (issue #86).
   remoteAccessConsentRequired: boolean;
+  // Opt-in for the RustDesk "Full Remote Control" tier -- an additional
+  // remote tool alongside Web Remote/Remote Shell. No per-device override.
+  rustdeskEnabled: boolean;
   status: 'active' | 'suspended';
   createdAt: number;
   deviceCount: number;
@@ -578,6 +581,14 @@ export interface HostSettings {
   id:        number;
   timezone:  string;
   updatedAt: number;
+}
+
+// Global RustDesk relay/rendezvous server config -- all fields null when
+// unconfigured, meaning devices use RustDesk's own public servers.
+export interface RustDeskSettings {
+  idServer: string | null;
+  relayServer: string | null;
+  key: string | null;
 }
 
 // Returned by GET /v1/admin/devices/:id/effective-monitors — a monitor that
@@ -1133,6 +1144,7 @@ export const api = {
       privacy_mode_default?: boolean;
       patch_management_excluded?: boolean;
       remote_access_consent_required?: boolean;
+      rustdesk_enabled?: boolean;
       website?: string | null;
       notes?: string | null;
       contact_name?: string | null;
@@ -1145,6 +1157,7 @@ export const api = {
       privacy_mode_default?: boolean;
       patch_management_excluded?: boolean;
       remote_access_consent_required?: boolean;
+      rustdesk_enabled?: boolean;
       status?: 'active' | 'suspended';
       website?: string | null;
       notes?: string | null;
@@ -1378,6 +1391,12 @@ export const api = {
   settings: {
     get: () => request<HostSettings>('GET', '/v1/admin/settings'),
     update: (body: { timezone?: string }) => request<{ ok: boolean }>('PATCH', '/v1/admin/settings', body),
+  },
+
+  rustdeskSettings: {
+    get: () => request<RustDeskSettings>('GET', '/v1/admin/rustdesk-settings'),
+    update: (body: { id_server?: string | null; relay_server?: string | null; key?: string | null }) =>
+      request<{ ok: boolean }>('PATCH', '/v1/admin/rustdesk-settings', body),
   },
 
   alerts: {

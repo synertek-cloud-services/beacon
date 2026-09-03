@@ -18,6 +18,11 @@ export const companies = sqliteTable('companies', {
   // is resolved. Defaults false so nothing changes for an existing company
   // until an admin opts in.
   remoteAccessConsentRequired: integer('remote_access_consent_required', { mode: 'boolean' }).notNull().default(false),
+  // Opt-in for the RustDesk "Full Remote Control" tier -- an additional
+  // remote tool alongside Web Remote/Remote Shell, installed on-demand per
+  // device (see rustdeskSettings below and devices.rustdeskId). Off by
+  // default, no per-device override yet.
+  rustdeskEnabled: integer('rustdesk_enabled', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ['active', 'suspended'] }).notNull().default('active'),
   createdAt: integer('created_at').notNull(),
   // Contact
@@ -805,6 +810,21 @@ export const brandingIdentity = sqliteTable('branding_identity', {
   // means unconfigured; the tray hides the menu item. See CLAUDE.md's
   // Branding section (issue #90).
   supportUrl: text('support_url'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// Global RustDesk relay/rendezvous server config -- singleton, same shape
+// as brandingIdentity above. All three fields nullable/empty by default,
+// meaning devices use RustDesk's own public ID/relay servers with no
+// self-hosted infrastructure required; a self-hoster can point at their own
+// hbbs/hbbr later by filling these in, with no code change. Not yet read by
+// any agent-side code -- see CLAUDE.md's RustDesk section for the deferred
+// on-demand-install follow-on work this config exists ahead of.
+export const rustdeskSettings = sqliteTable('rustdesk_settings', {
+  id: integer('id').primaryKey(),
+  idServer: text('id_server'),
+  relayServer: text('relay_server'),
+  key: text('key'),
   updatedAt: integer('updated_at').notNull(),
 });
 

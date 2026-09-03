@@ -30,6 +30,7 @@ import adminPatches from './routes/admin/patches';
 import adminPatchPolicies from './routes/admin/patch-policies';
 import adminActivityLog from './routes/admin/activity-log';
 import adminReports from './routes/admin/reports';
+import adminRustdeskSettings from './routes/admin/rustdesk-settings';
 import branding from './routes/branding';
 import componentFiles from './routes/component-files';
 import { evaluateOfflineAlerts } from './lib/alerts';
@@ -132,6 +133,7 @@ app.route('/v1/admin/patch-policies', adminPatchPolicies);
 app.route('/v1/admin/activity-log', adminActivityLog);
 app.route('/v1/admin/reports', adminReports);
 app.route('/v1/admin/settings', adminSettings);
+app.route('/v1/admin/rustdesk-settings', adminRustdeskSettings);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
 

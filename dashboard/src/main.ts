@@ -36,6 +36,7 @@ import GroupsPage from './pages/GroupsPage.vue';
 import GroupFormPage from './pages/GroupFormPage.vue';
 import BrandingSettingsPage from './pages/BrandingSettingsPage.vue';
 import NotificationSettingsPage from './pages/NotificationSettingsPage.vue';
+import RustDeskSettingsPage from './pages/RustDeskSettingsPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import { loadActiveTheme } from './theme';
@@ -94,6 +95,7 @@ const router = createRouter({
     { path: '/settings/custom-fields', component: CustomFieldsSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/branding', component: BrandingSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/notifications', component: NotificationSettingsPage, meta: { minRole: 'admin' } },
+    { path: '/settings/rustdesk', component: RustDeskSettingsPage, meta: { minRole: 'admin' } },
   ],
 });
 

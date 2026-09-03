@@ -148,7 +148,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
 3. Run `make migrate-local` to test locally
 4. Merge the approved PR and let the release workflow apply migrations before deploying the Worker and dashboard (self-hosters run migrations manually before their own deploy)
 
-Latest migration: `0083` (Web Remote end-user consent, see that subsection under Web Remote). Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered here.
+Latest migration: `0084` (RustDesk settings scaffold, see that section below). Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered here.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated.
 
@@ -423,6 +423,19 @@ Both `C:\Program Files\Beacon` (install dir) **and** `%PROGRAMDATA%\Beacon` (cre
 ### Verification status
 Core flow (SYSTEM relocation, `FollowInputDesktop`, Elevate reconnect-and-swap) and multi-monitor in-place switching are confirmed on real hardware with a local administrator console user. **Not yet confirmed on real hardware**: Elevate as a standard (non-administrator) console user (SYSTEM elevation doesn't depend on the console user's privilege level, so this is expected to work identically, but has never actually been exercised); file transfer (source/cross-compile-verified only); PR #167's nobody-logged-in SYSTEM fallback. Full chronological bug-fix history (UAC-related session/injection/capture fatal-error paths found and fixed one at a time across several real-hardware passes; the Elevate credential-based Administrator-token approach that was built, tested, and then fully superseded by SYSTEM relocation; the RDP/RDG detour that was researched and ruled out) is in PROJECT_LOG.md.
 
+## RustDesk (settings scaffold only — deferred, not v1)
+
+RustDesk was actually the *original* plan for Beacon's remote-control feature, before Web Remote/Remote Shell were built from scratch — see PROJECT_LOG's "Interactive Remote Shell" session, which found a hardcoded-disabled dashboard stub for an unbuilt RustDesk integration and deferred it as "a hoster's own choice of a fuller Full Remote Control tool ... a separate, later, much simpler integration (install + a deep link)." `devices.rustdeskId` (migration `0000`) has sat unused ever since.
+
+This session (migration `0084`) built only the **settings scaffold** — no agent-side install code exists yet, and this config has no functional effect on any device. Two independent surfaces:
+
+- `rustdesk_settings` — singleton (`id=1`, mirrors `branding_identity`'s shape), admin-only `GET`/`PATCH /v1/admin/rustdesk-settings` (`worker/src/routes/admin/rustdesk-settings.ts`), dashboard page `RustDeskSettingsPage.vue` (`/settings/rustdesk`). Three nullable fields (`idServer`, `relayServer`, `key`) for a self-hosted RustDesk `hbbs`/`hbbr` relay/rendezvous server — all empty by default, meaning devices would use RustDesk's own free public servers once agent-side install exists. Confirmed with the user: public servers are the intended v1 target, not a self-hosted relay — keeps Beacon on its existing all-Cloudflare-serverless stack with zero new infrastructure dependency. No public GET (unlike branding identity) since nothing reads this yet.
+- `companies.rustdeskEnabled` — plain boolean, default `false`, same shape as `patchManagementExcluded`/`remoteAccessConsentRequired`, checkbox duplicated in `CompaniesPage.vue`'s create modal and `CompanyDetailPage.vue`'s edit modal per this codebase's established per-page convention. No per-device override (unlike Web Remote consent) — not built ahead of a demonstrated need.
+
+**Deliberately not built this session** (captured as a plan, not yet a tracked issue): on-demand agent-driven install once a company enables RustDesk for a device, reusing Application Components' `component_files`/`component_file_downloads`/`POST /v1/component-files/download` file-delivery machinery rather than trusting a live third-party download URL at install time (a pinned, Beacon-hosted installer version, SHA-256+size verified, matching Application Components' own trust model). Planned shape: a new `install_rustdesk` command type dispatched like `install_msi`; agent-side `rustdesk.exe --silent-install` + `--install-service` (headless/unattended, matching Beacon's own SYSTEM-service model) + a generated per-device unattended password via `--password` + (only if `rustdesk_settings.idServer` is set) a `--config` import of the self-hosted server; `--get-id` to capture the assigned ID (requires the service to have started once first) reported back via the normal `CommandResult` round trip into `devices.rustdeskId`. The generated unattended password is real secret material and would need the same AES-GCM-at-rest treatment `company_variables`/`email_settings` already use — never returned to the dashboard in plaintext except at actual connect time.
+
+**Trigger model, confirmed with the user**: install is manual/on-demand at the point of connecting, not a separate standalone "Install RustDesk" step and not an automatic install the moment a company enables it — matching Splashtop's and Datto RMM's own remote-tool-launch UX. A single "Connect via RustDesk" action on Device Detail (gated on `company.rustdeskEnabled`, shown regardless of whether `device.rustdeskId` is set yet) does both jobs from one click: if `device.rustdeskId` is null, it kicks off the install (dispatch `install_rustdesk`, show an installing/waiting state, likely polled the same way Web Remote's consent flow already polls a short-lived state) and only then proceeds to the actual connect step once the ID/password come back; if `device.rustdeskId` is already set, it skips straight to connecting. Unbuilt.
+
 ## Custom Fields
 
 Beacon's equivalent of Datto RMM's UDFs — reduced from Datto's 300 fixed pre-numbered slots to dynamic named fields.
@@ -637,6 +650,8 @@ PATCH  /v1/admin/email-settings
 POST /v1/admin/email-settings/test           Send a real test email to the requesting admin
 GET/POST/PATCH/DELETE  /v1/admin/notification-emails[/:id]
 
+GET/PATCH  /v1/admin/rustdesk-settings       Global relay/rendezvous server config (admin only, settings scaffold only -- see RustDesk section)
+
 GET/POST  /v1/admin/custom-fields[/:id]      Definition CRUD (admin only)
 GET/PATCH  /v1/admin/devices/:id/custom-fields[/:fieldId]
 
@@ -697,6 +712,7 @@ GET  /v1/admin/reports/alert-history         CSV export
 /settings/custom-fields CustomFieldsSettingsPage (admin only)
 /settings/branding      BrandingSettingsPage (admin only)
 /settings/notifications NotificationSettingsPage (admin only)
+/settings/rustdesk      RustDeskSettingsPage (admin only)
 ```
 Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects non-admins to `/`.
 
@@ -707,7 +723,7 @@ Admin-only routes carry `meta: { minRole: 'admin' }`; the router guard redirects
 - **Devices** section: Device Approvals, All, Device Groups
 - **Global** section: Alerts, Policies, Maintenance Policies, Patches, Patch Policies, Activity Log, Reports
 - **Automation** section: Jobs, Components
-- **Settings** section (admin only): Users, Single Sign-On, Custom Fields, Branding, Notifications
+- **Settings** section (admin only): Users, Single Sign-On, Custom Fields, Branding, Notifications, RustDesk
 - Resizable via drag handle (`localStorage: beacon-sidebar-w`), collapsible via a floating chevron (`beacon-sidebar-collapsed`) — not a topbar hamburger, see STYLE.md
 
 ## Device detail page (`dashboard/src/pages/DeviceDetailPage.vue`)
