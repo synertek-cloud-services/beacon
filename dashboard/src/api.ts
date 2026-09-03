@@ -589,6 +589,7 @@ export interface RustDeskSettings {
   idServer: string | null;
   relayServer: string | null;
   key: string | null;
+  installer: { version: string | null; sizeBytes: number | null; uploadedAt: number | null } | null;
 }
 
 // Returned by GET /v1/admin/devices/:id/effective-monitors — a monitor that
@@ -874,6 +875,10 @@ export interface Device {
   // instead of the default 60s until this instant. Null = normal cadence.
   // See CLAUDE.md's Fast Poll section.
   fastPollUntil: number | null;
+  // Populated once an install_rustdesk command has captured this device's
+  // RustDesk connection id. Not secret -- the unattended password is
+  // fetched separately and on-demand via api.devices.rustdeskPassword.
+  rustdeskId: string | null;
 }
 
 // ── API client ───────────────────────────────────────────────
@@ -1397,6 +1402,21 @@ export const api = {
     get: () => request<RustDeskSettings>('GET', '/v1/admin/rustdesk-settings'),
     update: (body: { id_server?: string | null; relay_server?: string | null; key?: string | null }) =>
       request<{ ok: boolean }>('PATCH', '/v1/admin/rustdesk-settings', body),
+    uploadInstaller: async (file: File, version: string, sha256: string): Promise<{ ok: boolean }> => {
+      const res = await fetch(`${baseUrl}/v1/admin/rustdesk-settings/admin/installer`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token()}`,
+          'Content-Type': 'application/octet-stream',
+          'X-File-Version': version,
+          'X-File-SHA256': sha256,
+          'X-File-Size': String(file.size),
+        },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => res.statusText)}`);
+      return res.json();
+    },
   },
 
   alerts: {
@@ -1435,10 +1455,11 @@ export const api = {
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
     effectiveMonitors: (id: string)  => request<EffectiveMonitor[]>('GET', `/v1/admin/devices/${id}/effective-monitors`),
     fastPoll: (id: string)           => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/fast-poll`),
+    rustdeskPassword: (id: string)  => request<{ password: string }>('GET', `/v1/admin/devices/${id}/rustdesk-password`),
     commands: {
       list:   (deviceId: string) =>
         request<DeviceCommand[]>('GET', `/v1/admin/devices/${deviceId}/commands`),
-      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[]; software_name?: string }) =>
+      create: (deviceId: string, body: { type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions' | 'install_rustdesk'; shell?: string; script?: string; timeout_seconds?: number; update_ids?: string[]; package_ids?: string[]; software_name?: string }) =>
         request<{ id: string }>('POST', `/v1/admin/devices/${deviceId}/commands`, body),
     },
     maintenance: {

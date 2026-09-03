@@ -79,6 +79,8 @@ func Execute(cmd protocol.Command, client *protocol.Client, deviceCredential str
 		return runScript(cmd)
 	case "install_msi":
 		return installMSI(cmd, client, deviceCredential)
+	case "install_rustdesk":
+		return installRustdesk(cmd, client, deviceCredential)
 	default:
 		return protocol.CommandResult{CommandID: cmd.CommandID, Status: "completed"}
 	}

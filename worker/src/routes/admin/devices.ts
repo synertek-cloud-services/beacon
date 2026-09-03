@@ -6,6 +6,8 @@ import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { resolveEffectiveMonitors } from '../../lib/alerts';
 import { extendFastPoll } from '../../lib/fastPoll';
+import { encryptSecret, decryptSecret, sha256hex, generateToken } from '../../lib/crypto';
+import { generateRustdeskPassword } from '../../lib/rustdesk';
 
 const adminDevices = new Hono<{ Bindings: Bindings }>();
 
@@ -16,7 +18,11 @@ function auth(c: any, minRole: Role = 'readonly') {
 // Device credentials and their enrollment-token provenance are internal
 // authentication material, not part of the dashboard's device contract.
 function shapeDevice(row: typeof schema.devices.$inferSelect) {
-  const { deviceCredentialHash: _, enrollmentTokenId: __, ...device } = row;
+  // rustdeskPassword{Ciphertext,Nonce} excluded for the same reason
+  // deviceCredentialHash is -- internal secret material, never part of the
+  // normal device response even encrypted. Only exposed via the dedicated
+  // GET .../rustdesk-password reveal endpoint, on an explicit action.
+  const { deviceCredentialHash: _, enrollmentTokenId: __, rustdeskPasswordCiphertext: ___, rustdeskPasswordNonce: ____, ...device } = row;
   return device;
 }
 
@@ -228,7 +234,7 @@ adminDevices.post('/:id/commands', async (c) => {
   if (device.status !== 'approved') return c.json({ error: 'device must be approved to receive commands' }, 400);
 
   const body = await c.req.json<{
-    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions';
+    type: 'run_script' | 'reboot' | 'run_audit' | 'restart_agent' | 'force_update' | 'install_patches' | 'uninstall_agent' | 'manage_software' | 'uninstall_software' | 'list_remote_sessions' | 'install_rustdesk';
     shell?: string;
     script?: string;
     timeout_seconds?: number;
@@ -337,6 +343,54 @@ adminDevices.post('/:id/commands', async (c) => {
     // wire protocol" precedent.
     cmdType = 'list_remote_sessions';
     payload = {};
+  } else if (body.type === 'install_rustdesk') {
+    // Self-contained: this branch inserts its own rows and returns
+    // directly, rather than falling through to the shared single-insert
+    // tail below -- it needs a company lookup (not fetched anywhere else
+    // in this handler) and an atomic multi-row db.batch() (command + two
+    // grants), matching jobs.ts's install_msi dispatch shape rather than
+    // every sibling branch here. See CLAUDE.md's RustDesk section for why
+    // the password never touches commands.payload/commands.result.
+    if (device.osType !== 'windows') return c.json({ error: 'RustDesk install is only supported on Windows for now' }, 400);
+    const company = await db.select({ rustdeskEnabled: schema.companies.rustdeskEnabled })
+      .from(schema.companies).where(eq(schema.companies.id, device.companyId)).get();
+    if (!company?.rustdeskEnabled) return c.json({ error: "RustDesk is not enabled for this device's company" }, 403);
+    const installer = await db.select().from(schema.rustdeskInstaller).where(eq(schema.rustdeskInstaller.id, 1)).get();
+    if (!installer?.objectKey) return c.json({ error: 'no RustDesk installer has been uploaded yet' }, 400);
+
+    const password = generateRustdeskPassword();
+    const { ciphertext, nonce } = await encryptSecret(password, c.env.CONFIG_ENCRYPTION_KEY);
+    const cmdId = crypto.randomUUID();
+    const fileToken = generateToken();
+    const passwordToken = generateToken();
+    const [fileTokenHash, passwordTokenHash] = await Promise.all([sha256hex(fileToken), sha256hex(passwordToken)]);
+
+    // Encrypted password is captured immediately, independent of whether
+    // the install itself later succeeds -- harmless if orphaned, and
+    // means the dashboard's reveal-password action has something real to
+    // show the moment the command is queued, not only after it completes.
+    await db.update(schema.devices).set({ rustdeskPasswordCiphertext: ciphertext, rustdeskPasswordNonce: nonce }).where(eq(schema.devices.id, deviceId));
+
+    const commandStmt = db.insert(schema.commands).values({
+      id: cmdId, deviceId, companyId: device.companyId, type: 'install_rustdesk',
+      payload: JSON.stringify({
+        download_token: fileToken, sha256: installer.sha256, size_bytes: installer.sizeBytes,
+        password_token: passwordToken,
+      }),
+      status: 'queued', createdAt: now,
+    });
+    const fileGrantStmt = db.insert(schema.rustdeskInstallerDownloads).values({
+      id: crypto.randomUUID(), commandId: cmdId, deviceId, tokenHash: fileTokenHash, expiresAt: now, createdAt: now,
+    });
+    const passwordGrantStmt = db.insert(schema.rustdeskPasswordGrants).values({
+      id: crypto.randomUUID(), commandId: cmdId, deviceId, tokenHash: passwordTokenHash, expiresAt: now, createdAt: now,
+    });
+    // D1 batch preserves statement order and is atomic, so an agent can
+    // never receive this command before both matching grants exist --
+    // same precedent as jobs.ts's install_msi dispatch.
+    await db.batch([commandStmt, fileGrantStmt, passwordGrantStmt]);
+    await extendFastPoll(db, deviceId, now);
+    return c.json({ id: cmdId }, 201);
   } else {
     return c.json({ error: 'unknown command type' }, 400);
   }
@@ -359,6 +413,30 @@ adminDevices.post('/:id/commands', async (c) => {
   await extendFastPoll(db, deviceId, now);
 
   return c.json({ id }, 201);
+});
+
+// GET /v1/admin/devices/:id/rustdesk-password — reveal the stored unattended
+// password in plaintext. A genuinely new pattern for this codebase (unlike
+// company_variables, which never returns a saved secret's plaintext at
+// all) -- justified because a human, not a script, has to actually type or
+// paste this value to connect. Never preloaded with device data; only
+// fetched on an explicit "Reveal" click. Automatically covered by the
+// generic activityLogMiddleware already registered on all of
+// /v1/admin/*, so a reveal is an audited action for free.
+adminDevices.get('/:id/rustdesk-password', async (c) => {
+  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const db = drizzle(c.env.DB, { schema });
+  const device = await db.select({
+    rustdeskPasswordCiphertext: schema.devices.rustdeskPasswordCiphertext,
+    rustdeskPasswordNonce: schema.devices.rustdeskPasswordNonce,
+  }).from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
+  if (!device) return c.json({ error: 'device not found' }, 404);
+  if (!device.rustdeskPasswordCiphertext || !device.rustdeskPasswordNonce) {
+    return c.json({ error: 'no RustDesk password has been set for this device' }, 404);
+  }
+  const password = await decryptSecret(device.rustdeskPasswordCiphertext, device.rustdeskPasswordNonce, c.env.CONFIG_ENCRYPTION_KEY);
+  c.header('Cache-Control', 'no-store');
+  return c.json({ password });
 });
 
 // GET /v1/admin/devices/:id/audit/latest
