@@ -114,7 +114,7 @@
             </td>
             <td class="text-muted-2 text-sm">{{ d.companyName ?? '—' }}</td>
             <td class="text-muted-2 text-sm">{{ osShortLabel(d) }}</td>
-            <td class="text-muted-2 text-sm">{{ effectiveClass(d) ?? '—' }}</td>
+            <td class="text-muted-2 text-sm">{{ effectiveClass(d) ? capitalize(effectiveClass(d)!) : '—' }}</td>
             <td class="mono text-xs text-muted-2">{{ d.agentVersion ?? '—' }}</td>
             <td class="text-muted-2 text-sm">{{ lastSeenLabel(d.lastSeen) }}</td>
             <td><span :class="`badge badge-${d.status}`">{{ d.status }}</span></td>
@@ -514,6 +514,7 @@ function maintenanceLabel(d: Device) {
 }
 
 function effectiveClass(d: Device) { return d.overrideClass ?? d.detectedClass; }
+function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function osShortLabel(d: Device) {
   if (!d.osType) return '—';

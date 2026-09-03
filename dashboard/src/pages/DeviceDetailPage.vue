@@ -199,7 +199,7 @@
                 <div class="ddev-row">
                   <span class="ddev-label">Class</span>
                   <span class="text-sm">
-                    {{ effectiveClass(device) ?? '—' }}
+                    {{ effectiveClass(device) ? capitalize(effectiveClass(device)!) : '—' }}
                     <span v-if="effectiveClass(device)" class="text-xs text-muted-2">({{ device.overrideClass ? 'manual' : 'auto' }})</span>
                   </span>
                 </div>
