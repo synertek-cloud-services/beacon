@@ -76,6 +76,12 @@ export const devices = sqliteTable('devices', {
   lastSeen: integer('last_seen'),
   inventory: text('inventory'), // JSON blob — don't normalize until queries require it
   rustdeskId: text('rustdesk_id'), // populated on first on-demand install
+  // AES-GCM encrypted unattended-access password, same ciphertext/nonce
+  // column-pair shape as companyVariables/emailSettings. Set alongside
+  // rustdeskId by an install_rustdesk command; never returned to the
+  // dashboard except via the dedicated reveal-password endpoint.
+  rustdeskPasswordCiphertext: text('rustdesk_password_ciphertext'),
+  rustdeskPasswordNonce: text('rustdesk_password_nonce'),
   // Inherits companies.privacy_mode_default when null. Never silently overwritten.
   privacyModeOverride: integer('privacy_mode_override', { mode: 'boolean' }),
   // Manually-entered — no OS/hardware API exposes OEM warranty status, so
@@ -826,6 +832,49 @@ export const rustdeskSettings = sqliteTable('rustdesk_settings', {
   relayServer: text('relay_server'),
   key: text('key'),
   updatedAt: integer('updated_at').notNull(),
+});
+
+// The pinned RustDesk installer -- singleton, mirrors rustdeskSettings
+// above. Beacon hosts a specific version rather than trusting a live fetch
+// from RustDesk's own CDN at install time -- same trust model as
+// Application Components' file delivery. Nullable until first upload.
+export const rustdeskInstaller = sqliteTable('rustdesk_installer', {
+  id: integer('id').primaryKey(),
+  objectKey: text('object_key'),
+  version: text('version'),
+  sha256: text('sha256'),
+  sizeBytes: integer('size_bytes'),
+  uploadedAt: integer('uploaded_at'),
+});
+
+// A hashed, time-limited capability for one enrolled device to download the
+// pinned RustDesk installer for one queued install_rustdesk command -- same
+// shape as componentFileDownloads above, kept separate since that table is
+// FK'd to componentFiles (an Application Component's own file), which the
+// RustDesk installer isn't.
+export const rustdeskInstallerDownloads = sqliteTable('rustdesk_installer_downloads', {
+  id: text('id').primaryKey(),
+  commandId: text('command_id').notNull().references(() => commands.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: integer('expires_at').notNull(),
+  downloadedAt: integer('downloaded_at'),
+  createdAt: integer('created_at').notNull(),
+});
+
+// A hashed, time-limited, single-use capability for one enrolled device to
+// redeem its own devices.rustdeskPassword{Ciphertext,Nonce} in plaintext
+// exactly once, during its own install_rustdesk command -- same
+// activation/expiry shape as rustdeskInstallerDownloads, granting a
+// decrypt-on-redeem instead of an R2 object.
+export const rustdeskPasswordGrants = sqliteTable('rustdesk_password_grants', {
+  id: text('id').primaryKey(),
+  commandId: text('command_id').notNull().references(() => commands.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: integer('expires_at').notNull(),
+  redeemedAt: integer('redeemed_at'),
+  createdAt: integer('created_at').notNull(),
 });
 
 export const deviceGroupMembers = sqliteTable('device_group_members', {

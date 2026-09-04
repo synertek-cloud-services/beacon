@@ -79,6 +79,15 @@
           </svg>
           Fast Poll
         </button>
+        <button v-if="companyRustdeskEnabled" class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
+          :disabled="device.status !== 'approved' || isDemoDevice(device) || rustdeskInstalling"
+          @click="device.rustdeskId ? (rustdeskPanelOpen = !rustdeskPanelOpen) : connectRustdesk(device.id)"
+          :title="isDemoDevice(device) ? 'RustDesk requires a live agent; seeded demo devices cannot connect' : device.status !== 'approved' ? 'Device must be approved to install RustDesk' : ''">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/>
+          </svg>
+          {{ rustdeskInstalling ? 'Installing…' : 'Connect via RustDesk' }}
+        </button>
         <div class="toolbar-sep"></div>
         <button class="toolbar-btn" :disabled="device.status !== 'approved'" @click="openQuickJob()"
           :title="device.status !== 'approved' ? 'Device must be approved to receive commands' : ''">
@@ -100,6 +109,8 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Fast Poll armed — takes effect on the device's next check-in
         </div>
+
+        <div v-if="rustdeskError" class="error-banner" style="margin:0">{{ rustdeskError }}</div>
 
         <button v-if="device.status === 'pending'"  class="btn btn-primary btn-sm" :disabled="busy" @click="approve(device.id)">Approve</button>
         <button v-if="device.status === 'approved'" class="btn btn-danger btn-sm"  :disabled="busy" @click="revoke(device.id)">Revoke</button>
@@ -175,6 +186,16 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <div v-if="rustdeskPanelOpen && device.rustdeskId" class="ddev-rustdesk-panel">
+        <span class="text-sm">RustDesk ID: <span class="mono">{{ device.rustdeskId }}</span></span>
+        <template v-if="rustdeskPassword">
+          <span class="text-sm">Password: <span class="mono">{{ rustdeskPassword }}</span></span>
+        </template>
+        <button v-else class="btn btn-ghost btn-sm" :disabled="rustdeskPasswordRevealing" @click="revealRustdeskPassword(device.id)">
+          {{ rustdeskPasswordRevealing ? 'Revealing…' : 'Reveal Password' }}
+        </button>
       </div>
 
       <!-- Section nav + content — one continuous page; nav just scrolls -->
@@ -1143,6 +1164,17 @@ const menuOpen  = ref(false);
 const jobQueued = ref(false);
 const fastPollArmed = ref(false);
 
+// RustDesk connect/install state -- see armFastPoll's own sibling
+// armRustdesk below for the "one button does both install and connect"
+// shape confirmed in CLAUDE.md's RustDesk section.
+const companyRustdeskEnabled = ref(false);
+const rustdeskInstalling = ref(false);
+const rustdeskPanelOpen = ref(false);
+const rustdeskError = ref('');
+const rustdeskPassword = ref('');
+const rustdeskPasswordRevealing = ref(false);
+let rustdeskPollTimer: ReturnType<typeof setInterval> | null = null;
+
 // Remote Shell modal
 const remoteShellOpen = ref(false);
 
@@ -1463,7 +1495,17 @@ async function onIdChange(id: string | undefined) {
     })
     .catch(() => { /* leave empty — patch rows just show no status badge */ });
 
-  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadDeviceCommands(), loadCustomFields(device.value.id), patchApprovalsPromise]);
+  // No dedicated single-company endpoint — same "reuse the list, find the
+  // row client-side" precedent CompanyDetailPage.vue already established
+  // (cheap at self-hosted scale). Only needs one field, so no need to
+  // store the whole row.
+  const rustdeskCompanyPromise = api.companies.list()
+    .then(companies => {
+      companyRustdeskEnabled.value = companies.find(comp => comp.id === device.value?.companyId)?.rustdeskEnabled ?? false;
+    })
+    .catch(() => { companyRustdeskEnabled.value = false; });
+
+  await Promise.all([auditPromise, loadDeviceAlerts(), loadEffectiveMonitors(), loadDeviceCommands(), loadCustomFields(device.value.id), patchApprovalsPromise, rustdeskCompanyPromise]);
 
   // Deep-link support: jump to whatever ?section= names, now that everything's
   // rendered. A rAF is a safe, dependency-free way to wait one paint before
@@ -1570,6 +1612,7 @@ onUnmounted(() => {
   document.removeEventListener('click', closeMenuOnce);
   scrollSpy?.disconnect();
   if (scrollSpyRoot && onScrollSpyScroll) scrollSpyRoot.removeEventListener('scroll', onScrollSpyScroll);
+  if (rustdeskPollTimer) clearInterval(rustdeskPollTimer);
 });
 
 function toggleAlertSelect(id: string) {
@@ -2089,6 +2132,56 @@ async function armFastPoll(id: string) {
   }
 }
 
+// "Connect via RustDesk" -- one click does both jobs, confirmed design in
+// CLAUDE.md's RustDesk section: if the device isn't provisioned yet
+// (device.rustdeskId is null), dispatch install_rustdesk and poll until
+// either the id shows up or the dispatched command itself reports failed.
+// If already provisioned, the template below skips straight to showing the
+// id + reveal-password action instead of calling this at all.
+async function connectRustdesk(id: string) {
+  rustdeskError.value = '';
+  rustdeskPassword.value = '';
+  rustdeskInstalling.value = true;
+  try {
+    await api.devices.commands.create(id, { type: 'install_rustdesk' });
+    loadDeviceCommands();
+    if (rustdeskPollTimer) clearInterval(rustdeskPollTimer);
+    rustdeskPollTimer = setInterval(async () => {
+      await loadDevice(id);
+      if (device.value?.rustdeskId) {
+        rustdeskInstalling.value = false;
+        if (rustdeskPollTimer) { clearInterval(rustdeskPollTimer); rustdeskPollTimer = null; }
+        return;
+      }
+      const commands = await api.devices.commands.list(id).catch(() => []);
+      const latest = commands.find(c => c.type === 'install_rustdesk');
+      if (latest?.status === 'failed') {
+        rustdeskInstalling.value = false;
+        rustdeskError.value = 'RustDesk install failed — see Command History below for details.';
+        if (rustdeskPollTimer) { clearInterval(rustdeskPollTimer); rustdeskPollTimer = null; }
+      }
+    }, 3000);
+  } catch (e: any) {
+    rustdeskInstalling.value = false;
+    rustdeskError.value = e.message;
+  }
+}
+
+// Never preloaded with device data -- fetched only on this explicit click,
+// matching "never returned except at actual connect time."
+async function revealRustdeskPassword(id: string) {
+  rustdeskError.value = '';
+  rustdeskPasswordRevealing.value = true;
+  try {
+    const res = await api.devices.rustdeskPassword(id);
+    rustdeskPassword.value = res.password;
+  } catch (e: any) {
+    rustdeskError.value = e.message;
+  } finally {
+    rustdeskPasswordRevealing.value = false;
+  }
+}
+
 const filteredLib = computed(() => {
   if (!libSearch.value.trim()) return libraryComponents.value;
   const q = libSearch.value.toLowerCase();
@@ -2231,6 +2324,13 @@ function shellLabel(shell: string): string {
 .ddev-os-icon { color: var(--color-text-subtle); flex-shrink: 0; }
 .ddev-maint-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #7c3aed; background: color-mix(in srgb, #7c3aed 12%, transparent); border: 1px solid color-mix(in srgb, #7c3aed 30%, transparent); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
 .ddev-fastpoll-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--color-success); background: rgba(45,207,160,.12); border: 1px solid rgba(45,207,160,.3); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
+
+.ddev-rustdesk-panel {
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
 
 /* ── Management toolbar ── */
 .ddev-toolbar {

@@ -126,6 +126,20 @@ checkin.post('/', async (c) => {
         }
       }
 
+      if (ownedCmd.type === 'install_rustdesk' && r.status === 'completed') {
+        try {
+          const installResult = JSON.parse(r.stdout ?? '{}') as { rustdesk_id?: string };
+          if (installResult.rustdesk_id) {
+            await db.update(schema.devices).set({ rustdeskId: installResult.rustdesk_id }).where(eq(schema.devices.id, device.id));
+          }
+        } catch {
+          // Malformed install result shouldn't fail the whole check-in --
+          // the command row above already recorded raw stdout/stderr. Note:
+          // the unattended password is never in stdout/stderr here at all --
+          // see rustdesk-password.ts's own doc comment for why.
+        }
+      }
+
       if (ownedCmd.type === 'install_patches' && r.status === 'completed') {
         try {
           const installResult = JSON.parse(r.stdout ?? '{}') as { reboot_required?: boolean };
@@ -285,6 +299,16 @@ checkin.post('/', async (c) => {
     // check-in.
     await c.env.DB.prepare(
       `UPDATE component_file_downloads SET expires_at = ? WHERE command_id IN (${queued.map(() => '?').join(',')})`
+    ).bind(now + (2 * 60 * 60), ...queued.map(c => c.id)).run();
+    // Same activation as component_file_downloads above, for
+    // install_rustdesk's own two grant tables (installer download +
+    // password redemption) -- both keyed the same way, both only
+    // become usable once their command is actually handed to the agent.
+    await c.env.DB.prepare(
+      `UPDATE rustdesk_installer_downloads SET expires_at = ? WHERE command_id IN (${queued.map(() => '?').join(',')})`
+    ).bind(now + (2 * 60 * 60), ...queued.map(c => c.id)).run();
+    await c.env.DB.prepare(
+      `UPDATE rustdesk_password_grants SET expires_at = ? WHERE command_id IN (${queued.map(() => '?').join(',')})`
     ).bind(now + (2 * 60 * 60), ...queued.map(c => c.id)).run();
   }
 

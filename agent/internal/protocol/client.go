@@ -61,6 +61,73 @@ func (c *Client) DownloadComponentFile(deviceCredential, token string) (*http.Re
 	return resp, nil
 }
 
+// DownloadRustdeskInstaller returns the pinned RustDesk installer, authorized
+// the same way as DownloadComponentFile (device credential + short-lived
+// command grant) -- a separate endpoint rather than reusing
+// DownloadComponentFile directly, since the installer isn't a
+// component_files row. The caller owns and must close the response body.
+func (c *Client) DownloadRustdeskInstaller(deviceCredential, token string) (*http.Response, error) {
+	b, err := json.Marshal(struct {
+		Token string `json:"token"`
+	}{Token: token})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.serverURL+"/v1/rustdesk-installer/download", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+deviceCredential)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("HTTP %d downloading RustDesk installer: %s", resp.StatusCode, string(body))
+	}
+	return resp, nil
+}
+
+// RedeemRustdeskPassword retrieves the plaintext unattended-access password
+// generated for this device's install_rustdesk command, authorized by the
+// device credential plus a short-lived, single-use grant token -- see
+// worker/src/routes/rustdesk-password.ts's own doc comment for why this
+// exists as a separate redemption step rather than the password ever
+// appearing in the command payload itself.
+func (c *Client) RedeemRustdeskPassword(deviceCredential, token string) (string, error) {
+	b, err := json.Marshal(struct {
+		Token string `json:"token"`
+	}{Token: token})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.serverURL+"/v1/rustdesk-password/redeem", bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+deviceCredential)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("HTTP %d redeeming RustDesk password: %s", resp.StatusCode, string(body))
+	}
+	var out struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.Password, nil
+}
+
 // BrandingIdentityResponse mirrors GET /v1/branding/identity's response
 // shape. Deliberately camelCase JSON tags -- this hits the same public,
 // dashboard-facing endpoint the dashboard itself calls, not a new
