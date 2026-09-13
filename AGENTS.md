@@ -55,6 +55,14 @@ unrelated formatting changes, or speculative features.
   alter the STCSLT001 test enrollment, unless Jeremy explicitly requests it.
   Never record or reveal its enrollment token, Worker secrets, signing
   material, or other credentials.
+- A persistent, standing sandbox deployment (`beacon-sandbox`) exists for
+  real end-to-end testing (agent install/enrollment, Web Remote, etc.)
+  without recreating a throwaway Worker/D1/R2 stack per session. See
+  `docs/SANDBOX.md` for the full recipe, its non-secret config
+  (`worker/wrangler.sandbox.toml`), and where its credentials live
+  (`~/.beacon-sandbox-secrets`, gitignored by being outside the repo). Reuse
+  it rather than provisioning a new one; only genuinely hourly-billed
+  infrastructure (a test VM) needs prompt teardown after use.
 
 ## Backend, data, and agent invariants
 
