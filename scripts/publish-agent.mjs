@@ -88,11 +88,9 @@ if (!versionArgument || (channelArgument && channelArgument !== '--upstream') ||
 }
 
 let version;
-let workerUrl;
 let signingKey;
 try {
   version = validateVersion(versionArgument);
-  workerUrl = normalizeWorkerUrl(process.env.BEACON_WORKER_URL ?? '');
   signingKey = readSigningKey({
     keyFile: process.env.BEACON_SIGNING_KEY_FILE,
     keyValue: process.env.BEACON_SIGNING_KEY,
@@ -100,9 +98,6 @@ try {
 } catch (error) {
   fail(error.message);
 }
-
-const adminSecret = process.env.BEACON_ADMIN_SECRET;
-if (!adminSecret) fail('BEACON_ADMIN_SECRET is required');
 
 const publicKey = publicKeyFromSigningKey(signingKey);
 const canonicalReleaseRepository = 'synertek-cloud-services/beacon';
@@ -122,6 +117,18 @@ if (upstreamChannel && releaseRepository !== canonicalReleaseRepository) {
 }
 const releaseKeyLdflag = upstreamChannel ? null : `-X ${releaseKeyVariable}=${publicKey}`;
 const agentLdflags = [`-X main.version=${version}`, releaseKeyLdflag].filter(Boolean).join(' ');
+
+let workerUrl;
+let adminSecret;
+if (!upstreamChannel) {
+  try {
+    workerUrl = normalizeWorkerUrl(process.env.BEACON_WORKER_URL ?? '');
+  } catch (error) {
+    fail(error.message);
+  }
+  adminSecret = process.env.BEACON_ADMIN_SECRET;
+  if (!adminSecret) fail('BEACON_ADMIN_SECRET is required');
+}
 
 const targets = [
   { os: 'linux', arch: 'amd64' },
@@ -188,11 +195,13 @@ for (const target of targets) {
   });
 }
 
-const catalogResponse = await fetch(`${workerUrl}/v1/admin/agent/versions`, {
-  headers: { Authorization: `Bearer ${adminSecret}` },
-});
-if (!catalogResponse.ok) fail(`Worker release-catalog check failed: HTTP ${catalogResponse.status}`);
-const catalog = await catalogResponse.json();
+const catalog = upstreamChannel ? [] : await (async () => {
+  const catalogResponse = await fetch(`${workerUrl}/v1/admin/agent/versions`, {
+    headers: { Authorization: `Bearer ${adminSecret}` },
+  });
+  if (!catalogResponse.ok) fail(`Worker release-catalog check failed: HTTP ${catalogResponse.status}`);
+  return catalogResponse.json();
+})();
 
 for (const release of signedReleases) {
   const platformRows = catalog.filter(row => row.os === release.os && row.arch === release.arch);
@@ -268,6 +277,8 @@ for (const release of signedReleases) {
 }
 
 for (const release of verifiedReleases) {
+  if (upstreamChannel) continue;
+
   const platformRows = catalog.filter(row => row.os === release.os && row.arch === release.arch);
   const sameVersionRows = platformRows.filter(row => row.version === version);
   const exactCurrent = sameVersionRows.some(row =>
@@ -334,4 +345,6 @@ for (const release of verifiedReleases) {
   if (agentHash !== release.hostedHash) fail(`Agent download route returned unexpected bytes for ${release.os}/${release.arch}`);
 }
 
-console.log(`Done. Agent ${tag} is published, registered, and independently verified.`);
+console.log(upstreamChannel
+  ? `Done. Upstream Beacon agent ${tag} is published with independently verified public assets.`
+  : `Done. Agent ${tag} is published, registered, and independently verified.`);

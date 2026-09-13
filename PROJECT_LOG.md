@@ -1,5 +1,21 @@
 # Beacon — Project Log
 
+## Session: 2026-09-13 — Beacon-project generic agent release workflow
+
+The generic Beacon agent channel must be project-owned, not tied to any
+individual self-hosted or managed deployment. Added a dedicated Beacon-project
+Ed25519 release key, stored as the GitHub repository secret
+`BEACON_PROJECT_AGENT_SIGNING_KEY`, and changed the built-in agent trust key to
+its public half. The manual `Publish upstream agent release` workflow builds,
+signs, independently verifies, and publishes generic public artifacts without
+contacting a Beacon Worker.
+
+Synertek remains a normal host-controlled Beacon deployment with its own key
+and artifact repository. A hosted provider can bootstrap the signed generic
+release into each new tenant using the verified catalog-import command. This
+separates product release identity from deployment identity while retaining the
+existing self-hosted custom-release option.
+
 ## Session: 2026-09-13 — Separate official and deployment-specific agent artifacts
 
 The open-source Beacon repository cannot also be a managed deployment's custom
