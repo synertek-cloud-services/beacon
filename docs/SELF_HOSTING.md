@@ -284,10 +284,10 @@ has Smart App Control enabled (check before deploying, not after a self-update
 fails), turn it off, or expect updates to intermittently strand devices until
 the release binaries are Authenticode-signed.
 
-Plain `make build-agent-*` builds trust Beacon's upstream release key. For a
-new self-hosted installation, publish the host-controlled channel in the next
-section and install those binaries instead. An agent cannot switch from one
-signing key to another through a release signed only by the new key.
+Plain `make build-agent-*` builds trust Beacon's upstream release key. A fresh
+installation can use that public channel directly, or choose the
+host-controlled alternative below. An agent cannot switch from one signing key
+to another through a release signed only by the new key.
 
 ### Using Web Remote and Elevate
 
@@ -336,7 +336,36 @@ larger, not-yet-built mechanism. Use the provided admin PowerShell window
 for administrative tasks rather than the normal right-click path, which
 still blocks on whoever is physically at the keyboard.
 
-## 10. Publish the host-controlled agent channel
+## 10. Use the upstream agent channel
+
+The default Beacon agent release is one public, Ed25519-signed artifact per
+platform. It is appropriate for a normal self-hosted installation and for a
+hosted provider: the agent's server URL and enrollment token are supplied at
+installation time, not compiled into the binary.
+
+After deploying a fresh Worker, verify and register a published upstream
+release with its empty agent catalog. This downloads each public artifact and
+detached signature, verifies it against the agent's built-in upstream public
+key, and only then writes the catalog rows:
+
+```bash
+export BEACON_WORKER_URL=https://beacon.example.com
+export BEACON_ADMIN_SECRET
+node scripts/bootstrap-upstream-agent-channel.mjs 0.3.2
+unset BEACON_ADMIN_SECRET
+```
+
+The command defaults to `synertek-cloud-services/beacon`. Set
+`BEACON_UPSTREAM_RELEASE_REPOSITORY=owner/public-beacon-repository` only when
+using a compatible upstream release repository. It refuses an unsigned,
+missing, invalidly signed, conflicting, or downgraded release.
+
+This path deliberately does not make Beacon depend on a hosted service: the
+release artifacts are public and a host still owns its Worker, database,
+storage, credentials, and enrollment tokens. It also lets a hosting provider
+use the same generic agent artifact for many isolated tenants.
+
+## 11. Publish the host-controlled agent channel
 
 Do this before installing production agents. You need an authenticated GitHub
 CLI with release-write access to a **public** Beacon fork or repository. Agent
@@ -394,7 +423,18 @@ Published version assets are immutable. Re-running the same version may verify
 byte-identical assets and skip identical current catalog entries, but the
 script will not overwrite a different or incomplete existing release. It also
 rejects a downgrade below the Worker's current platform version. Correct the
-problem and publish a new semantic version instead.
+problem and publish a new semantic version instead. Each new release includes
+a detached `.sig` file for every agent binary.
+
+Beacon maintainers publish the shared upstream channel with the private half
+of the already-built-in upstream key and `--upstream`:
+
+```bash
+node scripts/publish-agent.mjs 0.3.2 --upstream
+```
+
+That mode refuses any other signing key, leaves the agent's default trust key
+intact, and is not a substitute for a private fork's host-controlled channel.
 
 The older `BEACON_SIGNING_KEY` environment variable remains supported for
 existing automation, but the restricted key file avoids repeatedly copying
