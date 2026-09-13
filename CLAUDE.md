@@ -48,6 +48,7 @@ output: `dist`.
 - To manually fire the cron locally (needed to test anything in `scheduled()`): `curl "http://localhost:8787/cdn-cgi/handler/scheduled"` against a plain `wrangler dev` — no `--test-scheduled` flag needed.
 - A backgrounded `wrangler dev` from an earlier session can be left listening on 8787 while hung (accepts the TCP connection, never responds) — looks like "port busy" rather than "nothing's listening." Check `ss -ltnp | grep 8787` and kill the stale process tree first.
 - **`cd dashboard && npx vue-tsc --noEmit` alone can silently check zero files and report false success** — `tsconfig.json` is a solution-style config (`"files": []` + `"references"`), and plain `--noEmit` doesn't reliably walk project references. Use `vue-tsc -b` (build mode, matching `package.json`'s own build script) — that's what actually type-checks. Clear `node_modules/.tmp/*.tsbuildinfo` first if results look suspicious.
+- For real end-to-end testing against actual deployed infrastructure (agent enrollment, Web Remote, real-hardware VM tests) rather than local `wrangler dev`, a persistent standing sandbox deployment (`beacon-sandbox`) already exists — reuse it instead of provisioning a throwaway Worker/D1/R2 stack per session (Cloudflare bills per-use, not per-uptime, so there's no cost reason to tear it down between tests). See `docs/SANDBOX.md`.
 
 ### Agent (Go)
 ```bash

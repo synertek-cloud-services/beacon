@@ -1,0 +1,47 @@
+name = "beacon-sandbox"
+main = "src/index.ts"
+compatibility_date = "2026-07-09"
+account_id = "8fefd04d62780c1624579795cb08f891"
+
+# Persistent Beacon test/sandbox deployment. See docs/SANDBOX.md for what
+# this is, how to use it, and where its secrets live. Not production, not a
+# customer deployment, not part of Spirewick — an ordinary Worker on this
+# Cloudflare account's default *.workers.dev subdomain, deployed for
+# real-hardware/agent-release testing shared by both Claude and Codex
+# sessions working in this repo.
+#
+# No [[routes]] block — served from the default beacon-sandbox.<subdomain>.workers.dev.
+
+[vars]
+ALLOWED_ORIGIN = "http://localhost:5173"
+PAGES_PREVIEW_SUFFIX = ".pages.dev"
+WORKER_URL = "https://beacon-sandbox.synertekcs.workers.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "beacon-sandbox"
+database_id = "2ca03fbc-17af-4494-a643-a1570cf02d44"
+migrations_dir = "../migrations"
+
+[[r2_buckets]]
+binding = "LOGOS"
+bucket_name = "beacon-sandbox-logos"
+
+[[r2_buckets]]
+binding = "COMPONENT_FILES"
+bucket_name = "beacon-sandbox-component-files"
+
+[[r2_buckets]]
+binding = "SESSION_FILES"
+bucket_name = "beacon-sandbox-session-files"
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionRelay"]
