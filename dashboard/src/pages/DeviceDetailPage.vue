@@ -1003,7 +1003,7 @@
             </p>
           </div>
           <div v-else style="display:flex;flex-direction:column;gap:8px">
-            <label v-for="s in sessionPickerSessions" :key="s.session_id"
+            <label v-for="s in pickerDisplaySessions" :key="s.session_id"
               style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--color-border)">
               <input type="radio" v-model="sessionPickerSelected" :value="s.session_id" />
               {{ sessionPickerLabel(s) }}
@@ -1245,6 +1245,16 @@ const sessionPickerSelected = ref<number | null>(null);
 // connect to the console" from an actual error, which gets no such
 // affordance. See connectFromSessionPicker below for why this matters.
 const sessionPickerNoSessions = ref(false);
+// Sentinel session_id for the synthetic "Console" entry injected below when
+// the real list doesn't already include one -- distinct from any real WTS
+// session ID (always >= 0) and from `null` ("nothing picked yet"). Selecting
+// it behaves exactly like the zero-sessions "Connect to Console" fallback:
+// connectWebRemote() with no targetSessionId, showing whatever's actually on
+// the console (a logged-in user, or the logon screen via the agent's own
+// SYSTEM fallback) -- Web Remote's console path was never restricted to
+// "only when nothing else is available," so the picker shouldn't act like it
+// is once a real session happens to exist too.
+const CONSOLE_SENTINEL = -1;
 
 // Dispatches list_remote_sessions (arms Fast Poll for free, same as any
 // direct device command) then polls Command History for its result --
@@ -1302,6 +1312,17 @@ async function openSessionPicker() {
   }
 }
 
+// The list the picker actually renders: the real agent-reported sessions,
+// plus a synthetic Console entry prepended whenever none of them already is
+// the console -- so a technician can always reach "log into the console"
+// even when other real sessions exist, not just when the list is otherwise
+// empty (see sessionPickerNoSessions/CONSOLE_SENTINEL above).
+const pickerDisplaySessions = computed(() => {
+  const real = sessionPickerSessions.value;
+  if (real.some(s => s.is_console)) return real;
+  return [{ session_id: CONSOLE_SENTINEL, username: '', is_console: true, is_disconnected: false }, ...real];
+});
+
 function sessionPickerLabel(s: { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }): string {
   const suffix = s.is_disconnected ? ' (Disconnected)' : '';
   if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : '') + suffix;
@@ -1316,7 +1337,7 @@ function connectFromSessionPicker() {
   // takes over and shows the logon screen -- this button's only job is to
   // make that path reachable; it doesn't itself decide whether anyone's
   // logged in.
-  if (sessionPickerNoSessions.value) {
+  if (sessionPickerNoSessions.value || sessionPickerSelected.value === CONSOLE_SENTINEL) {
     connectWebRemote();
     return;
   }
@@ -2540,10 +2561,30 @@ function shellLabel(shell: string): string {
   padding: 16px 20px; border-bottom: 1px solid var(--color-border); flex-shrink: 0;
   display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
 }
-.modal-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.modal-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
 .modal-body { padding: 20px; overflow-y: auto; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .required { color: var(--color-danger); }
+/* .modal-header/.modal-footer/.btn-icon -- the OTHER modal shell convention
+   (see STYLE.md's "second, different modal shell" note), used by the
+   Maintenance and Choose Session modals below but never defined in this
+   file -- those elements were rendering completely unstyled (no gap between
+   footer buttons, unthemed close button, header/close overlap) until this
+   was added. Matches GlobalPoliciesPage.vue's canonical version exactly. */
+.modal-header {
+  display: flex; align-items: center; padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--color-border); flex-shrink: 0;
+}
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px 16px; border-top: 1px solid var(--color-border); flex-shrink: 0;
+}
+.btn-icon {
+  background: none; border: none; cursor: pointer; color: var(--color-text-muted);
+  padding: 4px; display: flex; align-items: center; border-radius: 4px;
+  transition: background .1s, color .1s;
+}
+.btn-icon:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
 
 /* ── Quick Job tab switcher ── */
 .qj-tabs { display: flex; border: 1px solid var(--color-border-strong); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
