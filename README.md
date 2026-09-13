@@ -124,10 +124,10 @@ Migrations live in `migrations/` and are applied through Wrangler/D1; see the
 - `CONFIG_ENCRYPTION_KEY` encrypts recoverable configuration secrets. Losing or
   changing it makes existing encrypted SSO, email, and company secrets unreadable.
 - The agent-to-Worker enrollment/check-in flow uses per-device tokens, not the admin secret.
-- Released agent binaries are Ed25519-signed. A fresh host can use Beacon's
-  public upstream release channel without building an agent; self-hosters may
-  instead generate a host-controlled key and publish a separately trusted
-  channel. Both paths are documented in the
+- Released agent binaries are Ed25519-signed. Beacon's project release workflow
+  publishes the public generic channel; a fresh host can use it without
+  building an agent. Self-hosters may instead generate a host-controlled key
+  and publish a separately trusted channel. Both paths are documented in the
   [self-hosting guide](docs/SELF_HOSTING.md#10-use-the-upstream-agent-channel).
 
 ## License

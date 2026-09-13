@@ -12,7 +12,7 @@ import (
 	"errors"
 )
 
-var PublicKeyHex = "673119993b2e981690afb9567065d53813e5cd83409d6b7f1f2a62175a220282"
+var PublicKeyHex = "ab8124275d6723c5ff33efb31de1795ac193797ebec13a09197ae8a9b3ea642d"
 
 // PublicKey decodes and validates the public key embedded in this build.
 func PublicKey() (ed25519.PublicKey, error) {

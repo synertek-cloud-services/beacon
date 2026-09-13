@@ -428,16 +428,12 @@ rejects a downgrade below the Worker's current platform version. Correct the
 problem and publish a new semantic version instead. Each new release includes
 a detached `.sig` file for every agent binary.
 
-Beacon maintainers publish the shared upstream channel with the private half
-of the already-built-in upstream key and `--upstream`:
-
-```bash
-node scripts/publish-agent.mjs 0.3.2 --upstream
-```
-
-That mode refuses any other signing key, leaves the agent's default trust key
-intact, and publishes only to the official Beacon release repository. It is
-not a substitute for a deployment's host-controlled channel.
+Beacon maintainers publish the shared upstream channel through the repository's
+**Publish upstream agent release** GitHub Actions workflow. The workflow uses
+the project-owned `BEACON_PROJECT_AGENT_SIGNING_KEY` repository secret, leaves
+the agent's default trust key intact, and publishes only to the official Beacon
+release repository. It does not contact or register a release with any Beacon
+deployment. It is not a substitute for a deployment's host-controlled channel.
 
 The older `BEACON_SIGNING_KEY` environment variable remains supported for
 existing automation, but the restricted key file avoids repeatedly copying

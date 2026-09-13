@@ -1,0 +1,35 @@
+name: Publish upstream agent release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic Beacon agent version, for example 0.4.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build, sign, and publish generic Beacon agents
+    runs-on: ubuntu-latest
+    env:
+      BEACON_SIGNING_KEY: ${{ secrets.BEACON_PROJECT_AGENT_SIGNING_KEY }}
+      BEACON_RELEASE_REPOSITORY: synertek-cloud-services/beacon
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publish verified upstream agent artifacts
+        run: node scripts/publish-agent.mjs "${{ inputs.version }}" --upstream
