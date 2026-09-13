@@ -18,6 +18,9 @@ PAGES_PREVIEW_SUFFIX = ".your-pages-project.pages.dev"
 # incoming request so it can't be misdirected by routing/proxy config.
 WORKER_URL = "https://your-api-domain.example.com"
 
+# Optional hosted-scheduler secret. Keep it as a Worker secret, never a var:
+# # npx wrangler secret put INTERNAL_SCHEDULER_SECRET
+
 [[d1_databases]]
 binding = "DB"
 database_name = "beacon"
