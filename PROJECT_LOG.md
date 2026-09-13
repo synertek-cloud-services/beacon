@@ -1,5 +1,20 @@
 # Beacon — Project Log
 
+## Session: 2026-09-13 — Separate official and deployment-specific agent artifacts
+
+The open-source Beacon repository cannot also be a managed deployment's custom
+agent-artifact channel. An official upstream agent release and a deployment's
+host-controlled release may share a semantic version but contain differently
+trusted binaries, so attaching both to the same tag and filenames would be
+ambiguous and unsafe.
+
+The release process now reserves the official Beacon repository for the
+standard upstream channel. Host-controlled deployments must explicitly use
+their own public artifact repository. This leaves Synertek production as a
+normal Beacon deployment rather than making it the product's default identity,
+and permits a future hosted provider to use the separately published generic
+Beacon channel.
+
 ## Session: 2026-09-13 — Generic upstream agent channel for hosted and self-hosted Beacon
 
 Beacon's host-controlled release process remains the right option for an

@@ -105,6 +105,7 @@ const adminSecret = process.env.BEACON_ADMIN_SECRET;
 if (!adminSecret) fail('BEACON_ADMIN_SECRET is required');
 
 const publicKey = publicKeyFromSigningKey(signingKey);
+const canonicalReleaseRepository = 'synertek-cloud-services/beacon';
 const defaultReleaseKeySource = readFileSync(join(agentDir, 'internal/releasekey/releasekey.go'), 'utf8');
 const defaultReleaseKey = defaultReleaseKeySource.match(/PublicKeyHex = "([0-9a-f]{64})"/)?.[1];
 if (!defaultReleaseKey) fail('Could not read the upstream agent release key');
@@ -113,6 +114,12 @@ if (upstreamChannel && publicKey !== defaultReleaseKey) {
   fail('The upstream channel signing key must match agent/internal/releasekey.PublicKeyHex');
 }
 const releaseRepository = detectReleaseRepository(process.env.BEACON_RELEASE_REPOSITORY);
+if (!upstreamChannel && releaseRepository === canonicalReleaseRepository) {
+  fail(`Host-controlled releases must use a deployment-specific public repository, not ${canonicalReleaseRepository}`);
+}
+if (upstreamChannel && releaseRepository !== canonicalReleaseRepository) {
+  fail(`The upstream release channel must publish to ${canonicalReleaseRepository}`);
+}
 const releaseKeyLdflag = upstreamChannel ? null : `-X ${releaseKeyVariable}=${publicKey}`;
 const agentLdflags = [`-X main.version=${version}`, releaseKeyLdflag].filter(Boolean).join(' ');
 
