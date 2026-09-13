@@ -33,10 +33,30 @@ Root-caused to two independent bugs, both in the Server-class session picker
    Added a "Connect to Console" button for exactly this state, calling the
    same `connectWebRemote()` path a client-class device already uses directly.
 
-Both fixes verified via `GOOS=windows go build ./...` and `vue-tsc -b` only —
-**not yet exercised against a real Windows Server**, same standing limitation
-noted in CLAUDE.md's Web Remote Verification status for the rest of this
-picker/fallback path.
+Both fixes were first verified via `GOOS=windows go build ./...` and `vue-tsc -b`
+only, then confirmed live against a real Windows Server 2022 VM (provisioned
+on Vultr specifically for this) using Jeremy's own real RDP session as the
+repro rather than a synthetic one:
+
+```
+Connected:                     {"session_id":2,"username":"Administrator","is_console":false,"is_disconnected":false}
+RDP client killed, no logoff:  {"session_id":2,"username":"Administrator","is_console":false,"is_disconnected":true}
+Fully logged off:              []
+```
+
+The disconnected session stayed in the list instead of vanishing (the exact
+original bug), and the fully-logged-off case reproduced the empty-array
+condition the dashboard's new "Connect to Console" fallback button is built
+to handle. Getting there took a real detour: this Vultr Windows image turned
+out to have no Cloudbase-Init installed at all, so its "Startup Script" API
+feature silently never executes anything — not a script bug, just a dead
+unattended-install path on this image. Root cause was found by using a
+JSON-carrying debug endpoint and, once RDP's alternate-shell/initial-program
+trick proved not to work on a non-RDS Windows Server image either, by simply
+handing Jeremy the install command to run by hand in the interactive RDP
+window (visible directly on his desktop via WSLg) rather than continuing to
+fight automation. All Vultr and sandbox Cloudflare resources created for this
+test were torn down afterward; production was never touched.
 
 ## Session: 2026-09-13 — Beacon-project generic agent release workflow
 
