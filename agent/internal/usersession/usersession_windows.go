@@ -365,33 +365,67 @@ type SessionDetail struct {
 	// RDS/AVD session. Lets a caller label "Console" distinctly rather
 	// than showing it as just another numbered session.
 	IsConsole bool `json:"is_console"`
+	// IsDisconnected is whether Windows reports this session as
+	// WTSDisconnected -- a user is genuinely still logged on (their
+	// desktop, processes, and WTSQueryUserToken all remain valid) but no
+	// RDP client is currently attached. Extremely common on RDS/terminal
+	// servers a technician isn't actively watching. Surfaced separately
+	// rather than silently folded into "active" so the picker can label it
+	// (e.g. "(Disconnected)") instead of implying a live client connection
+	// that isn't there.
+	IsDisconnected bool `json:"is_disconnected"`
 }
 
-// ActiveSessionDetails returns every currently-active interactive
-// session's ID, logged-in username, and whether it's the console session --
-// the real, user-facing list a technician picks from when choosing which
+// ActiveSessionDetails returns every currently-logged-on interactive
+// session's ID, logged-in username, and console/disconnected state -- the
+// real, user-facing list a technician picks from when choosing which
 // session a Server-class device's Web Remote session should target (see
-// worker/src/routes/sessions.ts's target_session_id). Deliberately a new,
-// separate function rather than extending ActiveSessions() itself: that
+// worker/src/routes/sessions.ts's target_session_id). Deliberately its own
+// WTSEnumerateSessions call rather than reusing ActiveSessions(): that
 // function is already relied on by the tray supervisor
 // (agent/internal/service/tray_windows.go) as an established, real-
-// hardware-verified code path, and this needs two more Win32 calls per
-// session it doesn't need at all -- no reason to add that cost or risk to
-// an already-proven caller.
+// hardware-verified code path filtering strictly to WTSActive, and this
+// caller needs a deliberately broader state set (see below) -- no reason
+// to change that already-proven caller's behavior to get it.
+//
+// A previous version of this function called ActiveSessions() (WTSActive
+// only) and was the root cause of a real production bug: a technician's
+// own RDS session, genuinely logged in but reported by Windows as
+// WTSConnected (mid-handshake) or WTSDisconnected (RDP client not
+// currently attached -- routine on a terminal server), was silently
+// excluded, producing a false "no active sessions" result on a device the
+// technician was actively logged into. WTSConnected/WTSDisconnected both
+// represent a real, still-logged-on session with a valid user token --
+// exactly what Web Remote needs to target -- so both are included here
+// alongside WTSActive.
 func ActiveSessionDetails() ([]SessionDetail, error) {
-	ids, err := ActiveSessions()
-	if err != nil {
-		return nil, err
+	var sessionsPtr *windows.WTS_SESSION_INFO
+	var count uint32
+	if err := windows.WTSEnumerateSessions(0, 0, 1, &sessionsPtr, &count); err != nil {
+		return nil, fmt.Errorf("usersession: enumerate sessions: %w", err)
 	}
-	consoleID := windows.WTSGetActiveConsoleSessionId()
+	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(sessionsPtr)))
 
-	details := make([]SessionDetail, 0, len(ids))
-	for _, id := range ids {
-		username, _ := wtsQuerySessionString(id, wtsInfoClassUserName)
+	consoleID := windows.WTSGetActiveConsoleSessionId()
+	sessions := unsafe.Slice(sessionsPtr, count)
+
+	details := make([]SessionDetail, 0, count)
+	for _, s := range sessions {
+		if s.State != windows.WTSActive && s.State != windows.WTSConnected && s.State != windows.WTSDisconnected {
+			continue
+		}
+		username, _ := wtsQuerySessionString(s.SessionID, wtsInfoClassUserName)
+		if username == "" {
+			// No resolvable logged-on user -- a listener/service session
+			// masquerading under one of these states, not a real
+			// technician-targetable session.
+			continue
+		}
 		details = append(details, SessionDetail{
-			SessionID: id,
-			Username:  username,
-			IsConsole: id == consoleID,
+			SessionID:      s.SessionID,
+			Username:       username,
+			IsConsole:      s.SessionID == consoleID,
+			IsDisconnected: s.State == windows.WTSDisconnected,
 		})
 	}
 	return details, nil

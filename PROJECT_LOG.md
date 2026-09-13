@@ -1,5 +1,63 @@
 # Beacon — Project Log
 
+## Session: 2026-09-13 — Web Remote: fix false "no active sessions" on a Windows Server
+
+Reported live against a real Windows Server device: opening Web Remote gave
+"No active sessions were found on this device" even though the technician was
+genuinely logged into it at the time, and there was no way to fall through to
+the console/logon screen either.
+
+Root-caused to two independent bugs, both in the Server-class session picker
+(PR #141, previously never exercised on real hardware):
+
+1. `usersession.ActiveSessionDetails()` (`agent/internal/usersession/usersession_windows.go`)
+   reused `ActiveSessions()`'s strict `s.State == windows.WTSActive` filter.
+   Windows reports a session as `WTSConnected` (mid-handshake) or
+   `WTSDisconnected` (still logged in, just no RDP client currently attached —
+   routine on a terminal server) far more often in practice than a pure
+   `WTSActive` assumption accounted for, so a real logged-in session was
+   silently excluded from the picker's result. Fixed by giving
+   `ActiveSessionDetails` its own `WTSEnumerateSessions` call (deliberately not
+   reusing `ActiveSessions()`, which stays `WTSActive`-only for its existing,
+   already-proven tray-supervisor caller) matching `WTSActive`/`WTSConnected`/
+   `WTSDisconnected`, and added an `is_disconnected` field so the picker can
+   label a disconnected-but-logged-in session honestly instead of implying a
+   live client.
+
+2. Even when the picker legitimately returns zero sessions (nobody logged in
+   at all), the "Choose Session" modal (`DeviceDetailPage.vue`) had no way to
+   proceed — Cancel was the only button. This meant PR #167's SYSTEM fallback
+   (which shows the logon screen when nobody's logged in) was architecturally
+   unreachable for any Server-class device, since that fallback only fires
+   downstream of an actual `open_session` attempt the old modal never allowed.
+   Added a "Connect to Console" button for exactly this state, calling the
+   same `connectWebRemote()` path a client-class device already uses directly.
+
+Both fixes were first verified via `GOOS=windows go build ./...` and `vue-tsc -b`
+only, then confirmed live against a real Windows Server 2022 VM (provisioned
+on Vultr specifically for this) using Jeremy's own real RDP session as the
+repro rather than a synthetic one:
+
+```
+Connected:                     {"session_id":2,"username":"Administrator","is_console":false,"is_disconnected":false}
+RDP client killed, no logoff:  {"session_id":2,"username":"Administrator","is_console":false,"is_disconnected":true}
+Fully logged off:              []
+```
+
+The disconnected session stayed in the list instead of vanishing (the exact
+original bug), and the fully-logged-off case reproduced the empty-array
+condition the dashboard's new "Connect to Console" fallback button is built
+to handle. Getting there took a real detour: this Vultr Windows image turned
+out to have no Cloudbase-Init installed at all, so its "Startup Script" API
+feature silently never executes anything — not a script bug, just a dead
+unattended-install path on this image. Root cause was found by using a
+JSON-carrying debug endpoint and, once RDP's alternate-shell/initial-program
+trick proved not to work on a non-RDS Windows Server image either, by simply
+handing Jeremy the install command to run by hand in the interactive RDP
+window (visible directly on his desktop via WSLg) rather than continuing to
+fight automation. All Vultr and sandbox Cloudflare resources created for this
+test were torn down afterward; production was never touched.
+
 ## Session: 2026-09-13 — Beacon-project generic agent release workflow
 
 The generic Beacon agent channel must be project-owned, not tied to any

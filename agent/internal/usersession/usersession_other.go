@@ -37,9 +37,10 @@ func ActiveSessions() ([]uint32, error) {
 // SessionDetail mirrors the Windows build's type (including JSON tags) so
 // cross-platform callers need no build-tag split of their own.
 type SessionDetail struct {
-	SessionID uint32 `json:"session_id"`
-	Username  string `json:"username"`
-	IsConsole bool   `json:"is_console"`
+	SessionID      uint32 `json:"session_id"`
+	Username       string `json:"username"`
+	IsConsole      bool   `json:"is_console"`
+	IsDisconnected bool   `json:"is_disconnected"`
 }
 
 // ActiveSessionDetails is a no-op stub outside Windows. Unlike

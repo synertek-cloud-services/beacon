@@ -996,7 +996,12 @@
             <div class="sp-spinner"></div>
             <span>Waiting for the device to respond… this can take up to a minute.</span>
           </div>
-          <div v-else-if="sessionPickerError" class="error-banner">{{ sessionPickerError }}</div>
+          <div v-else-if="sessionPickerError" style="display:flex;flex-direction:column;gap:12px">
+            <div class="error-banner">{{ sessionPickerError }}</div>
+            <p v-if="sessionPickerNoSessions" style="font-size:12px;color:var(--color-text-muted);line-height:1.5;margin:0">
+              You can still connect to the console -- if nobody is logged in, Web Remote will show the sign-in screen.
+            </p>
+          </div>
           <div v-else style="display:flex;flex-direction:column;gap:8px">
             <label v-for="s in sessionPickerSessions" :key="s.session_id"
               style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--color-border)">
@@ -1007,7 +1012,10 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-ghost" @click="sessionPickerOpen = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="sessionPickerSelected === null" @click="connectFromSessionPicker">
+          <button v-if="sessionPickerNoSessions" class="btn btn-primary" @click="connectFromSessionPicker">
+            Connect to Console
+          </button>
+          <button v-else class="btn btn-primary" :disabled="sessionPickerSelected === null" @click="connectFromSessionPicker">
             Connect
           </button>
         </div>
@@ -1229,8 +1237,14 @@ async function connectWebRemote(targetSessionId?: number) {
 const sessionPickerOpen = ref(false);
 const sessionPickerLoading = ref(false);
 const sessionPickerError = ref('');
-const sessionPickerSessions = ref<{ session_id: number; username: string; is_console: boolean }[]>([]);
+const sessionPickerSessions = ref<{ session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }[]>([]);
 const sessionPickerSelected = ref<number | null>(null);
+// True once the picker has come back with a real, completed "zero
+// sessions" result (as opposed to still loading, or a genuine dispatch
+// failure) -- distinguishes "nobody is logged in, but you can still
+// connect to the console" from an actual error, which gets no such
+// affordance. See connectFromSessionPicker below for why this matters.
+const sessionPickerNoSessions = ref(false);
 
 // Dispatches list_remote_sessions (arms Fast Poll for free, same as any
 // direct device command) then polls Command History for its result --
@@ -1248,6 +1262,7 @@ async function openSessionPicker() {
   sessionPickerError.value = '';
   sessionPickerSessions.value = [];
   sessionPickerSelected.value = null;
+  sessionPickerNoSessions.value = false;
   try {
     const { id: commandId } = await api.devices.commands.create(device.value.id, { type: 'list_remote_sessions' });
     for (let i = 0; i < 35; i++) {
@@ -1258,10 +1273,11 @@ async function openSessionPicker() {
       if (!cmd) continue;
       if (cmd.status === 'completed') {
         const result = cmd.result ? JSON.parse(cmd.result) : { stdout: '[]' };
-        const sessions = JSON.parse(result.stdout || '[]') as { session_id: number; username: string; is_console: boolean }[];
+        const sessions = JSON.parse(result.stdout || '[]') as { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }[];
         sessionPickerSessions.value = sessions;
         if (sessions.length === 0) {
-          sessionPickerError.value = 'No active sessions were found on this device.';
+          sessionPickerNoSessions.value = true;
+          sessionPickerError.value = 'No logged-in sessions were found on this device.';
         } else {
           // Default to Console when present, otherwise the first entry --
           // saves a click for the common case.
@@ -1286,12 +1302,24 @@ async function openSessionPicker() {
   }
 }
 
-function sessionPickerLabel(s: { session_id: number; username: string; is_console: boolean }): string {
-  if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : '');
-  return (s.username || 'Unknown user') + ` (Session ${s.session_id})`;
+function sessionPickerLabel(s: { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }): string {
+  const suffix = s.is_disconnected ? ' (Disconnected)' : '';
+  if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : '') + suffix;
+  return (s.username || 'Unknown user') + ` (Session ${s.session_id})` + suffix;
 }
 
 function connectFromSessionPicker() {
+  // Zero sessions were found -- fall through to a plain console connect
+  // with no targetSessionId, same as a client-class device's direct path.
+  // If nobody is genuinely logged in, the agent's own SYSTEM fallback
+  // (usersession.RunAsSessionAsSystem, triggered by ErrNoActiveSession)
+  // takes over and shows the logon screen -- this button's only job is to
+  // make that path reachable; it doesn't itself decide whether anyone's
+  // logged in.
+  if (sessionPickerNoSessions.value) {
+    connectWebRemote();
+    return;
+  }
   if (sessionPickerSelected.value === null) return;
   connectWebRemote(sessionPickerSelected.value);
 }
