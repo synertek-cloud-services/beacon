@@ -1,5 +1,21 @@
 # Beacon — Project Log
 
+## Session: 2026-09-13 — Generic upstream agent channel for hosted and self-hosted Beacon
+
+Beacon's host-controlled release process remains the right option for an
+independent self-hoster, but using it for a hosted platform would require a
+distinct agent build per tenant. Tenant identity belongs in the install-time
+server URL and enrollment token, not in a compiled agent.
+
+Added an explicit upstream release mode and a verified bootstrap path. An
+upstream release retains Beacon's built-in trust key and includes detached
+signatures for every public agent asset. A fresh Beacon host can verify those
+assets locally and register them in its own empty catalog without a private
+signing key or agent build. Host-controlled releases remain available as the
+alternative. This preserves independent self-hosting while letting any hosted
+control plane use one generic upstream-signed agent release across isolated
+tenants.
+
 ## Session: 2026-09-02 / 2026-09-03 — Web Remote ZRLE compression, manual Fast Poll, and RustDesk revived as a second remote tool (through Phase 2a)
 
 Long session spanning several genuinely separate pieces of work, tied together by starting from a real user report ("web remote... connection speed was a total failure" over a remote/WAN link) and ending with RustDesk picked back up as a deferred idea from months earlier.

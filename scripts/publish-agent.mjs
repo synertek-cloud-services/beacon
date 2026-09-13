@@ -15,7 +15,7 @@
 
 import { execFileSync, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { mkdirSync, readFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -82,9 +82,9 @@ function detectReleaseRepository(explicitRepository) {
   return repository.nameWithOwner;
 }
 
-const versionArgument = process.argv[2];
-if (!versionArgument || process.argv.length !== 3) {
-  fail('usage: node scripts/publish-agent.mjs <version>');
+const [versionArgument, channelArgument] = process.argv.slice(2);
+if (!versionArgument || (channelArgument && channelArgument !== '--upstream') || process.argv.length > 4) {
+  fail('usage: node scripts/publish-agent.mjs <version> [--upstream]');
 }
 
 let version;
@@ -105,9 +105,16 @@ const adminSecret = process.env.BEACON_ADMIN_SECRET;
 if (!adminSecret) fail('BEACON_ADMIN_SECRET is required');
 
 const publicKey = publicKeyFromSigningKey(signingKey);
+const defaultReleaseKeySource = readFileSync(join(agentDir, 'internal/releasekey/releasekey.go'), 'utf8');
+const defaultReleaseKey = defaultReleaseKeySource.match(/PublicKeyHex = "([0-9a-f]{64})"/)?.[1];
+if (!defaultReleaseKey) fail('Could not read the upstream agent release key');
+const upstreamChannel = channelArgument === '--upstream';
+if (upstreamChannel && publicKey !== defaultReleaseKey) {
+  fail('The upstream channel signing key must match agent/internal/releasekey.PublicKeyHex');
+}
 const releaseRepository = detectReleaseRepository(process.env.BEACON_RELEASE_REPOSITORY);
-const releaseKeyLdflag = `-X ${releaseKeyVariable}=${publicKey}`;
-const agentLdflags = `-X main.version=${version} ${releaseKeyLdflag}`;
+const releaseKeyLdflag = upstreamChannel ? null : `-X ${releaseKeyVariable}=${publicKey}`;
+const agentLdflags = [`-X main.version=${version}`, releaseKeyLdflag].filter(Boolean).join(' ');
 
 const targets = [
   { os: 'linux', arch: 'amd64' },
@@ -123,7 +130,7 @@ const assetName = ({ os, arch }) => os === 'windows'
 
 mkdirSync(distDir, { recursive: true });
 
-console.log(`Publishing ${tag} to ${releaseRepository} with a host-controlled update key.`);
+console.log(`Publishing ${tag} to ${releaseRepository} with the ${upstreamChannel ? 'upstream' : 'host-controlled'} update key.`);
 console.log('Building beacon-tray.exe (embedded into the Windows agent binary)…');
 runGo(
   ['build', '-trimpath', '-ldflags=-H=windowsgui', '-o', 'internal/service/embedded/beacon-tray.exe', './cmd/beacon-tray'],
@@ -151,7 +158,7 @@ for (const target of targets) {
 
   console.log(`[${target.os}/${target.arch}] Validating the embedded key and signing…`);
   const signResult = spawnSync(
-    'go', ['run', `-ldflags=${releaseKeyLdflag}`, './tools/sign', outputPath],
+    'go', ['run', ...(releaseKeyLdflag ? [`-ldflags=${releaseKeyLdflag}`] : []), './tools/sign', outputPath],
     {
       cwd: agentDir,
       env: { ...process.env, BEACON_SIGNING_KEY: signingKey },
@@ -161,11 +168,15 @@ for (const target of targets) {
   if (signResult.status !== 0) {
     fail(signResult.stderr?.trim() || `Signing failed for ${name}`);
   }
+  const signatureHex = signResult.stdout.trim();
+  const signaturePath = `${outputPath}.sig`;
+  writeFileSync(signaturePath, `${signatureHex}\n`, { mode: 0o644 });
   signedReleases.push({
     ...target,
     name,
     outputPath,
-    signatureHex: signResult.stdout.trim(),
+    signaturePath,
+    signatureHex,
     downloadUrl: `https://github.com/${releaseRepository}/releases/download/${tag}/${name}`,
   });
 }
@@ -205,7 +216,7 @@ try {
   releaseExists = false;
 }
 
-const assetPaths = targets.map(target => join(distDir, assetName(target)));
+const assetPaths = signedReleases.flatMap(release => [release.outputPath, release.signaturePath]);
 if (releaseExists) {
   console.log(`GitHub release ${tag} already exists — verifying its immutable assets…`);
 } else {
@@ -235,7 +246,7 @@ for (const release of signedReleases) {
   }
 
   const verifyResult = spawnSync(
-    'go', ['run', `-ldflags=${releaseKeyLdflag}`, './tools/verify', '-'],
+    'go', ['run', ...(releaseKeyLdflag ? [`-ldflags=${releaseKeyLdflag}`] : []), './tools/verify', '-'],
     {
       cwd: agentDir,
       env: { ...process.env, BEACON_SIGNATURE_HEX: release.signatureHex },
