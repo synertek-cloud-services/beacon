@@ -5,3 +5,7 @@ CONFIG_ENCRYPTION_KEY="replace-with-64-lowercase-hex-characters"
 
 # Override the production value from wrangler.toml while running locally.
 WORKER_URL="http://localhost:8787"
+
+# Optional: only for a trusted hosted scheduler invoking POST /internal/scheduled.
+# Standalone Beacon uses its native Cron Trigger and should leave this unset.
+# INTERNAL_SCHEDULER_SECRET="replace-with-a-long-random-hosted-scheduler-secret"

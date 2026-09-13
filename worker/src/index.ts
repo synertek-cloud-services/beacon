@@ -14,7 +14,7 @@ import adminAlerts from './routes/admin/alerts';
 import adminWebhooks from './routes/admin/webhooks';
 import adminAgentVersions from './routes/admin/agent-versions';
 import adminComponents from './routes/admin/components';
-import adminJobs, { dispatchDueScheduledJobs, cancelExpiredScheduledJobs } from './routes/admin/jobs';
+import adminJobs from './routes/admin/jobs';
 import authRoute from './routes/auth';
 import authMicrosoft from './routes/auth-microsoft';
 import adminUsers from './routes/admin/users';
@@ -35,12 +35,9 @@ import branding from './routes/branding';
 import componentFiles from './routes/component-files';
 import rustdeskInstallerDownload from './routes/rustdesk-installer-download';
 import rustdeskPassword from './routes/rustdesk-password';
-import { evaluateOfflineAlerts } from './lib/alerts';
-import { dispatchDuePatchPolicies } from './lib/patchPolicies';
-import { dispatchDueDiscoveryScans } from './lib/discovery';
-import { syncWindowsUpdateManagement } from './lib/windowsUpdateManagement';
-import { syncMicrosoftUpdateManagement } from './lib/microsoftUpdateManagement';
-import { activityLogMiddleware, pruneActivityLog } from './lib/activityLog';
+import { activityLogMiddleware } from './lib/activityLog';
+import { timingSafeEqual } from './lib/auth';
+import { runScheduledMaintenance } from './lib/scheduled-maintenance';
 
 export { SessionRelay } from './durable-objects/session-relay';
 
@@ -54,6 +51,10 @@ export type Bindings = {
   PAGES_PREVIEW_SUFFIX?: string;
   // AES-GCM key (hex) for encrypting SSO provider client secrets at rest
   CONFIG_ENCRYPTION_KEY: string;
+  // Optional shared secret for a trusted hosted scheduler. Unset for ordinary
+  // self-hosted Beacon installations, where only the native Cron Trigger runs
+  // scheduled maintenance.
+  INTERNAL_SCHEDULER_SECRET?: string;
   // This worker's own public origin, e.g. "https://rmm-api.example.com" —
   // used to build absolute agent/client WebSocket URLs in sessions.ts.
   // Deliberately a configured value, not derived from the incoming request's
@@ -143,19 +144,26 @@ app.route('/v1/auth/microsoft', authMicrosoft);
 
 app.get('/health', (c) => c.json({ ok: true }));
 
+// This route is intentionally outside /v1: it is not a dashboard or agent
+// API. A hosted control plane can invoke Beacon's normal periodic work through
+// an internal Worker-to-Worker request when per-instance Cron Triggers are not
+// available. The route does not exist unless a host explicitly configures its
+// secret, and it accepts neither user sessions nor ADMIN_SECRET.
+app.post('/internal/scheduled', async (c) => {
+  const secret = c.env.INTERNAL_SCHEDULER_SECRET;
+  const provided = c.req.header('X-Beacon-Scheduler-Secret');
+  if (!secret || !provided || !(await timingSafeEqual(provided, secret))) {
+    return c.body(null, 404);
+  }
+  await runScheduledMaintenance(c.env);
+  return c.body(null, 204);
+});
+
 export default {
   fetch(req: Request, env: Bindings) {
     return app.fetch(req, env);
   },
   async scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
-    const now = Math.floor(Date.now() / 1000);
-    await evaluateOfflineAlerts(env.DB, env, now);
-    await dispatchDueScheduledJobs(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
-    await cancelExpiredScheduledJobs(env.DB, now);
-    await dispatchDuePatchPolicies(env.DB, now);
-    await syncWindowsUpdateManagement(env.DB, now);
-    await syncMicrosoftUpdateManagement(env.DB, now);
-    await dispatchDueDiscoveryScans(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
-    await pruneActivityLog(env.DB, now);
+    await runScheduledMaintenance(env);
   },
 };
