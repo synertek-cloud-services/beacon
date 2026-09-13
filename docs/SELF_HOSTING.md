@@ -394,7 +394,7 @@ Prepare the release process environment through your shell or secret manager:
 ```bash
 export BEACON_SIGNING_KEY_FILE=/secure/path/beacon-agent-signing.key
 export BEACON_WORKER_URL=https://beacon-api.example.com
-export BEACON_RELEASE_REPOSITORY=YOUR_GITHUB_OWNER/YOUR_PUBLIC_BEACON_REPOSITORY
+export BEACON_RELEASE_REPOSITORY=YOUR_GITHUB_OWNER/YOUR_DEPLOYMENT_AGENT_RELEASES
 export BEACON_ADMIN_SECRET
 node scripts/publish-agent.mjs 0.3.0
 unset BEACON_ADMIN_SECRET
@@ -402,8 +402,10 @@ unset BEACON_ADMIN_SECRET
 
 Set `BEACON_ADMIN_SECRET` without putting its value in the command or shell
 history. `BEACON_RELEASE_REPOSITORY` is optional when `gh repo view` correctly
-detects the intended fork from the checkout. Setting it explicitly is safer on
-a checkout with several remotes. A semantic prerelease version such as
+detects the intended deployment-specific repository from the checkout. Setting
+it explicitly is required when releasing from the official Beacon source
+checkout: host-controlled artifacts must not be attached to the official
+Beacon release. A semantic prerelease version such as
 `0.3.0-beta.1` is created as a GitHub prerelease.
 
 For every supported platform, the script:
@@ -434,7 +436,8 @@ node scripts/publish-agent.mjs 0.3.2 --upstream
 ```
 
 That mode refuses any other signing key, leaves the agent's default trust key
-intact, and is not a substitute for a private fork's host-controlled channel.
+intact, and publishes only to the official Beacon release repository. It is
+not a substitute for a deployment's host-controlled channel.
 
 The older `BEACON_SIGNING_KEY` environment variable remains supported for
 existing automation, but the restricted key file avoids repeatedly copying
