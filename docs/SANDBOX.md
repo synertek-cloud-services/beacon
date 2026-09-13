@@ -23,11 +23,39 @@ reason to create and destroy this stack per test run; only genuinely
 hourly-billed infrastructure (a Vultr VM, for instance) needs prompt teardown
 after use. Keep this sandbox running indefinitely and just reuse it.
 
+## Dashboard
+
+**`https://beacon-sandbox-dashboard.pages.dev`** — a real deployed Vue
+dashboard (Cloudflare Pages project `beacon-sandbox-dashboard`), built with
+`VITE_API_URL` pointed at the sandbox Worker so it's a fully working UI
+against real sandbox data, not just an API you have to curl blind. Log in via
+**Emergency administrator access** (bottom of the login page) using
+`BEACON_SANDBOX_ADMIN_SECRET` from `~/.beacon-sandbox-secrets` — there's no
+separate local-user account for the sandbox, and none is needed.
+
+To redeploy the dashboard after a frontend change you want to see against the
+sandbox:
+
+```bash
+cd dashboard
+export VITE_API_URL="https://beacon-sandbox.synertekcs.workers.dev"
+pnpm run build
+export CLOUDFLARE_ACCOUNT_ID=8fefd04d62780c1624579795cb08f891
+npx wrangler pages deploy dist --project-name=beacon-sandbox-dashboard --branch=main --commit-dirty=true
+```
+
+(`VITE_API_URL` must be set in the actual shell environment the build command
+runs in — an inline `VAR=val cmd` prefix on the same line can silently not
+propagate through some shells/tool wrappers; `export` first and verify with
+`grep -o beacon-sandbox.synertekcs.workers.dev dist/assets/*.js` before
+deploying if anything looks off.)
+
 ## What's deployed
 
 | Resource | Name |
 |---|---|
 | Worker | `beacon-sandbox` — `https://beacon-sandbox.synertekcs.workers.dev` |
+| Dashboard | `beacon-sandbox-dashboard` (Cloudflare Pages) — `https://beacon-sandbox-dashboard.pages.dev` |
 | D1 database | `beacon-sandbox` (id `2ca03fbc-17af-4494-a643-a1570cf02d44`) |
 | R2 buckets | `beacon-sandbox-logos`, `beacon-sandbox-component-files`, `beacon-sandbox-session-files` |
 | Durable Object | `SessionRelay` (binding `SESSION`) |
