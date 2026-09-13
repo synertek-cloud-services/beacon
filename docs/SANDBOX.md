@@ -25,6 +25,11 @@ after use. Keep this sandbox running indefinitely and just reuse it.
 
 ## Dashboard
 
+**Merging a PR to `main` does NOT redeploy this** — that only happens for the
+real production `beacon-dashboard` project, via `release.yml`. The sandbox
+dashboard is a separate, manual deployment; redeploy it yourself (below)
+after merging anything you want to see reflected here.
+
 **`https://beacon-sandbox-dashboard.pages.dev`** — a real deployed Vue
 dashboard (Cloudflare Pages project `beacon-sandbox-dashboard`), built with
 `VITE_API_URL` pointed at the sandbox Worker so it's a fully working UI
