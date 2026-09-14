@@ -155,6 +155,28 @@ func launchScreenShare(exePath string, args []string, elevated bool, targetSessi
 	if !elevated {
 		pid, err := usersession.RunAsActiveUser(exePath, args)
 		if errors.Is(err, usersession.ErrNoActiveSession) {
+			// RunAsActiveUser targets WTSGetActiveConsoleSessionId()
+			// specifically, which -- per ActiveSessions' own doc comment --
+			// never resolves to anything useful on RDS/AVD/Windows 365:
+			// those platforms have no true console session at all, the
+			// single user's session is itself delivered over RDP. A
+			// client-class device on one of those platforms (Windows 365
+			// Cloud PCs included -- OS-classified "workstation", not
+			// "server", so they never reach the Server-class picker/
+			// targetSessionID path above) would otherwise always look like
+			// "nobody's logged in" even when someone genuinely is,
+			// confirmed live: a real, actively-logged-in Windows 365
+			// session produced exactly this ErrNoActiveSession, silently
+			// showing the SYSTEM-fallback logon screen instead of the
+			// user's real desktop. Before concluding nobody's logged in,
+			// check every active session (not just the console one) for a
+			// real one to launch into.
+			if sessions, sessErr := usersession.ActiveSessions(); sessErr == nil && len(sessions) > 0 {
+				pid, sessionErr := usersession.RunAsSession(sessions[0], exePath, args)
+				if !errors.Is(sessionErr, usersession.ErrNoActiveSession) {
+					return pid, sessionErr
+				}
+			}
 			sessionID, sessErr := usersession.ActiveConsoleSessionID()
 			if sessErr != nil {
 				return 0, err
