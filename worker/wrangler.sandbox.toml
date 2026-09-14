@@ -13,7 +13,7 @@ account_id = "8fefd04d62780c1624579795cb08f891"
 # No [[routes]] block — served from the default beacon-sandbox.<subdomain>.workers.dev.
 
 [vars]
-ALLOWED_ORIGIN = "http://localhost:5173"
+ALLOWED_ORIGIN = "https://sandbox.runbeacon.net"
 PAGES_PREVIEW_SUFFIX = ".pages.dev"
 WORKER_URL = "https://beacon-sandbox.synertekcs.workers.dev"
 
