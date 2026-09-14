@@ -30,13 +30,23 @@ real production `beacon-dashboard` project, via `release.yml`. The sandbox
 dashboard is a separate, manual deployment; redeploy it yourself (below)
 after merging anything you want to see reflected here.
 
-**`https://beacon-sandbox-dashboard.pages.dev`** — a real deployed Vue
-dashboard (Cloudflare Pages project `beacon-sandbox-dashboard`), built with
+**`https://sandbox.runbeacon.net`** — a real deployed Vue dashboard
+(Cloudflare Pages project `beacon-sandbox-dashboard`), built with
 `VITE_API_URL` pointed at the sandbox Worker so it's a fully working UI
 against real sandbox data, not just an API you have to curl blind. Log in via
 **Emergency administrator access** (bottom of the login page) using
 `BEACON_SANDBOX_ADMIN_SECRET` from `~/.beacon-sandbox-secrets` — there's no
 separate local-user account for the sandbox, and none is needed.
+
+**Use the `runbeacon.net` custom domain above, not the raw
+`beacon-sandbox-dashboard.pages.dev` URL** — the bare `*.pages.dev` domain
+got flagged by Cloudflare's own platform-wide phishing/abuse scanner
+(2026-09-14; a login-page-shaped site on a throwaway shared subdomain is
+exactly the pattern it watches for) and started 403ing with a "Suspected
+Phishing" interstitial for *all* traffic, not just automation — confirmed via
+plain `curl` with a normal browser User-Agent. A custom domain on a zone you
+actually own doesn't hit this heuristic. The `.pages.dev` domain is left
+attached to the project (harmless, just don't use it) rather than removed.
 
 To redeploy the dashboard after a frontend change you want to see against the
 sandbox:
@@ -60,7 +70,7 @@ deploying if anything looks off.)
 | Resource | Name |
 |---|---|
 | Worker | `beacon-sandbox` — `https://beacon-sandbox.synertekcs.workers.dev` |
-| Dashboard | `beacon-sandbox-dashboard` (Cloudflare Pages) — `https://beacon-sandbox-dashboard.pages.dev` |
+| Dashboard | `beacon-sandbox-dashboard` (Cloudflare Pages) — `https://sandbox.runbeacon.net` |
 | D1 database | `beacon-sandbox` (id `2ca03fbc-17af-4494-a643-a1570cf02d44`) |
 | R2 buckets | `beacon-sandbox-logos`, `beacon-sandbox-component-files`, `beacon-sandbox-session-files` |
 | Durable Object | `SessionRelay` (binding `SESSION`) |
