@@ -25,7 +25,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -57,6 +60,11 @@ type Result struct {
 // captured and reported independently so one failure doesn't hide the
 // others' real output).
 func Upgrade(packageIDs []string) Result {
+	wingetPath, err := resolveWinget()
+	if err != nil {
+		return Result{Error: err.Error()}
+	}
+
 	var invocations [][]string
 	if len(packageIDs) == 0 {
 		invocations = [][]string{upgradeArgs("")}
@@ -71,12 +79,12 @@ func Upgrade(packageIDs []string) Result {
 	allOK := true
 
 	for _, args := range invocations {
-		cmdLine := "winget " + strings.Join(args, " ")
+		cmdLine := wingetPath + " " + strings.Join(args, " ")
 		ran = append(ran, cmdLine)
 		out.WriteString("=== " + cmdLine + " ===\n")
 
 		ctx, cancel := context.WithTimeout(context.Background(), wingetTimeout)
-		cmd := exec.CommandContext(ctx, "winget", args...)
+		cmd := exec.CommandContext(ctx, wingetPath, args...)
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
@@ -92,6 +100,38 @@ func Upgrade(packageIDs []string) Result {
 	}
 
 	return Result{Ran: ran, Output: out.String(), AllOK: allOK}
+}
+
+// resolveWinget locates the real winget.exe path instead of relying on
+// PATH. winget ships inside the "App Installer" package at
+// %ProgramFiles%\WindowsApps\Microsoft.DesktopAppInstaller_<version>_x64__8wekyb3d8bbwe\winget.exe
+// and is only ever exposed on PATH via a per-user App Execution Alias
+// (%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe, a reparse point) -- the
+// agent's own SYSTEM-context service, running as a different account
+// entirely, never sees that alias. Confirmed live on a real Windows 365
+// Cloud PC: a plain "winget" invocation from the agent service failed with
+// "executable file not found in %PATH%" even though winget was genuinely
+// installed and working fine for the interactive user. The versioned
+// folder name changes with every winget update, so it's globbed for and
+// resolved fresh on every call rather than assumed/cached.
+func resolveWinget() (string, error) {
+	programFiles := os.Getenv("ProgramFiles")
+	if programFiles == "" {
+		programFiles = `C:\Program Files`
+	}
+	matches, err := filepath.Glob(filepath.Join(programFiles, "WindowsApps", "Microsoft.DesktopAppInstaller_*_x64__8wekyb3d8bbwe", "winget.exe"))
+	if err != nil {
+		return "", fmt.Errorf("wingetupdate: glob for winget.exe: %w", err)
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("wingetupdate: winget.exe not found under %s\\WindowsApps -- is the App Installer package installed?", programFiles)
+	}
+	// Version strings in the folder name sort correctly lexicographically
+	// (e.g. "1.26.509.0" < "2025.926.104.0"); the highest one is the
+	// currently-active version when more than one is present (an old
+	// version's folder can briefly survive an update).
+	sort.Strings(matches)
+	return matches[len(matches)-1], nil
 }
 
 func upgradeArgs(packageID string) []string {
