@@ -103,7 +103,12 @@ func RequestReboot() {
 
 // ProcessRebootState is the reboot half of the check-in-tick resilience
 // loop, replacing pollPendingReboot. Two jobs: perform the actual shutdown
-// once confirmed, and re-prompt once an active snooze expires.
+// once confirmed, and re-prompt once an active snooze expires. Also called
+// directly from handleRebootResponse for an immediate confirm, so the
+// check-in tick's call is really just the retry path for a shutdown call
+// that failed the first time (or a reboot confirmed while no check-in was
+// in flight to trigger it directly, e.g. a stale confirmed state restored
+// from the breadcrumb at startup).
 func ProcessRebootState() {
 	rebootMu.Lock()
 	pending, confirmed, snoozedUntil := reboot.pending, reboot.confirmed, reboot.snoozedUntil
@@ -141,10 +146,15 @@ func ProcessRebootState() {
 }
 
 // handleRebootResponse processes an inbound TypeRebootResponse from a tray
-// connection. The actual shutdown call, if confirmed, happens on the next
-// check-in tick via ProcessRebootState -- not inline here on the
-// pipe-reader goroutine -- keeping the privileged action on the same
-// predictable cadence every other agent action already uses.
+// connection. A confirmed restart triggers the shutdown immediately, right
+// here on the pipe-reader goroutine, instead of waiting for the next
+// check-in tick -- the prompt's "Click Yes to restart now" wording promises
+// immediate action, and a real user-visible delay of up to a full check-in
+// interval (60s, or up to 15s under Fast Poll) broke that promise. Calling
+// ProcessRebootState() still preserves its own retry-on-failure behavior
+// (pending+confirmed only clear once a shutdown call actually succeeds), so
+// a failed call here is still safely retried on the next check-in tick same
+// as before -- this only removes the *guaranteed* wait in the common case.
 func handleRebootResponse(payload json.RawMessage) {
 	var r traypipe.RebootResponsePayload
 	if err := json.Unmarshal(payload, &r); err != nil {
@@ -163,6 +173,9 @@ func handleRebootResponse(payload json.RawMessage) {
 	}
 	rebootMu.Unlock()
 	saveRebootBreadcrumb()
+	if r.Confirmed {
+		ProcessRebootState()
+	}
 }
 
 // broadcastRebootPrompt pushes TypeRebootPrompt to every connected tray --
