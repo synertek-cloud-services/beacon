@@ -829,6 +829,22 @@ func setupLogging(credDir string) {
 	}()
 }
 
+// idleReadTimeout bounds how long this process waits for a client message
+// before treating the session as dead -- found live as the root cause of a
+// real production D1-quota incident: an abandoned Web Remote session (e.g.
+// the browser tab closed or the network dropped without a clean WebSocket
+// close reaching this process) left ReadMessage blocked forever with
+// nothing to unblock it, so Serve never returned and this process, along
+// with its two 1-second poll loops (pollSwitchMonitor, pollFileRequests),
+// kept running -- and kept hitting the worker -- indefinitely. Safe to set
+// this fairly low: real noVNC always re-requests a FramebufferUpdate
+// immediately after receiving one (see rfbserver.Serve's own doc comment),
+// so a genuinely-connected session -- even one showing a perfectly static,
+// idle desktop -- produces a new client message well under a second apart.
+// Only a session with no client on the other end at all goes this long
+// without one.
+const idleReadTimeout = 90 * time.Second
+
 // wsByteStream adapts a *websocket.Conn into an io.ReadWriter, buffering
 // leftover bytes between ReadMessage calls -- unlike shell.go's unbounded
 // PTY byte stream, noVNC can and does batch multiple RFB client messages
@@ -842,6 +858,12 @@ type wsByteStream struct {
 }
 
 func newWSByteStream(conn *websocket.Conn) *wsByteStream {
+	// Armed here, before the first read, rather than left unset until the
+	// first successful message -- a session that never receives a single
+	// client message (a relay/dial problem, not just an abandoned one)
+	// must still be bounded, not block forever waiting for a first read
+	// that resets a deadline that was never set.
+	conn.SetReadDeadline(time.Now().Add(idleReadTimeout))
 	return &wsByteStream{conn: conn}
 }
 
@@ -851,6 +873,10 @@ func (s *wsByteStream) Read(p []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		// A real message arrived -- the client is still genuinely there.
+		// Push the idle deadline back out rather than only setting it once
+		// at connect time.
+		s.conn.SetReadDeadline(time.Now().Add(idleReadTimeout))
 		if mt == websocket.BinaryMessage {
 			s.buf = data
 		}
