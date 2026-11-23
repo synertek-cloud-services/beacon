@@ -5,7 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
-import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts } from '../lib/alerts';
+import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts, fetchDeviceGroupIds } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
 import { isFastPollActive, FAST_POLL_INTERVAL_SECONDS } from '../lib/fastPoll';
@@ -240,13 +240,15 @@ checkin.post('/', async (c) => {
     }
   }
 
-  const inMaintenance = await isDeviceSuppressedNow(db, device, now);
+  // One lookup shared by the maintenance gate and policy matching below.
+  const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
+  const inMaintenance = await isDeviceSuppressedNow(db, device, now, deviceGroupIds);
   const fastPollActive = isFastPollActive(device, now);
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
     ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
-    : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now);
+    : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now, deviceGroupIds);
 
   if (!inMaintenance) {
     // Evaluate file_size measurements the agent took for a prior check-in's assignments

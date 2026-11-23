@@ -189,9 +189,44 @@ export function isDeviceSuppressed(device: Device, ctx: MaintenanceContext): boo
 // lib/alerts.ts (same role: check-in/audit only ever evaluate one device per
 // invocation, so a context fetched for a 1-element deviceIds array is still
 // "fetch once per invocation," just a trivially small one).
-export async function isDeviceSuppressedNow(db: Db, device: Device, now: number): Promise<boolean> {
-  const ctx = await fetchMaintenanceContext(db, [device.id], now);
-  return isDeviceSuppressed(device, ctx);
+//
+// The maintenance tables are identical for every device and change only on an
+// admin edit, but check-in re-read all five of them (plus the host timezone)
+// per device per minute. Cached per isolate for a short TTL, same tradeoff as
+// the policy cache in lib/alerts.ts: an edit reaches check-in/audit within one
+// TTL. Only the device's own group memberships are fetched per call -- or
+// passed in by a caller that already has them (check-in does, for policy
+// matching too).
+const MAINTENANCE_CACHE_TTL_MS = 60_000;
+
+type MaintenanceCacheEntry = Omit<MaintenanceContext, 'now' | 'deviceGroupIds'> & { at: number };
+let maintenanceCache: MaintenanceCacheEntry | null = null;
+
+async function getMaintenanceCache(db: Db): Promise<MaintenanceCacheEntry> {
+  const nowMs = Date.now();
+  if (maintenanceCache && nowMs - maintenanceCache.at < MAINTENANCE_CACHE_TTL_MS) return maintenanceCache;
+  const [hostTimezone, policies, policyCompanyIds, policyDeviceIds, policyGroupIds] = await Promise.all([
+    getHostTimezone(db),
+    fetchEnabledMaintenancePolicies(db),
+    fetchMaintenancePolicyCompanyIds(db),
+    fetchMaintenancePolicyDeviceIds(db),
+    fetchMaintenancePolicyGroupIds(db),
+  ]);
+  maintenanceCache = { at: nowMs, hostTimezone, policies, policyCompanyIds, policyDeviceIds, policyGroupIds };
+  return maintenanceCache;
+}
+
+export async function isDeviceSuppressedNow(
+  db: Db,
+  device: Device,
+  now: number,
+  deviceGroups?: Set<string>,
+): Promise<boolean> {
+  // Cheapest check first: an ad-hoc per-device window needs no queries at all.
+  if (device.maintenanceEndsAt != null && device.maintenanceEndsAt > now) return true;
+  const cached = await getMaintenanceCache(db);
+  const groups = deviceGroups ?? (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
+  return isDeviceSuppressed(device, { ...cached, now, deviceGroupIds: new Map([[device.id, groups]]) });
 }
 
 // ── Admin CRUD support ──────────────────────────────────────────────────────
