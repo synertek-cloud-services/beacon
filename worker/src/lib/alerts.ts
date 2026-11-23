@@ -168,16 +168,45 @@ async function fetchPolicyDeviceIds(db: Db): Promise<Map<string, Set<string>>> {
   return out;
 }
 
+// The policy tables are identical for every device and change only when an
+// admin edits a policy, but check-in resolves them once per device per minute
+// -- ~5 full-table reads plus Drizzle row mapping each time, enough CPU to
+// exceed the Workers free plan's 10ms-per-request cap. Cached per isolate for
+// a short TTL; a policy edit reaches check-in evaluation within one TTL
+// (alerting is already minute-granular). Only the single-device wrapper below
+// uses it -- the offline cron fetches fresh, once per invocation.
+const POLICY_CACHE_TTL_MS = 60_000;
+
+interface PolicyCacheEntry {
+  at: number;
+  rows: EnabledPolicyMonitorRow[];
+  policyGroupIds: Map<string, Set<string>>;
+  policyCompanyIds: Map<string, Set<string>>;
+  policyDeviceIds: Map<string, Set<string>>;
+}
+
+let policyCache: PolicyCacheEntry | null = null;
+
+async function getPolicyCache(db: Db): Promise<PolicyCacheEntry> {
+  const nowMs = Date.now();
+  if (policyCache && nowMs - policyCache.at < POLICY_CACHE_TTL_MS) return policyCache;
+  const [rows, policyGroupIds, policyCompanyIds, policyDeviceIds] = await Promise.all([
+    fetchEnabledPolicyMonitors(db),
+    fetchPolicyGroupIds(db),
+    fetchPolicyCompanyIds(db),
+    fetchPolicyDeviceIds(db),
+  ]);
+  policyCache = { at: nowMs, rows, policyGroupIds, policyCompanyIds, policyDeviceIds };
+  return policyCache;
+}
+
 // Single-device convenience wrapper for call sites that only ever evaluate
 // one device per invocation (check-in, audit) — the offline cron evaluates
 // many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
 // directly instead, to fetch the join only once per invocation.
 export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
-  const rows = await fetchEnabledPolicyMonitors(db);
-  const policyGroupIds = await fetchPolicyGroupIds(db);
+  const { rows, policyGroupIds, policyCompanyIds, policyDeviceIds } = await getPolicyCache(db);
   const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
-  const policyCompanyIds = await fetchPolicyCompanyIds(db);
-  const policyDeviceIds = await fetchPolicyDeviceIds(db);
   return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds, policyCompanyIds, policyDeviceIds);
 }
 
