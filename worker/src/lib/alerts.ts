@@ -236,6 +236,16 @@ export async function evaluateCheckinAlerts(
   const windowsUpdateDriftChecks: WindowsUpdateDriftCheck[] = [];
   const minuteBucket = Math.floor(now / 60);
 
+  // Every sampled monitor below needs this device's alert_state row. Fetch them
+  // all in one query instead of one sequential SELECT per monitor -- each
+  // round trip costs ~60ms wall and measurable CPU, and check-in runs for
+  // every device every minute. Each monitor is processed once per check-in,
+  // so the snapshot can't go stale mid-loop.
+  const alertStates = new Map(
+    (await db.select().from(schema.alertState).where(eq(schema.alertState.deviceId, device.id)))
+      .map(r => [r.policyMonitorId, r] as const),
+  );
+
   for (const monitor of monitors) {
     if (monitor.checkType === 'offline') continue; // handled by cron
     // Throttle evaluation frequency below the 60s check-in cadence. Stateless
@@ -294,7 +304,7 @@ export async function evaluateCheckinAlerts(
     }
 
     const failed = evaluateCheck(monitor, metrics);
-    await processAlertState(db, env, device, monitor, failed, now);
+    await processAlertState(db, env, device, monitor, failed, now, alertStates);
   }
 
   return { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks };
@@ -649,14 +659,19 @@ async function processAlertState(
   monitor: EffectiveMonitor,
   failed: boolean,
   now: number,
+  // Pre-fetched alert_state rows for this device keyed by policy monitor id
+  // (see evaluateCheckinAlerts). Absent = look the row up here.
+  prefetched?: Map<string, typeof schema.alertState.$inferSelect>,
 ): Promise<void> {
-  const existing = await db.select()
-    .from(schema.alertState)
-    .where(and(
-      eq(schema.alertState.deviceId, device.id),
-      eq(schema.alertState.policyMonitorId, monitor.id),
-    ))
-    .get();
+  const existing = prefetched
+    ? prefetched.get(monitor.id)
+    : await db.select()
+      .from(schema.alertState)
+      .where(and(
+        eq(schema.alertState.deviceId, device.id),
+        eq(schema.alertState.policyMonitorId, monitor.id),
+      ))
+      .get();
 
   if (!existing) {
     // A monitor that's never failed doesn't need a row yet — nothing reads
