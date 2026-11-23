@@ -5,7 +5,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
-import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts } from '../lib/alerts';
+import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts, fetchDeviceGroupIds } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
 import { isFastPollActive, FAST_POLL_INTERVAL_SECONDS } from '../lib/fastPoll';
@@ -18,11 +18,7 @@ checkin.post('/', async (c) => {
   if (!auth?.startsWith('Bearer ')) {
     return c.json({ error: 'missing authorization' }, 401);
   }
-  // TEMPORARY check-in timing (never leave merged): ms between stages, one log line.
-  const tm: Array<[string, number]> = []; let tl = Date.now();
-  const mark = (n: string) => { const t = Date.now(); tm.push([n, t - tl]); tl = t; };
   const credentialHash = await sha256hex(auth.slice(7));
-  mark('hash');
 
   const db = drizzle(c.env.DB, { schema });
   const now = Math.floor(Date.now() / 1000);
@@ -32,7 +28,6 @@ checkin.post('/', async (c) => {
     .where(eq(schema.devices.deviceCredentialHash, credentialHash))
     .get();
 
-  mark('deviceSelect');
   if (!device) return c.json({ error: 'unknown device' }, 401);
   if (device.status === 'revoked') return c.json({ error: 'device revoked' }, 403);
 
@@ -43,7 +38,6 @@ checkin.post('/', async (c) => {
     return c.json({ error: 'invalid request body' }, 400);
   }
 
-  mark('json');
   if (body.device_id !== device.id || body.tenant_id !== device.companyId) {
     return c.json({ error: 'device_id or company_id mismatch' }, 403);
   }
@@ -246,17 +240,16 @@ checkin.post('/', async (c) => {
     }
   }
 
-  mark('updateAndResults');
-  const inMaintenance = await isDeviceSuppressedNow(db, device, now);
-  mark('maintenance');
+  // One lookup shared by the maintenance gate and policy matching below.
+  const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
+  const inMaintenance = await isDeviceSuppressedNow(db, device, now, deviceGroupIds);
   const fastPollActive = isFastPollActive(device, now);
 
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
     ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
-    : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now);
+    : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now, deviceGroupIds);
 
-  mark('evalCheckin');
   if (!inMaintenance) {
     // Evaluate file_size measurements the agent took for a prior check-in's assignments
     if (body.pending_file_size_results?.length) {
@@ -284,7 +277,6 @@ checkin.post('/', async (c) => {
     }
   }
 
-  mark('evalResults');
   // Pending devices: accept data for visibility, return no commands
   if (device.status === 'pending') {
     return c.json<CheckInResponse>({});
@@ -322,8 +314,6 @@ checkin.post('/', async (c) => {
     ).bind(now + (2 * 60 * 60), ...queued.map(c => c.id)).run();
   }
 
-  mark('commands');
-  console.log(JSON.stringify({ checkinMs: Object.fromEntries(tm) }));
   return c.json<CheckInResponse>({
     commands: queued.map(cmd => ({
       command_id: cmd.id,

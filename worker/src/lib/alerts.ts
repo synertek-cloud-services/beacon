@@ -204,9 +204,9 @@ async function getPolicyCache(db: Db): Promise<PolicyCacheEntry> {
 // one device per invocation (check-in, audit) — the offline cron evaluates
 // many devices at once and calls fetchEnabledPolicyMonitors/matchMonitorsForDevice
 // directly instead, to fetch the join only once per invocation.
-export async function resolveEffectiveMonitors(db: Db, device: Device): Promise<EffectiveMonitor[]> {
+export async function resolveEffectiveMonitors(db: Db, device: Device, knownDeviceGroupIds?: Set<string>): Promise<EffectiveMonitor[]> {
   const { rows, policyGroupIds, policyCompanyIds, policyDeviceIds } = await getPolicyCache(db);
-  const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
+  const deviceGroupIds = knownDeviceGroupIds ?? (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
   return matchMonitorsForDevice(rows, device, deviceGroupIds, policyGroupIds, policyCompanyIds, policyDeviceIds);
 }
 
@@ -226,9 +226,10 @@ export async function evaluateCheckinAlerts(
   device: Device,
   metrics: Metrics,
   now: number,
+  deviceGroupIds?: Set<string>,
 ): Promise<CheckinAssignments> {
   const db = drizzle(DB, { schema });
-  const monitors = await resolveEffectiveMonitors(db, device);
+  const monitors = await resolveEffectiveMonitors(db, device, deviceGroupIds);
   const fileSizeChecks: FileSizeCheck[] = [];
   const pingChecks: PingCheck[] = [];
   const processChecks: ProcessCheck[] = [];
