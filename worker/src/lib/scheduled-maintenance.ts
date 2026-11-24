@@ -1,5 +1,5 @@
 import type { Bindings } from '../index';
-import { evaluateOfflineAlerts } from './alerts';
+import { evaluateCronAlerts } from './alerts';
 import { dispatchDuePatchPolicies } from './patchPolicies';
 import { dispatchDueDiscoveryScans } from './discovery';
 import { syncWindowsUpdateManagement } from './windowsUpdateManagement';
@@ -11,7 +11,7 @@ import { dispatchDueScheduledJobs, cancelExpiredScheduledJobs } from '../routes/
 // invokes this from its native Cron Trigger; a hosted control plane may invoke
 // the same function through the narrowly-scoped internal scheduler route.
 export async function runScheduledMaintenance(env: Bindings, now = Math.floor(Date.now() / 1000)): Promise<void> {
-  await evaluateOfflineAlerts(env.DB, env, now);
+  await evaluateCronAlerts(env.DB, env, now);
   await dispatchDueScheduledJobs(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
   await cancelExpiredScheduledJobs(env.DB, now);
   await dispatchDuePatchPolicies(env.DB, now);

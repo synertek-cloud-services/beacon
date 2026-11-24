@@ -213,6 +213,9 @@ export async function resolveEffectiveMonitors(db: Db, device: Device, knownDevi
 
 // ── In-band: called from check-in after inventory is updated ─────────────────
 
+const ASSIGNED_CHECK_TYPES = new Set(['file_size', 'ping', 'process', 'service', 'windows_update_drift']);
+const SAMPLED_CHECK_TYPES = new Set(['disk_space', 'cpu_usage', 'memory_usage', 'av_status']);
+
 export interface CheckinAssignments {
   fileSizeChecks: FileSizeCheck[];
   pingChecks: PingCheck[];
@@ -221,9 +224,12 @@ export interface CheckinAssignments {
   windowsUpdateDriftChecks: WindowsUpdateDriftCheck[];
 }
 
+// Returns the agent-measured check assignments for this check-in. Sampled
+// monitors (disk/cpu/memory/av) are NOT evaluated here -- see
+// evaluateCronAlerts: they run on the 2-minute cron against the metrics this
+// check-in stored, keeping that work off the 10ms-CPU HTTP request path.
 export async function evaluateCheckinAlerts(
   DB: D1Database,
-  env: Bindings,
   device: Device,
   metrics: Metrics,
   now: number,
@@ -238,18 +244,8 @@ export async function evaluateCheckinAlerts(
   const windowsUpdateDriftChecks: WindowsUpdateDriftCheck[] = [];
   const minuteBucket = Math.floor(now / 60);
 
-  // Every sampled monitor below needs this device's alert_state row. Fetch them
-  // all in one query instead of one sequential SELECT per monitor -- each
-  // round trip costs ~60ms wall and measurable CPU, and check-in runs for
-  // every device every minute. Each monitor is processed once per check-in,
-  // so the snapshot can't go stale mid-loop.
-  const alertStates = new Map(
-    (await db.select().from(schema.alertState).where(eq(schema.alertState.deviceId, device.id)))
-      .map(r => [r.policyMonitorId, r] as const),
-  );
-
   for (const monitor of monitors) {
-    if (monitor.checkType === 'offline') continue; // handled by cron
+    if (!ASSIGNED_CHECK_TYPES.has(monitor.checkType)) continue; // offline + sampled types are evaluated by the cron
     // Throttle evaluation frequency below the 60s check-in cadence. Stateless
     // by design — bucketing by wall-clock minute avoids needing a "last
     // evaluated" timestamp, which would just reintroduce a write every
@@ -305,8 +301,6 @@ export async function evaluateCheckinAlerts(
       continue;
     }
 
-    const failed = evaluateCheck(monitor, metrics);
-    await processAlertState(db, env, device, monitor, failed, now, alertStates);
   }
 
   return { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks };
@@ -558,7 +552,15 @@ export async function evaluateSoftwareAlerts(
 
 // ── Out-of-band: called from the cron scheduled handler ──────────────────────
 
-export async function evaluateOfflineAlerts(
+// Sampled metrics older than this are not evaluated: the device has stopped
+// checking in, so its stored metrics are stale (the offline monitor covers
+// that case). Generous against the 60s check-in cadence and 2-min cron tick.
+const SAMPLED_MAX_AGE_SECONDS = 300;
+
+// Cron-driven evaluation of everything that doesn't need an agent round trip:
+// `offline` (from last_seen) and the sampled monitors (from the metrics blob
+// the last check-in stored in devices.inventory).
+export async function evaluateCronAlerts(
   DB: D1Database,
   env: Bindings,
   now: number,
@@ -580,13 +582,24 @@ export async function evaluateOfflineAlerts(
   const policyDeviceIds = await fetchPolicyDeviceIds(db);
   const maintCtx = await fetchMaintenanceContext(db, allDevices.map(d => d.id), now);
 
+  // One query for every device's alert_state rows (bounded: one row per
+  // device+monitor that has ever failed), rather than one SELECT per monitor.
+  const alertStatesByDevice = new Map<string, Map<string, typeof schema.alertState.$inferSelect>>();
+  for (const row of await db.select().from(schema.alertState)) {
+    let m = alertStatesByDevice.get(row.deviceId);
+    if (!m) { m = new Map(); alertStatesByDevice.set(row.deviceId, m); }
+    m.set(row.policyMonitorId, row);
+  }
+
   for (const device of allDevices) {
     if (isDeviceSuppressed(device, maintCtx)) continue;
+    const alertStates = alertStatesByDevice.get(device.id) ?? new Map();
 
     const monitors = matchMonitorsForDevice(
       policyMonitorRows, device, deviceGroupIds.get(device.id) ?? new Set(), policyGroupIds,
       policyCompanyIds, policyDeviceIds);
     const offlineMonitors = monitors.filter(m => m.checkType === 'offline');
+    const sampledMonitors = monitors.filter(m => SAMPLED_CHECK_TYPES.has(m.checkType));
 
     for (const monitor of offlineMonitors) {
       const cfg = JSON.parse(monitor.config) as { direction?: 'offline' | 'online'; offline_after_seconds: number };
@@ -602,7 +615,19 @@ export async function evaluateOfflineAlerts(
         failed = device.lastSeen === null || device.lastSeen < now - cfg.offline_after_seconds;
       }
 
-      await processAlertState(db, env, device, monitor, failed, now);
+      await processAlertState(db, env, device, monitor, failed, now, alertStates);
+    }
+
+    if (sampledMonitors.length === 0) continue;
+    if (device.lastSeen === null || device.lastSeen < now - SAMPLED_MAX_AGE_SECONDS) continue;
+    let metrics: Metrics;
+    try { metrics = JSON.parse(device.inventory ?? '') as Metrics; } catch { continue; }
+    for (const monitor of sampledMonitors) {
+      // Throttle in 2-minute cron ticks (the old per-check-in minute bucket
+      // can't be honored at this cadence).
+      const everyTicks = Math.max(1, Math.round(monitor.checkIntervalMinutes / 2));
+      if (Math.floor(now / 120) % everyTicks !== 0) continue;
+      await processAlertState(db, env, device, monitor, evaluateCheck(monitor, metrics), now, alertStates);
     }
   }
 }

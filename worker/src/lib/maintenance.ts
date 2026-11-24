@@ -154,7 +154,7 @@ export interface MaintenanceContext {
 // fetchEnabledPolicyMonitors/fetchPolicyCompanyIds etc. already established in
 // lib/alerts.ts (this runs on every 60s check-in and the 2-min fleet cron).
 // Callers: isDeviceSuppressedNow below (single-device — check-in, audit) and
-// evaluateOfflineAlerts in lib/alerts.ts (fleet-wide, fetched once for ALL
+// evaluateCronAlerts in lib/alerts.ts (fleet-wide, fetched once for ALL
 // devices before its device loop).
 export async function fetchMaintenanceContext(db: Db, deviceIds: string[], now: number): Promise<MaintenanceContext> {
   const [hostTimezone, policies, policyCompanyIds, policyDeviceIds, policyGroupIds, deviceGroupIds] = await Promise.all([
@@ -170,7 +170,7 @@ export async function fetchMaintenanceContext(db: Db, deviceIds: string[], now: 
 
 // The single centralized suppression check, replacing the 3 previously
 // duplicated inline `device.maintenanceEndsAt != null && ... > now` checks
-// in lib/alerts.ts (evaluateOfflineAlerts), routes/checkin.ts, and
+// in lib/alerts.ts (evaluateCronAlerts), routes/checkin.ts, and
 // routes/audit.ts. ORs (a) the existing ad-hoc per-device window with (b)
 // any enabled Maintenance Policy that both targets this device and has an
 // active window right now. No reconcile-on-narrow is needed for (b) — this
