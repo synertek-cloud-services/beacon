@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { and, asc, eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -72,7 +73,7 @@ sessions.post('/', async (c) => {
     monitor?: string;
   }>();
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const device = await db.select({
@@ -208,7 +209,7 @@ sessions.post('/', async (c) => {
 // so sessions.consentStatus stays NULL for it, which GET .../consent below
 // (and the dashboard's own polling) already treats as "nothing to report."
 sessions.post('/:id/consent', async (c) => {
-  if (!(await verifyReportToken(drizzle(c.env.DB, { schema }), c.req.param('id'), c.req.header('Authorization')))) {
+  if (!(await verifyReportToken(getDb(c.env.DB), c.req.param('id'), c.req.header('Authorization')))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
@@ -217,7 +218,7 @@ sessions.post('/:id/consent', async (c) => {
     return c.json({ error: 'status must be accepted, declined, or timed_out' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.update(schema.sessions)
     .set({ consentStatus: body.status })
     .where(eq(schema.sessions.id, c.req.param('id')));
@@ -235,7 +236,7 @@ sessions.get('/:id/consent', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select({ status: schema.sessions.consentStatus })
     .from(schema.sessions)
     .where(eq(schema.sessions.id, c.req.param('id')))
@@ -257,7 +258,7 @@ sessions.post('/:id/displays', async (c) => {
   const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : undefined;
   if (!token) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select({ hash: schema.sessions.reportTokenHash })
     .from(schema.sessions)
     .where(eq(schema.sessions.id, c.req.param('id')))
@@ -287,7 +288,7 @@ sessions.get('/:id/displays', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select({ displays: schema.sessions.displays })
     .from(schema.sessions)
     .where(eq(schema.sessions.id, c.req.param('id')))
@@ -318,7 +319,7 @@ sessions.post('/:id/switch-monitor', async (c) => {
   const body = await c.req.json<{ monitor: string }>();
   if (!body.monitor) return c.json({ error: 'monitor is required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select({ id: schema.sessions.id })
     .from(schema.sessions)
     .where(eq(schema.sessions.id, c.req.param('id')))
@@ -345,7 +346,7 @@ sessions.get('/:id/switch-monitor', async (c) => {
   const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : undefined;
   if (!token) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select({ hash: schema.sessions.reportTokenHash, monitor: schema.sessions.pendingMonitor })
     .from(schema.sessions)
     .where(eq(schema.sessions.id, c.req.param('id')))
@@ -384,7 +385,7 @@ sessions.post('/:id/file-requests', async (c) => {
   }
   if (!body.path) return c.json({ error: 'path is required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const session = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.id, c.req.param('id'))).get();
   if (!session) return c.json({ error: 'session not found' }, 404);
 
@@ -410,7 +411,7 @@ sessions.get('/:id/file-requests/:reqId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select().from(schema.sessionFileRequests)
     .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
     .get();
@@ -432,7 +433,7 @@ sessions.post('/:id/files/upload', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const session = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.id, c.req.param('id'))).get();
   if (!session) return c.json({ error: 'session not found' }, 404);
 
@@ -494,7 +495,7 @@ sessions.get('/:id/files/:reqId/download', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select().from(schema.sessionFileRequests)
     .where(and(eq(schema.sessionFileRequests.id, c.req.param('reqId')), eq(schema.sessionFileRequests.sessionId, c.req.param('id'))))
     .get();
@@ -522,7 +523,7 @@ sessions.get('/:id/files/:reqId/download', async (c) => {
 // there's nothing to do, never an error, so the poll loop's steady state
 // is silent.
 sessions.get('/:id/file-requests/next', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
@@ -559,7 +560,7 @@ sessions.get('/:id/file-requests/next', async (c) => {
 // go through .../upload-result below instead, since those carry the
 // actual file bytes, not just a JSON result.)
 sessions.post('/:id/file-requests/:reqId/result', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
@@ -580,7 +581,7 @@ sessions.post('/:id/file-requests/:reqId/result', async (c) => {
 // uploaded (see POST .../files/upload above) so the helper can write them
 // to disk.
 sessions.get('/:id/files/:reqId/blob', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
@@ -608,7 +609,7 @@ sessions.get('/:id/files/:reqId/blob', async (c) => {
 // through the worker. Stores to R2 and marks the request completed with
 // a pointer the technician-facing GET .../download route above can serve.
 sessions.post('/:id/file-requests/:reqId/upload-result', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
@@ -659,7 +660,7 @@ sessions.get('/:id/ws', async (c) => {
 
   if (role === 'client') {
     const auth = c.req.query('auth');
-    const db = drizzle(c.env.DB, { schema });
+    const db = getDb(c.env.DB);
     const row = await db.select({ hash: schema.sessions.clientAuthHash })
       .from(schema.sessions)
       .where(eq(schema.sessions.id, c.req.param('id')))

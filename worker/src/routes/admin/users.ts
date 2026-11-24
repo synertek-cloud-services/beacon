@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -22,7 +23,7 @@ adminUsers.get('/', async (c) => {
   const user = await auth(c);
   if (!user) return c.json({ error: 'unauthorized' }, 401);
 
-  const rows = await drizzle(c.env.DB, { schema }).select().from(schema.users).all();
+  const rows = await getDb(c.env.DB).select().from(schema.users).all();
   return c.json(rows.map(toPublicUser));
 });
 
@@ -35,7 +36,7 @@ adminUsers.post('/', async (c) => {
   const email = body.email?.trim().toLowerCase();
   if (!email || !body.password || !body.role) return c.json({ error: 'email, password, and role are required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const existing = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.email, email)).get();
@@ -63,7 +64,7 @@ adminUsers.patch('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const body = await c.req.json<{ displayName?: string; role?: Role; status?: 'active' | 'disabled'; receivesAlerts?: boolean }>();
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const updates: Partial<typeof schema.users.$inferInsert> = { updatedAt: now };
@@ -83,7 +84,7 @@ adminUsers.post('/:id/reset-password', async (c) => {
   const body = await c.req.json<{ password?: string }>();
   if (!body.password) return c.json({ error: 'password is required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const target = await db.select().from(schema.users).where(eq(schema.users.id, c.req.param('id'))).get();
   if (!target) return c.json({ error: 'not found' }, 404);
   if (target.authSource !== 'local') return c.json({ error: 'this account signs in via SSO — password reset must happen with the identity provider' }, 400);
@@ -99,7 +100,7 @@ adminUsers.post('/:id/reset-password', async (c) => {
 adminUsers.delete('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.update(schema.users)
     .set({ status: 'disabled', updatedAt: Math.floor(Date.now() / 1000) })
     .where(eq(schema.users.id, c.req.param('id')));

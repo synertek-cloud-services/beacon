@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
@@ -323,7 +323,7 @@ export async function dispatchDueScheduledJobs(db: D1Database, configEncryptionK
     // it. Job *creation* is a normal admin route and is already covered by
     // Layer 1. No companyId -- a scheduled job can target multiple companies, so
     // it isn't unambiguously owned by one.
-    await logActivity(drizzle(db, { schema }), {
+    await logActivity(getDb(db), {
       actorType: 'system', category: 'Job', action: 'Dispatched scheduled job',
       entityType: 'job', entityId: job.id, method: 'CRON',
       details: { deviceCount: devices.length },

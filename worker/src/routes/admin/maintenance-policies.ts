@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -91,7 +92,7 @@ maintenancePolicies.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   return c.json(await listWithTargets(db));
 });
 
@@ -104,7 +105,7 @@ maintenancePolicies.post('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
@@ -175,7 +176,7 @@ maintenancePolicies.post('/', async (c) => {
     await copyMaintenanceTargets(c.env.DB, body.clone_from!, id, now);
   }
 
-  const result = await listWithTargets(drizzle(c.env.DB, { schema }));
+  const result = await listWithTargets(getDb(c.env.DB));
   const created = result.find(p => p.id === id);
   return c.json(created ?? { id }, 201);
 });
@@ -185,7 +186,7 @@ maintenancePolicies.patch('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const id  = c.req.param('id');
 
@@ -221,7 +222,7 @@ maintenancePolicies.delete('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.maintenancePolicies).where(eq(schema.maintenancePolicies.id, c.req.param('id')));
   return c.json({ ok: true });
 });

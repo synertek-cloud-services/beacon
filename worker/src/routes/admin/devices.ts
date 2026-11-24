@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, desc, and, inArray, isNull, isNotNull } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -30,7 +31,7 @@ function shapeDevice(row: typeof schema.devices.$inferSelect) {
 adminDevices.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const statusFilter = c.req.query('status') as typeof schema.devices.$inferSelect['status'] | undefined;
 
   const devices = statusFilter
@@ -54,7 +55,7 @@ adminDevices.get('/', async (c) => {
 adminDevices.get('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
   if (!device) return c.json({ error: 'not found' }, 404);
 
@@ -69,7 +70,7 @@ adminDevices.get('/:id', async (c) => {
 adminDevices.get('/:id/effective-monitors', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   // Needs the full row — deviceMatchesPolicy reads overrideClass/detectedClass/companyId/osType.
   const device = await db.select().from(schema.devices).where(eq(schema.devices.id, c.req.param('id'))).get();
   if (!device) return c.json({ error: 'not found' }, 404);
@@ -82,7 +83,7 @@ adminDevices.get('/:id/effective-monitors', async (c) => {
 adminDevices.post('/:id/approve', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const result = await db
@@ -97,7 +98,7 @@ adminDevices.post('/:id/approve', async (c) => {
 adminDevices.post('/:id/revoke', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   await db
     .update(schema.devices)
@@ -114,7 +115,7 @@ adminDevices.post('/:id/revoke', async (c) => {
 adminDevices.patch('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const deviceId = c.req.param('id');
 
   const device = await db.select({ id: schema.devices.id }).from(schema.devices).where(eq(schema.devices.id, deviceId)).get();
@@ -137,7 +138,7 @@ adminDevices.patch('/:id', async (c) => {
 adminDevices.delete('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.devices).where(eq(schema.devices.id, c.req.param('id')));
 
   return c.json({ ok: true });
@@ -146,7 +147,7 @@ adminDevices.delete('/:id', async (c) => {
 // POST /v1/admin/devices/:id/maintenance — set a maintenance window
 adminDevices.post('/:id/maintenance', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const body = await c.req.json<{ ends_at: number; reason?: string }>();
   if (!body.ends_at || body.ends_at <= Math.floor(Date.now() / 1000)) {
     return c.json({ error: 'ends_at must be a future unix timestamp' }, 400);
@@ -160,7 +161,7 @@ adminDevices.post('/:id/maintenance', async (c) => {
 // DELETE /v1/admin/devices/:id/maintenance — end a maintenance window immediately
 adminDevices.delete('/:id/maintenance', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.update(schema.devices)
     .set({ maintenanceEndsAt: null, maintenanceReason: null })
     .where(eq(schema.devices.id, c.req.param('id')));
@@ -179,7 +180,7 @@ adminDevices.delete('/:id/maintenance', async (c) => {
 // speed up the very first action against a cold device.
 adminDevices.post('/:id/fast-poll', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   await extendFastPoll(db, c.req.param('id'), now);
   return c.json({ ok: true });
@@ -204,7 +205,7 @@ adminDevices.post('/:id/fast-poll', async (c) => {
 // once.
 adminDevices.get('/:id/commands', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const cmds = await db
     .select()
@@ -220,7 +221,7 @@ adminDevices.get('/:id/commands', async (c) => {
 // POST /v1/admin/devices/:id/commands — queue a command for the device
 adminDevices.post('/:id/commands', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const deviceId = c.req.param('id');
 
@@ -425,7 +426,7 @@ adminDevices.post('/:id/commands', async (c) => {
 // /v1/admin/*, so a reveal is an audited action for free.
 adminDevices.get('/:id/rustdesk-password', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const device = await db.select({
     rustdeskPasswordCiphertext: schema.devices.rustdeskPasswordCiphertext,
     rustdeskPasswordNonce: schema.devices.rustdeskPasswordNonce,
@@ -442,7 +443,7 @@ adminDevices.get('/:id/rustdesk-password', async (c) => {
 // GET /v1/admin/devices/:id/audit/latest
 adminDevices.get('/:id/audit/latest', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const row = await db.select()
     .from(schema.deviceAudits)
@@ -472,7 +473,7 @@ adminDevices.get('/:id/audit/latest', async (c) => {
 // with this device's stored value (null when never set).
 adminDevices.get('/:id/custom-fields', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const deviceId = c.req.param('id');
 
   const fields = await db.select().from(schema.customFields).orderBy(schema.customFields.sortOrder).all();
@@ -485,7 +486,7 @@ adminDevices.get('/:id/custom-fields', async (c) => {
 // PATCH /v1/admin/devices/:id/custom-fields/:fieldId — set (upsert) a value
 adminDevices.patch('/:id/custom-fields/:fieldId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const deviceId = c.req.param('id');
   const fieldId = c.req.param('fieldId');
   const now = Math.floor(Date.now() / 1000);
@@ -514,7 +515,7 @@ adminDevices.patch('/:id/custom-fields/:fieldId', async (c) => {
 // GET /v1/admin/devices/:id/audit/changes?limit=100
 adminDevices.get('/:id/audit/changes', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const limit = Math.min(Number(c.req.query('limit') ?? 100), 500);
 
   const rows = await db.select()

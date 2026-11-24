@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import * as schema from '../db/schema';
 import type { Bindings } from '../index';
 import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, ProcessCheck, ProcessResult, ServiceCheck, ServiceResult, WindowsUpdateDriftCheck, WindowsUpdateDriftResult } from './types';
@@ -228,7 +229,7 @@ export async function evaluateCheckinAlerts(
   now: number,
   deviceGroupIds?: Set<string>,
 ): Promise<CheckinAssignments> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const monitors = await resolveEffectiveMonitors(db, device, deviceGroupIds);
   const fileSizeChecks: FileSizeCheck[] = [];
   const pingChecks: PingCheck[] = [];
@@ -320,7 +321,7 @@ export async function evaluateFileSizeAlerts(
   results: FileSizeResult[],
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   for (const result of results) {
     const row = await db.select()
@@ -348,7 +349,7 @@ export async function evaluatePingAlerts(
   results: PingResult[],
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   for (const result of results) {
     const row = await db.select()
@@ -390,7 +391,7 @@ export async function evaluateProcessAlerts(
   results: ProcessResult[],
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   for (const result of results) {
     const row = await db.select()
@@ -427,7 +428,7 @@ export async function evaluateServiceAlerts(
   results: ServiceResult[],
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   for (const result of results) {
     const row = await db.select()
@@ -465,7 +466,7 @@ export async function evaluateWindowsUpdateDriftAlerts(
   results: WindowsUpdateDriftResult[],
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   for (const result of results) {
     const row = await db.select()
@@ -528,7 +529,7 @@ export async function evaluateSoftwareAlerts(
 ): Promise<void> {
   if (changes.length === 0) return; // nothing changed this audit — nothing to check
 
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const monitors = (await resolveEffectiveMonitors(db, device))
     .filter(m => m.checkType === 'software');
   if (monitors.length === 0) return;
@@ -562,7 +563,7 @@ export async function evaluateOfflineAlerts(
   env: Bindings,
   now: number,
 ): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   const allDevices = await db.select()
     .from(schema.devices)
@@ -836,7 +837,7 @@ export async function manuallyResolveAlert(
   alertStateId: string,
   now: number,
 ): Promise<boolean> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   const row = await db.select()
     .from(schema.alertState)
@@ -1002,7 +1003,7 @@ async function sendAlertEmails(
   // row.alert_state.alertedAt) has to be threaded through explicitly.
   alertedAt: number | null,
 ): Promise<void> {
-  const db = drizzle(env.DB, { schema });
+  const db = getDb(env.DB);
   const { emails, companyName } = await resolveAlertRecipients(db, device.companyId);
   if (!emails.length) return;
 
@@ -1142,7 +1143,7 @@ async function sendRateLimitEmail(
   mutedUntil: number,
   now: number,
 ): Promise<void> {
-  const db = drizzle(env.DB, { schema });
+  const db = getDb(env.DB);
   const { emails, companyName } = await resolveAlertRecipients(db, device.companyId);
   if (!emails.length) return;
 
@@ -1210,7 +1211,7 @@ export async function reconcileOrphanedAlerts(
   now: number,
 ): Promise<void> {
   if (monitorIds.length === 0) return;
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   const rows = await db.select()
     .from(schema.alertState)
@@ -1250,7 +1251,7 @@ export async function resolveAllOpenAlerts(
   now: number,
 ): Promise<void> {
   if (monitorIds.length === 0) return;
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   await db.update(schema.alertState)
     .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
@@ -1273,7 +1274,7 @@ export async function resolveAllOpenAlerts(
 // reconcileOrphanedAlerts/resolveAllOpenAlerts above -- a coverage change,
 // not a real-time condition transition.
 export async function resolveWindowsUpdateDriftAlerts(DB: D1Database, deviceId: string, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const rows = await db.select({ id: schema.alertState.id })
     .from(schema.alertState)
     .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.id, schema.alertState.policyMonitorId))

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -103,7 +104,7 @@ patchPolicies.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   return c.json(await listWithTargets(db));
 });
 
@@ -112,7 +113,7 @@ patchPolicies.post('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
@@ -215,7 +216,7 @@ patchPolicies.post('/', async (c) => {
     await copyPatchPolicyTargets(c.env.DB, body.clone_from!, id, now);
   }
 
-  const result = await listWithTargets(drizzle(c.env.DB, { schema }));
+  const result = await listWithTargets(getDb(c.env.DB));
   const created = result.find(p => p.id === id);
   return c.json(created ?? { id }, 201);
 });
@@ -225,7 +226,7 @@ patchPolicies.patch('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const id  = c.req.param('id');
 
@@ -280,7 +281,7 @@ patchPolicies.delete('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.patchPolicies).where(eq(schema.patchPolicies.id, c.req.param('id')));
   return c.json({ ok: true });
 });

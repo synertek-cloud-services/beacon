@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -16,7 +17,7 @@ enroll.post('/', async (c) => {
   const rawToken = auth.slice(7);
   const tokenHash = await sha256hex(rawToken);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const token = await db.select()

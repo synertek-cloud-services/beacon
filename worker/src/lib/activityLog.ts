@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import { eq, lt } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import type { Bindings } from '../index';
@@ -295,7 +296,7 @@ export async function activityLogMiddleware(c: Context<{ Bindings: Bindings; Var
   const entityType = fine?.entityType ?? prefixInfo?.entityType ?? null;
   const entityId = c.req.param(fine?.idParam ?? 'id') ?? null;
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   let companyId: string | null = null;
   if (entityType === 'device' && entityId) {
@@ -331,7 +332,7 @@ export async function activityLogMiddleware(c: Context<{ Bindings: Bindings; Var
 // cron-tick bucket) so a missed/delayed cron tick can't silently skip a
 // whole day's prune -- mirrors userSessions.lastUsedAt's own throttle shape.
 export async function pruneActivityLog(DB: D1Database, now: number, retentionDays = 180): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const row = await db.select({ prunedAt: schema.hostSettings.activityLogPrunedAt })
     .from(schema.hostSettings).where(eq(schema.hostSettings.id, 1)).get();
 

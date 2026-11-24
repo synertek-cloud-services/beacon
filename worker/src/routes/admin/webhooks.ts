@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -15,7 +16,7 @@ webhooks.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const rows = await db.select().from(schema.webhookEndpoints);
   return c.json(rows);
 });
@@ -24,7 +25,7 @@ webhooks.post('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{ url?: string }>();
@@ -44,7 +45,7 @@ webhooks.patch('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const body = await c.req.json<{ enabled?: boolean; url?: string }>();
   const updates: Partial<typeof schema.webhookEndpoints.$inferInsert> = {};
   if (body.enabled !== undefined) updates.enabled = body.enabled;
@@ -62,7 +63,7 @@ webhooks.delete('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.webhookEndpoints)
     .where(eq(schema.webhookEndpoints.id, c.req.param('id')));
   return c.json({ ok: true });

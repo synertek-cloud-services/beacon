@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -16,7 +17,7 @@ function auth(c: any) {
 
 notificationEmails.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const rows = await drizzle(c.env.DB, { schema }).select().from(schema.notificationEmails);
+  const rows = await getDb(c.env.DB).select().from(schema.notificationEmails);
   return c.json(rows);
 });
 
@@ -24,7 +25,7 @@ notificationEmails.post('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
   const body = await c.req.json<{ email?: string }>();
   if (!body.email?.trim()) return c.json({ error: 'email is required' }, 400);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const id = crypto.randomUUID();
   await db.insert(schema.notificationEmails).values({
     id,
@@ -44,14 +45,14 @@ notificationEmails.patch('/:id', async (c) => {
     updates.email = body.email.trim();
   }
   if (Object.keys(updates).length === 0) return c.json({ error: 'nothing to update' }, 400);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.update(schema.notificationEmails).set(updates).where(eq(schema.notificationEmails.id, c.req.param('id')));
   return c.json({ ok: true });
 });
 
 notificationEmails.delete('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.notificationEmails).where(eq(schema.notificationEmails.id, c.req.param('id')));
   return c.json({ ok: true });
 });

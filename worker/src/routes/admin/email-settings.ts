@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -25,7 +26,7 @@ function auth(c: any) {
 
 emailSettings.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const row = await drizzle(c.env.DB, { schema }).select().from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
+  const row = await getDb(c.env.DB).select().from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
   if (!row) return c.json({ error: 'email settings not configured' }, 404);
   const { configCiphertext, configNonce, ...rest } = row;
   return c.json({ ...rest, hasConfig: !!configCiphertext });
@@ -43,7 +44,7 @@ emailSettings.patch('/', async (c) => {
     return c.json({ error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}` }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const updates: Partial<typeof schema.emailSettings.$inferInsert> = { updatedAt: now };
@@ -101,7 +102,7 @@ emailSettings.post('/test', async (c) => {
     return c.json({ ok: false, error: 'Emergency access has no real email address -- sign in as a user to send a test email.' });
   }
 
-  const row = await drizzle(c.env.DB, { schema }).select().from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
+  const row = await getDb(c.env.DB).select().from(schema.emailSettings).where(eq(schema.emailSettings.id, 1)).get();
   if (!row || !row.enabled || !row.provider || !row.configCiphertext || !row.configNonce || !row.fromAddress) {
     return c.json({ error: 'Save and enable email settings first' }, 400);
   }

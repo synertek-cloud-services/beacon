@@ -1,5 +1,6 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 import { logActivity } from './activityLog';
@@ -358,7 +359,7 @@ export async function autoApprovePatches(db: Db, now: number): Promise<void> {
 // one-shot-only and doesn't generalize to a *recurring* weekly window --
 // see the re-dispatch guard below instead.
 export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   await autoApprovePatches(db, now);
 
@@ -432,7 +433,7 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
 // ── Admin CRUD support ──────────────────────────────────────────────────────
 
 export async function copyPatchPolicyTargets(DB: D1Database, sourcePolicyId: string, newPolicyId: string, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const [companies, devices, groups] = await Promise.all([
     db.select().from(schema.patchPolicyCompanies).where(eq(schema.patchPolicyCompanies.policyId, sourcePolicyId)),
     db.select().from(schema.patchPolicyDevices).where(eq(schema.patchPolicyDevices.policyId, sourcePolicyId)),

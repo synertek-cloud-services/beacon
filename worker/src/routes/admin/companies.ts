@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, and, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -57,7 +58,7 @@ adminCompanies.get('/', async (c) => {
 // POST / — create company + optional initial contact
 adminCompanies.post('/', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
@@ -114,7 +115,7 @@ adminCompanies.post('/', async (c) => {
 // PATCH /:id — update company info and settings
 adminCompanies.patch('/:id', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const body = await c.req.json<{
     name?: string;
@@ -149,7 +150,7 @@ adminCompanies.patch('/:id', async (c) => {
 
 adminCompanies.get('/:id/contacts', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const contacts = await db
     .select()
@@ -162,7 +163,7 @@ adminCompanies.get('/:id/contacts', async (c) => {
 
 adminCompanies.post('/:id/contacts', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
 
@@ -200,7 +201,7 @@ adminCompanies.post('/:id/contacts', async (c) => {
 
 adminCompanies.patch('/:id/contacts/:contactId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const companyId = c.req.param('id');
   const contactId = c.req.param('contactId');
 
@@ -233,7 +234,7 @@ adminCompanies.patch('/:id/contacts/:contactId', async (c) => {
 
 adminCompanies.delete('/:id/contacts/:contactId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   await db.delete(schema.companyContacts).where(eq(schema.companyContacts.id, c.req.param('contactId')));
   return c.json({ ok: true });
@@ -243,7 +244,7 @@ adminCompanies.delete('/:id/contacts/:contactId', async (c) => {
 
 adminCompanies.get('/:id/locations', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const locations = await db
     .select()
@@ -256,7 +257,7 @@ adminCompanies.get('/:id/locations', async (c) => {
 
 adminCompanies.post('/:id/locations', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
 
@@ -298,7 +299,7 @@ adminCompanies.post('/:id/locations', async (c) => {
 
 adminCompanies.patch('/:id/locations/:locationId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const companyId = c.req.param('id');
   const locationId = c.req.param('locationId');
 
@@ -335,7 +336,7 @@ adminCompanies.patch('/:id/locations/:locationId', async (c) => {
 
 adminCompanies.delete('/:id/locations/:locationId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   await db.delete(schema.companyLocations).where(eq(schema.companyLocations.id, c.req.param('locationId')));
   return c.json({ ok: true });
@@ -345,7 +346,7 @@ adminCompanies.delete('/:id/locations/:locationId', async (c) => {
 
 adminCompanies.get('/:id/tokens', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const tokens = await db
     .select()
@@ -358,7 +359,7 @@ adminCompanies.get('/:id/tokens', async (c) => {
 
 adminCompanies.post('/:id/tokens', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const company = await db
@@ -392,7 +393,7 @@ adminCompanies.post('/:id/tokens', async (c) => {
 
 adminCompanies.delete('/:id/tokens/:tokenId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   await db
@@ -405,7 +406,7 @@ adminCompanies.delete('/:id/tokens/:tokenId', async (c) => {
 
 adminCompanies.delete('/:id/tokens/:tokenId/permanent', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const companyId = c.req.param('id');
   const tokenId = c.req.param('tokenId');
 
@@ -466,7 +467,7 @@ function shapeVariable(row: typeof schema.companyVariables.$inferSelect) {
 
 adminCompanies.get('/:id/variables', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const rows = await db
     .select()
@@ -479,7 +480,7 @@ adminCompanies.get('/:id/variables', async (c) => {
 
 adminCompanies.post('/:id/variables', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
 
@@ -522,7 +523,7 @@ adminCompanies.post('/:id/variables', async (c) => {
 
 adminCompanies.patch('/:id/variables/:varId', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const varId = c.req.param('varId');
 
@@ -554,7 +555,7 @@ adminCompanies.patch('/:id/variables/:varId', async (c) => {
 
 adminCompanies.delete('/:id/variables/:varId', async (c) => {
   if (!(await auth(c, 'admin'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   await db.delete(schema.companyVariables).where(eq(schema.companyVariables.id, c.req.param('varId')));
   return c.json({ ok: true });
@@ -582,7 +583,7 @@ function isValidCidr(value: string): boolean {
 
 adminCompanies.get('/:id/discovery', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const config = await db.select().from(schema.networkDiscoveryConfigs)
     .where(eq(schema.networkDiscoveryConfigs.companyId, c.req.param('id'))).get();
@@ -592,7 +593,7 @@ adminCompanies.get('/:id/discovery', async (c) => {
 
 adminCompanies.post('/:id/discovery', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
 
@@ -648,7 +649,7 @@ adminCompanies.post('/:id/discovery', async (c) => {
 
 adminCompanies.post('/:id/discovery/scan-now', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
 
@@ -674,7 +675,7 @@ adminCompanies.post('/:id/discovery/scan-now', async (c) => {
 
 adminCompanies.get('/:id/discovered-devices', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const rows = await db.select().from(schema.discoveredDevices)
     .where(eq(schema.discoveredDevices.companyId, c.req.param('id')))
@@ -685,7 +686,7 @@ adminCompanies.get('/:id/discovered-devices', async (c) => {
 
 adminCompanies.patch('/:id/discovered-devices/:deviceId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const body = await c.req.json<{ dismissed?: boolean }>();
   if (body.dismissed === undefined) return c.json({ error: 'nothing to update' }, 400);
@@ -697,7 +698,7 @@ adminCompanies.patch('/:id/discovered-devices/:deviceId', async (c) => {
 
 adminCompanies.delete('/:id/discovered-devices/:deviceId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   await db.delete(schema.discoveredDevices).where(eq(schema.discoveredDevices.id, c.req.param('deviceId')));
   return c.json({ ok: true });

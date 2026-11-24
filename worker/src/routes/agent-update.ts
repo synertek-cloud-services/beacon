@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -17,7 +18,7 @@ agentUpdate.get('/version', async (c) => {
     return c.json({ error: 'os and arch query params required' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const row = await db
     .select()
@@ -54,7 +55,7 @@ agentUpdate.get('/download', async (c) => {
 
   if (!os) return c.json({ error: 'os query param required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const row = await db
     .select()

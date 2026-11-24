@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, asc, and, ne } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -28,7 +29,7 @@ function normalizeKey(raw: string): string {
 adminCustomFields.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const rows = await drizzle(c.env.DB, { schema })
+  const rows = await getDb(c.env.DB)
     .select()
     .from(schema.customFields)
     .orderBy(asc(schema.customFields.sortOrder))
@@ -45,7 +46,7 @@ adminCustomFields.post('/', async (c) => {
   const name = body.name?.trim();
   if (!name) return c.json({ error: 'name is required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   let key = '';
   if (body.key !== undefined && body.key.trim() !== '') {
@@ -74,7 +75,7 @@ adminCustomFields.patch('/:id', async (c) => {
   const id = c.req.param('id');
 
   const body = await c.req.json<{ name?: string; sort_order?: number; key?: string }>();
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const existing = await db.select({ id: schema.customFields.id, key: schema.customFields.key })
     .from(schema.customFields).where(eq(schema.customFields.id, id)).get();
@@ -128,7 +129,7 @@ adminCustomFields.patch('/:id', async (c) => {
 adminCustomFields.delete('/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.customFields).where(eq(schema.customFields.id, c.req.param('id')));
   return c.json({ ok: true });
 });
