@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 
@@ -235,7 +236,7 @@ export async function isDeviceSuppressedNow(
 // tables/types this file already owns.
 
 export async function copyMaintenanceTargets(DB: D1Database, sourcePolicyId: string, newPolicyId: string, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
   const [companies, devices, groups] = await Promise.all([
     db.select().from(schema.maintenancePolicyCompanies).where(eq(schema.maintenancePolicyCompanies.policyId, sourcePolicyId)),
     db.select().from(schema.maintenancePolicyDevices).where(eq(schema.maintenancePolicyDevices.policyId, sourcePolicyId)),

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -35,7 +36,7 @@ function isoDate(ts: number | null): string {
 // GET /v1/admin/reports/device-inventory?company_id=
 adminReports.get('/device-inventory', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const companyId = c.req.query('company_id');
 
   const where = companyId
@@ -104,7 +105,7 @@ interface PatchItem {
 // attention," not "which patches are outstanding."
 adminReports.get('/patch-compliance', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const companyId = c.req.query('company_id');
 
   const where = companyId

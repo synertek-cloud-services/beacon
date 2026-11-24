@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { and, eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -27,7 +28,7 @@ adminAgentVersions.post('/', async (c) => {
     return c.json({ error: 'version, os, arch, download_url, signature_hex required' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   // Clear the current latest flag for this platform before setting the new one.
@@ -63,7 +64,7 @@ adminAgentVersions.get('/', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const rows = await db.select().from(schema.agentVersions).all();
   return c.json(rows);
 });

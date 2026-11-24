@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -19,7 +20,7 @@ auth.post('/login', async (c) => {
   const password = body.password;
   if (!email || !password) return c.json({ error: 'email and password are required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const user = await db.select().from(schema.users).where(eq(schema.users.email, email)).get();
 
   // Same generic error for "no such user" and "wrong password" — avoid
@@ -69,7 +70,7 @@ auth.post('/logout', async (c) => {
   if (!user || user.source !== 'session') return c.json({ ok: true }); // nothing to revoke (e.g. break-glass)
 
   const token = authHeader!.slice('Bearer '.length);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   await db
     .update(schema.userSessions)

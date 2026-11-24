@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -25,7 +26,7 @@ const DEFAULT_LIMIT = 50;
 adminActivityLog.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const q = c.req.query();
 
   const conditions: SQL[] = [];

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
@@ -52,7 +53,7 @@ branding.get('/active', async (c) => {
 });
 
 branding.get('/revisions/:id', async (c) => {
-  const row = await drizzle(c.env.DB, { schema }).select({ id: schema.brandingThemeRevisions.id, tokens: schema.brandingThemeRevisions.tokens })
+  const row = await getDb(c.env.DB).select({ id: schema.brandingThemeRevisions.id, tokens: schema.brandingThemeRevisions.tokens })
     .from(schema.brandingThemeRevisions).where(eq(schema.brandingThemeRevisions.id, c.req.param('id'))).get();
   if (!row) return c.json({ error: 'theme revision not found' }, 404);
   const tokens = parseTokens(JSON.parse(row.tokens));
@@ -70,7 +71,7 @@ const LOGO_CONTENT_TYPES: Record<string, string> = {
 
 branding.get('/identity', async (c) => {
   noStore(c);
-  const row = await drizzle(c.env.DB, { schema }).select().from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
+  const row = await getDb(c.env.DB).select().from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
   // Dual-purpose: the dashboard's own pre-login branding pointer, and (as of
   // supportUrl) the Go agent's independent poll source for the tray's Get
   // Support menu item -- both are equally fine consuming unauthenticated,
@@ -117,7 +118,7 @@ branding.patch('/admin/identity', async (c) => {
       updates.supportUrl = trimmed;
     }
   }
-  await drizzle(c.env.DB, { schema }).update(schema.brandingIdentity).set(updates).where(eq(schema.brandingIdentity.id, 1));
+  await getDb(c.env.DB).update(schema.brandingIdentity).set(updates).where(eq(schema.brandingIdentity.id, 1));
   return c.json({ ok: true });
 });
 
@@ -131,7 +132,7 @@ branding.post('/admin/logo', async (c) => {
   const bytes = await c.req.arrayBuffer();
   if (bytes.byteLength > MAX_LOGO_BYTES) return c.json({ error: 'logo must be 1MB or smaller' }, 413);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const existing = await db.select({ logoKey: schema.brandingIdentity.logoKey }).from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
   const key = `${crypto.randomUUID()}.${ext}`;
   await c.env.LOGOS.put(key, bytes, { httpMetadata: { contentType } });
@@ -142,7 +143,7 @@ branding.post('/admin/logo', async (c) => {
 
 branding.delete('/admin/logo', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const existing = await db.select({ logoKey: schema.brandingIdentity.logoKey }).from(schema.brandingIdentity).where(eq(schema.brandingIdentity.id, 1)).get();
   await db.update(schema.brandingIdentity).set({ logoKey: null, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingIdentity.id, 1));
   if (existing?.logoKey) await c.env.LOGOS.delete(existing.logoKey);
@@ -151,7 +152,7 @@ branding.delete('/admin/logo', async (c) => {
 
 branding.get('/admin/themes', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const themes = await db.select().from(schema.brandingThemes).all();
   const active = await db.select({ activeThemeId: schema.brandingSettings.activeThemeId }).from(schema.brandingSettings).where(eq(schema.brandingSettings.id, 1)).get();
   const revisions = await db.select().from(schema.brandingThemeRevisions).orderBy(desc(schema.brandingThemeRevisions.publishedAt)).all();
@@ -170,14 +171,14 @@ branding.post('/admin/themes', async (c) => {
   if (!name) return c.json({ error: 'name is required' }, 400);
   if (!tokens) return c.json({ error: 'a complete valid palette is required' }, 400);
   const id = crypto.randomUUID(), now = Math.floor(Date.now() / 1000);
-  await drizzle(c.env.DB, { schema }).insert(schema.brandingThemes).values({ id, name, source: 'custom', draftTokens: JSON.stringify(tokens), createdAt: now, updatedAt: now });
+  await getDb(c.env.DB).insert(schema.brandingThemes).values({ id, name, source: 'custom', draftTokens: JSON.stringify(tokens), createdAt: now, updatedAt: now });
   return c.json({ id }, 201);
 });
 
 branding.patch('/admin/themes/:id', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
   const body = await c.req.json<{ name?: string; tokens?: unknown }>();
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
   if (!theme) return c.json({ error: 'theme not found' }, 404);
   if (theme.source === 'built_in') return c.json({ error: 'built-in themes cannot be edited' }, 403);
@@ -190,7 +191,7 @@ branding.patch('/admin/themes/:id', async (c) => {
 
 branding.post('/admin/themes/:id/publish', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
   if (!theme) return c.json({ error: 'theme not found' }, 404);
   if (theme.source === 'built_in') return c.json({ error: 'built-in themes are already published' }, 400);
@@ -221,7 +222,7 @@ branding.post('/admin/themes/:id/publish', async (c) => {
 
 branding.post('/admin/themes/:id/activate', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
   if (!theme) return c.json({ error: 'theme not found' }, 404);
   if (theme.source !== 'built_in') return c.json({ error: 'publish and activate a revision for host-created themes' }, 400);
@@ -231,7 +232,7 @@ branding.post('/admin/themes/:id/activate', async (c) => {
 
 branding.post('/admin/revisions/:id/activate', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const revision = await db.select({ id: schema.brandingThemeRevisions.id, themeId: schema.brandingThemeRevisions.themeId }).from(schema.brandingThemeRevisions).where(eq(schema.brandingThemeRevisions.id, c.req.param('id'))).get();
   if (!revision) return c.json({ error: 'theme revision not found' }, 404);
   await db.update(schema.brandingSettings).set({ activeThemeId: revision.themeId, activeRevisionId: revision.id, updatedAt: Math.floor(Date.now() / 1000) }).where(eq(schema.brandingSettings.id, 1));
@@ -240,7 +241,7 @@ branding.post('/admin/revisions/:id/activate', async (c) => {
 
 branding.delete('/admin/themes/:id', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const theme = await db.select().from(schema.brandingThemes).where(eq(schema.brandingThemes.id, c.req.param('id'))).get();
   if (!theme) return c.json({ error: 'theme not found' }, 404);
   if (theme.source === 'built_in') return c.json({ error: 'built-in themes cannot be deleted' }, 403);

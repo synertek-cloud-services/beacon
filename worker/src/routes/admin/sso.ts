@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -23,7 +24,7 @@ function toPublicProvider(p: typeof schema.ssoProviders.$inferSelect) {
 // GET /providers — list configured SSO providers (secret never returned)
 adminSso.get('/providers', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const rows = await drizzle(c.env.DB, { schema }).select().from(schema.ssoProviders).all();
+  const rows = await getDb(c.env.DB).select().from(schema.ssoProviders).all();
   return c.json(rows.map(toPublicProvider));
 });
 
@@ -36,7 +37,7 @@ adminSso.post('/providers', async (c) => {
     return c.json({ error: 'name, directoryId, clientId, and clientSecret are required' }, 400);
   }
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const { ciphertext, nonce } = await encryptSecret(body.clientSecret, c.env.CONFIG_ENCRYPTION_KEY);
 
@@ -62,7 +63,7 @@ adminSso.patch('/providers/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
 
   const body = await c.req.json<{ name?: string; directoryId?: string; clientId?: string; clientSecret?: string; enabled?: boolean }>();
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const updates: Partial<typeof schema.ssoProviders.$inferInsert> = { updatedAt: now };
@@ -83,7 +84,7 @@ adminSso.patch('/providers/:id', async (c) => {
 // DELETE /providers/:id
 adminSso.delete('/providers/:id', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.ssoGroupRoleMappings).where(eq(schema.ssoGroupRoleMappings.ssoProviderId, c.req.param('id')));
   await db.delete(schema.ssoProviders).where(eq(schema.ssoProviders.id, c.req.param('id')));
   return c.json({ ok: true });
@@ -97,7 +98,7 @@ adminSso.get('/providers/:id/groups', async (c) => {
   const query = (c.req.query('search') ?? '').trim();
   if (!query) return c.json([]);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const provider = await db.select().from(schema.ssoProviders).where(eq(schema.ssoProviders.id, c.req.param('id'))).get();
   if (!provider) return c.json({ error: 'provider not found' }, 404);
 
@@ -116,7 +117,7 @@ adminSso.get('/providers/:id/groups', async (c) => {
 // GET /providers/:id/group-mappings
 adminSso.get('/providers/:id/group-mappings', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const rows = await drizzle(c.env.DB, { schema })
+  const rows = await getDb(c.env.DB)
     .select()
     .from(schema.ssoGroupRoleMappings)
     .where(eq(schema.ssoGroupRoleMappings.ssoProviderId, c.req.param('id')))
@@ -131,7 +132,7 @@ adminSso.post('/providers/:id/group-mappings', async (c) => {
   const body = await c.req.json<{ groupId?: string; groupName?: string; role?: Role }>();
   if (!body.groupId || !body.role) return c.json({ error: 'groupId and role are required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const id = crypto.randomUUID();
   await db.insert(schema.ssoGroupRoleMappings).values({
     id,
@@ -148,7 +149,7 @@ adminSso.post('/providers/:id/group-mappings', async (c) => {
 // DELETE /providers/:id/group-mappings/:mappingId
 adminSso.delete('/providers/:id/group-mappings/:mappingId', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   await db.delete(schema.ssoGroupRoleMappings).where(eq(schema.ssoGroupRoleMappings.id, c.req.param('mappingId')));
   return c.json({ ok: true });
 });

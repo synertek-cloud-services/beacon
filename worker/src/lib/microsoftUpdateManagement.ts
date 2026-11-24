@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 import {
@@ -22,7 +23,7 @@ type Device = typeof schema.devices.$inferSelect;
 // Dispatched through commands, deliberately not the check-in wire protocol
 // -- same reasoning as every other Patch Policy capability this session.
 export async function syncMicrosoftUpdateManagement(DB: D1Database, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   const policies = await fetchEnabledPatchPolicies(db);
   const managing = policies.filter(p => p.manageMicrosoftUpdate);

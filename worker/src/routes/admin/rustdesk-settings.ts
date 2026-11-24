@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
@@ -16,7 +17,7 @@ const rustdeskSettings = new Hono<{ Bindings: Bindings }>();
 
 rustdeskSettings.get('/', async (c) => {
   if (!(await admin(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select().from(schema.rustdeskSettings).where(eq(schema.rustdeskSettings.id, 1)).get();
   const installer = await db.select().from(schema.rustdeskInstaller).where(eq(schema.rustdeskInstaller.id, 1)).get();
   return c.json({
@@ -56,7 +57,7 @@ rustdeskSettings.post('/admin/installer', async (c) => {
   if (declaredSize > MAX_INSTALLER_BYTES) return c.json({ error: 'installer exceeds the 100 MiB limit' }, 413);
   if (!c.req.raw.body) return c.json({ error: 'file body required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const existing = await db.select({ objectKey: schema.rustdeskInstaller.objectKey }).from(schema.rustdeskInstaller).where(eq(schema.rustdeskInstaller.id, 1)).get();
   const objectKey = `rustdesk-installer/${crypto.randomUUID()}`;
   await c.env.COMPONENT_FILES.put(objectKey, c.req.raw.body, {
@@ -81,7 +82,7 @@ rustdeskSettings.patch('/', async (c) => {
   if (body.id_server !== undefined) updates.idServer = body.id_server?.trim() || null;
   if (body.relay_server !== undefined) updates.relayServer = body.relay_server?.trim() || null;
   if (body.key !== undefined) updates.key = body.key?.trim() || null;
-  await drizzle(c.env.DB, { schema }).update(schema.rustdeskSettings).set(updates).where(eq(schema.rustdeskSettings.id, 1));
+  await getDb(c.env.DB).update(schema.rustdeskSettings).set(updates).where(eq(schema.rustdeskSettings.id, 1));
   return c.json({ ok: true });
 });
 

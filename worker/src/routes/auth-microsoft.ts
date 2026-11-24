@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -26,7 +27,7 @@ function callbackUrl(reqUrl: string): string {
 // Deliberately exposes only whether a sign-in choice can be shown. Provider
 // configuration remains private and /login still checks it authoritatively.
 authMicrosoft.get('/available', async (c) => {
-  const provider = await drizzle(c.env.DB, { schema })
+  const provider = await getDb(c.env.DB)
     .select({ id: schema.ssoProviders.id })
     .from(schema.ssoProviders)
     .where(and(eq(schema.ssoProviders.type, 'microsoft'), eq(schema.ssoProviders.enabled, true)))
@@ -36,7 +37,7 @@ authMicrosoft.get('/available', async (c) => {
 
 // GET /v1/auth/microsoft/login — redirect to Microsoft's authorize endpoint
 authMicrosoft.get('/login', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const provider = await db
     .select()
     .from(schema.ssoProviders)
@@ -76,7 +77,7 @@ authMicrosoft.get('/login', async (c) => {
 
 // GET /v1/auth/microsoft/callback — code exchange, id_token verify, group->role resolution
 authMicrosoft.get('/callback', async (c) => {
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const code = c.req.query('code');
   const state = c.req.query('state');
   if (!code || !state) return c.json({ error: 'missing code or state' }, 400);
@@ -200,7 +201,7 @@ authMicrosoft.post('/exchange', async (c) => {
   const body = await c.req.json<{ code?: string }>();
   if (!body.code) return c.json({ error: 'code is required' }, 400);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const row = await db.select().from(schema.ssoExchangeCodes).where(eq(schema.ssoExchangeCodes.id, body.code)).get();
   if (row) await db.delete(schema.ssoExchangeCodes).where(eq(schema.ssoExchangeCodes.id, body.code)); // single-use
   const now = Math.floor(Date.now() / 1000);

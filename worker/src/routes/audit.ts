@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../lib/db';
 import { eq, and, ne, desc } from 'drizzle-orm';
 import type { Bindings } from '../index';
 import * as schema from '../db/schema';
@@ -215,7 +216,7 @@ audit.post('/', async (c) => {
   if (!auth?.startsWith('Bearer ')) return c.json({ error: 'missing authorization' }, 401);
   const credentialHash = await sha256hex(auth.slice(7));
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const device = await db.select()

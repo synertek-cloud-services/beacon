@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -18,7 +19,7 @@ settings.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const row = await drizzle(c.env.DB, { schema }).select()
+  const row = await getDb(c.env.DB).select()
     .from(schema.hostSettings).where(eq(schema.hostSettings.id, 1)).get();
   return c.json(row ?? { id: 1, timezone: 'UTC', updatedAt: 0 });
 });
@@ -44,7 +45,7 @@ settings.patch('/', async (c) => {
     }
   }
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const updates: Partial<typeof schema.hostSettings.$inferInsert> = { updatedAt: now };
   if (body.timezone !== undefined) updates.timezone = body.timezone;

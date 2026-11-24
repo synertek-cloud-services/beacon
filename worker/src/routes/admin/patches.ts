@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, desc, isNotNull, and } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -41,7 +42,7 @@ interface FleetPatch {
 // hundreds of devices, not thousands).
 adminPatches.get('/', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
 
   const devices = await db.select({ id: schema.devices.id, hostname: schema.devices.hostname })
     .from(schema.devices)
@@ -112,7 +113,7 @@ adminPatches.get('/', async (c) => {
 // status value, keeping "no row = pending" the single source of truth.
 adminPatches.patch('/:updateId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const updateId = c.req.param('updateId');
   const now = Math.floor(Date.now() / 1000);
 

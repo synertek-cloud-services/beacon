@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import { eq } from 'drizzle-orm';
 import { sha256hex } from './crypto';
 import * as schema from '../db/schema';
@@ -58,7 +59,7 @@ export async function requireUser(
     return { id: 'break-glass', email: 'break-glass@local', displayName: null, role: 'admin', source: 'break-glass' };
   }
 
-  const db = drizzle(env.DB, { schema });
+  const db = getDb(env.DB);
   const tokenHash = await sha256hex(token);
   const now = Math.floor(Date.now() / 1000);
 

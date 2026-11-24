@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from '../../lib/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
@@ -66,7 +67,7 @@ policies.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db    = drizzle(c.env.DB, { schema });
+  const db    = getDb(c.env.DB);
   const scope = c.req.query('scope') as 'global' | 'company' | undefined;
 
   const result = await listWithMonitors(db, scope);
@@ -79,7 +80,7 @@ policies.post('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
@@ -168,7 +169,7 @@ policies.post('/', async (c) => {
     await recomputePolicyScope(db, id);
   }
 
-  const result = await listWithMonitors(drizzle(c.env.DB, { schema }));
+  const result = await listWithMonitors(getDb(c.env.DB));
   const created = result.find(p => p.id === id);
   return c.json(created ?? { id }, 201);
 });
@@ -178,7 +179,7 @@ policies.patch('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const id  = c.req.param('id');
 
@@ -216,7 +217,7 @@ policies.delete('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const id = c.req.param('id');
   const now = Math.floor(Date.now() / 1000);
 
@@ -234,7 +235,7 @@ policies.get('/:id/monitors', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db = drizzle(c.env.DB, { schema });
+  const db = getDb(c.env.DB);
   const monitors = await db.select().from(schema.policyMonitors)
     .where(eq(schema.policyMonitors.policyId, c.req.param('id')));
   return c.json(monitors);
@@ -245,7 +246,7 @@ policies.post('/:id/monitors', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
   const body = await c.req.json<{
@@ -291,7 +292,7 @@ policies.patch('/:id/monitors/:mid', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const mid = c.req.param('mid');
   const now = Math.floor(Date.now() / 1000);
 
@@ -333,7 +334,7 @@ policies.delete('/:id/monitors/:mid', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician')))
     return c.json({ error: 'unauthorized' }, 401);
 
-  const db  = drizzle(c.env.DB, { schema });
+  const db  = getDb(c.env.DB);
   const mid = c.req.param('mid');
   const now = Math.floor(Date.now() / 1000);
 
@@ -376,7 +377,7 @@ policies.post('/:id/groups', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO policy_groups (policy_id, group_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.group_id, now).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Adding a target only ever widens eligibility (OR'd with whatever else
   // was already required) — no reconcile needed, unlike the narrowing
@@ -393,7 +394,7 @@ policies.delete('/:id/groups/:groupId', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM policy_groups WHERE policy_id = ? AND group_id = ?`
   ).bind(policyId, c.req.param('groupId')).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Removing a target can narrow eligibility (a device that only qualified
   // via this one target may now be orphaned) — reconcile.
@@ -433,7 +434,7 @@ policies.post('/:id/companies', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO policy_companies (policy_id, company_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.company_id, now).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Adding a target only ever widens eligibility — no reconcile needed.
   return c.json({ ok: true }, 201);
@@ -448,7 +449,7 @@ policies.delete('/:id/companies/:companyId', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM policy_companies WHERE policy_id = ? AND company_id = ?`
   ).bind(policyId, c.req.param('companyId')).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Removing a target can narrow eligibility — reconcile.
   const monitorIds = (await c.env.DB.prepare(
@@ -488,7 +489,7 @@ policies.post('/:id/devices', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO policy_devices (policy_id, device_id, created_at) VALUES (?, ?, ?)`
   ).bind(policyId, body.device_id, now).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Adding a target only ever widens eligibility — no reconcile needed.
   return c.json({ ok: true }, 201);
@@ -503,7 +504,7 @@ policies.delete('/:id/devices/:deviceId', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM policy_devices WHERE policy_id = ? AND device_id = ?`
   ).bind(policyId, c.req.param('deviceId')).run();
-  await recomputePolicyScope(drizzle(c.env.DB, { schema }), policyId);
+  await recomputePolicyScope(getDb(c.env.DB), policyId);
 
   // Removing a target can narrow eligibility — reconcile.
   const monitorIds = (await c.env.DB.prepare(

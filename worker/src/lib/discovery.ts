@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { getDb } from './db';
 import * as schema from '../db/schema';
 import { logActivity } from './activityLog';
 import { fetchCompanyVariables } from './companyVariables';
@@ -46,7 +47,7 @@ async function resolveDiscoveryCredentials(
 // a config is either due or not, dispatching directly to its one designated
 // probe device, not resolved against a device set.
 export async function dispatchDueDiscoveryScans(DB: D1Database, configEncryptionKey: string, now: number): Promise<void> {
-  const db = drizzle(DB, { schema });
+  const db = getDb(DB);
 
   const configs = await db.select().from(schema.networkDiscoveryConfigs)
     .where(eq(schema.networkDiscoveryConfigs.enabled, true)).all();
