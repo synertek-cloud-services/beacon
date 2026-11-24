@@ -870,6 +870,9 @@ export interface Device {
   // section ("Reboot Required" / issue #89).
   pendingRebootRequired: boolean;
   pendingRebootDetectedAt: number | null;
+  // Only on GET /devices/:id. Whether the agent currently holds an instant-push
+  // (DeviceHub) socket; null = unknown / not available on this Worker.
+  hubConnected?: boolean | null;
   // Populated once an install_rustdesk command has captured this device's
   // RustDesk connection id. Not secret -- the unattended password is
   // fetched separately and on-demand via api.devices.rustdeskPassword.

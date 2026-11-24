@@ -34,6 +34,14 @@
           <svg v-else-if="isMacOS(device)" class="ddev-os-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="macOS">
             <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/>
           </svg>
+          <!-- Instant-push (DeviceHub wake socket) state: connected = commands and
+               sessions start immediately; otherwise the agent just polls. Hidden
+               when unknown (Worker without the DEVICE_HUB binding). -->
+          <span v-if="device.hubConnected != null" class="ddev-push-badge" :class="{ 'is-off': !device.hubConnected }"
+            :title="device.hubConnected ? 'Instant push connected -- commands and sessions reach this device immediately' : 'No instant-push connection -- this device picks up work on its next check-in'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            {{ device.hubConnected ? 'Instant push' : 'Polling' }}
+          </span>
           <!-- Maintenance mode indicator -->
           <span v-if="isInMaintenance(device)" class="ddev-maint-badge" :title="`In maintenance until ${maintenanceLabel(device)}`">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -2328,6 +2336,8 @@ function shellLabel(shell: string): string {
 .dot-offline { background: var(--color-text-muted); }
 .ddev-hostname { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
 .ddev-os-icon { color: var(--color-text-subtle); flex-shrink: 0; }
+.ddev-push-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--color-success); background: color-mix(in srgb, var(--color-success) 14%, transparent); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
+.ddev-push-badge.is-off { color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text-muted) 14%, transparent); }
 .ddev-maint-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #7c3aed; background: color-mix(in srgb, #7c3aed 12%, transparent); border: 1px solid color-mix(in srgb, #7c3aed 30%, transparent); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
 
 .ddev-rustdesk-panel {
