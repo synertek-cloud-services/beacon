@@ -216,6 +216,22 @@ export async function resolveEffectiveMonitors(db: Db, device: Device, knownDevi
 const ASSIGNED_CHECK_TYPES = new Set(['file_size', 'ping', 'process', 'service', 'windows_update_drift']);
 const SAMPLED_CHECK_TYPES = new Set(['disk_space', 'cpu_usage', 'memory_usage', 'av_status']);
 
+// Cheap pre-check for check-in: can this device possibly be handed an
+// agent-measured check assignment? When no enabled policy anywhere has such a
+// monitor (the common case on a fresh/simple install -- the only seeded one,
+// windows_update_drift, only assigns to devices Beacon manages), check-in can
+// skip the device-group lookup, maintenance gate and policy resolution
+// entirely. Over-approximates (ignores per-policy targeting) -- a false
+// positive just runs the full path.
+export async function mayHaveAssignments(DB: D1Database, device: Device): Promise<boolean> {
+  const { rows } = await getPolicyCache(getDb(DB));
+  return rows.some(r => {
+    const t = r.policy_monitors.checkType;
+    if (!ASSIGNED_CHECK_TYPES.has(t)) return false;
+    return t !== 'windows_update_drift' || !!device.windowsUpdateManaged;
+  });
+}
+
 export interface CheckinAssignments {
   fileSizeChecks: FileSizeCheck[];
   pingChecks: PingCheck[];
