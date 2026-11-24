@@ -249,7 +249,7 @@ checkin.post('/', async (c) => {
   // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
     ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
-    : await evaluateCheckinAlerts(c.env.DB, c.env, device, body.metrics, now, deviceGroupIds);
+    : await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now, deviceGroupIds);
 
   if (!inMaintenance) {
     // Evaluate file_size measurements the agent took for a prior check-in's assignments

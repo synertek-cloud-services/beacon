@@ -266,9 +266,9 @@ Replaced a hand-rolled CSS Grid + native HTML5 drag system that had no collision
 ### Check types
 Eleven check types across four evaluation shapes:
 
-**A. Sampled every check-in (60s), against `Metrics` directly**: `disk_space` (`{drive, threshold_type, threshold_value, min_disk_gb}`), `cpu_usage` (`{percent_max}`, `>=`), `memory_usage` (`{percent_max}`, `>=`), `av_status` (`{av_state}`, key `av_status:${av_state}` allows 3 sub-monitors per policy).
+**A. Sampled, evaluated by the 2-minute cron against the metrics the last check-in stored in `devices.inventory`** (`evaluateCronAlerts`; devices silent for >5 min are skipped, the offline monitor covers them; `check_interval_minutes` is honored in 2-minute ticks) — deliberately not on the check-in request path, which has a 10ms CPU budget on the Workers free plan: `disk_space` (`{drive, threshold_type, threshold_value, min_disk_gb}`), `cpu_usage` (`{percent_max}`, `>=`), `memory_usage` (`{percent_max}`, `>=`), `av_status` (`{av_state}`, key `av_status:${av_state}` allows 3 sub-monitors per policy).
 
-**B. Cron-evaluated (every 2 min)**: `offline` (`{direction: 'offline'|'online', offline_after_seconds}` — offline = silent-past-threshold, online = continuously-checking-in-for-`sustained_minutes` with a 5-min presence grace).
+**B. Cron-evaluated (every 2 min), from `last_seen`**: `offline` (`{direction: 'offline'|'online', offline_after_seconds}` — offline = silent-past-threshold, online = continuously-checking-in-for-`sustained_minutes` with a 5-min presence grace).
 
 **C. Agent-measured — "assign → measure → report"** (see below): `file_size`, `ping` (bundles all 3 Datto conditions in one monitor), `process`, `service` (Windows-only, `boot_delay_minutes` gates *assignment*, not evaluation, via `metrics.uptime_seconds`).
 
