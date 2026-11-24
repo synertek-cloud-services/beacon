@@ -570,8 +570,9 @@ export async function evaluateSoftwareAlerts(
 
 // Sampled metrics older than this are not evaluated: the device has stopped
 // checking in, so its stored metrics are stale (the offline monitor covers
-// that case). Generous against the 60s check-in cadence and 2-min cron tick.
-const SAMPLED_MAX_AGE_SECONDS = 300;
+// that case). Must exceed the slowest normal check-in cadence -- an agent with
+// a live DeviceHub socket polls every 4 minutes.
+const SAMPLED_MAX_AGE_SECONDS = 600;
 
 // Cron-driven evaluation of everything that doesn't need an agent round trip:
 // `offline` (from last_seen) and the sampled monitors (from the metrics blob
