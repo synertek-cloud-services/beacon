@@ -6,7 +6,6 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { resolveEffectiveMonitors } from '../../lib/alerts';
-import { extendFastPoll } from '../../lib/fastPoll';
 import { wakeDevice } from '../../lib/deviceHub';
 import { encryptSecret, decryptSecret, sha256hex, generateToken } from '../../lib/crypto';
 import { generateRustdeskPassword } from '../../lib/rustdesk';
@@ -166,25 +165,6 @@ adminDevices.delete('/:id/maintenance', async (c) => {
   await db.update(schema.devices)
     .set({ maintenanceEndsAt: null, maintenanceReason: null })
     .where(eq(schema.devices.id, c.req.param('id')));
-  return c.json({ ok: true });
-});
-
-// POST /v1/admin/devices/:id/fast-poll — manually arm fast-poll ahead of an
-// upcoming direct command/session, e.g. a technician already on the phone
-// with a client who knows they're about to open a remote session in a
-// moment. The two existing call sites (POST /v1/sessions, POST .../commands)
-// only arm fast-poll as a side effect of an action that's already happening
-// -- this is a standalone trigger for the "about to do work on this
-// machine" signal fastPoll.ts's own doc comment describes, letting a
-// technician warm up the device's poll interval before that first real
-// action, since fast-poll's own documented limitation is that it can't
-// speed up the very first action against a cold device.
-adminDevices.post('/:id/fast-poll', async (c) => {
-  if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
-  const db = getDb(c.env.DB);
-  const now = Math.floor(Date.now() / 1000);
-  await extendFastPoll(db, c.req.param('id'), now);
-  await wakeDevice(c.env, c.req.param('id'));
   return c.json({ ok: true });
 });
 
@@ -392,7 +372,6 @@ adminDevices.post('/:id/commands', async (c) => {
     // never receive this command before both matching grants exist --
     // same precedent as jobs.ts's install_msi dispatch.
     await db.batch([commandStmt, fileGrantStmt, passwordGrantStmt]);
-    await extendFastPoll(db, deviceId, now);
     await wakeDevice(c.env, deviceId);
     return c.json({ id: cmdId }, 201);
   } else {
@@ -410,11 +389,9 @@ adminDevices.post('/:id/commands', async (c) => {
     createdAt: now,
   });
 
-  // A direct command against one specific device is exactly the kind of
-  // "about to do work on this machine" signal fast-poll exists for -- see
-  // worker/src/lib/fastPoll.ts's own doc comment. Covers every cmdType
-  // branch above from this one shared insertion point.
-  await extendFastPoll(db, deviceId, now);
+  // Nudge the device's DeviceHub socket (if connected) so it checks in now
+  // instead of waiting out its poll interval. Covers every cmdType branch
+  // above from this one shared insertion point.
   await wakeDevice(c.env, deviceId);
 
   return c.json({ id }, 201);
