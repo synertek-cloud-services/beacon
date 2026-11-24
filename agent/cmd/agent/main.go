@@ -28,6 +28,7 @@ import (
 	"github.com/synertek-cloud-services/beacon/agent/internal/svcutil"
 	"github.com/synertek-cloud-services/beacon/agent/internal/updater"
 	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
+	"github.com/synertek-cloud-services/beacon/agent/internal/wake"
 	"github.com/synertek-cloud-services/beacon/agent/internal/wingetupdate"
 	"github.com/synertek-cloud-services/beacon/agent/internal/wuinstall"
 )
@@ -40,6 +41,11 @@ import (
 var version = "0.2.9"
 
 const checkInInterval = 60 * time.Second
+
+// connectedInterval is the poll cadence while the DeviceHub wake socket is up:
+// the worker can reach this device instantly, so polling only has to refresh
+// metrics and last_seen. Kept under the dashboard's 5-minute online window.
+const connectedInterval = 4 * time.Minute
 
 var (
 	pendingMu                        sync.Mutex
@@ -54,6 +60,9 @@ var (
 	// results are reported on the next check-in rather than waiting the
 	// full 60-second interval. Buffered so senders never block.
 	triggerCheckin = make(chan struct{}, 1)
+	// wakeCheckin is fired by the worker's DeviceHub socket: check in now,
+	// no settle delay (nothing is shutting down).
+	wakeCheckin = make(chan struct{}, 1)
 )
 
 func main() {
@@ -144,6 +153,13 @@ func main() {
 	updater.Start(*serverURL, version, credential.Dir())
 	audit.Start(client, cred.DeviceCredential, cred.DeviceID, cred.TenantID, version, auditTrigger)
 
+	hub := wake.Start(*serverURL, cred.DeviceCredential, func() {
+		select {
+		case wakeCheckin <- struct{}{}:
+		default:
+		}
+	}, nil)
+
 	service.Run(func(stop <-chan struct{}) {
 		// interval starts at the default and is replaced every iteration by
 		// whatever checkIn() decides for the *next* cycle -- normally
@@ -155,6 +171,11 @@ func main() {
 		interval := checkInInterval
 		for {
 			next, err := checkIn(client, cred)
+			if err == nil && hub.Connected() {
+				// Instant push is available, so neither the slow default nor a
+				// fast-poll window needs short polling.
+				next = connectedInterval
+			}
 			if err != nil {
 				log.Printf("check-in error: %v", err)
 			} else {
@@ -173,6 +194,7 @@ func main() {
 			service.ProcessRebootState()
 			select {
 			case <-time.After(interval):
+			case <-wakeCheckin:
 			case <-triggerCheckin:
 				// A command result arrived — check in early to report it
 				// before the full interval elapses (important for commands

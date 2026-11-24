@@ -102,7 +102,7 @@ honestly rather than inferring parity from shared Go code.
 
 **Agent** (`agent/`)
 - Module: `github.com/synertek-cloud-services/beacon/agent`
-- Check-in interval: 60 seconds, dynamic — see "Fast Poll" below (temporarily 15s per-device when a technician is actively working a device)
+- Check-in interval: 60 seconds, dynamic — see "Fast Poll" below (temporarily 15s per-device when a technician is actively working a device). While the agent's `agent/internal/wake` WebSocket to the worker's `DeviceHub` Durable Object (`worker/src/durable-objects/device-hub.ts`, `GET /v1/agent/ws`) is up, it polls every 4 minutes instead (and ignores fast-poll): the worker sends a `wake` text frame on session open / direct command / small quick job and the agent checks in immediately. The socket carries no data — commands are still delivered by the check-in response — and any drop falls back to the 60s poll, with exponential backoff reconnect. Requires the `DEVICE_HUB` binding + `v2` migration in `wrangler.toml`; without it the agent just polls
 - Metrics sent on every check-in: hostname, OS, uptime, disk_free_bytes, disks[] (multi-drive), cpu_percent, memory_percent, detected_class, av_status, av_product
 - Check-in also carries `pending_{file_size,ping,process,service}_results`; response carries `{file_size,ping,process,service}_checks` — see "Assign → measure → report pattern" below
 - Audit (full inventory snapshot) fires 5 min after startup, then every 24h, or on `run_audit` command
