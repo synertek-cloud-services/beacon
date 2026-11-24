@@ -6,7 +6,6 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { generateToken, sha256hex } from '../lib/crypto';
-import { extendFastPoll } from '../lib/fastPoll';
 import { wakeDevice } from '../lib/deviceHub';
 import { logActivity } from '../lib/activityLog';
 
@@ -165,12 +164,8 @@ sessions.post('/', async (c) => {
     createdAt: now,
   });
 
-  // Opening a session is exactly the kind of "about to do work on this
-  // specific machine" signal fast-poll exists for -- see
-  // worker/src/lib/fastPoll.ts's own doc comment for why this is safe here
-  // (single-device, technician-initiated) but deliberately never wired
-  // into Job dispatch (many-device, scheduled/bulk).
-  await extendFastPoll(db, body.device_id, now);
+  // Nudge the device's DeviceHub socket (if connected) so it picks up the
+  // open_session command now instead of on its next poll.
   await wakeDevice(c.env, body.device_id);
 
   // Explicit Layer-2 activity-log call, not left to the generic Layer-1

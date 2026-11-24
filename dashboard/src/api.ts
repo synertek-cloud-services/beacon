@@ -870,11 +870,6 @@ export interface Device {
   // section ("Reboot Required" / issue #89).
   pendingRebootRequired: boolean;
   pendingRebootDetectedAt: number | null;
-  // Set while a technician-triggered fast-poll window is active (opening a
-  // session, dispatching a direct command) — the agent checks in every 15s
-  // instead of the default 60s until this instant. Null = normal cadence.
-  // See CLAUDE.md's Fast Poll section.
-  fastPollUntil: number | null;
   // Populated once an install_rustdesk command has captured this device's
   // RustDesk connection id. Not secret -- the unattended password is
   // fetched separately and on-demand via api.devices.rustdeskPassword.
@@ -1454,7 +1449,6 @@ export const api = {
     revoke:  (id: string)            => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/revoke`),
     delete:  (id: string)            => request<{ ok: boolean }>('DELETE', `/v1/admin/devices/${id}`),
     effectiveMonitors: (id: string)  => request<EffectiveMonitor[]>('GET', `/v1/admin/devices/${id}/effective-monitors`),
-    fastPoll: (id: string)           => request<{ ok: boolean }>('POST', `/v1/admin/devices/${id}/fast-poll`),
     rustdeskPassword: (id: string)  => request<{ password: string }>('GET', `/v1/admin/devices/${id}/rustdesk-password`),
     commands: {
       list:   (deviceId: string) =>

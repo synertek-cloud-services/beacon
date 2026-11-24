@@ -39,16 +39,6 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             Maintenance
           </span>
-          <!-- Fast-poll indicator -- arms automatically as a side effect of
-               opening a session or dispatching a direct command (see
-               CLAUDE.md's Fast Poll section), or manually via the toolbar's
-               Fast Poll button below (e.g. a technician already on the
-               phone with a client, warming up the device's poll interval
-               before actually opening a remote session). -->
-          <span v-if="isFastPolling(device)" class="ddev-fastpoll-badge" :title="`Checking in every 15s (instead of 60s) until ${fastPollLabel(device)}`">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Fast Poll
-          </span>
         </div>
       </div>
 
@@ -70,14 +60,6 @@
             <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
           </svg>
           Remote Shell
-        </button>
-        <button class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
-          :disabled="device.status !== 'approved' || isDemoDevice(device)" @click="armFastPoll(device.id)"
-          :title="isDemoDevice(device) ? 'Fast Poll requires a live agent; seeded demo devices cannot connect' : device.status !== 'approved' ? 'Device must be approved to receive commands' : 'Speed up check-ins to every 15s for the next 15 minutes -- useful right before opening a remote session'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-          </svg>
-          Fast Poll
         </button>
         <button v-if="companyRustdeskEnabled" class="toolbar-btn" :class="{ 'toolbar-btn-dim': isDemoDevice(device) }"
           :disabled="device.status !== 'approved' || isDemoDevice(device) || rustdeskInstalling"
@@ -103,11 +85,6 @@
         <div v-if="jobQueued" class="toolbar-success">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Queued — runs on next check-in
-        </div>
-
-        <div v-if="fastPollArmed" class="toolbar-success">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Fast Poll armed — takes effect on the device's next check-in
         </div>
 
         <div v-if="rustdeskError" class="error-banner" style="margin:0">{{ rustdeskError }}</div>
@@ -1170,9 +1147,8 @@ const PAGE_SIZES      = [20, 50, 100];
 // Toolbar state
 const menuOpen  = ref(false);
 const jobQueued = ref(false);
-const fastPollArmed = ref(false);
 
-// RustDesk connect/install state -- see armFastPoll's own sibling
+// RustDesk connect/install state
 // armRustdesk below for the "one button does both install and connect"
 // shape confirmed in CLAUDE.md's RustDesk section.
 const companyRustdeskEnabled = ref(false);
@@ -1798,8 +1774,6 @@ function isLinux(d: Device)   { return (d.osType ?? '').toLowerCase() === 'linux
 function isMacOS(d: Device)   { return (d.osType ?? '').toLowerCase() === 'darwin'; }
 function isInMaintenance(d: Device) { return d.maintenanceEndsAt != null && d.maintenanceEndsAt > Math.floor(Date.now() / 1000); }
 function maintenanceLabel(d: Device) { return d.maintenanceEndsAt ? new Date(d.maintenanceEndsAt * 1000).toLocaleString() : ''; }
-function isFastPolling(d: Device) { return d.fastPollUntil != null && d.fastPollUntil > Math.floor(Date.now() / 1000); }
-function fastPollLabel(d: Device) { return d.fastPollUntil ? new Date(d.fastPollUntil * 1000).toLocaleTimeString() : ''; }
 
 // This page's own vocabulary/labels for the av_status enum, duplicated per
 // this codebase's established per-component convention rather than shared.
@@ -2164,23 +2138,6 @@ function showJobQueued() {
   setTimeout(() => { jobQueued.value = false; }, 4000);
 }
 
-// Manually arms Fast Poll ahead of an upcoming direct command/session --
-// e.g. a technician already on the phone with a client who knows they're
-// about to open Web Remote/Remote Shell in a moment, warming up the
-// device's poll interval first. Distinct toast from showJobQueued() above:
-// this isn't a queued command, it's an immediate fast_poll_until write that
-// only takes effect once the device's own next check-in picks it up.
-async function armFastPoll(id: string) {
-  try {
-    await api.devices.fastPoll(id);
-    fastPollArmed.value = true;
-    setTimeout(() => { fastPollArmed.value = false; }, 4000);
-    loadDevice(id); // refresh so the Fast Poll badge reflects it immediately, not just on the page's next 30s poll
-  } catch (e: any) {
-    error.value = e.message;
-  }
-}
-
 // "Connect via RustDesk" -- one click does both jobs, confirmed design in
 // CLAUDE.md's RustDesk section: if the device isn't provisioned yet
 // (device.rustdeskId is null), dispatch install_rustdesk and poll until
@@ -2372,7 +2329,6 @@ function shellLabel(shell: string): string {
 .ddev-hostname { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
 .ddev-os-icon { color: var(--color-text-subtle); flex-shrink: 0; }
 .ddev-maint-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #7c3aed; background: color-mix(in srgb, #7c3aed 12%, transparent); border: 1px solid color-mix(in srgb, #7c3aed 30%, transparent); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
-.ddev-fastpoll-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--color-success); background: rgba(45,207,160,.12); border: 1px solid rgba(45,207,160,.3); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
 
 .ddev-rustdesk-panel {
   display: flex; align-items: center; gap: 16px;

@@ -102,7 +102,7 @@ honestly rather than inferring parity from shared Go code.
 
 **Agent** (`agent/`)
 - Module: `github.com/synertek-cloud-services/beacon/agent`
-- Check-in interval: 60 seconds, dynamic — see "Fast Poll" below (temporarily 15s per-device when a technician is actively working a device). While the agent's `agent/internal/wake` WebSocket to the worker's `DeviceHub` Durable Object (`worker/src/durable-objects/device-hub.ts`, `GET /v1/agent/ws`) is up, it polls every 4 minutes instead (and ignores fast-poll): the worker sends a `wake` text frame on session open / direct command / small quick job and the agent checks in immediately. The socket carries no data — commands are still delivered by the check-in response — and any drop falls back to the 60s poll, with exponential backoff reconnect. Requires the `DEVICE_HUB` binding + `v2` migration in `wrangler.toml`; without it the agent just polls
+- Check-in interval: 60 seconds, dynamic — while the agent's `agent/internal/wake` WebSocket to the worker's `DeviceHub` Durable Object (`worker/src/durable-objects/device-hub.ts`, `GET /v1/agent/ws`) is up, it polls every 4 minutes instead: the worker sends a `wake` text frame on session open / direct command / small quick job and the agent checks in immediately. The socket carries no data — commands are still delivered by the check-in response — and any drop falls back to the 60s poll, with exponential backoff reconnect. Requires the `DEVICE_HUB` binding + `v2` migration in `wrangler.toml`; without it the agent just polls
 - Metrics sent on every check-in: hostname, OS, uptime, disk_free_bytes, disks[] (multi-drive), cpu_percent, memory_percent, detected_class, av_status, av_product
 - Check-in also carries `pending_{file_size,ping,process,service}_results`; response carries `{file_size,ping,process,service}_checks` — see "Assign → measure → report pattern" below
 - Audit (full inventory snapshot) fires 5 min after startup, then every 24h, or on `run_audit` command
@@ -367,9 +367,9 @@ Linux Remote Shell is confirmed Supported on real hardware — interactive comma
 ### Explicitly out of scope
 File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot-only, shutdown/restart, network device deploy/wake, in-session Quick Jobs, session history/audit UI — all reuse this same relay/auth plumbing when built. "Remote takeover" is now built — see Web Remote below.
 
-## Fast Poll (migration `0077`)
+## Fast Poll (removed)
 
-Every session-open (Remote Shell/Web Remote/Elevate) and direct device command only gets picked up on the agent's next regular 60s check-in — no other wake mechanism exists. `devices.fast_poll_until` (nullable timestamp, same self-expiring shape as `maintenanceEndsAt`) — `extendFastPoll()` arms/resets (not accumulates) to `now + 15min`; `isFastPollActive()` is the pure read. Armed from exactly two call sites: `POST /v1/sessions` and `POST /v1/admin/devices/:id/commands`. While active, `checkin.ts` adds `next_checkin_seconds: 15` to the response; omitted entirely (not `0`) once expired, so old and new agents both fall back correctly. **Job dispatch never arms it** — a Job can target hundreds of devices, and flipping a whole fleet to 15s polling as a side effect would be a real cost problem. Known limitation: doesn't speed up the very first action against a cold device (still up to 60-70s) — only actions after the window is already warm. Dashboard: a read-only "Fast Poll" badge on Device Detail only.
+A temporary 15s check-in window (`devices.fast_poll_until`, migration `0077`, `next_checkin_seconds` in the check-in response) used to speed up agents after a session open or direct command. Superseded by the DeviceHub wake socket (see Agent above) and removed from the Worker and dashboard; the `fast_poll_until` column is left in place, unused, and older agents' handling of `next_checkin_seconds` is harmless since the field is never sent. An agent without a live socket simply polls every 60s.
 
 ## Web Remote
 
@@ -607,7 +607,6 @@ POST /v1/admin/devices/:id/commands          Queue a command (run_script, reboot
                                               force_update, install_patches, uninstall_agent, manage_software,
                                               uninstall_software, list_remote_sessions, install_rustdesk)
 GET  /v1/admin/devices/:id/commands          Last 50 direct commands for this device (jobId IS NULL)
-POST /v1/admin/devices/:id/fast-poll         Manually arm Fast Poll ahead of an upcoming session/command
 GET  /v1/admin/devices/:id/rustdesk-password Reveal the device's decrypted RustDesk unattended password
 GET  /v1/admin/alerts?status=active|all      Global alert state feed
 GET  /v1/admin/alerts/:id                    Single alert detail (registered before /:id/resolve)
