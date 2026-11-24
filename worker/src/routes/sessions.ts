@@ -7,6 +7,7 @@ import * as schema from '../db/schema';
 import { requireUser } from '../lib/auth';
 import { generateToken, sha256hex } from '../lib/crypto';
 import { extendFastPoll } from '../lib/fastPoll';
+import { wakeDevice } from '../lib/deviceHub';
 import { logActivity } from '../lib/activityLog';
 
 const sessions = new Hono<{ Bindings: Bindings }>();
@@ -170,6 +171,7 @@ sessions.post('/', async (c) => {
   // (single-device, technician-initiated) but deliberately never wired
   // into Job dispatch (many-device, scheduled/bulk).
   await extendFastPoll(db, body.device_id, now);
+  await wakeDevice(c.env, body.device_id);
 
   // Explicit Layer-2 activity-log call, not left to the generic Layer-1
   // middleware (see lib/activityLog.ts) -- Layer 1 never parses the

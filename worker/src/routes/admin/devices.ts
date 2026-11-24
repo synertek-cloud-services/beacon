@@ -7,6 +7,7 @@ import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { resolveEffectiveMonitors } from '../../lib/alerts';
 import { extendFastPoll } from '../../lib/fastPoll';
+import { wakeDevice } from '../../lib/deviceHub';
 import { encryptSecret, decryptSecret, sha256hex, generateToken } from '../../lib/crypto';
 import { generateRustdeskPassword } from '../../lib/rustdesk';
 
@@ -183,6 +184,7 @@ adminDevices.post('/:id/fast-poll', async (c) => {
   const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   await extendFastPoll(db, c.req.param('id'), now);
+  await wakeDevice(c.env, c.req.param('id'));
   return c.json({ ok: true });
 });
 
@@ -391,6 +393,7 @@ adminDevices.post('/:id/commands', async (c) => {
     // same precedent as jobs.ts's install_msi dispatch.
     await db.batch([commandStmt, fileGrantStmt, passwordGrantStmt]);
     await extendFastPoll(db, deviceId, now);
+    await wakeDevice(c.env, deviceId);
     return c.json({ id: cmdId }, 201);
   } else {
     return c.json({ error: 'unknown command type' }, 400);
@@ -412,6 +415,7 @@ adminDevices.post('/:id/commands', async (c) => {
   // worker/src/lib/fastPoll.ts's own doc comment. Covers every cmdType
   // branch above from this one shared insertion point.
   await extendFastPoll(db, deviceId, now);
+  await wakeDevice(c.env, deviceId);
 
   return c.json({ id }, 201);
 });
