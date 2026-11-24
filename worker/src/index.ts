@@ -5,6 +5,7 @@ import checkin from './routes/checkin';
 import auditRoute from './routes/audit';
 import sessions from './routes/sessions';
 import agentUpdate from './routes/agent-update';
+import agentWs from './routes/agent-ws';
 import adminSummary from './routes/admin/summary';
 import adminCompanies from './routes/admin/companies';
 import adminDevices from './routes/admin/devices';
@@ -40,11 +41,15 @@ import { timingSafeEqual } from './lib/auth';
 import { runScheduledMaintenance } from './lib/scheduled-maintenance';
 
 export { SessionRelay } from './durable-objects/session-relay';
+export { DeviceHub } from './durable-objects/device-hub';
 
 export type Bindings = {
   DB: D1Database;
   ADMIN_SECRET: string;
   SESSION: DurableObjectNamespace;
+  // Per-device wake channel (see durable-objects/device-hub.ts). Optional so a
+  // wrangler.toml predating it keeps working; agents then just poll.
+  DEVICE_HUB?: DurableObjectNamespace;
   // Production dashboard origin, e.g. "https://rmm.example.com"
   ALLOWED_ORIGIN?: string;
   // Cloudflare Pages preview URL suffix, e.g. ".my-dashboard-1a2.pages.dev"
@@ -111,6 +116,7 @@ app.route('/v1/check-in', checkin);
 app.route('/v1/audit', auditRoute);
 app.route('/v1/sessions', sessions);
 app.route('/v1/agent', agentUpdate);
+app.route('/v1/agent/ws', agentWs);
 app.route('/v1/branding', branding);
 app.route('/v1/component-files', componentFiles);
 app.route('/v1/rustdesk-installer', rustdeskInstallerDownload);

@@ -6,6 +6,7 @@ import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import { logActivity } from '../../lib/activityLog';
 import { sha256hex } from '../../lib/crypto';
 import { fetchCompanyVariables } from '../../lib/companyVariables';
+import { wakeDevice } from '../../lib/deviceHub';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -184,6 +185,8 @@ function resolveShell(shell: string, osType: string | null): string {
 }
 
 // ── Helper: insert commands for an already-resolved device/component set ──
+
+const WAKE_JOB_DEVICE_LIMIT = 20;
 
 async function insertJobCommands(
   db: D1Database,
@@ -593,6 +596,12 @@ adminJobs.post('/', async (c) => {
   // once scheduled_at arrives.
   if (jobType === 'quick') {
     await insertJobCommands(c.env.DB, c.env.CONFIG_ENCRYPTION_KEY, jobId, devices, resolved, body.run_as_system ?? true);
+    // Wake only small, targeted jobs: each wake is a Durable Object
+    // subrequest, and a fleet-wide job shouldn't fan out hundreds of them
+    // (those devices pick the work up on their next poll).
+    if (devices.length <= WAKE_JOB_DEVICE_LIMIT) {
+      await Promise.all(devices.map((d: { id: string }) => wakeDevice(c.env, d.id)));
+    }
   }
 
   const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>();

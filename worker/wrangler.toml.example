@@ -50,9 +50,17 @@ crons = ["*/2 * * * *"]
 name = "SESSION"
 class_name = "SessionRelay"
 
+[[durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SessionRelay"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DeviceHub"]
 
 # Required encrypted Worker secrets. For the first deployment, provide both
 # atomically with `wrangler deploy --secrets-file`; see docs/SELF_HOSTING.md.
