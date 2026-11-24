@@ -6,7 +6,7 @@ import type { Bindings } from '../index';
 import * as schema from '../db/schema';
 import type { CheckInRequest, CheckInResponse } from '../lib/types';
 import { sha256hex } from '../lib/crypto';
-import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts, fetchDeviceGroupIds } from '../lib/alerts';
+import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts, fetchDeviceGroupIds, mayHaveAssignments } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
 import { isFastPollActive, FAST_POLL_INTERVAL_SECONDS } from '../lib/fastPoll';
@@ -241,13 +241,23 @@ checkin.post('/', async (c) => {
     }
   }
 
+  const hasPendingResults = !!(
+    body.pending_file_size_results?.length || body.pending_ping_results?.length ||
+    body.pending_process_results?.length || body.pending_service_results?.length ||
+    body.pending_windows_update_drift_results?.length);
+  // Alert work at check-in is only the agent-measured checks (assignments out,
+  // results in); sampled alerts run on the cron. When nothing is assigned or
+  // reported, skip the group lookup, maintenance gate and policy resolution.
+  const alertWorkNeeded = hasPendingResults || await mayHaveAssignments(c.env.DB, device);
+
   // One lookup shared by the maintenance gate and policy matching below.
-  const deviceGroupIds = (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>();
-  const inMaintenance = await isDeviceSuppressedNow(db, device, now, deviceGroupIds);
+  const deviceGroupIds = alertWorkNeeded
+    ? (await fetchDeviceGroupIds(db, [device.id])).get(device.id) ?? new Set<string>()
+    : new Set<string>();
+  const inMaintenance = alertWorkNeeded && await isDeviceSuppressedNow(db, device, now, deviceGroupIds);
   const fastPollActive = isFastPollActive(device, now);
 
-  // Evaluate in-band alert checks (disk_space, etc.) against fresh inventory
-  const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance
+  const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance || !alertWorkNeeded
     ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
     : await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now, deviceGroupIds);
 
