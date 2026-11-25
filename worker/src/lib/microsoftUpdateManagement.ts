@@ -1,6 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from './db';
+import { batchStatements } from './d1';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 import {
@@ -27,6 +28,11 @@ type Device = typeof schema.devices.$inferSelect;
 // reverted, and nothing new is taken over -- the one safety invariant (never
 // leave Windows' own updating disabled with no Beacon coverage) holds even
 // when the feature is switched off.
+// A never-evaluated fleet would otherwise get one command per device in a
+// single cron run; cap it so one tick stays well under the per-invocation D1
+// query limit. Devices skipped here are picked up on the following ticks.
+const MAX_DISPATCH_PER_TICK = 200;
+
 export async function syncMicrosoftUpdateManagement(DB: D1Database, now: number, enabled = true): Promise<void> {
   const db = getDb(DB);
 
@@ -58,12 +64,13 @@ export async function syncMicrosoftUpdateManagement(DB: D1Database, now: number,
       .all()).map(r => r.deviceId),
   );
 
-  const inserts: Promise<unknown>[] = [];
+  const inserts: unknown[] = [];
   for (const device of devices) {
     if (outstandingDeviceIds.has(device.id)) continue;
     const desired = hasCoverage(device);
     const current = device.microsoftUpdateManaged;
     if (!enabled && current !== true) continue; // off: only unwind what is currently managed, never issue a first-time revert
+    if (inserts.length >= MAX_DISPATCH_PER_TICK) break; // the rest converge over the next ticks
     if (desired === current) continue; // null !== true/false, so a never-evaluated device always gets its first command
 
     const payload = desired
@@ -82,5 +89,5 @@ export async function syncMicrosoftUpdateManagement(DB: D1Database, now: number,
       }),
     );
   }
-  await Promise.all(inserts);
+  await batchStatements(db, inserts);
 }

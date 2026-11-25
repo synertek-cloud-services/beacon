@@ -8,6 +8,7 @@ import { sha256hex } from '../../lib/crypto';
 import { fetchCompanyVariables } from '../../lib/companyVariables';
 import { wakeDevice } from '../../lib/deviceHub';
 import { requireFeature } from '../../lib/features';
+import { allInChunks } from '../../lib/d1';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -113,32 +114,28 @@ async function resolveDevices(
 ): Promise<Array<{ id: string; company_id: string; os_type: string | null }>> {
   if (targetType === 'devices') {
     if (targetIds.length === 0) return [];
-    const placeholders = targetIds.map(() => '?').join(',');
-    const result = await db.prepare(
-      `SELECT id, company_id, os_type FROM devices WHERE id IN (${placeholders}) AND status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
-    return result.results;
+    return allInChunks(targetIds, async ids => (await db.prepare(
+      `SELECT id, company_id, os_type FROM devices WHERE id IN (${ids.map(() => '?').join(',')}) AND status = 'approved'`
+    ).bind(...ids).all<{ id: string; company_id: string; os_type: string | null }>()).results);
   }
   if (targetType === 'companies') {
     if (targetIds.length === 0) return [];
-    const placeholders = targetIds.map(() => '?').join(',');
-    const result = await db.prepare(
-      `SELECT id, company_id, os_type FROM devices WHERE company_id IN (${placeholders}) AND status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
-    return result.results;
+    return allInChunks(targetIds, async ids => (await db.prepare(
+      `SELECT id, company_id, os_type FROM devices WHERE company_id IN (${ids.map(() => '?').join(',')}) AND status = 'approved'`
+    ).bind(...ids).all<{ id: string; company_id: string; os_type: string | null }>()).results);
   }
   if (targetType === 'group') {
     if (targetIds.length === 0) return [];
-    const placeholders = targetIds.map(() => '?').join(',');
     // DISTINCT since targeting multiple groups (or a device in more than one
-    // targeted group) must not double-dispatch the same device.
-    const result = await db.prepare(
+    // targeted group) must not double-dispatch the same device -- and across
+    // chunks the same device can recur, so dedupe by id after merging.
+    const rows = await allInChunks(targetIds, async ids => (await db.prepare(
       `SELECT DISTINCT d.id, d.company_id, d.os_type
        FROM devices d
        JOIN device_group_members m ON m.device_id = d.id
-       WHERE m.group_id IN (${placeholders}) AND d.status = 'approved'`
-    ).bind(...targetIds).all<{ id: string; company_id: string; os_type: string | null }>();
-    return result.results;
+       WHERE m.group_id IN (${ids.map(() => '?').join(',')}) AND d.status = 'approved'`
+    ).bind(...ids).all<{ id: string; company_id: string; os_type: string | null }>()).results);
+    return [...new Map(rows.map(r => [r.id, r])).values()];
   }
   // 'all'
   const result = await db.prepare(
@@ -164,12 +161,11 @@ async function fetchCustomFieldVars(
   if (fields.results.length === 0) return out;
   const keyById = new Map(fields.results.map(f => [f.id, f.key]));
 
-  const placeholders = deviceIds.map(() => '?').join(',');
-  const values = await db.prepare(
-    `SELECT device_id, field_id, value FROM device_custom_field_values WHERE device_id IN (${placeholders}) AND value IS NOT NULL`
-  ).bind(...deviceIds).all<{ device_id: string; field_id: string; value: string }>();
+  const valueRows = await allInChunks(deviceIds, async ids => (await db.prepare(
+    `SELECT device_id, field_id, value FROM device_custom_field_values WHERE device_id IN (${ids.map(() => '?').join(',')}) AND value IS NOT NULL`
+  ).bind(...ids).all<{ device_id: string; field_id: string; value: string }>()).results);
 
-  for (const row of values.results) {
+  for (const row of valueRows) {
     const key = keyById.get(row.field_id);
     if (!key) continue; // field's key blank, or field deleted since assignment
     if (!out.has(row.device_id)) out.set(row.device_id, {});
