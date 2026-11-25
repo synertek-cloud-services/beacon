@@ -50,6 +50,9 @@ export type Bindings = {
   // Per-device wake channel (see durable-objects/device-hub.ts). Optional so a
   // wrangler.toml predating it keeps working; agents then just poll.
   DEVICE_HUB?: DurableObjectNamespace;
+  // Set to "true" by a managed host (e.g. Spirewick) to treat every opt-in
+  // feature as enabled regardless of host_settings. See lib/features.ts.
+  FEATURES_ALL?: string;
   // Production dashboard origin, e.g. "https://rmm.example.com"
   ALLOWED_ORIGIN?: string;
   // Cloudflare Pages preview URL suffix, e.g. ".my-dashboard-1a2.pages.dev"

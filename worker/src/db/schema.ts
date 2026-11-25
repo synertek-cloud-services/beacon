@@ -1020,4 +1020,10 @@ export const hostSettings = sqliteTable('host_settings', {
   // cron-tick bucket, so a missed/delayed cron tick can't silently skip a
   // whole day's prune.
   activityLogPrunedAt: integer('activity_log_pruned_at'),
+  // Opt-in feature switches (migration 0087) -- see lib/features.ts.
+  featureDiscovery:             integer('feature_discovery',              { mode: 'boolean' }).notNull().default(false),
+  featureApplicationComponents: integer('feature_application_components', { mode: 'boolean' }).notNull().default(false),
+  featureWebhooks:              integer('feature_webhooks',               { mode: 'boolean' }).notNull().default(false),
+  featureOsUpdateManagement:    integer('feature_os_update_management',   { mode: 'boolean' }).notNull().default(false),
+  featureAgentMonitors:         integer('feature_agent_monitors',         { mode: 'boolean' }).notNull().default(false),
 });

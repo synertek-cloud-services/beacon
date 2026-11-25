@@ -881,6 +881,10 @@ export interface Device {
 
 // ── API client ───────────────────────────────────────────────
 
+export type FeatureKey = 'discovery' | 'application_components' | 'webhooks' | 'os_update_management' | 'agent_monitors';
+// forced = the host manages these (FEATURES_ALL); the dashboard shows them as always on.
+export interface FeatureSettings { features: Record<FeatureKey, boolean>; forced: boolean; }
+
 export const api = {
   saveToken(t: string)  { sessionStorage.removeItem('beacon_emergency_token'); localStorage.setItem('beacon_token', t); },
   saveEmergencyToken(t: string) { localStorage.removeItem('beacon_token'); sessionStorage.setItem('beacon_emergency_token', t); },
@@ -1392,6 +1396,10 @@ export const api = {
   },
 
   settings: {
+    features: {
+      get: () => request<FeatureSettings>('GET', '/v1/admin/settings/features'),
+      update: (body: Partial<Record<FeatureKey, boolean>>) => request<FeatureSettings>('PATCH', '/v1/admin/settings/features', body),
+    },
     get: () => request<HostSettings>('GET', '/v1/admin/settings'),
     update: (body: { timezone?: string }) => request<{ ok: boolean }>('PATCH', '/v1/admin/settings', body),
   },

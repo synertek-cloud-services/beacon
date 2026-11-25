@@ -156,6 +156,7 @@
             <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
             <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
             <RouterLink to="/settings/rustdesk" class="sbi" :class="{ active: route.path === '/settings/rustdesk' }">RustDesk</RouterLink>
+<RouterLink to="/settings/features" class="sbi" :class="{ active: route.path === '/settings/features' }">Features</RouterLink>
           </div>
         </template>
 
@@ -241,6 +242,7 @@
         <RouterLink to="/settings/branding" class="sbi" :class="{ active: route.path === '/settings/branding' }">Branding</RouterLink>
         <RouterLink to="/settings/notifications" class="sbi" :class="{ active: route.path === '/settings/notifications' }">Notifications</RouterLink>
         <RouterLink to="/settings/rustdesk" class="sbi" :class="{ active: route.path === '/settings/rustdesk' }">RustDesk</RouterLink>
+<RouterLink to="/settings/features" class="sbi" :class="{ active: route.path === '/settings/features' }">Features</RouterLink>
       </template>
     </div>
 
@@ -534,6 +536,7 @@ const pageTitle = computed(() => {
   if (route.path === '/settings/branding') return 'Branding';
   if (route.path === '/settings/notifications') return 'Notifications';
   if (route.path === '/settings/rustdesk') return 'RustDesk';
+  if (route.path === '/settings/features') return 'Features';
   return 'Beacon';
 });
 

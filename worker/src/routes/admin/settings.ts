@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
+import { FEATURE_KEYS, FEATURE_COLUMNS, getFeatures, featuresForced, invalidateFeatureCache, type FeatureKey } from '../../lib/features';
 
 // Host-wide singleton settings -- currently just the Maintenance-Policy
 // scheduling timezone (see host_settings, migration 0051). Mirrors
@@ -52,6 +53,33 @@ settings.patch('/', async (c) => {
 
   await db.update(schema.hostSettings).set(updates).where(eq(schema.hostSettings.id, 1));
   return c.json({ ok: true });
+});
+
+// Opt-in feature switches -- see lib/features.ts. Readable by any signed-in
+// user (the dashboard needs it to decide whether to show a feature or its
+// "turned off" notice); only an admin can change them.
+settings.get('/features', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'readonly')))
+    return c.json({ error: 'unauthorized' }, 401);
+  return c.json({ features: await getFeatures(c.env), forced: featuresForced(c.env) });
+});
+
+settings.patch('/features', async (c) => {
+  if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin')))
+    return c.json({ error: 'unauthorized' }, 401);
+  if (featuresForced(c.env)) return c.json({ error: 'Features are managed by the host and cannot be changed here.' }, 409);
+
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const updates: Partial<typeof schema.hostSettings.$inferInsert> = { updatedAt: Math.floor(Date.now() / 1000) };
+  for (const [key, value] of Object.entries(body)) {
+    if (!(FEATURE_KEYS as readonly string[]).includes(key)) return c.json({ error: `unknown feature: ${key}` }, 400);
+    if (typeof value !== 'boolean') return c.json({ error: `${key} must be a boolean` }, 400);
+    (updates as Record<string, unknown>)[FEATURE_COLUMNS[key as FeatureKey]] = value;
+  }
+
+  await getDb(c.env.DB).update(schema.hostSettings).set(updates).where(eq(schema.hostSettings.id, 1));
+  invalidateFeatureCache();
+  return c.json({ features: await getFeatures(c.env), forced: false });
 });
 
 export default settings;
