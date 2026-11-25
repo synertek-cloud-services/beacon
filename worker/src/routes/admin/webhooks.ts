@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from '../../lib/db';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
+import { requireFeature } from '../../lib/features';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
 
@@ -16,6 +17,8 @@ webhooks.get('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
+  const featureOff = await requireFeature(c.env, 'webhooks');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   const rows = await db.select().from(schema.webhookEndpoints);
   return c.json(rows);
@@ -25,6 +28,8 @@ webhooks.post('/', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
+  const featureOff = await requireFeature(c.env, 'webhooks');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
 
@@ -45,6 +50,8 @@ webhooks.patch('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
+  const featureOff = await requireFeature(c.env, 'webhooks');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   const body = await c.req.json<{ enabled?: boolean; url?: string }>();
   const updates: Partial<typeof schema.webhookEndpoints.$inferInsert> = {};
@@ -63,6 +70,8 @@ webhooks.delete('/:id', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'admin'))) {
     return c.json({ error: 'unauthorized' }, 401);
   }
+  const featureOff = await requireFeature(c.env, 'webhooks');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   await db.delete(schema.webhookEndpoints)
     .where(eq(schema.webhookEndpoints.id, c.req.param('id')));

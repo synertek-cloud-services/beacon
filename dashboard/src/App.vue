@@ -308,6 +308,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api, type Dashboard, type Company } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import { brandState } from './brand';
+import { setFeatures } from './features';
 
 // v-click-outside directive — closes the search dropdown when clicking outside
 const vClickOutside = {
@@ -466,6 +467,7 @@ async function loadAppData() {
     pendingCount.value = summary.pending;
     dashboards.value = dashboardList;
   } catch {}
+  api.settings.features.get().then(r => setFeatures(r.features)).catch(() => {});
   if (!authState.user) await loadCurrentUser().catch(() => {});
 }
 

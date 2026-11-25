@@ -204,7 +204,9 @@
         </div>
 
         <!-- Discovery -->
-        <div v-if="activeTab === 'discovery'" class="discovery-panel">
+        <FeatureOffNotice v-if="activeTab === 'discovery' && !featureOn('discovery')"
+          name="Network Discovery" description="Scans a company's network from a probe device on a schedule." />
+        <div v-else-if="activeTab === 'discovery'" class="discovery-panel">
           <div class="discovery-config">
             <div class="form-section-label">Scan Configuration</div>
             <div class="form-row-2" style="margin-bottom:12px">
@@ -629,6 +631,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { api, type Company, type CompanyContact, type CompanyLocation, type CompanyVariable, type EnrollmentToken, type Address, type Device, type NetworkDiscoveryConfig, type DiscoveredDevice } from '../api';
 import { hasRole } from '../auth';
 import AddressForm from '../components/AddressForm.vue';
+import FeatureOffNotice from '../components/FeatureOffNotice.vue';
+import { featureOn, isFeatureDisabled } from '../features';
 
 const route  = useRoute();
 const router = useRouter();
@@ -738,8 +742,8 @@ async function onIdChange() {
       api.companies.locations.list(companyId.value),
       api.companies.tokens.list(companyId.value),
       isAdmin.value ? api.companies.variables.list(companyId.value) : Promise.resolve([]),
-      api.companies.discovery.get(companyId.value),
-      api.companies.discoveredDevices.list(companyId.value),
+      api.companies.discovery.get(companyId.value).catch(e => { if (isFeatureDisabled(e)) return null; throw e; }),
+      api.companies.discoveredDevices.list(companyId.value).catch(e => { if (isFeatureDisabled(e)) return []; throw e; }),
       api.devices.list('approved'),
     ]);
     company.value = all.find(t => t.id === companyId.value) ?? null;

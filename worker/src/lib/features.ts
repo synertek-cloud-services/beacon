@@ -56,6 +56,17 @@ export async function featureEnabled(env: Env, key: FeatureKey): Promise<boolean
   return (await getFeatures(env))[key];
 }
 
+// 403 for a request to a feature that is switched off, or null when it is on.
+// The `code` lets the dashboard show its own "turned off" notice.
+export async function requireFeature(env: Env, key: FeatureKey): Promise<Response | null> {
+  if (await featureEnabled(env, key)) return null;
+  return Response.json({
+    error: 'This feature is turned off. An admin can turn it on under Settings > Features.',
+    code: 'feature_disabled',
+    feature: key,
+  }, { status: 403 });
+}
+
 // Column to write for each key (PATCH /v1/admin/settings/features).
 export const FEATURE_COLUMNS = {
   discovery:              'featureDiscovery',

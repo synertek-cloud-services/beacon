@@ -8,6 +8,9 @@
       <!-- Webhooks -->
       <div class="pf-group">
         <label class="pf-label">Webhooks</label>
+        <FeatureOffNotice v-if="!featureOn('webhooks')" name="Webhooks" plural
+          description="Sends each alert to your webhook endpoints as an outbound request." />
+        <template v-else>
         <p class="field-hint" style="margin-top:-4px">Every alert.triggered / alert.resolved event is POSTed as JSON to each enabled URL below — point this at Hookdeck, Zapier, or your own endpoint.</p>
         <div class="pf-monitors">
           <div v-if="!webhooks.length" class="pf-mon-empty"><p>No webhooks yet.</p></div>
@@ -25,6 +28,7 @@
           <button class="btn btn-ghost btn-sm" :disabled="!newWebhookUrl.trim()" @click="addWebhook">Add Webhook</button>
         </div>
         <div v-if="webhookError" class="error-banner">{{ webhookError }}</div>
+        </template>
       </div>
 
       <!-- Email provider -->
@@ -118,6 +122,8 @@
 
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue';
+import FeatureOffNotice from '../components/FeatureOffNotice.vue';
+import { featureOn, isFeatureDisabled } from '../features';
 import { api, type WebhookEndpoint, type NotificationEmail, type EmailSettings, type EmailProviderType, type AppUser } from '../api';
 
 const loading = ref(true);
@@ -158,7 +164,7 @@ function providerLabel(p: EmailProviderType) { return p === 'ses' ? 'Amazon SES'
 
 onMounted(async () => {
   const [wh, es, ne, us] = await Promise.all([
-    api.webhooks.list(),
+    api.webhooks.list().catch(e => { if (isFeatureDisabled(e)) return []; throw e; }),
     api.emailSettings.get().catch(() => null),
     api.notificationEmails.list(),
     api.users.list(),
