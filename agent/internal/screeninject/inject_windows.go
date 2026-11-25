@@ -8,10 +8,12 @@ package screeninject
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"unicode/utf16"
 
 	"github.com/synertek-cloud-services/beacon/agent/internal/rfbserver"
+	"github.com/synertek-cloud-services/beacon/agent/internal/sas"
 	"github.com/synertek-cloud-services/beacon/agent/internal/win32"
 	"github.com/synertek-cloud-services/beacon/agent/internal/x11keysym"
 )
@@ -39,6 +41,9 @@ const (
 // sequentially, from its own single dedicated injection goroutine, so
 // none is needed.
 type Injector struct {
+	// cad recognises Ctrl+Alt+Delete among the incoming key events.
+	cad cadTracker
+
 	// monitorRect is this injector's target monitor, in virtual-desktop
 	// coordinates -- incoming PointerEvent (x,y) are relative to this
 	// rect's own top-left, matching what GDICapturer.Size() reports for
@@ -86,6 +91,15 @@ func NewForMonitor(monitorRect win32.RECT) *Injector {
 // virtual-key mapping is silently dropped, not treated as an error --
 // x11keysym's table is deliberately non-exhaustive.
 func (i *Injector) KeyEvent(down bool, keysym uint32) error {
+	// Windows ignores a synthesized Ctrl+Alt+Del, so that one combination goes
+	// to the agent service, which raises it through SendSAS instead -- see
+	// package sas. Never fatal: a failure just means the button did nothing.
+	if i.cad.observe(down, keysym) {
+		if err := sas.Request(); err != nil {
+			log.Printf("screeninject: Ctrl+Alt+Delete: %v", err)
+		}
+		return nil
+	}
 	vk, ok := x11keysym.ToVirtualKey(keysym)
 	if !ok {
 		return nil
