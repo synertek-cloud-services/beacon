@@ -9,6 +9,7 @@ import { sha256hex } from '../lib/crypto';
 import { evaluateCheckinAlerts, evaluateFileSizeAlerts, evaluatePingAlerts, evaluateProcessAlerts, evaluateServiceAlerts, evaluateWindowsUpdateDriftAlerts, resolveWindowsUpdateDriftAlerts, fetchDeviceGroupIds, mayHaveAssignments } from '../lib/alerts';
 import { evaluatePostConditions, type PostCondition } from '../lib/postConditions';
 import { isDeviceSuppressedNow } from '../lib/maintenance';
+import { getFeatures } from '../lib/features';
 import { recordDiscoveredHosts, type DiscoveredHost } from '../lib/discovery';
 
 const checkin = new Hono<{ Bindings: Bindings }>();
@@ -247,7 +248,8 @@ checkin.post('/', async (c) => {
   // Alert work at check-in is only the agent-measured checks (assignments out,
   // results in); sampled alerts run on the cron. When nothing is assigned or
   // reported, skip the group lookup, maintenance gate and policy resolution.
-  const alertWorkNeeded = hasPendingResults || await mayHaveAssignments(c.env.DB, device);
+  const features = await getFeatures(c.env);
+  const alertWorkNeeded = hasPendingResults || await mayHaveAssignments(c.env, device);
 
   // One lookup shared by the maintenance gate and policy matching below.
   const deviceGroupIds = alertWorkNeeded
@@ -257,26 +259,26 @@ checkin.post('/', async (c) => {
 
   const { fileSizeChecks, pingChecks, processChecks, serviceChecks, windowsUpdateDriftChecks } = inMaintenance || !alertWorkNeeded
     ? { fileSizeChecks: [], pingChecks: [], processChecks: [], serviceChecks: [], windowsUpdateDriftChecks: [] }
-    : await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now, deviceGroupIds);
+    : await evaluateCheckinAlerts(c.env.DB, device, body.metrics, now, deviceGroupIds, features);
 
   if (!inMaintenance) {
     // Evaluate file_size measurements the agent took for a prior check-in's assignments
-    if (body.pending_file_size_results?.length) {
+    if (features.agent_monitors && body.pending_file_size_results?.length) {
       await evaluateFileSizeAlerts(c.env.DB, c.env, device, body.pending_file_size_results, now);
     }
 
     // Evaluate ping measurements the agent took for a prior check-in's assignments
-    if (body.pending_ping_results?.length) {
+    if (features.agent_monitors && body.pending_ping_results?.length) {
       await evaluatePingAlerts(c.env.DB, c.env, device, body.pending_ping_results, now);
     }
 
     // Evaluate process measurements the agent took for a prior check-in's assignments
-    if (body.pending_process_results?.length) {
+    if (features.agent_monitors && body.pending_process_results?.length) {
       await evaluateProcessAlerts(c.env.DB, c.env, device, body.pending_process_results, now);
     }
 
     // Evaluate service measurements the agent took for a prior check-in's assignments
-    if (body.pending_service_results?.length) {
+    if (features.agent_monitors && body.pending_service_results?.length) {
       await evaluateServiceAlerts(c.env.DB, c.env, device, body.pending_service_results, now);
     }
 

@@ -7,7 +7,7 @@ import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, Pro
 import { sendEmail } from './email';
 import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
 import { logActivity } from './activityLog';
-import { featureEnabled } from './features';
+import { featureEnabled, getFeatures, AGENT_MONITOR_TYPES, type Features } from './features';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -224,11 +224,12 @@ const SAMPLED_CHECK_TYPES = new Set(['disk_space', 'cpu_usage', 'memory_usage', 
 // skip the device-group lookup, maintenance gate and policy resolution
 // entirely. Over-approximates (ignores per-policy targeting) -- a false
 // positive just runs the full path.
-export async function mayHaveAssignments(DB: D1Database, device: Device): Promise<boolean> {
-  const { rows } = await getPolicyCache(getDb(DB));
+export async function mayHaveAssignments(env: Pick<Bindings, 'DB' | 'FEATURES_ALL'>, device: Device): Promise<boolean> {
+  const [{ rows }, features] = await Promise.all([getPolicyCache(getDb(env.DB)), getFeatures(env)]);
   return rows.some(r => {
     const t = r.policy_monitors.checkType;
     if (!ASSIGNED_CHECK_TYPES.has(t)) return false;
+    if (AGENT_MONITOR_TYPES.has(t) && !features.agent_monitors) return false;
     return t !== 'windows_update_drift' || !!device.windowsUpdateManaged;
   });
 }
@@ -251,6 +252,7 @@ export async function evaluateCheckinAlerts(
   metrics: Metrics,
   now: number,
   deviceGroupIds?: Set<string>,
+  features?: Features,
 ): Promise<CheckinAssignments> {
   const db = getDb(DB);
   const monitors = await resolveEffectiveMonitors(db, device, deviceGroupIds);
@@ -263,6 +265,7 @@ export async function evaluateCheckinAlerts(
 
   for (const monitor of monitors) {
     if (!ASSIGNED_CHECK_TYPES.has(monitor.checkType)) continue; // offline + sampled types are evaluated by the cron
+    if (features && !features.agent_monitors && AGENT_MONITOR_TYPES.has(monitor.checkType)) continue; // agent_monitors flag off: nothing assigned
     // Throttle evaluation frequency below the 60s check-in cadence. Stateless
     // by design — bucketing by wall-clock minute avoids needing a "last
     // evaluated" timestamp, which would just reintroduce a write every

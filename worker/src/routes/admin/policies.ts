@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from '../../lib/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
+import { requireFeature, AGENT_MONITOR_TYPES } from '../../lib/features';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
 import { reconcileOrphanedAlerts, resolveAllOpenAlerts } from '../../lib/alerts';
@@ -263,6 +264,10 @@ policies.post('/:id/monitors', async (c) => {
 
   if (!VALID_CHECK_TYPES.includes(body.check_type))
     return c.json({ error: 'invalid check_type' }, 400);
+  if (AGENT_MONITOR_TYPES.has(body.check_type)) {
+    const agentOff = await requireFeature(c.env, 'agent_monitors');
+    if (agentOff) return agentOff;
+  }
 
   const priority = body.alert_priority && VALID_PRIORITIES.includes(body.alert_priority)
     ? body.alert_priority : 'high';

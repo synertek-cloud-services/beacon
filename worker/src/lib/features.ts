@@ -56,6 +56,11 @@ export async function featureEnabled(env: Env, key: FeatureKey): Promise<boolean
   return (await getFeatures(env))[key];
 }
 
+// Check types measured by the agent (assign -> measure -> report); gated by the
+// agent_monitors flag. windows_update_drift also rides that machinery but
+// belongs to os_update_management, so it is deliberately not listed.
+export const AGENT_MONITOR_TYPES: ReadonlySet<string> = new Set(['file_size', 'ping', 'process', 'service']);
+
 // 403 for a request to a feature that is switched off, or null when it is on.
 // The `code` lets the dashboard show its own "turned off" notice.
 export async function requireFeature(env: Env, key: FeatureKey): Promise<Response | null> {
