@@ -1,3 +1,4 @@
+import { allInChunks } from './d1';
 import type { D1Database } from '@cloudflare/workers-types';
 
 export interface DashboardSummary {
@@ -85,14 +86,14 @@ export async function buildDashboardData(db: D1Database, companyIds?: string[]) 
   const byPatchSeverity: Record<string, number> = {};
   const approvedIds = approved.map(d => d.id as string);
   if (approvedIds.length > 0) {
-    const patchAudits = await db.prepare(`
+    const patchAudits = { results: await allInChunks(approvedIds, async ids => (await db.prepare(`
       SELECT da.patches FROM device_audits da
-      WHERE da.patches IS NOT NULL AND da.device_id IN (${placeholders(approvedIds)})
+      WHERE da.patches IS NOT NULL AND da.device_id IN (${placeholders(ids)})
         AND da.created_at = (
           SELECT MAX(created_at) FROM device_audits da2
           WHERE da2.device_id = da.device_id AND da2.patches IS NOT NULL
         )
-    `).bind(...approvedIds).all<{ patches: string }>();
+    `).bind(...ids).all<{ patches: string }>()).results) };
     const seenUpdateIds = new Set<string>();
     for (const row of patchAudits.results) {
       let items: Array<{ update_id?: string; severity?: string }>;

@@ -1,3 +1,4 @@
+import { allInChunks } from './d1';
 import { decryptSecret } from './crypto';
 
 // Bulk-fetches every targeted company's Variables/Secrets (both kinds),
@@ -22,16 +23,15 @@ export async function fetchCompanyVariables(
   const uniqueIds = [...new Set(companyIds)];
   if (uniqueIds.length === 0) return out;
 
-  const placeholders = uniqueIds.map(() => '?').join(',');
-  const rows = await db.prepare(
+  const rowList = await allInChunks(uniqueIds, async ids => (await db.prepare(
     `SELECT company_id, key, is_secret, value, value_ciphertext, value_nonce
-     FROM company_variables WHERE company_id IN (${placeholders})`
-  ).bind(...uniqueIds).all<{
+     FROM company_variables WHERE company_id IN (${ids.map(() => '?').join(',')})`
+  ).bind(...ids).all<{
     company_id: string; key: string; is_secret: number;
     value: string | null; value_ciphertext: string | null; value_nonce: string | null;
-  }>();
+  }>()).results);
 
-  for (const row of rows.results) {
+  for (const row of rowList) {
     let value: string | null;
     if (row.is_secret) {
       if (!row.value_ciphertext || !row.value_nonce) continue;

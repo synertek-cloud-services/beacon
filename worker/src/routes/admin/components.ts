@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../../index';
 import { requireFeature } from '../../lib/features';
+import { allInChunks } from '../../lib/d1';
 import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import type { PostCondition } from '../../lib/postConditions';
 
@@ -94,11 +95,12 @@ function mapApplication(r: any) {
 async function embedRelations(db: D1Database, rows: any[]) {
   if (!rows.length) return [];
   const ids = rows.map(r => r.id);
-  const placeholders = ids.map(() => '?').join(',');
+  const inList = (part: string[]) => part.map(() => '?').join(',');
+  const queryByComponent = async (sql: (list: string) => string) =>
+    ({ results: await allInChunks(ids, async part => (await db.prepare(sql(inList(part))).bind(...part).all<any>()).results) });
 
-  const vars = await db.prepare(
-    `SELECT * FROM component_variables WHERE component_id IN (${placeholders}) ORDER BY sort_order ASC`
-  ).bind(...ids).all<any>();
+  const vars = await queryByComponent(list =>
+    `SELECT * FROM component_variables WHERE component_id IN (${list}) ORDER BY sort_order ASC`);
   const varsByComponent = new Map<string, ReturnType<typeof mapVariable>[]>();
   for (const v of vars.results) {
     const mapped = mapVariable(v);
@@ -106,20 +108,18 @@ async function embedRelations(db: D1Database, rows: any[]) {
     varsByComponent.get(mapped.componentId)!.push(mapped);
   }
 
-  const companiesResult = await db.prepare(
+  const companiesResult = await queryByComponent(list =>
     `SELECT cs.component_id, cs.company_id, t.name FROM component_companies cs
      JOIN companies t ON t.id = cs.company_id
-     WHERE cs.component_id IN (${placeholders}) ORDER BY t.name ASC`
-  ).bind(...ids).all<any>();
+     WHERE cs.component_id IN (${list}) ORDER BY t.name ASC`);
   const companiesByComponent = new Map<string, ReturnType<typeof mapCompany>[]>();
   for (const s of companiesResult.results) {
     if (!companiesByComponent.has(s.component_id)) companiesByComponent.set(s.component_id, []);
     companiesByComponent.get(s.component_id)!.push(mapCompany(s));
   }
 
-  const filesResult = await db.prepare(
-    `SELECT * FROM component_files WHERE component_id IN (${placeholders}) ORDER BY created_at ASC`
-  ).bind(...ids).all<any>();
+  const filesResult = await queryByComponent(list =>
+    `SELECT * FROM component_files WHERE component_id IN (${list}) ORDER BY created_at ASC`);
   const filesByComponent = new Map<string, ReturnType<typeof mapFile>[]>();
   for (const f of filesResult.results) {
     const mapped = mapFile(f);
@@ -127,9 +127,8 @@ async function embedRelations(db: D1Database, rows: any[]) {
     filesByComponent.get(mapped.componentId)!.push(mapped);
   }
 
-  const appsResult = await db.prepare(
-    `SELECT * FROM component_applications WHERE component_id IN (${placeholders})`
-  ).bind(...ids).all<any>();
+  const appsResult = await queryByComponent(list =>
+    `SELECT * FROM component_applications WHERE component_id IN (${list})`);
   const applicationByComponent = new Map(appsResult.results.map(r => [r.component_id, mapApplication(r)]));
 
   return rows.map(r => ({

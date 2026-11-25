@@ -7,6 +7,7 @@ import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, Pro
 import { sendEmail } from './email';
 import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
 import { logActivity } from './activityLog';
+import { allInChunks, chunked } from './d1';
 import { featureEnabled, getFeatures, AGENT_MONITOR_TYPES, type Features } from './features';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -139,8 +140,12 @@ async function fetchPolicyGroupIds(db: Db): Promise<Map<string, Set<string>>> {
 export async function fetchDeviceGroupIds(db: Db, deviceIds: string[]): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   if (deviceIds.length === 0) return out;
-  const rows = await db.select().from(schema.deviceGroupMembers)
-    .where(inArray(schema.deviceGroupMembers.deviceId, deviceIds));
+  // A long id list can't be bound (D1's 100-parameter cap), and membership
+  // rows are small, so a fleet-wide lookup just reads the whole table; the
+  // callers only look devices up by id, so extra rows are harmless.
+  const rows = deviceIds.length > 50
+    ? await db.select().from(schema.deviceGroupMembers)
+    : await db.select().from(schema.deviceGroupMembers).where(inArray(schema.deviceGroupMembers.deviceId, deviceIds));
   for (const r of rows) {
     if (!out.has(r.deviceId)) out.set(r.deviceId, new Set());
     out.get(r.deviceId)!.add(r.groupId);
@@ -1261,15 +1266,15 @@ export async function reconcileOrphanedAlerts(
   if (monitorIds.length === 0) return;
   const db = getDb(DB);
 
-  const rows = await db.select()
+  const rows = await allInChunks(monitorIds, ids => db.select()
     .from(schema.alertState)
     .innerJoin(schema.policyMonitors, eq(schema.policyMonitors.id, schema.alertState.policyMonitorId))
     .innerJoin(schema.policies, eq(schema.policies.id, schema.policyMonitors.policyId))
     .innerJoin(schema.devices, eq(schema.devices.id, schema.alertState.deviceId))
     .where(and(
-      inArray(schema.alertState.policyMonitorId, monitorIds),
+      inArray(schema.alertState.policyMonitorId, ids),
       eq(schema.alertState.isAlerting, true),
-    ));
+    )));
 
   const policyGroupIds = await fetchPolicyGroupIds(db);
   const deviceGroupIds = await fetchDeviceGroupIds(db, rows.map(r => r.devices.id));
@@ -1301,12 +1306,14 @@ export async function resolveAllOpenAlerts(
   if (monitorIds.length === 0) return;
   const db = getDb(DB);
 
-  await db.update(schema.alertState)
-    .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
-    .where(and(
-      inArray(schema.alertState.policyMonitorId, monitorIds),
-      eq(schema.alertState.isAlerting, true),
-    ));
+  for (const ids of chunked(monitorIds)) {
+    await db.update(schema.alertState)
+      .set({ isAlerting: false, resolvedAt: now, conditionFirstSeen: null, updatedAt: now })
+      .where(and(
+        inArray(schema.alertState.policyMonitorId, ids),
+        eq(schema.alertState.isAlerting, true),
+      ));
+  }
 }
 
 // Called from checkin.ts's manage_windows_update revert-completion branch.
