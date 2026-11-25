@@ -1267,23 +1267,26 @@ async function openSessionPicker() {
         const result = cmd.result ? JSON.parse(cmd.result) : { stdout: '[]' };
         const sessions = JSON.parse(result.stdout || '[]') as { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }[];
         sessionPickerSessions.value = sessions;
-        if (sessions.length === 0) {
-          // Nobody is logged in -- there is nothing to choose, so connect
-          // straight to the console instead of making the technician click
-          // through a dialog whose only option is that connection. The
-          // agent's own SYSTEM fallback shows the sign-in screen.
+        // The agent also lists the console when nobody is signed into it (an
+        // empty username, the sign-in screen). That alone is not a choice: with
+        // no real user session on the device, connect straight to it -- by its
+        // explicit session ID when the agent reported one, so a stray RDP
+        // session can't be picked up instead.
+        const signedIn = sessions.filter(s => s.username);
+        if (signedIn.length === 0) {
           sessionPickerLoading.value = false;
-          if (await connectWebRemote()) return;
+          const consoleId = sessions.find(s => s.is_console)?.session_id;
+          if (await connectWebRemote(consoleId)) return;
           // The browser blocked the tab (this runs well after the click that
-          // started it) -- leave the picker open on its Console entry so one
-          // more click, which is allowed to open a tab, finishes the job.
-          sessionPickerSelected.value = CONSOLE_SENTINEL;
+          // started it) -- leave the picker open so one more click, which is
+          // allowed to open a tab, finishes the job.
+          sessionPickerSelected.value = consoleId ?? CONSOLE_SENTINEL;
           return;
         }
-        // Default to Console when present, otherwise the first entry --
-        // saves a click for the common case.
-        const consoleSession = sessions.find(s => s.is_console);
-        sessionPickerSelected.value = (consoleSession ?? sessions[0]).session_id;
+        // Default to the console when a user is signed into it, otherwise the
+        // first signed-in session -- saves a click for the common case.
+        const consoleSession = signedIn.find(s => s.is_console);
+        sessionPickerSelected.value = (consoleSession ?? signedIn[0]).session_id;
         sessionPickerLoading.value = false;
         return;
       }
@@ -1314,7 +1317,7 @@ const pickerDisplaySessions = computed(() => {
 
 function sessionPickerLabel(s: { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }): string {
   const suffix = s.is_disconnected ? ' (Disconnected)' : '';
-  if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : '') + suffix;
+  if (s.is_console) return 'Console' + (s.username ? ` (${s.username})` : ' (sign-in screen)') + suffix;
   return (s.username || 'Unknown user') + ` (Session ${s.session_id})` + suffix;
 }
 
