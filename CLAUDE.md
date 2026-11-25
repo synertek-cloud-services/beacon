@@ -149,7 +149,7 @@ Migrations live in `migrations/` (not inside `worker/`). Drizzle points there vi
 3. Run `make migrate-local` to test locally
 4. Merge the approved PR and let the release workflow apply migrations before deploying the Worker and dashboard (self-hosters run migrations manually before their own deploy)
 
-Latest migration: `0085` (RustDesk on-demand install pipeline, see that section below). Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered here.
+Latest migration: `0087` (opt-in feature flags, see Feature Flags below). Check `migrations/` directly for the full ordered list; PROJECT_LOG.md has the session-by-session story for anything not covered here.
 
 `worker/src/db/schema.ts` is hand-kept in sync with the migrations rather than generated.
 
@@ -366,6 +366,10 @@ Linux Remote Shell is confirmed Supported on real hardware — interactive comma
 
 ### Explicitly out of scope
 File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot-only, shutdown/restart, network device deploy/wake, in-session Quick Jobs, session history/audit UI — all reuse this same relay/auth plumbing when built. "Remote takeover" is now built — see Web Remote below.
+
+## Feature Flags (migration `0087`)
+
+Five opt-in switches for the features that spend Cloudflare free-tier budget — the design is `docs/SCALABILITY_DESIGN.md` and the product rule is "free-tier first, nothing paywalled": `discovery`, `application_components`, `webhooks`, `os_update_management`, `agent_monitors`. Stored as columns on the `host_settings` singleton, read through `worker/src/lib/features.ts` (`getFeatures`/`featureEnabled`, 60s per-isolate cache cleared on PATCH). **Fresh installs start with everything off; the migration turns everything on if the install already has devices**, so an existing deployment sees no change. A managed host (Spirewick) sets the `FEATURES_ALL=true` var to force every feature on and block edits. `GET /v1/admin/settings/features` (readonly) / `PATCH` (admin); dashboard page `/settings/features` (admin). Features that cost no budget (SSO, Branding, shared Dashboards) are deliberately not flagged. Enforcement is added feature by feature — a flag with no gate yet changes nothing.
 
 ## Fast Poll (removed)
 

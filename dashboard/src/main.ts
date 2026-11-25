@@ -37,6 +37,7 @@ import GroupFormPage from './pages/GroupFormPage.vue';
 import BrandingSettingsPage from './pages/BrandingSettingsPage.vue';
 import NotificationSettingsPage from './pages/NotificationSettingsPage.vue';
 import RustDeskSettingsPage from './pages/RustDeskSettingsPage.vue';
+import FeaturesSettingsPage from './pages/FeaturesSettingsPage.vue';
 import { api } from './api';
 import { authState, hasRole, loadCurrentUser } from './auth';
 import { loadActiveTheme } from './theme';
@@ -96,6 +97,7 @@ const router = createRouter({
     { path: '/settings/branding', component: BrandingSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/notifications', component: NotificationSettingsPage, meta: { minRole: 'admin' } },
     { path: '/settings/rustdesk', component: RustDeskSettingsPage, meta: { minRole: 'admin' } },
+    { path: '/settings/features', component: FeaturesSettingsPage, meta: { minRole: 'admin' } },
   ],
 });
 
