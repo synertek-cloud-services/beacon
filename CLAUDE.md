@@ -367,6 +367,10 @@ Linux Remote Shell is confirmed Supported on real hardware — interactive comma
 ### Explicitly out of scope
 File Manager, Task Manager, Service Manager, Registry Editor, Event Viewer, Screenshot-only, shutdown/restart, network device deploy/wake, in-session Quick Jobs, session history/audit UI — all reuse this same relay/auth plumbing when built. "Remote takeover" is now built — see Web Remote below.
 
+## Hosted operators
+
+`docs/HOSTED_OPERATOR_NOTES.md` lists what a control plane that provisions Beacon for customers (e.g. Spirewick) must change when Beacon changes — bindings, vars, migrations, scheduler behavior, WebSocket routes, Worker/dashboard version coupling. **Any PR that adds or alters one of those must add an entry there in the same PR**, newest first, because another agent (Codex) maintains the hosted side and reads that file, not this conversation.
+
 ## Feature Flags (migration `0087`)
 
 Five opt-in switches for the features that spend Cloudflare free-tier budget — the design is `docs/SCALABILITY_DESIGN.md` and the product rule is "free-tier first, nothing paywalled": `discovery`, `application_components`, `webhooks`, `os_update_management`, `agent_monitors`. Stored as columns on the `host_settings` singleton, read through `worker/src/lib/features.ts` (`getFeatures`/`featureEnabled`, 60s per-isolate cache cleared on PATCH). **Fresh installs start with everything off; the migration turns everything on if the install already has devices**, so an existing deployment sees no change. A managed host (Spirewick) sets the `FEATURES_ALL=true` var to force every feature on and block edits. `GET /v1/admin/settings/features` (readonly) / `PATCH` (admin); dashboard page `/settings/features` (admin). Features that cost no budget (SSO, Branding, shared Dashboards) are deliberately not flagged. What "off" enforces, per flag (a gated API call returns 403 `{code:'feature_disabled', feature}`; the dashboard's `features.ts` store + `FeatureOffNotice` turn that into a notice):
