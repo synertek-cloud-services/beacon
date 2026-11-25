@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,19 @@ import (
 var version = "0.2.9"
 
 const checkInInterval = 60 * time.Second
+
+// jittered spreads an interval by +/-10% so agents that were started or
+// updated at the same moment drift apart instead of checking in in lockstep.
+// Without it, a fleet restarted together (an agent release, a reboot wave)
+// stays phase-aligned forever and hits the worker as a synchronized burst,
+// which a single D1 database rejects as "overloaded" above ~150 requests/s.
+func jittered(d time.Duration) time.Duration {
+	spread := int64(d) / 5
+	if spread <= 0 {
+		return d
+	}
+	return d - time.Duration(spread/2) + time.Duration(rand.Int63n(spread))
+}
 
 // connectedInterval is the poll cadence while the DeviceHub wake socket is up:
 // the worker can reach this device instantly, so polling only has to refresh
@@ -193,7 +207,7 @@ func main() {
 			// see service.ProcessRebootState's own doc comment.
 			service.ProcessRebootState()
 			select {
-			case <-time.After(interval):
+			case <-time.After(jittered(interval)):
 			case <-wakeCheckin:
 			case <-triggerCheckin:
 				// A command result arrived — check in early to report it
