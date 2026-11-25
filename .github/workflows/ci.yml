@@ -1,0 +1,72 @@
+name: CI
+
+# Pull-request checks. The release workflow only runs after a merge; this is what
+# catches a broken type-check, a failing test, or a blown query budget before it.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker:
+    name: Worker (type-check + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: worker/pnpm-lock.yaml
+      - run: pnpm --dir worker install --frozen-lockfile
+      - run: pnpm --dir worker run type-check
+      # Includes test/query-budget.test.ts: per-check-in query counts, fleet-size
+      # independence and the scheduled run at 250 devices. See
+      # docs/SCALABILITY_DESIGN.md before raising any of those numbers.
+      - run: pnpm --dir worker run test
+
+  dashboard:
+    name: Dashboard (type-check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+      - run: pnpm --dir dashboard install --frozen-lockfile
+      # `vue-tsc -b` (build mode), not a bare --noEmit, which can silently check
+      # zero files with this solution-style tsconfig. See CLAUDE.md.
+      - run: pnpm --dir dashboard exec vue-tsc -b
+
+  agent:
+    name: Agent (vet, tests, Windows build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: go vet ./...
+        working-directory: agent
+      - run: go test ./...
+        working-directory: agent
+      - run: go build ./...
+        working-directory: agent
+        env:
+          GOOS: windows
+          GOARCH: amd64

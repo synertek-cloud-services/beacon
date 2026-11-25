@@ -67,11 +67,9 @@ func collectServicesLinux() ([]protocol.ServiceItem, error) {
 				continue
 			}
 			name := strings.TrimSuffix(fields[0], ".service")
-			if s, ok := byName[name]; ok {
-				s.active = s.active // state already known
-				byName[name] = s
-			} else {
-				// Unit file exists but no running instance — add it
+			// A unit that already has a known running state is left as-is; a unit
+			// file with no running instance is added as inactive.
+			if _, ok := byName[name]; !ok {
 				byName[name] = unitState{active: "inactive", sub: "dead"}
 			}
 		}
