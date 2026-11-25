@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../../index';
+import { requireFeature } from '../../lib/features';
 import { requireUser, roleAtLeast, type Role } from '../../lib/auth';
 import type { PostCondition } from '../../lib/postConditions';
 
@@ -189,6 +190,8 @@ adminComponents.get('/', async (c) => {
 
 adminComponents.post('/:id/files', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const appOff = await requireFeature(c.env, 'application_components');
+  if (appOff) return appOff;
   const componentId = c.req.param('id');
   const component = await c.env.DB.prepare(`SELECT type, origin FROM components WHERE id = ?`).bind(componentId).first<any>();
   if (!component) return c.json({ error: 'component not found' }, 404);
@@ -269,6 +272,8 @@ adminComponents.delete('/:id/files/:fileId', async (c) => {
 
 adminComponents.put('/:id/application', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const appOff = await requireFeature(c.env, 'application_components');
+  if (appOff) return appOff;
   const componentId = c.req.param('id');
   const component = await c.env.DB.prepare(`SELECT type, origin FROM components WHERE id = ?`).bind(componentId).first<any>();
   if (!component) return c.json({ error: 'component not found' }, 404);
@@ -335,6 +340,10 @@ adminComponents.post('/', async (c) => {
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
   const type = body.type ?? 'script';
   if (type !== 'script' && type !== 'application') return c.json({ error: 'invalid component type' }, 400);
+  if (type === 'application') {
+    const appOff = await requireFeature(c.env, 'application_components');
+    if (appOff) return appOff;
+  }
   if (type === 'script' && !body.script?.trim()) return c.json({ error: 'script required' }, 400);
   const scope = body.scope ?? 'global';
 
@@ -404,6 +413,10 @@ adminComponents.patch('/:id', async (c) => {
     return c.json({ error: 'admin role required to change requires_admin' }, 403);
   }
 
+  if (body.type === 'application') {
+    const appOff = await requireFeature(c.env, 'application_components');
+    if (appOff) return appOff;
+  }
   if (body.type !== undefined && body.type !== 'script' && body.type !== 'application') {
     return c.json({ error: 'invalid component type' }, 400);
   }
@@ -469,6 +482,10 @@ adminComponents.post('/:id/clone', async (c) => {
 
   const source = await c.env.DB.prepare(`SELECT * FROM components WHERE id = ?`).bind(sourceId).first<any>();
   if (!source) return c.json({ error: 'not found' }, 404);
+  if (source.type === 'application') {
+    const appOff = await requireFeature(c.env, 'application_components');
+    if (appOff) return appOff;
+  }
 
   // Verify source objects before making the clone row, so a missing private
   // object cannot leave a half-created application component behind.

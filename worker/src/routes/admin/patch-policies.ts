@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from '../../lib/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
+import { requireFeature } from '../../lib/features';
 import * as schema from '../../db/schema';
 import { requireUser } from '../../lib/auth';
 import { copyPatchPolicyTargets, AUTO_APPROVE_CLASSIFICATIONS } from '../../lib/patchPolicies';
@@ -198,6 +199,11 @@ patchPolicies.post('/', async (c) => {
     recurrencePatch = validated.patch;
   }
 
+  if (manageWindowsUpdate || manageMicrosoftUpdate) {
+    const osOff = await requireFeature(c.env, 'os_update_management');
+    if (osOff) return osOff;
+  }
+
   const id = crypto.randomUUID();
   await db.insert(schema.patchPolicies).values({
     id, name, description, enabled,
@@ -242,6 +248,19 @@ patchPolicies.patch('/:id', async (c) => {
     include_drivers?: boolean;
     manage_microsoft_update?: boolean;
   }>();
+
+  // Only turning management ON is blocked while the feature is off. A form
+  // re-sending an already-true value (editing some other field of a policy
+  // that predates the switch) must keep working.
+  if (body.manage_windows_update === true || body.manage_microsoft_update === true) {
+    const current = await db.select({ w: schema.patchPolicies.manageWindowsUpdate, m: schema.patchPolicies.manageMicrosoftUpdate })
+      .from(schema.patchPolicies).where(eq(schema.patchPolicies.id, id)).get();
+    const turningOn = (body.manage_windows_update === true && !current?.w) || (body.manage_microsoft_update === true && !current?.m);
+    if (turningOn) {
+      const osOff = await requireFeature(c.env, 'os_update_management');
+      if (osOff) return osOff;
+    }
+  }
 
   const patch: Record<string, unknown> = { updatedAt: now };
   if (body.name        !== undefined) patch.name        = body.name;

@@ -49,6 +49,8 @@
           <button :class="['seg-btn', 'seg-primary', { active: form.type === 'script' }]" @click="form.type = 'script'">Script</button>
           <button :class="['seg-btn', 'seg-primary', { active: form.type === 'application' }]" @click="selectApplication">Application</button>
         </div>
+        <FeatureOffNotice v-if="!featureOn('application_components')" name="Application Components" plural
+          description="Installer files stored in R2 and deployed to devices." style="margin-top:10px" />
         <p v-if="form.type === 'application'" class="field-hint">
           Windows MSI installer with optional support files. Applications always run as the system account.
         </p>
@@ -328,6 +330,8 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type Component, type ComponentCompany, type ComponentVariable, type ComponentVariableType, type ComponentVariableOption, type PostCondition, type Company, type CustomField } from '../api';
 import { hasRole } from '../auth';
+import FeatureOffNotice from '../components/FeatureOffNotice.vue';
+import { featureOn } from '../features';
 
 const router = useRouter();
 const route  = useRoute();
@@ -372,6 +376,7 @@ const applicationDetectionType = ref<'none' | 'msi_product_code' | 'powershell'>
 const applicationDetectionValue = ref('');
 
 function selectApplication() {
+  if (!featureOn('application_components')) return;
   form.type = 'application';
   form.targetOs = 'windows';
 }
