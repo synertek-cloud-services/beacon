@@ -248,8 +248,13 @@
         </div>
       </div>
 
+      <div v-if="!featureOn('os_update_management')" class="pf-group">
+        <FeatureOffNotice name="Windows & Microsoft Update management"
+          description="Lets a Patch Policy take over Windows' own update settings on the devices it covers." />
+      </div>
+
       <!-- Manage Windows Update -->
-      <div class="pf-group">
+      <div v-if="featureOn('os_update_management')" class="pf-group">
         <label class="pf-label">Manage Windows' own Automatic Updates</label>
         <p class="field-hint" style="margin-top:-4px">
           When enabled, a device covered by this policy has Windows' own separate Automatic Updates
@@ -264,7 +269,7 @@
       </div>
 
       <!-- Manage Microsoft Update -->
-      <div class="pf-group">
+      <div v-if="featureOn('os_update_management')" class="pf-group">
         <label class="pf-label">Manage Microsoft Update</label>
         <p class="field-hint" style="margin-top:-4px">
           When enabled, a device covered by this policy has the separate "Microsoft Update" service
@@ -309,6 +314,8 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api, AUTO_APPROVE_CLASSIFICATIONS, type Company, type Device, type DeviceGroup, type MaintenanceRecurrenceType } from '../api';
 import { zonedTimeToUtc, utcToZonedInputValue } from '../timezone';
+import FeatureOffNotice from '../components/FeatureOffNotice.vue';
+import { featureOn } from '../features';
 
 const router = useRouter();
 const route  = useRoute();

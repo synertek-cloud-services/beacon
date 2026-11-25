@@ -17,8 +17,8 @@ export async function runScheduledMaintenance(env: Bindings, now = Math.floor(Da
   await dispatchDueScheduledJobs(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
   await cancelExpiredScheduledJobs(env.DB, now);
   await dispatchDuePatchPolicies(env.DB, now);
-  await syncWindowsUpdateManagement(env.DB, now);
-  await syncMicrosoftUpdateManagement(env.DB, now);
+  await syncWindowsUpdateManagement(env.DB, now, features.os_update_management);
+  await syncMicrosoftUpdateManagement(env.DB, now, features.os_update_management);
   if (features.discovery) await dispatchDueDiscoveryScans(env.DB, env.CONFIG_ENCRYPTION_KEY, now);
   await pruneActivityLog(env.DB, now);
 }

@@ -7,6 +7,7 @@ import { logActivity } from '../../lib/activityLog';
 import { sha256hex } from '../../lib/crypto';
 import { fetchCompanyVariables } from '../../lib/companyVariables';
 import { wakeDevice } from '../../lib/deviceHub';
+import { requireFeature } from '../../lib/features';
 
 const adminJobs = new Hono<{ Bindings: Bindings }>();
 
@@ -564,6 +565,10 @@ adminJobs.post('/', async (c) => {
     }
   }
   const resolved = resolutions as { ref: ComponentRef; payload: ResolvedPayload }[];
+  if (resolved.some(({ payload }) => payload.kind === 'application')) {
+    const appOff = await requireFeature(c.env, 'application_components');
+    if (appOff) return appOff;
+  }
   if (resolved.some(({ payload }) => payload.kind === 'application') && body.run_as_system === false) {
     return c.json({ error: 'application components must run as the system account' }, 400);
   }

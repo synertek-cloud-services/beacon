@@ -27,11 +27,16 @@ type Device = typeof schema.devices.$inferSelect;
 // mechanism as install_patches/network_scan), not the check-in wire
 // protocol -- deliberately, per this session's own earlier incident where
 // extending CheckInRequest/CheckInResponse broke check-in fleet-wide.
-export async function syncWindowsUpdateManagement(DB: D1Database, now: number): Promise<void> {
+// enabled=false (the os_update_management feature flag is off) still runs, but
+// treats every device as uncovered: anything Beacon already took over is
+// reverted, and nothing new is taken over -- the one safety invariant (never
+// leave Windows' own updating disabled with no Beacon coverage) holds even
+// when the feature is switched off.
+export async function syncWindowsUpdateManagement(DB: D1Database, now: number, enabled = true): Promise<void> {
   const db = getDb(DB);
 
   const policies = await fetchEnabledPatchPolicies(db);
-  const managing = policies.filter(p => p.manageWindowsUpdate);
+  const managing = enabled ? policies.filter(p => p.manageWindowsUpdate) : [];
 
   const devices = await db.select().from(schema.devices)
     .where(and(eq(schema.devices.status, 'approved'), eq(schema.devices.osType, 'windows')))
@@ -68,6 +73,7 @@ export async function syncWindowsUpdateManagement(DB: D1Database, now: number): 
     if (outstandingDeviceIds.has(device.id)) continue;
     const desired = hasCoverage(device);
     const current = device.windowsUpdateManaged;
+    if (!enabled && current !== true) continue; // off: only unwind what is currently managed, never issue a first-time revert
     if (desired === current) continue; // null !== true/false, so a never-evaluated device always gets its first command
 
     const payload = desired
