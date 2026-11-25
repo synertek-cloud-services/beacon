@@ -233,11 +233,15 @@
             <div class="mo-type-grid">
               <button v-for="ct in checkTypeOptions" :key="ct.value"
                 :class="['mo-type-card', { selected: monPanel.form.checkType === ct.value }]"
+                :disabled="agentTypeOff(ct.value) && monPanel.form.checkType !== ct.value"
+                :title="agentTypeOff(ct.value) ? 'Turned off in Settings > Features' : undefined"
                 @click="selectCheckType(ct.value as CheckType)">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" v-html="ct.iconPaths"></svg>
                 <span>{{ ct.label }}</span>
               </button>
             </div>
+            <FeatureOffNotice v-if="!featureOn('agent_monitors')" name="Agent-measured monitors" plural style="margin-top:10px"
+              description="Ping, process, service and file-size monitors, measured by the agent on each device." />
           </div>
 
           <div class="mo-div"></div>
@@ -528,6 +532,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
+import FeatureOffNotice from '../components/FeatureOffNotice.vue';
+import { featureOn } from '../features';
 import { useRouter, useRoute } from 'vue-router';
 import { api, type CheckType, type AlertPriority, type Company, type Device, type DeviceGroup } from '../api';
 
@@ -776,6 +782,11 @@ const monPanel = reactive({
     notifyEmail:             false,
   },
 });
+
+const AGENT_MONITOR_CHECK_TYPES = ['file_size', 'ping', 'process', 'service'];
+function agentTypeOff(value: string): boolean {
+  return AGENT_MONITOR_CHECK_TYPES.includes(value) && !featureOn('agent_monitors');
+}
 
 function selectCheckType(ct: CheckType) {
   monPanel.form.checkType = ct;
