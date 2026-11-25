@@ -1,6 +1,10 @@
 package screencapture
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/synertek-cloud-services/beacon/agent/internal/rfb"
+)
 
 // This file deliberately carries no //go:build tag, unlike
 // capture_windows.go -- the diffing logic here is pure byte comparison
@@ -48,4 +52,37 @@ func diffChangedRowRange(prev, curr []byte, rowBytes int) (minY, maxY int, anyCh
 		}
 	}
 	return minY, maxY, minY != -1
+}
+
+// packChangedRows diffs raw (top-down 32bpp BGRA, width*height pixels)
+// against prev and packs only the changed row range to match pf. An
+// unchanged frame returns a zero-height Rectangle -- rfbserver's
+// chunkRectangle already treats H==0 as "send no rectangles". Shared by
+// every capture backend so GDI and DXGI diff and pack identically.
+func packChangedRows(prev, raw []byte, width, height int, pf rfb.PixelFormat) rfb.Rectangle {
+	rowBytesIn := width * 4
+	minY, maxY, changed := diffChangedRowRange(prev, raw, rowBytesIn)
+	if !changed {
+		return rfb.Rectangle{}
+	}
+
+	bytesPerPixel := int(pf.BitsPerPixel) / 8
+	changedRows := maxY - minY + 1
+	rowBytesOut := width * bytesPerPixel
+	out := make([]byte, rowBytesOut*changedRows)
+	for y := 0; y < changedRows; y++ {
+		srcRow := raw[(minY+y)*rowBytesIn : (minY+y+1)*rowBytesIn]
+		rfb.PackRow(out[y*rowBytesOut:(y+1)*rowBytesOut], pf, srcRow)
+	}
+	return rfb.Rectangle{X: 0, Y: uint16(minY), W: uint16(width), H: uint16(changedRows), Pixels: out}
+}
+
+// rgbaToBGRA returns a copy of src (RGBA byte order, as image.RGBA stores
+// it) in the BGRA order rfb.PackRow expects from a GetDIBits-style buffer.
+func rgbaToBGRA(src []byte) []byte {
+	dst := make([]byte, len(src))
+	for i := 0; i+3 < len(src); i += 4 {
+		dst[i], dst[i+1], dst[i+2], dst[i+3] = src[i+2], src[i+1], src[i], src[i+3]
+	}
+	return dst
 }

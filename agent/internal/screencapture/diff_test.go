@@ -1,6 +1,9 @@
 package screencapture
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func makeRows(rowBytes, numRows int, fill byte) []byte {
 	buf := make([]byte, rowBytes*numRows)
@@ -120,5 +123,13 @@ func TestDiffChangedRowRangeEmptyBuffers(t *testing.T) {
 	_, _, changed := diffChangedRowRange(nil, nil, 10)
 	if changed {
 		t.Fatal("two empty buffers have nothing to diff, should report no change")
+	}
+}
+
+func TestRgbaToBGRA(t *testing.T) {
+	got := rgbaToBGRA([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+	want := []byte{3, 2, 1, 4, 7, 6, 5, 8}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("rgbaToBGRA = %v, want %v", got, want)
 	}
 }

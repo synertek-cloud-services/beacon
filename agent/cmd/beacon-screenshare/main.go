@@ -140,7 +140,7 @@ func main() {
 		}
 	}
 
-	cap, err := screencapture.NewGDICapturerForMonitor(targetRect)
+	cap, err := screencapture.NewCapturerForMonitor(targetRect)
 	if err != nil {
 		log.Fatalf("beacon-screenshare: session %s: capturer: %v", *sessionID, err)
 	}
@@ -228,7 +228,7 @@ func pollSwitchMonitor(sessionID, wsURLStr, reportToken string, monitors []win32
 			continue
 		}
 
-		newCap, err := screencapture.NewGDICapturerForMonitor(rect)
+		newCap, err := screencapture.NewCapturerForMonitor(rect)
 		if err != nil {
 			log.Printf("beacon-screenshare: session %s: switch to %q: new capturer: %v", sessionID, body.Monitor, err)
 			continue
