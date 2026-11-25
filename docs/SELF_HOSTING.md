@@ -1,7 +1,7 @@
 # Self-hosting Beacon
 
 This guide installs an independent Beacon instance on Cloudflare. It covers the
-Worker API, D1 database, Durable Object session relay, private R2 logo and application-file storage,
+Worker API, D1 database, Durable Objects (the remote-session relay and the per-device instant-push hub), private R2 logo, application-file and session-file storage,
 Pages dashboard, initial administrator, and first endpoint enrollment.
 
 ## Before you begin
@@ -52,6 +52,7 @@ Decide these values before editing configuration:
 | D1 database name | `beacon` |
 | Private R2 logo bucket | `beacon-logos` |
 | Private R2 application-file bucket | `beacon-component-files` |
+| Private R2 session-file bucket | `beacon-session-files` |
 | Worker/API origin | `https://beacon-api.example.com` |
 | Pages project | `beacon-dashboard` |
 | Dashboard origin | `https://beacon.example.com` |
@@ -68,6 +69,7 @@ From `worker/`:
 npx wrangler d1 create beacon
 npx wrangler r2 bucket create beacon-logos
 npx wrangler r2 bucket create beacon-component-files
+npx wrangler r2 bucket create beacon-session-files
 ```
 
 The D1 command prints a database UUID. Copy `wrangler.toml.example` to
@@ -75,7 +77,7 @@ The D1 command prints a database UUID. Copy `wrangler.toml.example` to
 
 - `account_id`
 - D1 `database_name` and `database_id`
-- both R2 `bucket_name` values
+- all three R2 `bucket_name` values
 - `ALLOWED_ORIGIN` with the final dashboard origin
 - `WORKER_URL` with the final API origin
 - `PAGES_PREVIEW_SUFFIX` with `.<pages-project>.pages.dev`
@@ -84,8 +86,8 @@ The D1 command prints a database UUID. Copy `wrangler.toml.example` to
 If using `workers.dev`, remove the `[[routes]]` block. After Cloudflare assigns
 the Worker origin, put that exact HTTPS origin in `WORKER_URL` and redeploy.
 
-Both R2 buckets remain private. Beacon serves branding logos and grants
-application-file downloads through authorized Worker routes; neither requires
+All three R2 buckets remain private. Beacon serves branding logos and grants
+application-file downloads through authorized Worker routes; none requires
 an R2 public domain.
 
 ## 4. Prepare required secrets
@@ -137,6 +139,18 @@ Verify the public API without sending a credential:
 curl --fail https://beacon-api.example.com/health
 ```
 
+Also confirm the instant-push endpoint is live (it should answer `426`, "WebSocket
+upgrade required", not `404`):
+
+```bash
+curl -i https://beacon-api.example.com/v1/agent/ws
+```
+
+`wrangler.toml.example` already declares the `DEVICE_HUB` Durable Object binding
+and its `v2` migration. Keep both blocks when you copy it to `wrangler.toml`; see
+[Instant push](#instant-push-and-optional-features) below for what they do and
+what happens without them.
+
 For later secret replacement, use `npx wrangler secret put NAME` and enter the
 new value interactively. Do not place secret values directly in a command,
 shell history, issue, log, or configuration file committed to Git.
@@ -169,6 +183,34 @@ Beacon uses hash-based client routes, so direct navigation remains within the
 single deployed SPA. For automated releases, use the repository's ordered
 GitHub Actions workflow and disable competing automatic production Pages
 deployments; see **Maintainer release automation** in the README.
+
+## Instant push and optional features
+
+Two things in Beacon are designed around Cloudflare's free plan.
+
+**Instant push.** With the `DEVICE_HUB` binding and migration in place, each agent
+(v0.4.1 or newer) keeps one idle WebSocket open to a small per-device Durable
+Object. The Worker uses it to wake the agent the moment you open a remote session
+or run a command, so the agent only needs to check in on its own every 4 minutes
+instead of every minute. That cuts Worker requests and D1 writes by roughly 4x
+and lets the free plan carry about 240 devices instead of about 68; the
+[cost calculator](https://runbeacon.net/calculator) shows the numbers. If the
+binding is missing, nothing breaks: `/v1/agent/ws` returns `404` and agents poll
+every 60 seconds. If you already deployed an older `wrangler.toml`, add the
+`DEVICE_HUB` binding and a second `[[migrations]]` block (`tag = "v2"`,
+`new_sqlite_classes = ["DeviceHub"]`) from the example and redeploy. Do not edit
+the existing `v1` migration.
+
+**Optional features (Settings → Features).** Five features do extra work on every
+check-in or scheduled run, so a fresh install starts with them off: Network
+Discovery, Application Components, Webhooks, Windows and Microsoft Update
+management, and agent-measured monitors (ping, process, service, file size).
+Turn on what you need under **Settings → Features**. Nothing is locked or
+paywalled; depending on how many devices you manage, enabling several may mean you
+need Cloudflare's Workers Paid plan (about $5 per month). An install that already
+had devices when it upgraded keeps everything on. A host that runs Beacon for
+others can set the plain-text variable `FEATURES_ALL=true` to treat every feature
+as on and lock the switches.
 
 ## 7. Bootstrap the first administrator
 
