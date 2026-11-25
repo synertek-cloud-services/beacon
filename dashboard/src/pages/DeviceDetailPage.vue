@@ -1193,8 +1193,16 @@ async function openWebRemote() {
 // Connect button below. targetSessionId is undefined for the direct path
 // (console session, today's only behavior) or a specific WTS session ID
 // chosen from the picker.
-async function connectWebRemote(targetSessionId?: number) {
-  if (!device.value) return;
+async function connectWebRemote(targetSessionId?: number): Promise<boolean> {
+  if (!device.value) return false;
+  // Open the tab *before* creating the session: a browser only allows a new
+  // tab for a few seconds after a click, and the zero-sessions auto-connect
+  // below runs long after it. A blocked open returns null, and bailing here
+  // means no orphaned session (and no helper launched on the device) for a
+  // tab that never appeared. The tab is pointed at the real URL once the
+  // session exists.
+  const win = window.open('', '_blank');
+  if (!win) return false;
   try {
     const { session_id, client_ws_url } = await api.sessions.open(device.value.id, device.value.companyId, 'screen_share', { targetSessionId });
     // device_id/company_id ride along so the Elevate button on
@@ -1204,10 +1212,13 @@ async function connectWebRemote(targetSessionId?: number) {
     // instead of silently resetting to console.
     const url = `#/remote/${session_id}?ws=${encodeURIComponent(client_ws_url)}&hostname=${encodeURIComponent(device.value.hostname ?? '')}&device_id=${encodeURIComponent(device.value.id)}&company_id=${encodeURIComponent(device.value.companyId)}` +
       (targetSessionId !== undefined ? `&target_session_id=${targetSessionId}` : '');
-    window.open(url, '_blank');
+    win.location.href = new URL(url, window.location.href).href;
     sessionPickerOpen.value = false;
+    return true;
   } catch (e: any) {
+    win.close();
     error.value = e.message;
+    return false;
   }
 }
 
@@ -1261,9 +1272,12 @@ async function openSessionPicker() {
           // straight to the console instead of making the technician click
           // through a dialog whose only option is that connection. The
           // agent's own SYSTEM fallback shows the sign-in screen.
-          sessionPickerOpen.value = false;
           sessionPickerLoading.value = false;
-          await connectWebRemote();
+          if (await connectWebRemote()) return;
+          // The browser blocked the tab (this runs well after the click that
+          // started it) -- leave the picker open on its Console entry so one
+          // more click, which is allowed to open a tab, finishes the job.
+          sessionPickerSelected.value = CONSOLE_SENTINEL;
           return;
         }
         // Default to Console when present, otherwise the first entry --
