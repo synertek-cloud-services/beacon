@@ -30,6 +30,10 @@ export class DeviceHub implements DurableObject {
       return Response.json({ woken });
     }
 
+    if (url.pathname === '/status') {
+      return Response.json({ connected: this.state.getWebSockets().length > 0 });
+    }
+
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('WebSocket upgrade required', { status: 426 });
     }

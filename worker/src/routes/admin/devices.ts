@@ -6,7 +6,7 @@ import type { Bindings } from '../../index';
 import * as schema from '../../db/schema';
 import { requireUser, type Role } from '../../lib/auth';
 import { resolveEffectiveMonitors } from '../../lib/alerts';
-import { wakeDevice } from '../../lib/deviceHub';
+import { wakeDevice, deviceHubConnected } from '../../lib/deviceHub';
 import { encryptSecret, decryptSecret, sha256hex, generateToken } from '../../lib/crypto';
 import { generateRustdeskPassword } from '../../lib/rustdesk';
 
@@ -62,7 +62,11 @@ adminDevices.get('/:id', async (c) => {
   const company = await db.select({ name: schema.companies.name })
     .from(schema.companies).where(eq(schema.companies.id, device.companyId)).get();
 
-  return c.json({ ...shapeDevice(device), companyName: company?.name ?? null });
+  // Live instant-push socket state, for the Device Detail indicator only (one
+  // Durable Object call, so deliberately not part of the device list).
+  const hubConnected = await deviceHubConnected(c.env, device.id);
+
+  return c.json({ ...shapeDevice(device), companyName: company?.name ?? null, hubConnected });
 });
 
 // GET /v1/admin/devices/:id/effective-monitors — which policies/monitors

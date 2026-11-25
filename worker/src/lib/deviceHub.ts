@@ -1,5 +1,18 @@
 import type { Bindings } from '../index';
 
+// Whether the device currently has a DeviceHub socket open. null = unknown
+// (no binding, or the hub didn't answer) -- distinct from a definite false.
+export async function deviceHubConnected(env: Pick<Bindings, 'DEVICE_HUB'>, deviceId: string): Promise<boolean | null> {
+  if (!env.DEVICE_HUB) return null;
+  try {
+    const stub = env.DEVICE_HUB.get(env.DEVICE_HUB.idFromName(deviceId));
+    const res = await stub.fetch('https://device-hub/status');
+    return ((await res.json()) as { connected: boolean }).connected;
+  } catch {
+    return null;
+  }
+}
+
 // Nudge a device's open DeviceHub socket so it checks in immediately. Entirely
 // best-effort: absent binding (older wrangler.toml), no connected agent, or any
 // error all just mean the agent picks the work up on its next poll.
