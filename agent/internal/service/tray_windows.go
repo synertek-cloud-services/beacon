@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/synertek-cloud-services/beacon/agent/internal/sas"
 	"github.com/synertek-cloud-services/beacon/agent/internal/traypipe"
 	"github.com/synertek-cloud-services/beacon/agent/internal/usersession"
 )
@@ -101,6 +102,7 @@ func EnsureTrayRunning() {
 	})
 
 	startPipeServer()
+	sas.StartServer()
 
 	active, err := usersession.ActiveSessions()
 	if err != nil {
