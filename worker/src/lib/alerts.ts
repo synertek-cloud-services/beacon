@@ -7,6 +7,7 @@ import type { Metrics, FileSizeCheck, FileSizeResult, PingCheck, PingResult, Pro
 import { sendEmail } from './email';
 import { fetchMaintenanceContext, isDeviceSuppressed } from './maintenance';
 import { logActivity } from './activityLog';
+import { featureEnabled } from './features';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Device = typeof schema.devices.$inferSelect;
@@ -743,7 +744,7 @@ async function processAlertState(
       updatedAt:          now,
     });
     if (fireImmediately) {
-      if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
+      if (monitor.notifyWebhook) await fireWebhooks(db, env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority);
       if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, alertStateId, monitor.alertPriority, now);
       await logActivity(db, {
         actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
@@ -796,7 +797,7 @@ async function processAlertState(
 
     if (shouldFire) {
       if (!rl || !rl.suppressNotification) {
-        if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
+        if (monitor.notifyWebhook) await fireWebhooks(db, env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority);
         if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.triggered', now, existing.id, monitor.alertPriority, now);
         await logActivity(db, {
           actorType: 'system', category: 'Alert', action: `Alert triggered: ${monitor.checkType}`,
@@ -850,7 +851,7 @@ async function processAlertState(
       // with alertPriority already set by the time it can resolve.
       const priority = existing.alertPriority ?? monitor.alertPriority;
       if (!rl || !rl.suppressNotification) {
-        if (monitor.notifyWebhook) await fireWebhooks(db, device, monitor, 'alert.resolved', now, existing.id, priority);
+        if (monitor.notifyWebhook) await fireWebhooks(db, env, device, monitor, 'alert.resolved', now, existing.id, priority);
         if (monitor.notifyEmail)   await sendAlertEmails(env, device, monitor, 'alert.resolved', now, existing.id, priority, existing.alertedAt);
         await logActivity(db, {
           actorType: 'system', category: 'Alert', action: `Alert auto-resolved: ${monitor.checkType}`,
@@ -913,7 +914,7 @@ export async function manuallyResolveAlert(
 
   if (wasAlerting) {
     const priority = row.alert_state.alertPriority ?? monitor.alertPriority;
-    if (monitor.notifyWebhook) await fireWebhooks(db, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
+    if (monitor.notifyWebhook) await fireWebhooks(db, env, row.devices, monitor, 'alert.resolved', now, alertStateId, priority);
     if (monitor.notifyEmail)   await sendAlertEmails(env, row.devices, monitor, 'alert.resolved', now, alertStateId, priority, row.alert_state.alertedAt);
   }
 
@@ -926,6 +927,7 @@ export async function manuallyResolveAlert(
 // reasoning).
 async function fireWebhooks(
   db: Db,
+  env: Bindings,
   device: Device,
   monitor: EffectiveMonitor,
   event: 'alert.triggered' | 'alert.resolved' | 'alert.rate_limited',
@@ -938,6 +940,7 @@ async function fireWebhooks(
   // signature change.
   extra?: Record<string, unknown>,
 ): Promise<void> {
+  if (!(await featureEnabled(env, 'webhooks'))) return;
   const webhooks = await db.select()
     .from(schema.webhookEndpoints)
     .where(eq(schema.webhookEndpoints.enabled, true));
@@ -1220,7 +1223,7 @@ async function fireRateLimitNotification(
   now: number,
 ): Promise<void> {
   if (monitor.notifyWebhook) {
-    await fireWebhooks(db, device, monitor, 'alert.rate_limited', now, alertStateId, monitor.alertPriority, { muted_until: mutedUntil });
+    await fireWebhooks(db, env, device, monitor, 'alert.rate_limited', now, alertStateId, monitor.alertPriority, { muted_until: mutedUntil });
   }
   if (monitor.notifyEmail) {
     await sendRateLimitEmail(env, device, monitor, alertStateId, mutedUntil, now);

@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from '../../lib/db';
 import { eq, and, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
+import { requireFeature } from '../../lib/features';
 import * as schema from '../../db/schema';
 import { sha256hex, generateToken, encryptSecret } from '../../lib/crypto';
 import { requireUser, type Role } from '../../lib/auth';
@@ -583,6 +584,8 @@ function isValidCidr(value: string): boolean {
 
 adminCompanies.get('/:id/discovery', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
 
   const config = await db.select().from(schema.networkDiscoveryConfigs)
@@ -593,6 +596,8 @@ adminCompanies.get('/:id/discovery', async (c) => {
 
 adminCompanies.post('/:id/discovery', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
@@ -649,6 +654,8 @@ adminCompanies.post('/:id/discovery', async (c) => {
 
 adminCompanies.post('/:id/discovery/scan-now', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
   const now = Math.floor(Date.now() / 1000);
   const companyId = c.req.param('id');
@@ -675,6 +682,8 @@ adminCompanies.post('/:id/discovery/scan-now', async (c) => {
 
 adminCompanies.get('/:id/discovered-devices', async (c) => {
   if (!(await auth(c))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
 
   const rows = await db.select().from(schema.discoveredDevices)
@@ -686,6 +695,8 @@ adminCompanies.get('/:id/discovered-devices', async (c) => {
 
 adminCompanies.patch('/:id/discovered-devices/:deviceId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
 
   const body = await c.req.json<{ dismissed?: boolean }>();
@@ -698,6 +709,8 @@ adminCompanies.patch('/:id/discovered-devices/:deviceId', async (c) => {
 
 adminCompanies.delete('/:id/discovered-devices/:deviceId', async (c) => {
   if (!(await auth(c, 'technician'))) return c.json({ error: 'unauthorized' }, 401);
+  const featureOff = await requireFeature(c.env, 'discovery');
+  if (featureOff) return featureOff;
   const db = getDb(c.env.DB);
 
   await db.delete(schema.discoveredDevices).where(eq(schema.discoveredDevices.id, c.req.param('deviceId')));

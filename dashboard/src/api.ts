@@ -1,3 +1,5 @@
+import { markFeatureOff } from './features';
+
 const baseUrl = import.meta.env.VITE_API_URL ?? '';
 import type { ThemeTokens } from './theme';
 
@@ -68,7 +70,17 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: {
       const parsed = JSON.parse(text);
       if (parsed && typeof parsed.error === 'string') message = parsed.error;
     } catch { /* not JSON, fall back to raw text */ }
-    throw new Error(`${res.status}: ${message}`);
+    const err = new Error(`${res.status}: ${message}`);
+    try {
+      const parsed = JSON.parse(text);
+      if (res.status === 403 && parsed?.code === 'feature_disabled') {
+        // A switched-off feature (worker/src/lib/features.ts): remember it so
+        // every page that gates on featureOn() reacts, whichever fetch saw it first.
+        markFeatureOff(parsed.feature);
+        Object.assign(err, { code: 'feature_disabled', feature: parsed.feature });
+      }
+    } catch { /* not JSON */ }
+    throw err;
   }
   return res.json();
 }
