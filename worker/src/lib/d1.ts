@@ -16,3 +16,18 @@ export async function allInChunks<I, R>(items: readonly I[], run: (chunk: I[]) =
   const parts = await Promise.all(chunked(items, size).map(run));
   return parts.flat();
 }
+
+// Cloudflare caps the number of D1 queries one Worker invocation can make
+// (1,000 on the paid plan, far fewer on free), so a scheduled run that does one
+// INSERT per device falls over at fleet scale. D1's batch() sends many
+// statements as a single call; this runs a list of drizzle statements through
+// it in bounded chunks.
+const BATCH_SIZE = 50;
+
+export async function batchStatements(
+  db: { batch: (statements: any) => Promise<unknown> },
+  statements: readonly unknown[],
+  size = BATCH_SIZE,
+): Promise<void> {
+  for (const part of chunked(statements, size)) await db.batch(part);
+}

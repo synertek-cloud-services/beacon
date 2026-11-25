@@ -583,6 +583,10 @@ export async function evaluateSoftwareAlerts(
 // a live DeviceHub socket polls every 4 minutes.
 const SAMPLED_MAX_AGE_SECONDS = 600;
 
+// Each state-changing alert evaluation costs several D1 queries (state write,
+// activity log, notification lookups), so cap how many one cron run starts.
+const MAX_ALERT_WRITES_PER_TICK = 80;
+
 // Cron-driven evaluation of everything that doesn't need an agent round trip:
 // `offline` (from last_seen) and the sampled monitors (from the metrics blob
 // the last check-in stored in devices.inventory).
@@ -617,7 +621,13 @@ export async function evaluateCronAlerts(
     m.set(row.policyMonitorId, row);
   }
 
+  // A fleet whose alerts all change state at once (first evaluation of a big
+  // fleet, a mass outage) would need thousands of D1 queries in one run, past
+  // Cloudflare's per-invocation limit. Stop starting new devices once enough
+  // writes have happened; evaluation is stateless, so the next tick resumes.
+  const budget = { writes: 0 };
   for (const device of allDevices) {
+    if (budget.writes >= MAX_ALERT_WRITES_PER_TICK) break;
     if (isDeviceSuppressed(device, maintCtx)) continue;
     const alertStates = alertStatesByDevice.get(device.id) ?? new Map();
 
@@ -641,7 +651,7 @@ export async function evaluateCronAlerts(
         failed = device.lastSeen === null || device.lastSeen < now - cfg.offline_after_seconds;
       }
 
-      await processAlertState(db, env, device, monitor, failed, now, alertStates);
+      await processAlertState(db, env, device, monitor, failed, now, alertStates, budget);
     }
 
     if (sampledMonitors.length === 0) continue;
@@ -653,7 +663,7 @@ export async function evaluateCronAlerts(
       // can't be honored at this cadence).
       const everyTicks = Math.max(1, Math.round(monitor.checkIntervalMinutes / 2));
       if (Math.floor(now / 120) % everyTicks !== 0) continue;
-      await processAlertState(db, env, device, monitor, evaluateCheck(monitor, metrics), now, alertStates);
+      await processAlertState(db, env, device, monitor, evaluateCheck(monitor, metrics), now, alertStates, budget);
     }
   }
 }
@@ -715,6 +725,9 @@ async function processAlertState(
   // Pre-fetched alert_state rows for this device keyed by policy monitor id
   // (see evaluateCheckinAlerts). Absent = look the row up here.
   prefetched?: Map<string, typeof schema.alertState.$inferSelect>,
+  // Cron only: counts state-changing calls so one tick can stop before it
+  // exhausts the per-invocation D1 query limit (see evaluateCronAlerts).
+  budget?: { writes: number },
 ): Promise<void> {
   const existing = prefetched
     ? prefetched.get(monitor.id)
@@ -739,6 +752,7 @@ async function processAlertState(
     // anyway), but for one-shot/edge-triggered checks like software installs
     // — evaluated once per audit, sometimes 24h apart — a transition never
     // repeats, so waiting for a "second" failure meant it could never fire.
+    if (budget) budget.writes++;
     const fireImmediately = monitor.sustainedMinutes === 0;
     const alertStateId = crypto.randomUUID();
     await db.insert(schema.alertState).values({
@@ -787,6 +801,7 @@ async function processAlertState(
       rl !== null;
 
     if (changed) {
+      if (budget) budget.writes++;
       await db.update(schema.alertState)
         .set({
           conditionFirstSeen: newConditionFirstSeen,
@@ -838,6 +853,7 @@ async function processAlertState(
       rl !== null;
 
     if (changed) {
+      if (budget) budget.writes++;
       await db.update(schema.alertState)
         .set({
           conditionFirstSeen: null,

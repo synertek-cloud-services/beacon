@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { getDb } from './db';
+import { batchStatements } from './d1';
 import * as schema from '../db/schema';
 import { fetchDeviceGroupIds } from './alerts';
 import { logActivity } from './activityLog';
@@ -397,13 +398,14 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
       deviceMatchesPatchPolicy(policy, d, deviceGroupIds.get(d.id) ?? new Set(), policyGroupIds, policyCompanyIds, policyDeviceIds, excludedCompanyIds));
 
     let dispatchedCount = 0;
+    const installInserts: unknown[] = [];
     for (const device of targeted) {
       const eligible = [...fleet.values()]
         .filter(patch => patch.status === 'approved' && patch.deviceIds.includes(device.id))
         .map(patch => patch.updateId);
       if (eligible.length === 0) continue;
 
-      await db.insert(schema.commands).values({
+      installInserts.push(db.insert(schema.commands).values({
         id: crypto.randomUUID(),
         deviceId: device.id,
         companyId: device.companyId,
@@ -411,9 +413,10 @@ export async function dispatchDuePatchPolicies(DB: D1Database, now: number): Pro
         payload: JSON.stringify({ update_ids: eligible, auto_reboot: policy.autoReboot }),
         status: 'queued',
         createdAt: now,
-      });
+      }));
       dispatchedCount++;
     }
+    await batchStatements(db, installInserts);
 
     await db.update(schema.patchPolicies).set({ lastDispatchedAt: now }).where(eq(schema.patchPolicies.id, policy.id));
 
