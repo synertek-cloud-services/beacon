@@ -151,6 +151,15 @@ app.route('/v1/admin/rustdesk-settings', adminRustdeskSettings);
 app.route('/v1/auth', authRoute);
 app.route('/v1/auth/microsoft', authMicrosoft);
 
+// Drizzle wraps the real D1 error in a generic "Failed query" message and keeps
+// the cause on `err.cause`; log both so a D1 failure (overload, a limit, ...) is
+// diagnosable from `wrangler tail`. Same 500 response as Hono's default.
+app.onError((err, c) => {
+  const cause = (err as { cause?: { message?: string } }).cause;
+  console.error('unhandled error:', err.message.slice(0, 200), '| cause:', cause?.message ?? 'none');
+  return c.text('Internal Server Error', 500);
+});
+
 app.get('/health', (c) => c.json({ ok: true }));
 
 // This route is intentionally outside /v1: it is not a dashboard or agent
