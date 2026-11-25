@@ -983,9 +983,6 @@
           </div>
           <div v-else-if="sessionPickerError" style="display:flex;flex-direction:column;gap:12px">
             <div class="error-banner">{{ sessionPickerError }}</div>
-            <p v-if="sessionPickerNoSessions" style="font-size:12px;color:var(--color-text-muted);line-height:1.5;margin:0">
-              You can still connect to the console -- if nobody is logged in, Web Remote will show the sign-in screen.
-            </p>
           </div>
           <div v-else style="display:flex;flex-direction:column;gap:8px">
             <label v-for="s in pickerDisplaySessions" :key="s.session_id"
@@ -997,10 +994,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-ghost" @click="sessionPickerOpen = false">Cancel</button>
-          <button v-if="sessionPickerNoSessions" class="btn btn-primary" @click="connectFromSessionPicker">
-            Connect to Console
-          </button>
-          <button v-else class="btn btn-primary" :disabled="sessionPickerSelected === null" @click="connectFromSessionPicker">
+          <button class="btn btn-primary" :disabled="sessionPickerSelected === null" @click="connectFromSessionPicker">
             Connect
           </button>
         </div>
@@ -1223,16 +1217,10 @@ const sessionPickerLoading = ref(false);
 const sessionPickerError = ref('');
 const sessionPickerSessions = ref<{ session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }[]>([]);
 const sessionPickerSelected = ref<number | null>(null);
-// True once the picker has come back with a real, completed "zero
-// sessions" result (as opposed to still loading, or a genuine dispatch
-// failure) -- distinguishes "nobody is logged in, but you can still
-// connect to the console" from an actual error, which gets no such
-// affordance. See connectFromSessionPicker below for why this matters.
-const sessionPickerNoSessions = ref(false);
 // Sentinel session_id for the synthetic "Console" entry injected below when
 // the real list doesn't already include one -- distinct from any real WTS
 // session ID (always >= 0) and from `null` ("nothing picked yet"). Selecting
-// it behaves exactly like the zero-sessions "Connect to Console" fallback:
+// it behaves exactly like the zero-sessions auto-connect above:
 // connectWebRemote() with no targetSessionId, showing whatever's actually on
 // the console (a logged-in user, or the logon screen via the agent's own
 // SYSTEM fallback) -- Web Remote's console path was never restricted to
@@ -1256,7 +1244,6 @@ async function openSessionPicker() {
   sessionPickerError.value = '';
   sessionPickerSessions.value = [];
   sessionPickerSelected.value = null;
-  sessionPickerNoSessions.value = false;
   try {
     const { id: commandId } = await api.devices.commands.create(device.value.id, { type: 'list_remote_sessions' });
     for (let i = 0; i < 35; i++) {
@@ -1270,14 +1257,19 @@ async function openSessionPicker() {
         const sessions = JSON.parse(result.stdout || '[]') as { session_id: number; username: string; is_console: boolean; is_disconnected?: boolean }[];
         sessionPickerSessions.value = sessions;
         if (sessions.length === 0) {
-          sessionPickerNoSessions.value = true;
-          sessionPickerError.value = 'No logged-in sessions were found on this device.';
-        } else {
-          // Default to Console when present, otherwise the first entry --
-          // saves a click for the common case.
-          const consoleSession = sessions.find(s => s.is_console);
-          sessionPickerSelected.value = (consoleSession ?? sessions[0]).session_id;
+          // Nobody is logged in -- there is nothing to choose, so connect
+          // straight to the console instead of making the technician click
+          // through a dialog whose only option is that connection. The
+          // agent's own SYSTEM fallback shows the sign-in screen.
+          sessionPickerOpen.value = false;
+          sessionPickerLoading.value = false;
+          await connectWebRemote();
+          return;
         }
+        // Default to Console when present, otherwise the first entry --
+        // saves a click for the common case.
+        const consoleSession = sessions.find(s => s.is_console);
+        sessionPickerSelected.value = (consoleSession ?? sessions[0]).session_id;
         sessionPickerLoading.value = false;
         return;
       }
@@ -1299,8 +1291,7 @@ async function openSessionPicker() {
 // The list the picker actually renders: the real agent-reported sessions,
 // plus a synthetic Console entry prepended whenever none of them already is
 // the console -- so a technician can always reach "log into the console"
-// even when other real sessions exist, not just when the list is otherwise
-// empty (see sessionPickerNoSessions/CONSOLE_SENTINEL above).
+// even when other real sessions exist (see CONSOLE_SENTINEL above).
 const pickerDisplaySessions = computed(() => {
   const real = sessionPickerSessions.value;
   if (real.some(s => s.is_console)) return real;
@@ -1314,14 +1305,11 @@ function sessionPickerLabel(s: { session_id: number; username: string; is_consol
 }
 
 function connectFromSessionPicker() {
-  // Zero sessions were found -- fall through to a plain console connect
-  // with no targetSessionId, same as a client-class device's direct path.
-  // If nobody is genuinely logged in, the agent's own SYSTEM fallback
-  // (usersession.RunAsSessionAsSystem, triggered by ErrNoActiveSession)
-  // takes over and shows the logon screen -- this button's only job is to
-  // make that path reachable; it doesn't itself decide whether anyone's
-  // logged in.
-  if (sessionPickerNoSessions.value || sessionPickerSelected.value === CONSOLE_SENTINEL) {
+  // The synthetic Console entry means a plain console connect with no
+  // targetSessionId, same as a client-class device's direct path -- if
+  // nobody is genuinely logged in, the agent's own SYSTEM fallback
+  // (usersession.RunAsSessionAsSystem) shows the logon screen.
+  if (sessionPickerSelected.value === CONSOLE_SENTINEL) {
     connectWebRemote();
     return;
   }
