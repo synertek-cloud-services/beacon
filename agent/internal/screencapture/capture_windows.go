@@ -141,16 +141,10 @@ func (c *GDICapturer) Size() (uint16, uint16) {
 	return uint16(c.width), uint16(c.height)
 }
 
-// Capture takes a screenshot of this capturer's target monitor and returns
-// only the rows that changed since the previous call, packed to match pf --
-// an unchanged frame returns a zero-height Rectangle rather than the whole
-// screen. Paced to at most ~30fps (see minCaptureInterval).
-func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
-	if wait := minCaptureInterval - time.Since(c.lastCaptureAt); wait > 0 {
-		time.Sleep(wait)
-	}
-	c.lastCaptureAt = time.Now()
-
+// grab BitBlts this capturer's monitor (plus the cursor, when compositing
+// is on) and returns the raw top-down 32bpp BGRA bytes. Split out of Capture
+// so AutoCapturer can tell a GDI failure apart from a plain unchanged frame.
+func (c *GDICapturer) grab() ([]byte, error) {
 	// GetDC(0) returns a DC spanning the full virtual desktop (well-
 	// established Win32 behavior, not hand-derived), not just the primary
 	// monitor -- confirmed directly, not assumed. A BitBlt source origin
@@ -159,30 +153,30 @@ func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	// needed to target any monitor, not just the primary one.
 	screenDC, err := win32.GetDC(0) // 0 = the whole virtual desktop
 	if err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: GetDC: %w", err)
+		return nil, fmt.Errorf("screencapture: GetDC: %w", err)
 	}
 	defer win32.ReleaseDC(0, screenDC)
 
 	memDC, err := win32.CreateCompatibleDC(screenDC)
 	if err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: CreateCompatibleDC: %w", err)
+		return nil, fmt.Errorf("screencapture: CreateCompatibleDC: %w", err)
 	}
 	defer win32.DeleteDC(memDC)
 
 	bmp, err := win32.CreateCompatibleBitmap(screenDC, c.width, c.height)
 	if err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: CreateCompatibleBitmap: %w", err)
+		return nil, fmt.Errorf("screencapture: CreateCompatibleBitmap: %w", err)
 	}
 	defer win32.DeleteObject(win32.HGDIOBJ(bmp))
 
 	oldObj, err := win32.SelectObject(memDC, win32.HGDIOBJ(bmp))
 	if err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: SelectObject: %w", err)
+		return nil, fmt.Errorf("screencapture: SelectObject: %w", err)
 	}
 	defer win32.SelectObject(memDC, oldObj)
 
 	if err := win32.BitBlt(memDC, 0, 0, c.width, c.height, screenDC, c.x, c.y, win32.SRCCOPY); err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: BitBlt: %w", err)
+		return nil, fmt.Errorf("screencapture: BitBlt: %w", err)
 	}
 
 	// Composite the cursor onto the same memory DC -- BitBlt alone never
@@ -214,31 +208,30 @@ func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	hdr := win32.NewTopDown32BPPHeader(c.width, c.height)
 	raw := make([]byte, int(c.width)*int(c.height)*4)
 	if err := win32.GetDIBits(memDC, bmp, hdr, raw); err != nil {
-		return rfb.Rectangle{}, fmt.Errorf("screencapture: GetDIBits: %w", err)
+		return nil, fmt.Errorf("screencapture: GetDIBits: %w", err)
 	}
 
-	rowBytesIn := int(c.width) * 4
-	minY, maxY, changed := diffChangedRowRange(c.prevRaw, raw, rowBytesIn)
+	return raw, nil
+}
+
+// Capture takes a screenshot of this capturer's target monitor and returns
+// only the rows that changed since the previous call, packed to match pf --
+// an unchanged frame returns a zero-height Rectangle rather than the whole
+// screen. Paced to at most ~30fps (see minCaptureInterval).
+func (c *GDICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	if wait := minCaptureInterval - time.Since(c.lastCaptureAt); wait > 0 {
+		time.Sleep(wait)
+	}
+	c.lastCaptureAt = time.Now()
+
+	raw, err := c.grab()
+	if err != nil {
+		return rfb.Rectangle{}, err
+	}
+
+	rect := packChangedRows(c.prevRaw, raw, int(c.width), int(c.height), pf)
 	c.prevRaw = raw
-	if !changed {
-		// rfbserver's chunkRectangle already treats H==0 as "nothing to
-		// send" (returns no rectangles), and WriteFramebufferUpdate
-		// correctly writes an empty, valid FramebufferUpdate for zero
-		// rectangles -- no changes needed in either of those to make this
-		// case work.
-		return rfb.Rectangle{}, nil
-	}
-
-	bytesPerPixel := int(pf.BitsPerPixel) / 8
-	changedRows := maxY - minY + 1
-	rowBytesOut := int(c.width) * bytesPerPixel
-	out := make([]byte, rowBytesOut*changedRows)
-	for y := 0; y < changedRows; y++ {
-		srcRow := raw[(minY+y)*rowBytesIn : (minY+y+1)*rowBytesIn]
-		rfb.PackRow(out[y*rowBytesOut:(y+1)*rowBytesOut], pf, srcRow)
-	}
-
-	return rfb.Rectangle{X: 0, Y: uint16(minY), W: uint16(c.width), H: uint16(changedRows), Pixels: out}, nil
+	return rect, nil
 }
 
 // FollowInputDesktop implements rfbserver.DesktopFollower -- attaches the
