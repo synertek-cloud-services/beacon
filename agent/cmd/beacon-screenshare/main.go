@@ -108,6 +108,17 @@ func main() {
 	defer conn.Close()
 	log.Printf("beacon-screenshare: session %s: connected to relay", *sessionID)
 
+	// DPI awareness must be on before the very first screen-dimension call.
+	// Until it is, Windows reports virtualized sizes on a scaled display (a
+	// 1920x1080 screen at 150% reads as 1280x720), the monitor rect below then
+	// covers only the top-left of the real screen, and the viewer shows a
+	// zoomed, cropped desktop with clicks landing in the wrong place. An RDP
+	// session inherits the connecting machine's scaling, so this shows up
+	// whenever the technician-side or RDP-client display is scaled.
+	if err := win32.EnableDPIAwareness(); err != nil {
+		log.Printf("beacon-screenshare: session %s: enable DPI awareness: %v (continuing)", *sessionID, err)
+	}
+
 	monitors, err := win32.EnumMonitors()
 	if err != nil {
 		log.Fatalf("beacon-screenshare: session %s: enumerate monitors: %v", *sessionID, err)
