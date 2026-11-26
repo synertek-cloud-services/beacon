@@ -415,10 +415,13 @@ func ActiveSessionDetails() ([]SessionDetail, error) {
 			continue
 		}
 		username, _ := wtsQuerySessionString(s.SessionID, wtsInfoClassUserName)
-		if username == "" {
+		if username == "" && s.SessionID != consoleID {
 			// No resolvable logged-on user -- a listener/service session
 			// masquerading under one of these states, not a real
-			// technician-targetable session.
+			// technician-targetable session. The console session is the
+			// one exception: with nobody signed in it still has a real
+			// display (the sign-in screen) a technician can pick
+			// explicitly, which Web Remote shows via its SYSTEM fallback.
 			continue
 		}
 		details = append(details, SessionDetail{
