@@ -47,3 +47,24 @@ describe('session file-request routes', () => {
     expect(await res.json()).toMatchObject({ status: 'pending' });
   });
 });
+
+describe('POST file-requests path validation', () => {
+  function post(body: unknown) {
+    const e = { ...env, ADMIN_SECRET: ADMIN } as typeof env;
+    return worker.fetch(new Request(`https://beacon.test/v1/sessions/${SESSION}/file-requests`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }), e);
+  }
+
+  it('accepts an empty browse path (the drive list)', async () => {
+    await seed();
+    expect((await post({ type: 'browse', path: '' })).status).toBe(201);
+  });
+
+  it('still requires a path for a download', async () => {
+    await seed();
+    expect((await post({ type: 'download', path: '' })).status).toBe(400);
+  });
+});

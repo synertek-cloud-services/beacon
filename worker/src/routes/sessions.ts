@@ -380,7 +380,12 @@ sessions.post('/:id/file-requests', async (c) => {
   if (body.type !== 'browse' && body.type !== 'download') {
     return c.json({ error: "type must be 'browse' or 'download'" }, 400);
   }
-  if (!body.path) return c.json({ error: 'path is required' }, 400);
+  // An empty browse path is the drive list (the agent treats "" as "list drives"),
+  // so only a download needs a non-empty path.
+  const path = body.path ?? '';
+  if (typeof path !== 'string' || (body.type === 'download' && !path)) {
+    return c.json({ error: 'path is required' }, 400);
+  }
 
   const db = getDb(c.env.DB);
   const session = await db.select({ id: schema.sessions.id }).from(schema.sessions).where(eq(schema.sessions.id, c.req.param('id'))).get();
@@ -392,7 +397,7 @@ sessions.post('/:id/file-requests', async (c) => {
     sessionId: c.req.param('id'),
     type: body.type as 'browse' | 'download',
     status: 'pending',
-    request: JSON.stringify({ path: body.path }),
+    request: JSON.stringify({ path }),
     createdAt: Math.floor(Date.now() / 1000),
   });
   return c.json({ id }, 201);
