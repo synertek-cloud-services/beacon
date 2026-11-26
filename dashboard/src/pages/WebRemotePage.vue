@@ -138,6 +138,10 @@
            being attempted. See attemptElevatedConnect's doc comment. -->
       <div ref="screenElA" class="wr-screen" :class="{ 'wr-screen-hidden': activeTarget !== 'a' }"></div>
       <div ref="screenElB" class="wr-screen" :class="{ 'wr-screen-hidden': activeTarget !== 'b' }"></div>
+      <div v-if="status === 'connected' && noDisplay" class="wr-notice" role="status">
+        <strong>The remote screen isn't available right now.</strong>
+        <span>If this is an RDP session, the user's RDP window may be minimized or disconnected. It shows again, and input works again, once their window is visible.</span>
+      </div>
       <div v-if="status === 'connecting'" class="wr-overlay">
         <div class="wr-spinner"></div>
         <p>Connecting… this can take up to 60 seconds.</p>
@@ -231,6 +235,9 @@ const targetSessionId = targetSessionIdParam !== undefined ? Number(targetSessio
 
 type Status = 'connecting' | 'connected' | 'closed' | 'error';
 const status = ref<Status>('connecting');
+// True while the agent reports (via the DesktopName status channel, see
+// attachDisplayStatus) that screen capture has been failing continuously.
+const noDisplay = ref(false);
 const errorMsg = ref('');
 const elevated = ref(route.query.elevated === '1');
 const elevating = ref(false);
@@ -577,6 +584,21 @@ const CONNECT_TIMEOUT_MS = 70_000;
 // constructor options object is silently ignored -- no error, no warning,
 // just never taking effect, which is exactly why the first attempt looked
 // correct in code review and type-checked clean but did nothing live.
+// The agent has no side channel to the dashboard for this, so it rides the
+// RFB connection itself: a DesktopName rectangle whose name carries a status
+// (agent/internal/rfbserver StatusNoDisplay / StatusDisplayOK). Only the
+// instance currently on screen may change the notice.
+const STATUS_NO_DISPLAY = 'beacon-status:no-display';
+const STATUS_DISPLAY_OK = 'beacon-status:ok';
+function attachDisplayStatus(instance: RFB) {
+  instance.addEventListener('desktopname', (e: any) => {
+    if (rfb.value !== instance) return;
+    const name = e.detail?.name;
+    if (name === STATUS_NO_DISPLAY) noDisplay.value = true;
+    else if (name === STATUS_DISPLAY_OK) noDisplay.value = false;
+  });
+}
+
 function applyDisplayOptions(instance: RFB) {
   instance.scaleViewport = true;
   instance.clipViewport = true;
@@ -673,6 +695,7 @@ function connectTo(wsUrl: string, target: 'a' | 'b', sessionId: string) {
   if (connectTimeout !== null) window.clearTimeout(connectTimeout);
   status.value = 'connecting';
   errorMsg.value = '';
+  noDisplay.value = false;
   activeTarget.value = target;
 
   const instance = new RFB(targetEl(target), wsUrl, {});
@@ -688,6 +711,7 @@ function connectTo(wsUrl: string, target: 'a' | 'b', sessionId: string) {
     instance.disconnect();
   });
 
+  attachDisplayStatus(instance);
   instance.addEventListener('connect', () => {
     if (mySeq !== connectionSeq) return; // superseded by a newer connection
     if (connectTimeout !== null) window.clearTimeout(connectTimeout);
@@ -780,6 +804,7 @@ function attemptElevatedConnect(wsUrl: string, target: 'a' | 'b', sessionId: str
       instance.disconnect();
       reject(new Error(message));
     });
+    attachDisplayStatus(instance);
     instance.addEventListener('connect', () => {
       if (settled) return;
       settled = true;
@@ -1002,6 +1027,15 @@ onUnmounted(() => {
 .wr-screen-wrap { position: relative; flex: 1; overflow: auto; background: #000; }
 .wr-screen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .wr-screen-hidden { visibility: hidden; pointer-events: none; }
+.wr-notice {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5;
+  max-width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+  background: var(--color-surface); color: var(--color-text-primary);
+  border: 1px solid var(--color-warning); pointer-events: none;
+}
+.wr-notice strong { color: var(--color-warning); }
+.wr-notice span { color: var(--color-text-muted); }
 .wr-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px; background: rgba(12,14,22,.88); color: var(--color-text-primary); font-size: 13px; text-align: center; padding: 20px;
