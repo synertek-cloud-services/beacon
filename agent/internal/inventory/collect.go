@@ -105,10 +105,11 @@ func hasBattery() bool {
 	return len(matches) > 0
 }
 
-// hasBatteryWindows checks WMI Win32_Battery for any instances — the
+// hasBatteryWindows checks WMI Win32_Battery for a real battery -- the
 // standard laptop indicator on Windows, mirroring hasBattery()'s /sys check
-// on Linux. Any failure (query error, timeout, no WMI provider) falls back
-// to false/"not a laptop" rather than a separate unknown state, same
+// on Linux. Virtual batteries don't count (see countRealBatteries). Any
+// failure (query error, timeout, no WMI provider) falls back to
+// false/"not a laptop" rather than a separate unknown state, same
 // fail-safe-to-workstation posture the rest of this function already has.
 func hasBatteryWindows() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -116,13 +117,28 @@ func hasBatteryWindows() bool {
 
 	out, err := exec.CommandContext(ctx,
 		"powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-		`(Get-WmiObject -Class Win32_Battery | Measure-Object).Count`,
+		`Get-WmiObject -Class Win32_Battery | ForEach-Object { $_.Name }`,
 	).Output()
 	if err != nil {
 		return false
 	}
-	count := strings.TrimSpace(string(out))
-	return count != "" && count != "0"
+	return countRealBatteries(string(out)) > 0
+}
+
+// countRealBatteries counts battery names (one per line) that are not
+// virtual. A Hyper-V guest on a laptop host sees a synthetic "Microsoft
+// Hyper-V Virtual Battery" mirroring the host's, which made every such VM
+// classify as a laptop even though a VM is never one -- found on a Windows 11
+// VM running on a laptop.
+func countRealBatteries(names string) int {
+	n := 0
+	for _, line := range strings.Split(names, "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" && !strings.Contains(strings.ToLower(name), "virtual") {
+			n++
+		}
+	}
+	return n
 }
 
 // collectAvStatus derives a single status string from the platform AV registry.
