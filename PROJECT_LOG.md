@@ -1,5 +1,42 @@
 # Beacon — Project Log
 
+## Session: 2026-11-24/25 — Web Remote on virtual displays, sign-in screen, RDP-minimized notice, agent 0.4.3–0.4.11, hosted file-transfer routes
+
+Closed issue #219 (gray Web Remote screen on virtual displays; Spirewick gate 4.1 depended on it) and fixed what real-hardware testing on a Hyper-V VM (Spike1), a Vultr Windows Server 2022 VM, a physical laptop (SpikeHost) and Windows 365 turned up. CLAUDE.md holds the resulting behavior; this is the history.
+
+**Shipped (agent 0.4.3 → 0.4.11, all verified on real hardware unless noted)**
+- #248 `AutoCapturer`: GDI first, one-way switch to DXGI Desktop Duplication after 3 consecutive GDI failures. Vultr WS2022 (Microsoft Remote Display Adapter only) fails GDI and works on DXGI; Hyper-V Enhanced Session has a synthetic video device so GDI works.
+- #250/#252/#254 Session picker: opens the tab first (popup rules), auto-connects when nobody is signed in, console listed even with no user ("Console (sign-in screen)"), choosing Console now really targets the console instead of falling to the RDP session.
+- #253 Ctrl+Alt+Delete via `sas.dll SendSAS` from the service over `\\.\pipe\BeaconAgentSAS`; service sets `SoftwareSASGeneration` on first use. Console session only.
+- #255 `EnableDPIAwareness()` before `EnumMonitors()` in the helper (a 1920x1080 @150% screen was captured as 1280x720 and looked zoomed/cropped).
+- #257/#258 "Screen isn't available" notice: DesktopName pseudo-encoding (-307) carries `beacon-status:no-display` / `:ok`. First version never fired because once DXGI is open and the RDP client is minimized, duplication sticks on "no new frame" with no error; `displaySuppressed()` (1x1 BitBlt, `ERROR_INVALID_HANDLE`) now drops the duplication. Verified on the VM and a physical laptop (~2-3s to show, near-instant to clear).
+- #259 A Hyper-V guest's synthetic "Virtual Battery" no longer makes a VM a laptop (`countRealBatteries`).
+- #260 winget under SYSTEM on a fresh Windows: put the newest `VCLibs.140.00.UWPDesktop` folder on PATH (else exit 0xc0000135). Verified 7-Zip 22.01 → 26.06.
+- #261 Windows Remote Shell ends when the shell exits (ConPTY never EOFs on child exit; added a `Wait` watcher, idempotent Close).
+- Docs site (beacon-docs PR #1) refreshed for all of the above.
+
+**Hosted-tenant findings (reported by Codex on a disposable Spirewick WfP tenant, Worker 5571b4d + agent 0.4.11)**
+- #262: `GET /:id/file-requests/:reqId` was registered before `.../next`, so Hono sent the helper's poll to the status handler (404 "request not found"). Browse/upload/download stayed pending forever; a code comment wrongly said the two could not collide. Fixed by registering `/next` first; route test drives the real app (fails without the fix).
+- #263: the Download modal opens with an empty path (agent treats "" as list drives) but `POST .../file-requests` rejected any falsy path (`400 path is required`). Browse now accepts an empty path; download still requires one.
+- Upload confirmed working on the tenant after #262.
+
+**Process lessons**
+- The release script builds whatever is checked out in the shared folder, and the user never pulls. 0.4.5 shipped from a leftover feature branch and 0.4.7 from an unpulled main. After "merged": `git checkout main && git pull --ff-only` myself, then grep the shipped binary for a unique string.
+- Don't assume the user's other machine (the laptop was not the WSL box); don't hand out commands for a file already on the VM.
+- Auto-mode classifier blocks (secret reads, policy changes) are respected, not worked around.
+
+**Cleanup done**: stale prod devices removed (prod now CDNX-LT-001, Nebuchadnezzar, Spike1, SpikeHost); sandbox D1 emptied (0 devices, 1 company); all merged branches deleted locally and on GitHub; throwaway Vultr VM destroyed.
+
+**State at end of session**: main at the #263 merge, release workflow deploying it; prod agent 0.4.11. Nothing uncommitted.
+
+**Open / next**
+1. Retest Web Remote Download end to end after #263 deploys: browse drives → descend → download a file, bytes must match the remote file (browse and download have only ever been route-tested, never run on hardware). Then Codex retests upload and download on the hosted tenant to close Spirewick gate 4.1; for upload it needs the dashboard's "uploaded to the remote Desktop" message plus the file on the target user's Desktop.
+2. Spirewick still needs the hosted Web Remote retest with agent 0.4.10+ and live WfP proof of the newer runtime contract and the two-tenant scheduler (its `docs/HANDOFF.md`).
+3. Still unverified on screen (issue #199): reboot prompt Yes/Snooze, consent MessageBox, Elevate as a standard user, Patch Policy reboot, Smart App Control + self-update, tray multi-session, blank-icon, Entra SSO script.
+4. Icebox: #249 (zoom/resolution control), #256 (view-only fallback for minimized RDP via PrintWindow).
+5. Known limits: typing into an elevated window from a non-elevated session is silently blocked (use Elevate); a minimized/disconnected RDP session cannot be captured; Ctrl+Alt+Delete is console-only; sandbox still serves a dev `agent-windows-amd64.exe`.
+
+
 ## Session: 2026-09-13 — Web Remote: fix false "no active sessions" on a Windows Server
 
 Reported live against a real Windows Server device: opening Web Remote gave
