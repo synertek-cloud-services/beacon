@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -64,6 +63,16 @@ func Upgrade(packageIDs []string) Result {
 	if err != nil {
 		return Result{Error: err.Error()}
 	}
+	// winget.exe needs the Visual C++ runtime that ships as the
+	// Microsoft.VCLibs.140.00.UWPDesktop package. Launched by its raw path
+	// from the SYSTEM service (not as a packaged app), that package's folder is
+	// not on the DLL search path, and on a machine with no system-wide VC++
+	// runtime winget dies with 0xc0000135 (a required DLL was not found).
+	// Confirmed on a fresh Windows 11 VM; putting that folder on PATH fixes it.
+	env := os.Environ()
+	if vc := resolveVCLibs(); vc != "" {
+		env = withPathPrefix(env, vc)
+	}
 
 	var invocations [][]string
 	if len(packageIDs) == 0 {
@@ -85,6 +94,7 @@ func Upgrade(packageIDs []string) Result {
 
 		ctx, cancel := context.WithTimeout(context.Background(), wingetTimeout)
 		cmd := exec.CommandContext(ctx, wingetPath, args...)
+		cmd.Env = env
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
@@ -96,6 +106,9 @@ func Upgrade(packageIDs []string) Result {
 		if err != nil {
 			allOK = false
 			out.WriteString(fmt.Sprintf("(exit error: %v)\n", err))
+			if strings.Contains(err.Error(), "0xc0000135") {
+				out.WriteString("(0xc0000135: a DLL winget needs was not found -- winget requires the Microsoft.VCLibs.140.00.UWPDesktop package; reinstall or update App Installer)\n")
+			}
 		}
 	}
 
@@ -130,8 +143,23 @@ func resolveWinget() (string, error) {
 	// (e.g. "1.26.509.0" < "2025.926.104.0"); the highest one is the
 	// currently-active version when more than one is present (an old
 	// version's folder can briefly survive an update).
-	sort.Strings(matches)
-	return matches[len(matches)-1], nil
+	return newestDir(matches), nil
+}
+
+// resolveVCLibs returns the newest x64 Microsoft.VCLibs.140.00.UWPDesktop
+// package folder, or "" if none is installed. Resolved fresh on every call for
+// the same reason resolveWinget is: the folder name carries a version that
+// changes with updates.
+func resolveVCLibs() string {
+	programFiles := os.Getenv("ProgramFiles")
+	if programFiles == "" {
+		programFiles = `C:\Program Files`
+	}
+	matches, err := filepath.Glob(filepath.Join(programFiles, "WindowsApps", "Microsoft.VCLibs.140.00.UWPDesktop_*_x64__8wekyb3d8bbwe"))
+	if err != nil {
+		return ""
+	}
+	return newestDir(matches)
 }
 
 func upgradeArgs(packageID string) []string {
