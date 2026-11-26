@@ -203,6 +203,18 @@ func (c *DXGICapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
 	}
 	c.lastCaptureAt = time.Now()
 
+	// Check before touching the duplication: while the session's display is
+	// suppressed an already-open duplication can get stuck returning "no new
+	// frame" forever (no error, never recovers even once the window is back),
+	// so drop it, report the error so the viewer is told, and start from a
+	// fresh duplication and a full frame once the display is rendered again.
+	if displaySuppressed() {
+		c.release()
+		c.haveFrame = false
+		c.prevRaw = nil
+		return rfb.Rectangle{}, errDisplaySuppressed
+	}
+
 	if err := c.ensureOpen(); err != nil {
 		c.openFailures++
 		if c.openFailures >= dxgiMaxOpenFailures {
