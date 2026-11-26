@@ -1482,3 +1482,115 @@ func TestSwitchRequestResizesInPlace(t *testing.T) {
 		t.Fatal("Serve did not return after client disconnect")
 	}
 }
+
+// readUpdateStatusNames reads one FramebufferUpdate and returns the names of
+// any DesktopName (-307) rectangles in it. Raw rectangles are consumed by size.
+func readUpdateStatusNames(t *testing.T, client io.Reader) []string {
+	t.Helper()
+	var hdr [4]byte
+	if _, err := io.ReadFull(client, hdr[:]); err != nil {
+		t.Fatalf("client: read FramebufferUpdate header: %v", err)
+	}
+	if hdr[0] != 0 {
+		t.Fatalf("client: expected FramebufferUpdate (type 0), got %d", hdr[0])
+	}
+	var names []string
+	for i := 0; i < int(binary.BigEndian.Uint16(hdr[2:4])); i++ {
+		var rb [12]byte
+		if _, err := io.ReadFull(client, rb[:]); err != nil {
+			t.Fatalf("client: read rect header: %v", err)
+		}
+		w, h := binary.BigEndian.Uint16(rb[4:6]), binary.BigEndian.Uint16(rb[6:8])
+		switch enc := int32(binary.BigEndian.Uint32(rb[8:12])); enc {
+		case rfb.EncodingDesktopName:
+			var lb [4]byte
+			if _, err := io.ReadFull(client, lb[:]); err != nil {
+				t.Fatalf("client: read name length: %v", err)
+			}
+			name := make([]byte, binary.BigEndian.Uint32(lb[:]))
+			if _, err := io.ReadFull(client, name); err != nil {
+				t.Fatalf("client: read name: %v", err)
+			}
+			names = append(names, string(name))
+		case rfb.EncodingRaw:
+			if _, err := io.ReadFull(client, make([]byte, int(w)*int(h)*4)); err != nil {
+				t.Fatalf("client: read raw rect: %v", err)
+			}
+		default:
+			t.Fatalf("client: unexpected encoding %d in this test", enc)
+		}
+	}
+	return names
+}
+
+// alwaysFailingCapturer fails every Capture until recover is closed.
+type alwaysFailingCapturer struct {
+	w, h    uint16
+	recover chan struct{}
+}
+
+func (f *alwaysFailingCapturer) Size() (uint16, uint16) { return f.w, f.h }
+func (f *alwaysFailingCapturer) Capture(pf rfb.PixelFormat) (rfb.Rectangle, error) {
+	select {
+	case <-f.recover:
+		return rfb.Rectangle{W: f.w, H: f.h, Pixels: make([]byte, int(f.w)*int(f.h)*4)}, nil
+	default:
+		return rfb.Rectangle{}, errFakeCaptureFailure
+	}
+}
+
+// TestNoDisplayNoticeSentAfterSustainedCaptureFailure: capture failing
+// continuously (a minimized or disconnected RDP session) must tell a client
+// that declared DesktopName support, once, and clear the notice when capture
+// recovers. A client that never declared it must get nothing.
+func TestNoDisplayNoticeSentAfterSustainedCaptureFailure(t *testing.T) {
+	old := noDisplayAfter
+	noDisplayAfter = 100 * time.Millisecond
+	defer func() { noDisplayAfter = old }()
+
+	run := func(declare bool) (during, after []string) {
+		c2sR, c2sW := io.Pipe()
+		s2cR, s2cW := io.Pipe()
+		serverSide := pipeConn{Reader: c2sR, Writer: s2cW}
+		clientSide := pipeConn{Reader: s2cR, Writer: c2sW}
+		cap := &alwaysFailingCapturer{w: 4, h: 3, recover: make(chan struct{})}
+		go Serve(serverSide, cap, &fakeInjector{}, nil)
+		doClientHandshake(t, clientSide)
+		if declare {
+			sendSetEncodings(t, clientSide, rfb.EncodingDesktopName)
+		}
+
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			sendFramebufferUpdateRequest(t, clientSide)
+			if n := readUpdateStatusNames(t, clientSide); len(n) > 0 {
+				during = append(during, n...)
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		// Once sent, it must not repeat on later failed updates.
+		for i := 0; i < 3; i++ {
+			sendFramebufferUpdateRequest(t, clientSide)
+			during = append(during, readUpdateStatusNames(t, clientSide)...)
+		}
+		close(cap.recover)
+		sendFramebufferUpdateRequest(t, clientSide)
+		after = readUpdateStatusNames(t, clientSide)
+		clientSide.Writer.(io.Closer).Close()
+		return
+	}
+
+	during, after := run(true)
+	if len(during) != 1 || during[0] != StatusNoDisplay {
+		t.Fatalf("while failing: got %v, want exactly one %q", during, StatusNoDisplay)
+	}
+	if len(after) != 1 || after[0] != StatusDisplayOK {
+		t.Fatalf("after recovery: got %v, want exactly one %q", after, StatusDisplayOK)
+	}
+
+	during, after = run(false)
+	if len(during) != 0 || len(after) != 0 {
+		t.Fatalf("client without DesktopName support must get no notice, got %v / %v", during, after)
+	}
+}

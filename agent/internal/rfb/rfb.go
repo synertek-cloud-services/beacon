@@ -58,6 +58,15 @@ const (
 	// dropping and reopening the whole RFB session.
 	EncodingDesktopSize int32 = -223
 
+	// EncodingDesktopName (pseudo-encoding -307) lets a server change the
+	// desktop name a client was told in ServerInit. Beacon reuses it as a
+	// tiny in-band status channel for Web Remote (see rfbserver's
+	// StatusNoDisplay): noVNC raises a "desktopname" event, so the dashboard
+	// learns the screen is unavailable without any worker endpoint or stored
+	// state. Like the other pseudo-encodings, only sent to a client that
+	// declared support via SetEncodings.
+	EncodingDesktopName int32 = -307
+
 	// EncodingZRLE (RFC 6143 §7.7.6, encoding 16) is a zlib-compressed,
 	// 64x64-tiled encoding this server uses for ordinary screen-content
 	// rectangles once a client declares support for it via SetEncodings --
@@ -360,6 +369,15 @@ func NewCursorRectangle(hotspotX, hotspotY, w, h uint16, pixels []byte, opaque f
 // rectangle header.
 func NewDesktopSizeRectangle(width, height uint16) Rectangle {
 	return Rectangle{W: width, H: height, Encoding: EncodingDesktopSize}
+}
+
+// NewDesktopNameRectangle builds a Rectangle for EncodingDesktopName: a zero
+// geometry header followed by a uint32 length and the name bytes.
+func NewDesktopNameRectangle(name string) Rectangle {
+	b := make([]byte, 4+len(name))
+	binary.BigEndian.PutUint32(b[:4], uint32(len(name)))
+	copy(b[4:], name)
+	return Rectangle{Encoding: EncodingDesktopName, Pixels: b}
 }
 
 // WriteFramebufferUpdate sends a FramebufferUpdate message containing the

@@ -601,3 +601,19 @@ func TestWriteFramebufferUpdateWithCursorRectangle(t *testing.T) {
 		t.Fatalf("payload length = %d, want 5", len(b[16:]))
 	}
 }
+
+func TestNewDesktopNameRectangleWire(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteFramebufferUpdate(&buf, []Rectangle{NewDesktopNameRectangle("abc")}); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{
+		0, 0, 0, 1, // FramebufferUpdate, 1 rectangle
+		0, 0, 0, 0, 0, 0, 0, 0, // x, y, w, h
+		0xFF, 0xFF, 0xFE, 0xCD, // encoding -307
+		0, 0, 0, 3, 'a', 'b', 'c', // name length + name
+	}
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("wire bytes = % x, want % x", buf.Bytes(), want)
+	}
+}

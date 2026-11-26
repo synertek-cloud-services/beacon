@@ -117,6 +117,27 @@ const bandHeight = 128
 // occurrence is a clear improvement over one that hangs forever.
 const captureTimeout = 3 * time.Second
 
+// Status names sent in-band as an EncodingDesktopName rectangle (see
+// rfb.EncodingDesktopName). The dashboard recognises the prefix.
+const (
+	// StatusNoDisplay means capture has been failing continuously: on an RDP
+	// session this is what a minimized or disconnected client looks like,
+	// because Windows stops rendering the session and refuses capture.
+	StatusNoDisplay = "beacon-status:no-display"
+	// StatusDisplayOK clears StatusNoDisplay once capture works again.
+	StatusDisplayOK = "beacon-status:ok"
+)
+
+// noDisplayAfter is how long capture must fail continuously before the
+// client is told. Long enough to ride out a UAC secure-desktop switch or a
+// single bad frame. A variable only so tests can shorten it.
+var noDisplayAfter = 2 * time.Second
+
+// captureFailBackoff is how long a failing capture waits before answering,
+// so a client that re-requests immediately doesn't spin the CPU and the log
+// while there is nothing to capture.
+const captureFailBackoff = 200 * time.Millisecond
+
 // captureWithTimeout runs cap.Capture(pf) with a bounded timeout, since a
 // desktop-switch condition (see the UAC comment where this is called) has
 // been observed to hang a GDI call outright rather than return a clean
@@ -348,6 +369,9 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 	// server still gates on it rather than assuming every client supports
 	// it.
 	desktopSizeEncodingSupported := false
+	// desktopNameSupported is the same latch, for EncodingDesktopName (-307),
+	// used for the StatusNoDisplay notice.
+	desktopNameSupported := false
 	// zrleSupported is the same latch, for EncodingZRLE (16) -- see
 	// rfb.EncodingZRLE's own doc comment. Consumed by the capture goroutine
 	// to decide whether to ZRLE-encode content rectangles at all; a client
@@ -400,6 +424,13 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 		// every update anyway, but there's no reason to wait even that
 		// long for something server-initiated.
 		var pendingDesktopSizeRect *rfb.Rectangle
+		// failingSince/noDisplayShown/failCount track a run of consecutive
+		// capture failures; see StatusNoDisplay.
+		var (
+			failingSince   time.Time
+			noDisplayShown bool
+			failCount      int
+		)
 
 		for {
 			select {
@@ -506,7 +537,25 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 				// desktop switches back. A write failure below is still
 				// treated as fatal: that's a real connection problem, not
 				// a transient capture one.
-				log.Printf("rfbserver: capture: %v (skipping this update, session stays open)", err)
+				failCount++
+				if failCount == 1 || failCount%100 == 0 {
+					log.Printf("rfbserver: capture: %v (skipping this update, session stays open; %d consecutive failure(s))", err, failCount)
+				}
+				if failingSince.IsZero() {
+					failingSince = time.Now()
+				}
+				stateMu.Lock()
+				nameOK := desktopNameSupported
+				stateMu.Unlock()
+				var statusRect *rfb.Rectangle
+				if nameOK && !noDisplayShown && time.Since(failingSince) >= noDisplayAfter {
+					r := rfb.NewDesktopNameRectangle(StatusNoDisplay)
+					statusRect = &r
+					noDisplayShown = true
+				}
+				if time.Since(failingSince) >= time.Second {
+					time.Sleep(captureFailBackoff)
+				}
 				// Still deliver a pending cursor shape or desktop-size
 				// notice even though the screen capture itself
 				// failed/timed out -- both were already latched above, so
@@ -520,12 +569,16 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 				if cursorRect != nil {
 					rects = append(rects, *cursorRect)
 				}
+				if statusRect != nil {
+					rects = append(rects, *statusRect)
+				}
 				if werr := rfb.WriteFramebufferUpdate(rw, rects); werr != nil {
 					captureErr <- fmt.Errorf("rfbserver: write empty framebuffer update after capture error: %w", werr)
 					return
 				}
 				continue
 			}
+			failingSince, failCount = time.Time{}, 0
 			rects := chunkRectangle(full, currentPF, bandHeight)
 			if useZRLE {
 				for i, r := range rects {
@@ -542,6 +595,12 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 					rects[i].Encoding = rfb.EncodingZRLE
 					rects[i].Pixels = payload
 				}
+			}
+			if noDisplayShown {
+				// Capture works again: clear the notice. Added after the ZRLE
+				// pass above, which must only see screen-content rectangles.
+				noDisplayShown = false
+				rects = append([]rfb.Rectangle{rfb.NewDesktopNameRectangle(StatusDisplayOK)}, rects...)
 			}
 			if cursorRect != nil {
 				rects = append([]rfb.Rectangle{*cursorRect}, rects...)
@@ -621,6 +680,9 @@ func Serve(rw io.ReadWriter, cap Capturer, inj Injector, switchRequests <-chan S
 				}
 				if enc == rfb.EncodingDesktopSize {
 					desktopSizeEncodingSupported = true
+				}
+				if enc == rfb.EncodingDesktopName {
+					desktopNameSupported = true
 				}
 				if enc == rfb.EncodingZRLE {
 					zrleSupported = true
