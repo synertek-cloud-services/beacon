@@ -4,6 +4,7 @@ package win32
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -178,6 +179,19 @@ func GetSystemMetrics(index int32) int32 {
 // Falls back to the older, coarser SetProcessDPIAware on Windows versions
 // predating the 1703 per-monitor-v2 API.
 func EnableDPIAwareness() error {
+	dpiOnce.Do(func() { dpiErr = enableDPIAwareness() })
+	return dpiErr
+}
+
+// dpiOnce makes EnableDPIAwareness safe to call from several places: the
+// setting is per-process and can only be applied once, so a second call would
+// otherwise fail and report a spurious error.
+var (
+	dpiOnce sync.Once
+	dpiErr  error
+)
+
+func enableDPIAwareness() error {
 	r1, _, err := procSetProcessDpiAwarenessContext.Call(dpiAwarenessContextPerMonitorAwareV2)
 	if r1 != 0 {
 		return nil
