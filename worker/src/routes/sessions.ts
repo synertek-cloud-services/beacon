@@ -398,12 +398,53 @@ sessions.post('/:id/file-requests', async (c) => {
   return c.json({ id }, 201);
 });
 
+// GET /v1/sessions/:id/file-requests/next — agent-facing: the
+// already-running beacon-screenshare.exe helper polls this at a short
+// interval (same ~1s cadence as GET .../switch-monitor) to pick up the
+// oldest still-pending browse/download/upload request. Returns {} when
+// there's nothing to do, never an error, so the poll loop's steady state
+// is silent.
+//
+// Registered BEFORE GET .../file-requests/:reqId: Hono matches in registration
+// order, so the other way round "next" is captured as a :reqId and the helper
+// gets the status handler's 404 forever (found on a hosted tenant: uploads
+// and downloads stayed pending).
+sessions.get('/:id/file-requests/next', async (c) => {
+  const db = getDb(c.env.DB);
+  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const row = await db.select().from(schema.sessionFileRequests)
+    .where(and(eq(schema.sessionFileRequests.sessionId, c.req.param('id')), eq(schema.sessionFileRequests.status, 'pending')))
+    .orderBy(asc(schema.sessionFileRequests.createdAt))
+    .limit(1)
+    .get();
+  if (!row) return c.json({});
+
+  // Atomically claim it before handing it out. Without this, a request the
+  // helper never finishes (a hung directory scan, a crashed goroutine mid-
+  // download) stays 'pending' forever, and since this always returns the
+  // *oldest* pending row, that permanently blocks every later, unrelated
+  // file request in the same session -- found live: a brand-new upload
+  // never got serviced at all because it could never become "the oldest
+  // pending row." A plain conditional UPDATE (not .returning(), unused
+  // elsewhere in this codebase), checked via D1's affected-row count same
+  // as dashboards.ts's widget-delete route -- a lost race against a second
+  // poller (e.g. a leftover pre-Elevate helper) just no-ops this tick
+  // rather than double-claiming.
+  const claim = await c.env.DB.prepare(
+    "UPDATE session_file_requests SET status = 'claimed' WHERE id = ? AND status = 'pending'",
+  ).bind(row.id).run();
+  if (!claim.meta.changes) return c.json({});
+
+  let request: unknown = {};
+  try { request = JSON.parse(row.request); } catch { /* malformed row -- surface as an empty request, agent will fail it cleanly */ }
+  return c.json({ id: row.id, type: row.type, request });
+});
+
 // GET /v1/sessions/:id/file-requests/:reqId — technician-facing: poll for
-// a browse/download/upload request's result. Registered ahead of the
-// agent-facing GET .../file-requests/next below is unnecessary here (the
-// literal segments "next" vs. a real UUID never collide in Hono's
-// routing), unlike the ComStore-before-:id ordering rule documented
-// elsewhere in this codebase.
+// a browse/download/upload request's result. Must stay registered after the
+// literal GET .../file-requests/next above, or that route is shadowed.
 sessions.get('/:id/file-requests/:reqId', async (c) => {
   if (!(await requireUser(c.req.header('Authorization'), c.env, 'technician'))) {
     return c.json({ error: 'unauthorized' }, 401);
@@ -511,45 +552,6 @@ sessions.get('/:id/files/:reqId/download', async (c) => {
   headers.set('Content-Disposition', `attachment; filename="${(result.filename ?? 'download').replace(/"/g, '')}"`);
   headers.set('Cache-Control', 'no-store');
   return c.body(obj.body, 200, Object.fromEntries(headers));
-});
-
-// GET /v1/sessions/:id/file-requests/next — agent-facing: the
-// already-running beacon-screenshare.exe helper polls this at a short
-// interval (same ~1s cadence as GET .../switch-monitor) to pick up the
-// oldest still-pending browse/download/upload request. Returns {} when
-// there's nothing to do, never an error, so the poll loop's steady state
-// is silent.
-sessions.get('/:id/file-requests/next', async (c) => {
-  const db = getDb(c.env.DB);
-  if (!(await verifyReportToken(db, c.req.param('id'), c.req.header('Authorization')))) {
-    return c.json({ error: 'unauthorized' }, 401);
-  }
-  const row = await db.select().from(schema.sessionFileRequests)
-    .where(and(eq(schema.sessionFileRequests.sessionId, c.req.param('id')), eq(schema.sessionFileRequests.status, 'pending')))
-    .orderBy(asc(schema.sessionFileRequests.createdAt))
-    .limit(1)
-    .get();
-  if (!row) return c.json({});
-
-  // Atomically claim it before handing it out. Without this, a request the
-  // helper never finishes (a hung directory scan, a crashed goroutine mid-
-  // download) stays 'pending' forever, and since this always returns the
-  // *oldest* pending row, that permanently blocks every later, unrelated
-  // file request in the same session -- found live: a brand-new upload
-  // never got serviced at all because it could never become "the oldest
-  // pending row." A plain conditional UPDATE (not .returning(), unused
-  // elsewhere in this codebase), checked via D1's affected-row count same
-  // as dashboards.ts's widget-delete route -- a lost race against a second
-  // poller (e.g. a leftover pre-Elevate helper) just no-ops this tick
-  // rather than double-claiming.
-  const claim = await c.env.DB.prepare(
-    "UPDATE session_file_requests SET status = 'claimed' WHERE id = ? AND status = 'pending'",
-  ).bind(row.id).run();
-  if (!claim.meta.changes) return c.json({});
-
-  let request: unknown = {};
-  try { request = JSON.parse(row.request); } catch { /* malformed row -- surface as an empty request, agent will fail it cleanly */ }
-  return c.json({ id: row.id, type: row.type, request });
 });
 
 // POST /v1/sessions/:id/file-requests/:reqId/result — agent-facing:
